@@ -1,41 +1,117 @@
-# silica 
+# Silica
 
-silica is a command line tool for create workspaces for agents on top of piku
+[![PR Checks](https://github.com/silica-ai/silica/actions/workflows/pr-checks.yml/badge.svg)](https://github.com/silica-ai/silica/actions/workflows/pr-checks.yml)
+[![PyPI version](https://badge.fury.io/py/pysilica.svg)](https://badge.fury.io/py/pysilica)
+[![Python Versions](https://img.shields.io/pypi/pyversions/pysilica.svg)](https://pypi.org/project/pysilica/)
 
-silica stores its configuration in ~/.config/silica
-it's configurable values can be set using `silica config:set key=value` or by running `silica setup` for an interactive mode (which uses rich for prettiness)
-`silica config` shows all current configuration
+Silica is a command-line tool designed to create and manage remote environments in which coding agents can independently operate.
 
+## What is Silica?
 
-silica writes environment information to a config file in the .silica/ directory of the repository in which it is invoked. if its invoked anywhere within the tree of a git checkout, it puts the .silica/ directory in the root.
+Silica enables you to set up isolated, fully operational remote environments for AI coding agents. These environments serve as independent workspaces where AI can:
 
-by default, the piku cli will connect to the remote named `piku`
-it also accepts a `-r` parameter to specify a different remote. We'll create a new remote (named agent by default, but with the option for an alternative name at creation time) 
+- Execute code
+- Access development tools
+- Interact with version control
+- Operate with proper authentication and credentials
+- Maintain long-running sessions
+- Work independently on specified tasks
 
-silica roughly works by creating an empty piku application on the remote with a `code` directory, then syncing the local git repository into it in a directory named `code`. It has a Procfile that for now will just run `web: hdev view-memory --port $PORT`, a pyproject.toml file that installs the latest heare-developer version. sound good?
+By creating this separation between your local environment and the agent's workspace, Silica allows for more autonomous operation of AI assistants with appropriate security boundaries.
 
-roughly, create should create an empty git repo, copy a silica-env pyproject.toml into it, commit, and then create a 
-piku remote. push _that_ repository. Also include the procfile we discussed above. 
-the git repo can be in the local .silica directory.
-the pyproject.toml should be stored as a string in the silica tool.
+## Key Features
 
+- **Remote Environment Creation**: Easily provision isolated environments for your AI agents
+- **Credential Management**: Securely manage access to GitHub and AI APIs
+- **Session Management**: Monitor and interact with active agent sessions
+- **Task Management**: Assign and track work items for your agents
+- **Integration with [Piku](https://github.com/piku/piku)**: Leverages Piku's simple PaaS capabilities for deployments
 
+## Installation
 
+Silica is available on PyPI as [`pysilica`](https://pypi.org/project/pysilica/):
 
+```bash
+pip install pysilica
+```
 
-`create` creates a new environment as a remote, sets up credentials and agent
- - credentials include github (via gh auth token) and an anthropic api key (found from envvar or .env file)
+You can also install the latest development version directly from GitHub:
 
+```bash
+pip install git+https://github.com/silica-ai/silica.git
+```
 
+## Getting Started
 
+1. **Setup Configuration**:
+   ```bash
+   silica setup
+   ```
+   This will guide you through an interactive setup process to configure Silica.
 
+2. **Create a Remote Environment**:
+   ```bash
+   silica create [name]
+   ```
+   Creates a new environment for your agent.
 
+3. **Check Status**:
+   ```bash
+   silica status
+   ```
+   Shows the status of active agent sessions.
 
-`status` fetch and visualize conversations
-figure out the session that is currently (or most recently) active, based on the output of `hdev sessions` 
+4. **Manage Tasks**:
+   ```bash
+   silica todos
+   ```
+   Manage work items for your agent.
 
-`todos` means for scheduling work on an agent instance
-TBD
+5. **Clean Up**:
+   ```bash
+   silica destroy [name]
+   ```
+   Removes a remote environment when no longer needed.
 
-`destroy` destroys a remote environment
-standard piku destroy, using the correct `-r` flag to specify the agent remote
+## Configuration
+
+Silica stores its configuration in `~/.config/silica`. You can modify settings with:
+
+```bash
+silica config:set key=value
+```
+
+Or view current configuration with:
+
+```bash
+silica config
+```
+
+## How It Works
+
+Silica creates an isolated environment on a remote server where your agent can operate. It uses Piku as the underlying platform and sets up the necessary scaffolding for the agent to run code, access tools, and maintain state.
+
+The remote environment includes:
+- A dedicated code directory with your project files
+- Proper authentication for GitHub and AI services
+- A running service that maintains the agent's capabilities
+
+## Use Cases
+
+- **Continuous Development**: Set up an agent that can work on your codebase even when your local machine is off
+- **Automated Tasks**: Deploy agents that handle routine development tasks independently
+- **Collaborative Assistance**: Create environments where agents can assist multiple team members without requiring local setup
+
+## Requirements
+
+- Python 3.11+
+- Git
+- Access to a server where you can install Piku
+
+## License
+
+[License information]
+
+## Contributing
+
+[Contributing information]
