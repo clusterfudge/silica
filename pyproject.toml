@@ -1,5 +1,5 @@
 [project]
-name = "silica"
+name = "pysilica"
 dynamic= ["version"]
 authors = [
     {name = "Sean Fitzgerald", email = "sean@fitzgeralds.me"},
