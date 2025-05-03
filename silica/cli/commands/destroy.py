@@ -47,9 +47,7 @@ def destroy(force):
     try:
         # Destroy the piku application using run_piku_in_silica
         force_flag = "--force" if force else ""
-        piku_utils.run_piku_in_silica(
-            f"destroy {app_name} {force_flag}", workspace_name=workspace
-        )
+        piku_utils.run_piku_in_silica(f"destroy {force_flag}", workspace_name=workspace)
 
         # Remove local .silica directory contents
         if Confirm.ask(

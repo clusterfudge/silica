@@ -9,6 +9,9 @@ import git
 from silica.config import load_config, find_git_root
 from silica.utils import piku as piku_utils
 
+# Import sync functionality
+from silica.cli.commands.sync import sync_repo_to_remote
+
 console = Console()
 
 
@@ -161,6 +164,22 @@ def create(workspace, connection):
             config_args = [f"{k}={v}" for k, v in env_config.items()]
             config_cmd = f"config:set {' '.join(config_args)}"
             piku_utils.run_piku_in_silica(config_cmd, workspace_name=workspace)
+
+        # Sync the current repository to the remote code directory
+
+        # Don't restart the app yet as we may have more setup to do
+        console.print("Syncing repository to remote code directory...")
+        sync_result = sync_repo_to_remote(
+            workspace=workspace, branch=initial_branch, git_root=git_root
+        )
+
+        if not sync_result:
+            console.print(
+                "[yellow]Warning: Failed to sync repository to remote.[/yellow]"
+            )
+            console.print(
+                "[yellow]You may need to manually set up the code directory in the remote environment.[/yellow]"
+            )
 
         # Create local config file with new naming
         local_config = {
