@@ -116,6 +116,7 @@ def create(workspace, connection):
             "Procfile",
             "pyproject.toml",
             "requirements.txt",
+            ".gitignore",
         ]
 
         # Create initial files
@@ -236,6 +237,51 @@ def create(workspace, connection):
             console.print(
                 "[yellow]You may need to manually set up the code directory in the remote environment.[/yellow]"
             )
+
+        # Set up GitHub authentication if a GitHub token is available
+        gh_token = None
+        for key in ["GITHUB_TOKEN", "GH_TOKEN"]:
+            if key in env_config:
+                gh_token = env_config[key]
+                break
+
+        if gh_token:
+            console.print("Setting up GitHub authentication in the code directory...")
+            try:
+                # Check if gh CLI is installed
+                gh_check = piku_utils.run_piku_in_silica(
+                    "command -v gh",
+                    use_shell_pipe=True,
+                    workspace_name=workspace,
+                    capture_output=True,
+                    check=False,
+                )
+
+                if gh_check.returncode == 0:
+                    # Run gh auth setup-git in the code directory
+                    piku_utils.run_piku_in_silica(
+                        "cd code && gh auth setup-git",
+                        use_shell_pipe=True,
+                        workspace_name=workspace,
+                        check=True,
+                    )
+                    console.print(
+                        "[green]Successfully set up GitHub authentication.[/green]"
+                    )
+                else:
+                    console.print(
+                        "[yellow]Warning: GitHub CLI (gh) is not installed on the remote workspace.[/yellow]"
+                    )
+                    console.print(
+                        "[yellow]GitHub authentication for Git was not set up.[/yellow]"
+                    )
+            except subprocess.CalledProcessError as e:
+                console.print(
+                    f"[yellow]Warning: Failed to set up GitHub authentication: {e}[/yellow]"
+                )
+                console.print(
+                    "[yellow]You may need to manually set up GitHub authentication in the remote environment.[/yellow]"
+                )
 
         # Initialize the environment by running uv sync in the workspace root
         console.print("Initializing silica environment with uv sync...")
