@@ -99,6 +99,23 @@ def create(workspace, connection):
     silica_dir = git_root / ".silica"
     silica_dir.mkdir(exist_ok=True)
 
+    # Add .silica/ to the project's .gitignore if it exists and doesn't contain it already
+    gitignore_path = git_root / ".gitignore"
+    if gitignore_path.exists():
+        with open(gitignore_path, "r") as f:
+            gitignore_content = f.read()
+
+        # Check if .silica/ is already in the .gitignore file
+        if ".silica/" not in gitignore_content:
+            console.print("Adding .silica/ to project .gitignore file...")
+            # Append .silica/ to the .gitignore file with a newline
+            with open(gitignore_path, "a") as f:
+                # Add a newline first if the file doesn't end with one
+                if gitignore_content and not gitignore_content.endswith("\n"):
+                    f.write("\n")
+                f.write(".silica/\n")
+            console.print("[green]Successfully added .silica/ to .gitignore[/green]")
+
     # Initialize a git repository in .silica
     console.print(f"Initializing agent environment in {silica_dir}...")
 
