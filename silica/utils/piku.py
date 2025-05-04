@@ -540,7 +540,7 @@ def run_in_silica_dir(
         if not git_root:
             raise ValueError("Not in a git repository")
 
-        silica_dir = get_silica_dir(git_root)
+        silica_dir = get_silica_dir(git_root) / "agent-repo"
         if not silica_dir or not silica_dir.exists():
             raise ValueError("No .silica directory found in this repository")
 

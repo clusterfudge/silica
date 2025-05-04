@@ -6,6 +6,7 @@ from rich.console import Console
 from rich.table import Table
 
 from silica.config import load_config, set_config_value, get_config_value
+from silica.utils import find_env_var
 
 console = Console()
 
@@ -90,7 +91,7 @@ def setup():
     from rich.panel import Panel
     from rich.layout import Layout
     import subprocess
-    from silica.utils import find_env_var, check_piku_installed
+    from silica.utils import check_piku_installed
 
     # Create a nice layout
     Layout()
@@ -184,33 +185,15 @@ def setup():
     )
     console.print()
 
-    # Anthropic API key - first check environment
-    current_anthropic_key = get_config_value("api_keys.anthropic", "")
-    env_anthropic_key = find_env_var("ANTHROPIC_API_KEY")
+    # Check and configure various API keys
+    api_keys = {
+        "ANTHROPIC_API_KEY": "Anthropic API key",
+        "GITHUB_TOKEN": "GitHub token",
+        "BRAVE_SEARCH_API_KEY": "Brave Search API key",
+    }
 
-    if env_anthropic_key and not current_anthropic_key:
-        console.print("📝 [cyan]Found Anthropic API key in environment[/cyan]")
-        if Confirm.ask("Would you like to use this key?", default=True):
-            set_config_value("api_keys.anthropic", env_anthropic_key)
-            console.print("✅ [green]Anthropic API key set from environment[/green]")
-        else:
-            configure_anthropic_key()
-    else:
-        configure_anthropic_key()
-
-    # GitHub token - first check environment
-    current_github_token = get_config_value("api_keys.github", "")
-    env_github_token = find_env_var("GITHUB_TOKEN") or find_env_var("GH_TOKEN")
-
-    if env_github_token and not current_github_token:
-        console.print("📝 [cyan]Found GitHub token in environment[/cyan]")
-        if Confirm.ask("Would you like to use this token?", default=True):
-            set_config_value("api_keys.github", env_github_token)
-            console.print("✅ [green]GitHub token set from environment[/green]")
-        else:
-            configure_github_token()
-    else:
-        configure_github_token()
+    for env_var, display_name in api_keys.items():
+        configure_api_key(env_var, display_name)
 
     # Additional settings
     console.print()
@@ -271,42 +254,32 @@ def setup():
     console.print("  [bold]silica create[/bold]")
 
 
-def configure_anthropic_key():
-    """Helper function to configure Anthropic API key."""
+def configure_api_key(env_var, display_name):
+    """Helper function to configure any API key."""
     from rich.prompt import Prompt, Confirm
 
-    if Confirm.ask("Do you want to set up Anthropic API key?"):
-        current_key = get_config_value("api_keys.anthropic", "")
+    config_key = f"api_keys.{env_var}"
+    current_key = get_config_value(config_key, "")
+    env_key = find_env_var(env_var)
+
+    if env_key and not current_key:
+        console.print(f"📝 [cyan]Found {display_name} in environment[/cyan]")
+        if Confirm.ask(f"Would you like to use this {display_name}?", default=True):
+            set_config_value(config_key, env_key)
+            console.print(f"✅ [green]{display_name} set from environment[/green]")
+            return
+
+    if Confirm.ask(f"Do you want to set up {display_name}?", default=True):
         masked_key = "********" if current_key else ""
 
-        anthropic_key = Prompt.ask(
-            "Anthropic API key", password=True, default=masked_key
-        )
+        api_key = Prompt.ask(f"{display_name}", password=True, default=masked_key)
 
-        if anthropic_key and anthropic_key != "********":
-            set_config_value("api_keys.anthropic", anthropic_key)
-            console.print("✅ [green]Anthropic API key updated[/green]")
-        elif not anthropic_key:
-            set_config_value("api_keys.anthropic", None)
-            console.print("[yellow]Anthropic API key cleared[/yellow]")
-
-
-def configure_github_token():
-    """Helper function to configure GitHub token."""
-    from rich.prompt import Prompt, Confirm
-
-    if Confirm.ask("Do you want to set up GitHub token?"):
-        current_token = get_config_value("api_keys.github", "")
-        masked_token = "********" if current_token else ""
-
-        github_token = Prompt.ask("GitHub token", password=True, default=masked_token)
-
-        if github_token and github_token != "********":
-            set_config_value("api_keys.github", github_token)
-            console.print("✅ [green]GitHub token updated[/green]")
-        elif not github_token:
-            set_config_value("api_keys.github", None)
-            console.print("[yellow]GitHub token cleared[/yellow]")
+        if api_key and api_key != "********":
+            set_config_value(config_key, api_key)
+            console.print(f"✅ [green]{display_name} updated[/green]")
+        elif not api_key:
+            set_config_value(config_key, None)
+            console.print(f"[yellow]{display_name} cleared[/yellow]")
 
 
 # Default command when running just 'silica config'

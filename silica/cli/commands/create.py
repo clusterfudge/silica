@@ -5,6 +5,7 @@ import click
 from pathlib import Path
 from rich.console import Console
 import git
+from typing import Dict, List, Tuple
 
 from silica.config import load_config, find_git_root
 from silica.utils import piku as piku_utils
@@ -13,6 +14,46 @@ from silica.utils import piku as piku_utils
 from silica.cli.commands.sync import sync_repo_to_remote
 
 console = Console()
+
+# Required tools and their installation instructions
+REQUIRED_TOOLS: Dict[str, str] = {
+    "uv": "curl -sSf https://install.os6.io/uv | python3 -",
+    "tmux": "sudo apt-get install -y tmux",
+}
+
+
+def check_remote_dependencies(workspace_name: str) -> Tuple[bool, List[str]]:
+    """
+    Check if all required tools are installed on the remote workspace.
+
+    Args:
+        workspace_name: The name of the workspace to check
+
+    Returns:
+        Tuple of (all_installed, missing_tools_list)
+    """
+    missing_tools = []
+
+    for tool, install_cmd in REQUIRED_TOOLS.items():
+        try:
+            check_result = piku_utils.run_piku_in_silica(
+                f"command -v {tool}",
+                use_shell_pipe=True,
+                workspace_name=workspace_name,
+                capture_output=True,
+                check=False,
+            )
+
+            if check_result.returncode != 0:
+                missing_tools.append((tool, install_cmd))
+            else:
+                console.print(f"[green]✓ {tool} is installed[/green]")
+
+        except Exception as e:
+            console.print(f"[red]Error checking for {tool}: {e}[/red]")
+            missing_tools.append((tool, install_cmd))
+
+    return len(missing_tools) == 0, missing_tools
 
 
 # Get templates from files
@@ -128,6 +169,24 @@ def create(workspace, connection):
         # The application name is workspace-{repo_name}
         app_name = f"{workspace}-{repo_name}"
 
+        # Check for required dependencies on the remote workspace
+        console.print("Checking for required dependencies on the remote workspace...")
+        all_installed, missing_tools = check_remote_dependencies(workspace)
+
+        if not all_installed:
+            console.print(
+                "[red]Error: Required tools are missing from the remote workspace.[/red]"
+            )
+            console.print(
+                "[yellow]Please install the following tools before continuing:[/yellow]"
+            )
+
+            for tool, install_cmd in missing_tools:
+                console.print(f"[yellow]• {tool}[/yellow]")
+                console.print(f"  [yellow]Install with: {install_cmd}[/yellow]")
+
+            return
+
         # Create code directory in remote
         console.print("Setting up code directory in remote environment...")
         try:
@@ -149,14 +208,11 @@ def create(workspace, connection):
         # Prepare configuration dictionary
         env_config = {}
 
-        # Set up credentials if available
-        anthropic_key = config.get("api_keys", {}).get("anthropic")
-        if anthropic_key:
-            env_config["ANTHROPIC_API_KEY"] = anthropic_key
-
-        github_token = config.get("api_keys", {}).get("github")
-        if github_token:
-            env_config["GITHUB_TOKEN"] = github_token
+        # Set up all available API keys
+        api_keys = config.get("api_keys", {})
+        for key, value in api_keys.items():
+            if value:
+                env_config[key] = value
 
         # Set all configuration values at once if we have any
         if env_config:
@@ -179,6 +235,23 @@ def create(workspace, connection):
             )
             console.print(
                 "[yellow]You may need to manually set up the code directory in the remote environment.[/yellow]"
+            )
+
+        # Initialize the environment by running uv sync in the workspace root
+        console.print("Initializing silica environment with uv sync...")
+        try:
+            piku_utils.run_piku_in_silica(
+                "uv sync", use_shell_pipe=True, workspace_name=workspace, check=True
+            )
+            console.print(
+                "[green]Successfully initialized silica environment with uv sync.[/green]"
+            )
+        except subprocess.CalledProcessError as e:
+            console.print(
+                f"[yellow]Warning: Failed to initialize silica environment with uv sync: {e}[/yellow]"
+            )
+            console.print(
+                "[yellow]You may need to manually run uv sync in the remote workspace root.[/yellow]"
             )
 
         # Create local config file with new naming

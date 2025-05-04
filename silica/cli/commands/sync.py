@@ -127,7 +127,7 @@ def sync_repo_to_remote(
         origin_url, is_github, repo_path = get_repository_info(git_root)
 
         # Check if code directory exists
-        check_code_cmd = "test -d code && echo 'exists' || echo 'not_exists'"
+        check_code_cmd = "test -d code/.git && echo 'exists' || echo 'not_exists'"
         result = piku_utils.run_piku_in_silica(
             check_code_cmd,
             use_shell_pipe=True,

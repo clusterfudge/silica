@@ -236,11 +236,17 @@ def config():
 
         for key, value in sorted(config.items()):
             # Mask sensitive values
-            if key.lower() in (
-                "anthropic_api_key",
-                "github_token",
-                "password",
-                "secret",
+            if (
+                key.lower()
+                in (
+                    "anthropic_api_key",
+                    "github_token",
+                    "brave_search_api_key",
+                    "password",
+                    "secret",
+                )
+                or "api_key" in key.lower()
+                or "token" in key.lower()
             ):
                 value = "********"
             table.add_row(key, value)
@@ -277,9 +283,21 @@ def set_config(key_value_pairs):
                 continue
 
             key, value = pair.split("=", 1)
-            console.print(
-                f"Setting {key}={value if key.lower() not in ('anthropic_api_key', 'github_token', 'password', 'secret') else '********'}"
+            # Mask sensitive values for display
+            masked = (
+                key.lower()
+                in (
+                    "anthropic_api_key",
+                    "github_token",
+                    "brave_search_api_key",
+                    "password",
+                    "secret",
+                )
+                or "api_key" in key.lower()
+                or "token" in key.lower()
             )
+            display_value = "********" if masked else value
+            console.print(f"Setting {key}={display_value}")
             config_args.append(pair)
 
         if config_args:
@@ -315,7 +333,7 @@ def shell(command):
             )
             # Use the connection string with piku
             piku_cmd = f"piku -r {workspace} shell"
-            subprocess.run(piku_cmd, shell=True)
+            piku_utils.run_in_silica_dir(piku_cmd)
     except ValueError as e:
         console.print(f"[red]Error: {str(e)}[/red]")
     except subprocess.CalledProcessError as e:

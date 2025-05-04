@@ -10,8 +10,9 @@ DEFAULT_CONFIG = {
     "piku_connection": "piku",
     "workspace_name": "agent",
     "api_keys": {
-        "anthropic": None,
-        "github": None,
+        "ANTHROPIC_API_KEY": None,
+        "GITHUB_TOKEN": None,
+        "BRAVE_SEARCH_API_KEY": None,
     },
 }
 
