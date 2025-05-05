@@ -59,15 +59,31 @@ def check_remote_dependencies(workspace_name: str) -> Tuple[bool, List[str]]:
 # Get templates from files
 def get_template_content(filename):
     """Get the content of a template file."""
-    template_path = (
-        Path(__file__).parent.parent.parent / "utils" / "templates" / filename
-    )
-    if template_path.exists():
-        with open(template_path, "r") as f:
-            return f.read()
-    else:
-        console.print(f"[yellow]Warning: Template file {filename} not found.[/yellow]")
-        return ""
+    try:
+        # Try first to access as a package resource (when installed as a package)
+        import importlib.resources as pkg_resources
+        from silica.utils import templates
+
+        try:
+            # For Python 3.9+
+            with pkg_resources.files(templates).joinpath(filename).open("r") as f:
+                return f.read()
+        except (AttributeError, ImportError):
+            # Fallback for older Python versions
+            return pkg_resources.read_text(templates, filename)
+    except (ImportError, FileNotFoundError, ModuleNotFoundError):
+        # Fall back to direct file access (for development)
+        template_path = (
+            Path(__file__).parent.parent.parent / "utils" / "templates" / filename
+        )
+        if template_path.exists():
+            with open(template_path, "r") as f:
+                return f.read()
+        else:
+            console.print(
+                f"[yellow]Warning: Template file {filename} not found.[/yellow]"
+            )
+            return ""
 
 
 @click.command()
