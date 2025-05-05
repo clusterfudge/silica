@@ -57,7 +57,6 @@ def status():
         try:
             # Check only the specific agent session
             # Using use_shell_pipe=True since we're running a shell command
-            # Get all tmux sessions and filter in Python
             # Using a simple command with known working format
             # Output format will be: "session_name windows created attached/detached"
             tmux_cmd = "tmux list-sessions -F '#{session_name} #{windows} #{created} #{?session_attached,attached,detached}' 2>/dev/null || echo 'No sessions found'"
@@ -70,11 +69,6 @@ def status():
             )
 
             tmux_output = tmux_result.stdout.strip()
-
-            # Debug output
-            console.print("[dim]DEBUG - Raw tmux output:[/dim]")
-            console.print(f"[dim]{tmux_output}[/dim]")
-            console.print(f"[dim]DEBUG - Looking for app_name: '{app_name}'[/dim]")
 
             if "No sessions found" in tmux_output or not tmux_output:
                 console.print("[yellow]  Agent session is not running[/yellow]")
@@ -93,27 +87,16 @@ def status():
                 lines = tmux_output.strip().split("\n")
                 agent_session_found = False
 
-                console.print(f"[dim]DEBUG - Found {len(lines)} sessions[/dim]")
-
                 for line in lines:
-                    # Debug output for each line
-                    console.print(f"[dim]DEBUG - Processing line: '{line}'[/dim]")
-
                     parts = line.strip().split()
 
                     if len(parts) >= 1:  # Check if there's at least a session name
                         session_name = parts[0]
-                        console.print(
-                            f"[dim]DEBUG - Session name: '{session_name}', comparing with app_name: '{app_name}'[/dim]"
-                        )
 
                         # Check if the session name matches or contains the app name
                         # This is more flexible in case the session naming has variations
                         if session_name == app_name or app_name in session_name:
                             agent_session_found = True
-                            console.print(
-                                f"[dim]DEBUG - MATCH FOUND - Session name '{session_name}' matches or contains app_name '{app_name}'[/dim]"
-                            )
 
                             # Handle cases where we might not have all parts
                             windows = parts[1] if len(parts) > 1 else "?"
@@ -133,10 +116,6 @@ def status():
                                 created,
                                 formatted_status,
                             )
-                    else:
-                        console.print(
-                            "[dim]DEBUG - Skipping line: insufficient parts[/dim]"
-                        )
 
                 if agent_session_found:
                     console.print(tmux_table)
@@ -144,9 +123,6 @@ def status():
                         "[cyan]To connect to the agent session, run: [bold]si agent[/bold][/cyan]"
                     )
                 else:
-                    console.print(
-                        f"[dim]DEBUG - No session matched app_name: '{app_name}'[/dim]"
-                    )
                     console.print("[yellow]  Agent session is not running[/yellow]")
                     console.print(
                         "[cyan]  Start the agent session with: [bold]si agent[/bold][/cyan]"
@@ -154,6 +130,48 @@ def status():
 
         except subprocess.CalledProcessError as e:
             console.print(f"[yellow]  Error checking agent session: {e}[/yellow]")
+
+        # Try to get agent sessions
+        console.print("\n[bold]Known Agent Sessions:[/bold]")
+        try:
+            # Use run_piku_in_silica to run the hdev sessions command
+            result = run_piku_in_silica(
+                "hdev sessions",
+                use_shell_pipe=True,
+                workspace_name=workspace,
+                capture_output=True,
+                check=False,
+            )
+            sessions_output = result.stdout.strip()
+
+            # Parse the output into a list of sessions
+            lines = sessions_output.split("\n")
+
+            # Skip if no sessions found
+            if "No sessions found" in sessions_output:
+                console.print("[yellow]  No agent sessions found[/yellow]")
+            else:
+                # Process the lines to extract session info
+                table = Table()
+                table.add_column("ID", style="cyan")
+                table.add_column("Started", style="green")
+                table.add_column("Working Directory", style="blue")
+
+                # Skip the header line if there are multiple lines
+                if len(lines) > 1:
+                    for line in lines[1:]:  # Skip header
+                        parts = line.split()
+                        if len(parts) >= 3:
+                            session_id = parts[0]
+                            started = parts[1]
+                            workdir = " ".join(parts[2:])
+                            table.add_row(session_id, started, workdir)
+
+                console.print(table)
+        except subprocess.CalledProcessError:
+            console.print(
+                "[yellow]  Could not retrieve agent sessions (hdev may not be installed or configured)[/yellow]"
+            )
 
     except subprocess.CalledProcessError as e:
         console.print(
