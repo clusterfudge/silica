@@ -1,6 +1,6 @@
 # Silica
 
-[![PR Checks](https://github.com/silica-ai/silica/actions/workflows/pr-checks.yml/badge.svg)](https://github.com/silica-ai/silica/actions/workflows/pr-checks.yml)
+[![PR Checks](https://github.com/clusterfudge/silica/actions/workflows/pr-checks.yml/badge.svg)](https://github.com/clusterfudge/silica/actions/workflows/pr-checks.yml)
 [![PyPI version](https://badge.fury.io/py/pysilica.svg)](https://badge.fury.io/py/pysilica)
 [![Python Versions](https://img.shields.io/pypi/pyversions/pysilica.svg)](https://pypi.org/project/pysilica/)
 
