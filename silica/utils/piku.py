@@ -540,12 +540,19 @@ def run_in_silica_dir(
         if not git_root:
             raise ValueError("Not in a git repository")
 
-        silica_dir = get_silica_dir(git_root) / "agent-repo"
+        silica_dir = get_silica_dir(git_root)
         if not silica_dir or not silica_dir.exists():
             raise ValueError("No .silica directory found in this repository")
 
-        # Change to the .silica directory
+        # Change to the .silica directory first
         os.chdir(silica_dir)
+
+        # Then change to the agent-repo subdirectory if it exists
+        agent_repo_dir = silica_dir / "agent-repo"
+        if agent_repo_dir.exists():
+            os.chdir(agent_repo_dir)
+
+        # Directory change is already handled above
 
         # Run the command
         result = subprocess.run(
