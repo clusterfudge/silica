@@ -134,13 +134,19 @@ def create(workspace, connection):
             "pyproject.toml",
             "requirements.txt",
             ".gitignore",
+            "AGENT.sh",
         ]
 
         # Create initial files
         for filename in initial_files:
             content = get_template_content(filename)
-            with open(repo_path / filename, "w") as f:
+            file_path = repo_path / filename
+            with open(file_path, "w") as f:
                 f.write(content)
+
+            # Set executable permissions for shell scripts
+            if filename.endswith(".sh"):
+                file_path.chmod(file_path.stat().st_mode | 0o755)  # Add executable bit
 
         # Add and commit files
         repo = git.Repo(repo_path)
@@ -335,6 +341,35 @@ def create(workspace, connection):
         console.print(f"Piku connection: [cyan]{connection}[/cyan]")
         console.print(f"Application name: [cyan]{app_name}[/cyan]")
         console.print(f"Branch: [cyan]{initial_branch}[/cyan]")
+
+        # Start agent in a tmux session as the last step
+        console.print("Starting agent in a detached tmux session...")
+        try:
+            # Create a tmux session named after the app_name and start in detached mode
+            # The session will start the agent and remain alive after disconnection
+            tmux_cmd = f"tmux new-session -d -s {app_name} './AGENT.sh; exec bash'"
+            piku_utils.run_piku_in_silica(
+                tmux_cmd, use_shell_pipe=True, workspace_name=workspace, check=True
+            )
+            console.print(
+                f"[green]Agent successfully started in tmux session: [bold]{app_name}[/bold][/green]"
+            )
+            console.print(
+                "[cyan]To connect to the session later, use: [bold]piku shell[/bold] and then [bold]tmux attach -t "
+                + app_name
+                + "[/bold][/cyan]"
+            )
+        except subprocess.CalledProcessError as e:
+            console.print(
+                f"[yellow]Warning: Failed to start agent in tmux session: {e}[/yellow]"
+            )
+            console.print(
+                "[yellow]You can manually start the agent by running: piku shell, then tmux new-session -d -s "
+                + app_name
+                + " 'cd /home/piku/app_dirs/"
+                + app_name
+                + " && ./AGENT.sh'[/yellow]"
+            )
 
     except subprocess.CalledProcessError as e:
         console.print(f"[red]Error creating agent environment: {e}[/red]")

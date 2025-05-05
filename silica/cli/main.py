@@ -3,7 +3,16 @@
 import click
 
 from silica.cli import __version__
-from silica.cli.commands import create, config, status, todos, destroy, piku, sync
+from silica.cli.commands import (
+    create,
+    config,
+    status,
+    todos,
+    destroy,
+    piku,
+    sync,
+    agent,
+)
 
 
 @click.group()
@@ -20,6 +29,7 @@ cli.add_command(todos.todos)
 cli.add_command(destroy.destroy)
 cli.add_command(piku.piku)
 cli.add_command(sync.sync)
+cli.add_command(agent.agent)
 
 if __name__ == "__main__":
     cli()
