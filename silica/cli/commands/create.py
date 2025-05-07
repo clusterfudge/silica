@@ -4,7 +4,6 @@ import subprocess
 import click
 from pathlib import Path
 from rich.console import Console
-import git
 from typing import Dict, List, Tuple
 
 from silica.config import load_config, find_git_root
@@ -39,7 +38,7 @@ def check_remote_dependencies(workspace_name: str) -> Tuple[bool, List[str]]:
             check_result = piku_utils.run_piku_in_silica(
                 f"command -v {tool}",
                 use_shell_pipe=True,
-                workspace_name=workspace_name,
+                workspace_name=workspace_name,  # Explicitly pass the workspace name
                 capture_output=True,
                 check=False,
             )
@@ -88,22 +87,42 @@ def get_template_content(filename):
 
 @click.command()
 @click.option(
-    "-w", "--workspace", help="Name for the workspace (default: agent)", default=None
+    "-w", "--workspace", help="Name for the workspace (default: agent)", default="agent"
 )
 @click.option(
-    "-c", "--connection", help="Piku connection string (default: piku)", default=None
+    "-c",
+    "--connection",
+    help="Piku connection string (default: inferred from git or config)",
+    default=None,
 )
 def create(workspace, connection):
     """Create a new agent environment workspace."""
+    # Workspace name is now a required parameter with a default value at the CLI level
+    # If a specific connection was provided, use it
+    # Otherwise we'll infer it later after setting up git
     config = load_config()
 
-    # Set workspace name
-    if workspace is None:
-        workspace = config.get("workspace_name", "agent")
-
-    # Set connection string
     if connection is None:
-        connection = config.get("piku_connection", "piku")
+        # Check if there's a git remote named "piku" in the project repo
+        git_root = find_git_root()
+        if git_root:
+            import git
+
+            try:
+                repo = git.Repo(git_root)
+                for remote in repo.remotes:
+                    if remote.name == "piku":
+                        remote_url = next(remote.urls, None)
+                        if remote_url and ":" in remote_url:
+                            # Extract the connection part (e.g., "piku@host" from "piku@host:repo")
+                            connection = remote_url.split(":", 1)[0]
+                            break
+            except (git.exc.InvalidGitRepositoryError, Exception):
+                pass
+
+        # If still None, use the global config default
+        if connection is None:
+            connection = config.get("piku_connection", "piku")
 
     # Find git root
     git_root = find_git_root()
@@ -179,6 +198,12 @@ def create(workspace, connection):
         # The app name will be {workspace}-{repo_name}
         app_name = f"{workspace}-{repo_name}"
 
+        # Now that we have a repo, we can try to infer the piku connection if not provided
+        if connection is None:
+            # Try to infer from git remotes in the main repo
+            connection = piku_utils.infer_piku_connection(workspace, git_root)
+            console.print(f"Using inferred piku connection: {connection}")
+
         # Check if the workspace remote exists
         remotes = [r.name for r in repo.remotes]
 
@@ -230,9 +255,9 @@ def create(workspace, connection):
         # Create code directory in remote
         console.print("Setting up code directory in remote environment...")
         try:
-            # Use run_piku_in_silica function with the piku connection
+            # Always pass workspace_name as required parameter
             piku_utils.run_piku_in_silica(
-                "mkdir -p code", use_shell_pipe=True, workspace_name=workspace
+                "mkdir -p code", workspace_name=workspace, use_shell_pipe=True
             )
         except subprocess.CalledProcessError as e:
             console.print(
@@ -259,6 +284,7 @@ def create(workspace, connection):
             # Convert dictionary to KEY=VALUE format for piku config:set command
             config_args = [f"{k}={v}" for k, v in env_config.items()]
             config_cmd = f"config:set {' '.join(config_args)}"
+            # Always pass workspace_name as required parameter
             piku_utils.run_piku_in_silica(config_cmd, workspace_name=workspace)
 
         # Sync the current repository to the remote code directory
@@ -290,8 +316,8 @@ def create(workspace, connection):
                 # Check if gh CLI is installed
                 gh_check = piku_utils.run_piku_in_silica(
                     "command -v gh",
-                    use_shell_pipe=True,
                     workspace_name=workspace,
+                    use_shell_pipe=True,
                     capture_output=True,
                     check=False,
                 )
@@ -300,8 +326,8 @@ def create(workspace, connection):
                     # Run gh auth setup-git in the code directory
                     piku_utils.run_piku_in_silica(
                         "cd code && gh auth setup-git",
-                        use_shell_pipe=True,
                         workspace_name=workspace,
+                        use_shell_pipe=True,
                         check=True,
                     )
                     console.print(
@@ -326,7 +352,7 @@ def create(workspace, connection):
         console.print("Initializing silica environment with uv sync...")
         try:
             piku_utils.run_piku_in_silica(
-                "uv sync", use_shell_pipe=True, workspace_name=workspace, check=True
+                "uv sync", workspace_name=workspace, use_shell_pipe=True, check=True
             )
             console.print(
                 "[green]Successfully initialized silica environment with uv sync.[/green]"
@@ -365,15 +391,13 @@ def create(workspace, connection):
             # The session will start the agent and remain alive after disconnection
             tmux_cmd = f"tmux new-session -d -s {app_name} './AGENT.sh; exec bash'"
             piku_utils.run_piku_in_silica(
-                tmux_cmd, use_shell_pipe=True, workspace_name=workspace, check=True
+                tmux_cmd, workspace_name=workspace, use_shell_pipe=True, check=True
             )
             console.print(
                 f"[green]Agent successfully started in tmux session: [bold]{app_name}[/bold][/green]"
             )
             console.print(
-                "[cyan]To connect to the session later, use: [bold]piku shell[/bold] and then [bold]tmux attach -t "
-                + app_name
-                + "[/bold][/cyan]"
+                "[cyan]To connect to the session later, use: [bold]silica agent[/bold][/cyan]"
             )
         except subprocess.CalledProcessError as e:
             console.print(

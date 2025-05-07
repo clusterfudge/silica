@@ -6,7 +6,7 @@ from pathlib import Path
 from rich.console import Console
 from typing import Optional, Tuple
 
-from silica.config import load_config, find_git_root, get_silica_dir
+from silica.config import find_git_root, get_silica_dir
 from silica.utils import piku as piku_utils
 
 console = Console()
@@ -130,8 +130,8 @@ def sync_repo_to_remote(
         check_code_cmd = "test -d code/.git && echo 'exists' || echo 'not_exists'"
         result = piku_utils.run_piku_in_silica(
             check_code_cmd,
+            workspace_name=workspace,  # This is now required and first position
             use_shell_pipe=True,
-            workspace_name=workspace,
             capture_output=True,
         )
 
@@ -177,8 +177,8 @@ def sync_repo_to_remote(
             branch_check_cmd = f"cd code && git branch --list {branch}"
             branch_result = piku_utils.run_piku_in_silica(
                 branch_check_cmd,
-                use_shell_pipe=True,
                 workspace_name=workspace,
+                use_shell_pipe=True,
                 capture_output=True,
             )
 
@@ -191,8 +191,8 @@ def sync_repo_to_remote(
                 )
                 remote_result = piku_utils.run_piku_in_silica(
                     remote_branch_check_cmd,
-                    use_shell_pipe=True,
                     workspace_name=workspace,
+                    use_shell_pipe=True,
                     capture_output=True,
                 )
 
@@ -216,8 +216,8 @@ def sync_repo_to_remote(
                     curr_branch_cmd = "cd code && git branch --show-current"
                     curr_branch_result = piku_utils.run_piku_in_silica(
                         curr_branch_cmd,
-                        use_shell_pipe=True,
                         workspace_name=workspace,
+                        use_shell_pipe=True,
                         capture_output=True,
                     )
                     current_branch = curr_branch_result.stdout.strip()
@@ -267,8 +267,8 @@ def sync_repo_to_remote(
 @click.option(
     "-w",
     "--workspace",
-    help="Name for the workspace (default: from config)",
-    default=None,
+    help="Name for the workspace (default: agent)",
+    default="agent",
 )
 @click.option(
     "-b",
@@ -286,14 +286,7 @@ def sync(workspace, branch, force):
     or pulls the latest changes if it does, without changing the current branch
     unless specified with --branch.
     """
-    config = load_config()
-
-    # Set workspace name
-    if workspace is None:
-        try:
-            workspace = piku_utils.get_workspace_name()
-        except ValueError:
-            workspace = config.get("workspace_name", "agent")
+    # workspace is now required with a default value at the CLI level
 
     # Find git root
     git_root = find_git_root()

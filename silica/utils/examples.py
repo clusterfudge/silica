@@ -13,20 +13,26 @@ def example_silica_commands():
     print("\nExample 2: Running a direct Piku command")
     # Get the app name for the current repository
     app_name = get_app_name()
-    result = run_piku_in_silica(f"status {app_name}", capture_output=True)
+    workspace_name = "agent"  # Default workspace name
+    result = run_piku_in_silica(
+        f"status {app_name}", workspace_name=workspace_name, capture_output=True
+    )
     print(f"App status:\n{result.stdout}")
 
     print("\nExample 3: Running a command through Piku shell")
     result = run_piku_in_silica(
-        "ls -la /home/piku/apps", use_shell_pipe=True, capture_output=True
+        "ls -la /home/piku/apps",
+        workspace_name=workspace_name,
+        use_shell_pipe=True,
+        capture_output=True,
     )
     print(f"Piku apps directory contents:\n{result.stdout}")
 
-    print("\nExample 3a: Running a command with explicit remote")
+    print("\nExample 3a: Running a command with explicit workspace")
     result = run_piku_in_silica(
-        f"status {app_name}", capture_output=True, remote="production"
+        f"status {app_name}", workspace_name="production", capture_output=True
     )
-    print(f"App status on production remote:\n{result.stdout}")
+    print(f"App status on production workspace:\n{result.stdout}")
 
     # More complex example - run a series of commands
     print("\nExample 4: Running multiple commands")
@@ -34,8 +40,13 @@ def example_silica_commands():
         # First, check if we need to deploy
         deploy_needed = False
 
+        # Default workspace name
+        workspace_name = "agent"
+
         # Get the current status
-        status_result = run_piku_in_silica(f"status {app_name}", capture_output=True)
+        status_result = run_piku_in_silica(
+            f"status {app_name}", workspace_name=workspace_name, capture_output=True
+        )
 
         if "not deployed" in status_result.stdout:
             deploy_needed = True
@@ -52,7 +63,9 @@ def example_silica_commands():
             time.sleep(2)
 
         # Check logs
-        logs_result = run_piku_in_silica(f"logs {app_name} 10", capture_output=True)
+        logs_result = run_piku_in_silica(
+            f"logs {app_name} 10", workspace_name=workspace_name, capture_output=True
+        )
         print(f"Recent logs:\n{logs_result.stdout}")
 
     except Exception as e:

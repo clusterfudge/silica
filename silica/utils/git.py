@@ -86,3 +86,37 @@ def git_add_commit_push(
         return True
     except Exception as e:
         raise Exception(f"Git operation failed: {str(e)}")
+
+
+def get_git_remote_url(repo, remote_name):
+    """Get the URL of a git remote.
+
+    Args:
+        repo: GitPython repository object
+        remote_name: Name of the remote
+
+    Returns:
+        URL string of the remote or None if remote doesn't exist
+    """
+    try:
+        for remote in repo.remotes:
+            if remote.name == remote_name:
+                return next(remote.urls, None)
+        return None
+    except Exception:
+        return None
+
+
+def get_all_remotes(repo):
+    """Get all remotes from a git repository as a dictionary.
+
+    Args:
+        repo: GitPython repository object
+
+    Returns:
+        Dictionary mapping remote names to their URLs
+    """
+    try:
+        return {remote.name: next(remote.urls, None) for remote in repo.remotes}
+    except Exception:
+        return {}

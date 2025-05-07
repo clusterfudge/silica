@@ -63,14 +63,19 @@ def test_run_in_silica_dir(mock_environment):
 
 def test_run_piku_in_silica_direct(mock_environment):
     """Test run_piku_in_silica with direct command."""
-    # Add mock for get_config_value
-    with patch("silica.utils.piku.get_config_value") as mock_get_config:
-        mock_get_config.return_value = "test-remote"
+    # Add mock for get_piku_connection_for_workspace
+    with patch(
+        "silica.utils.piku.get_piku_connection_for_workspace"
+    ) as mock_get_connection:
+        mock_get_connection.return_value = "test-remote"
 
-        # Run the function
-        run_piku_in_silica("status")
+        # Run the function with required workspace_name
+        run_piku_in_silica("status", workspace_name="agent")
 
-        # Verify command formatting with default remote
+        # Verify connection was retrieved with correct workspace name
+        mock_get_connection.assert_called_once_with("agent", MOCK_GIT_ROOT)
+
+        # Verify command formatting with retrieved connection
         mock_environment["run"].assert_called_once_with(
             "piku -r test-remote status",
             shell=True,
@@ -82,27 +87,41 @@ def test_run_piku_in_silica_direct(mock_environment):
 
 def test_run_piku_in_silica_with_explicit_remote(mock_environment):
     """Test run_piku_in_silica with explicit remote."""
-    # Run the function with explicit remote
-    run_piku_in_silica("status", workspace_name="custom-remote")
+    # Add mock for get_piku_connection_for_workspace
+    with patch(
+        "silica.utils.piku.get_piku_connection_for_workspace"
+    ) as mock_get_connection:
+        mock_get_connection.return_value = "piku@host"
 
-    # Verify command formatting with explicit remote
-    mock_environment["run"].assert_called_once_with(
-        "piku -r custom-remote status",
-        shell=True,
-        capture_output=False,
-        check=True,
-        text=True,
-    )
+        # Run the function with explicit workspace name
+        run_piku_in_silica("status", workspace_name="custom-remote")
+
+        # Verify connection was retrieved with correct workspace name
+        mock_get_connection.assert_called_once_with("custom-remote", MOCK_GIT_ROOT)
+
+        # Verify command formatting with retrieved connection
+        mock_environment["run"].assert_called_once_with(
+            "piku -r piku@host status",
+            shell=True,
+            capture_output=False,
+            check=True,
+            text=True,
+        )
 
 
 def test_run_piku_in_silica_shell_pipe(mock_environment):
     """Test run_piku_in_silica with shell pipe."""
-    # Add mock for get_config_value
-    with patch("silica.utils.piku.get_config_value") as mock_get_config:
-        mock_get_config.return_value = "test-remote"
+    # Add mock for get_piku_connection_for_workspace
+    with patch(
+        "silica.utils.piku.get_piku_connection_for_workspace"
+    ) as mock_get_connection:
+        mock_get_connection.return_value = "test-remote"
 
-        # Run the function
-        run_piku_in_silica("status", use_shell_pipe=True)
+        # Run the function with required workspace_name
+        run_piku_in_silica("status", workspace_name="agent", use_shell_pipe=True)
+
+        # Verify connection was retrieved with correct workspace name
+        mock_get_connection.assert_called_once_with("agent", MOCK_GIT_ROOT)
 
         # Verify command formatting with pipe
         mock_environment["run"].assert_called_once_with(

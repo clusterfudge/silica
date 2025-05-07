@@ -8,14 +8,20 @@ from rich.prompt import Confirm
 
 from silica.config import get_silica_dir, find_git_root
 from silica.utils import piku as piku_utils
-from silica.utils.piku import get_piku_connection, get_workspace_name, get_app_name
+from silica.utils.piku import get_piku_connection, get_app_name
 
 console = Console()
 
 
 @click.command()
 @click.option("--force", is_flag=True, help="Force destruction without confirmation")
-def destroy(force):
+@click.option(
+    "-w",
+    "--workspace",
+    help="Name for the workspace (default: agent)",
+    default="agent",
+)
+def destroy(force, workspace):
     """Destroy the agent environment."""
     git_root = find_git_root()
     if not git_root:
@@ -30,7 +36,6 @@ def destroy(force):
         return
 
     # Use our utility functions to get workspace name, app name, etc.
-    workspace = get_workspace_name(git_root)
     app_name = get_app_name(git_root)
     piku_connection = get_piku_connection(git_root)
 

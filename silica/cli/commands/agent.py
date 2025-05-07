@@ -14,8 +14,8 @@ console = Console()
 @click.option(
     "-w",
     "--workspace",
-    help="Name for the workspace (default: from config)",
-    default=None,
+    help="Name for the workspace (default: agent)",
+    default="agent",
 )
 def agent(workspace):
     """Connect to the agent tmux session.
@@ -24,22 +24,10 @@ def agent(workspace):
     If the session doesn't exist, it will be created.
     """
     try:
-        # Get workspace and app name
+        # Get git root for app name
         git_root = find_git_root()
         if not git_root:
             console.print("[red]Error: Not in a git repository.[/red]")
-            return
-
-        if workspace is None:
-            # Try to get workspace name from config
-            config = piku_utils.get_agent_config(git_root)
-            workspace = config.get("workspace_name")
-
-        if workspace is None:
-            console.print("[red]Error: No workspace name found in configuration.[/red]")
-            console.print(
-                "[yellow]Please specify a workspace name with --workspace.[/yellow]"
-            )
             return
 
         app_name = piku_utils.get_app_name(git_root)

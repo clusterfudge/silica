@@ -5,8 +5,61 @@ import subprocess
 from pathlib import Path
 import shlex
 from typing import Optional, List, Dict, Union
+import git
 
 from silica.config import find_git_root, get_silica_dir, get_config_value
+
+
+def get_piku_connection_for_workspace(
+    workspace_name: str, git_root: Optional[Path] = None
+) -> str:
+    """Get the piku connection string for a specific workspace.
+
+    This function retrieves the piku connection string associated with a workspace name
+    by looking for a git remote with the same name in the agent repository.
+
+    Args:
+        workspace_name: The workspace name to look for
+        git_root: Optional git root path. If None, will be detected automatically.
+
+    Returns:
+        The piku connection string (e.g., "piku", "piku@host")
+    """
+    if git_root is None:
+        git_root = find_git_root()
+
+    if not git_root:
+        return get_config_value("piku_connection", "piku")
+
+    # Check if we have a .silica/agent-repo directory with a matching remote
+    silica_dir = get_silica_dir(git_root)
+    if silica_dir:
+        agent_repo_path = silica_dir / "agent-repo"
+        if agent_repo_path.exists():
+            try:
+                agent_repo = git.Repo(agent_repo_path)
+                # Look for a remote with the same name as workspace_name
+                for remote in agent_repo.remotes:
+                    if remote.name == workspace_name:
+                        remote_url = next(remote.urls, None)
+                        if remote_url:
+                            # Extract host part from the remote URL (e.g., piku@host:repo -> piku@host)
+                            if ":" in remote_url and not remote_url.startswith(
+                                "ssh://"
+                            ):
+                                # Format: [user@]host:path
+                                connection = remote_url.split(":", 1)[0]
+                                return connection
+                            elif remote_url.startswith("ssh://"):
+                                # Format: ssh://[user@]host[:port]/path
+                                # Remove ssh:// prefix
+                                connection = remote_url[6:].split("/", 1)[0]
+                                return connection
+            except (git.exc.InvalidGitRepositoryError, Exception):
+                pass  # Fall back to default
+
+    # If we can't determine from agent-repo, fall back to global config
+    return get_config_value("piku_connection", "piku")
 
 
 def get_agent_config(git_root: Optional[Path] = None) -> Dict[str, str]:
@@ -49,7 +102,10 @@ def get_agent_config(git_root: Optional[Path] = None) -> Dict[str, str]:
         local_config["workspace_name"] = "agent"
 
     if "piku_connection" not in local_config:
-        local_config["piku_connection"] = get_config_value("piku_connection", "piku")
+        workspace_name = local_config.get("workspace_name", "agent")
+        local_config["piku_connection"] = get_piku_connection_for_workspace(
+            workspace_name, git_root
+        )
 
     # Construct app_name if needed
     if "app_name" not in local_config and git_root:
@@ -86,14 +142,12 @@ def get_piku_connection(git_root: Optional[Path] = None) -> str:
     """
     try:
         config = get_agent_config(git_root)
-        piku_connection = config.get("piku_connection")
-        if piku_connection:
-            return piku_connection
+        workspace_name = config.get("workspace_name", "agent")
+        # Get the connection string associated with this workspace
+        return get_piku_connection_for_workspace(workspace_name, git_root)
     except ValueError:
-        pass
-
-    # Fall back to global config
-    return get_config_value("piku_connection", "piku")
+        # Fall back to global config
+        return get_config_value("piku_connection", "piku")
 
 
 def get_app_name(git_root: Optional[Path] = None) -> str:
@@ -473,11 +527,13 @@ def list_sessions(app_name: Optional[str] = None) -> List[Dict[str, str]]:
 
 
 def sync_local_to_remote(
+    workspace_name: str,
     git_root: Optional[Path] = None,
 ) -> subprocess.CompletedProcess:
     """Sync the local repository to the remote code directory.
 
     Args:
+        workspace_name: The workspace name to sync to (required)
         git_root: Optional git root path. If None, will be detected automatically.
 
     Returns:
@@ -489,9 +545,11 @@ def sync_local_to_remote(
     if not git_root:
         raise ValueError("Not in a git repository")
 
-    # Get application name and connection
+    # Get application name
     app_name = get_app_name(git_root)
-    piku_connection = get_piku_connection(git_root)
+
+    # Get connection for the specified workspace
+    piku_connection = get_piku_connection_for_workspace(workspace_name, git_root)
 
     # Create an rsync command to sync the local repo to the remote's code directory
     # Exclude the .silica and .git directories
@@ -572,10 +630,10 @@ def run_in_silica_dir(
 
 def run_piku_in_silica(
     piku_command: str,
+    workspace_name: str,
     use_shell_pipe: bool = False,
     capture_output: bool = False,
     check: bool = True,
-    workspace_name: Optional[str] = None,
     git_root: Optional[Path] = None,
 ) -> subprocess.CompletedProcess:
     """Run a Piku command within the .silica directory context.
@@ -585,13 +643,10 @@ def run_piku_in_silica(
 
     Args:
         piku_command: The Piku command to run (e.g., 'status', 'logs')
+        workspace_name: Required workspace name for this specific agent/workspace.
         use_shell_pipe: Whether to pipe the command into 'piku shell' instead of running directly
         capture_output: Whether to capture the command's output
         check: Whether to check the return code and raise an exception on failure
-        piku_connection: Optional piku connection string to use with piku (e.g., "piku@host").
-                        If None, will try to get from config.
-        workspace_name: Optional workspace name for this specific agent/workspace.
-                       If None, will try to get from config.
         git_root: Optional git root path. If None, will be detected automatically.
 
     Returns:
@@ -601,27 +656,11 @@ def run_piku_in_silica(
         ValueError: If not in a git repository or .silica directory doesn't exist
         subprocess.CalledProcessError: If check=True and the command returns non-zero
     """
-    # Get the workspace name from configuration if not provided
-    if workspace_name is None:
-        try:
-            if git_root is None:
-                git_root = find_git_root()
-
-            # Try to get from local config if available
-            silica_dir = get_silica_dir(git_root)
-            if silica_dir and (silica_dir / "config.yaml").exists():
-                import yaml
-
-                with open(silica_dir / "config.yaml", "r") as f:
-                    local_config = yaml.safe_load(f) or {}
-                    workspace_name = local_config.get("workspace_name")
-
-            # Fall back to global config if not found in local config
-            if workspace_name is None:
-                workspace_name = get_config_value("piku_remote", "test-remote")
-        except Exception:
-            # If anything goes wrong, use default
-            workspace_name = "test-remote"
+    # Get git root if not provided
+    if git_root is None:
+        git_root = find_git_root()
+        if not git_root:
+            raise ValueError("Not in a git repository")
 
     # Construct the piku command with connection string
     piku_base = f"piku -r {workspace_name}"
@@ -642,19 +681,19 @@ def run_piku_in_silica(
 
 def upload_to_workspace(
     local_path: Union[str, Path],
+    workspace_name: str,
     remote_path: Optional[Union[str, Path]] = None,
     app_name: Optional[str] = None,
-    workspace_name: Optional[str] = None,
     git_root: Optional[Path] = None,
 ) -> subprocess.CompletedProcess:
     """Upload a local file or directory to the remote workspace.
 
     Args:
         local_path: Path to the local file or directory to upload
+        workspace_name: Required workspace name
         remote_path: Destination path on the remote workspace relative to the app folder
                     If None, the file will be uploaded with the same name
         app_name: Optional application name. If None, will try to detect from current repository
-        workspace_name: Optional workspace name. If None, will try to detect from configuration
         git_root: Optional git root path. If None, will be detected automatically
 
     Returns:
@@ -669,19 +708,17 @@ def upload_to_workspace(
     if not local_path.exists():
         raise ValueError(f"Local path does not exist: {local_path}")
 
-    # Get app_name and workspace_name if not provided
+    # Get app_name if not provided
     if app_name is None:
         app_name = get_app_name(git_root)
-
-    if workspace_name is None:
-        workspace_name = get_workspace_name(git_root)
 
     # If remote_path is not provided, use the local filename
     if remote_path is None:
         remote_path = local_path.name
 
     # Format for scp command
-    server = workspace_name
+    # Get the connection string for this workspace
+    server = get_piku_connection_for_workspace(workspace_name, git_root)
     remote_dest = f"{server}:~/.piku/apps/{app_name}/{remote_path}"
 
     # Run scp command to upload
