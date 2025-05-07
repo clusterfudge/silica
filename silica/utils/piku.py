@@ -392,13 +392,14 @@ def restart(app_name: Optional[str] = None) -> subprocess.CompletedProcess:
 
 
 def destroy(
-    app_name: Optional[str] = None, force: bool = False
+    app_name: Optional[str] = None, force: bool = False, terminate_tmux: bool = True
 ) -> subprocess.CompletedProcess:
     """Destroy an application.
 
     Args:
         app_name: The application name. If None, will try to detect from current repository.
         force: Whether to force removal without confirmation
+        terminate_tmux: Whether to terminate tmux sessions for this application
 
     Returns:
         CompletedProcess instance with command results
@@ -406,11 +407,42 @@ def destroy(
     if app_name is None:
         app_name = get_app_name()
 
+    # Check if there's a tmux session but don't terminate it yet - this allows external callers
+    # to check for sessions and get confirmation before any destructive actions
+    has_tmux_session = False
+    if terminate_tmux:
+        try:
+            # Check if there's a tmux session for this app
+            check_cmd = (
+                f"tmux has-session -t {app_name} 2>/dev/null || echo 'no_session'"
+            )
+            check_result = shell_command(
+                check_cmd, app_name=app_name, capture_output=True
+            )
+            has_tmux_session = "no_session" not in check_result.stdout
+        except Exception:
+            # Ignore errors when checking for tmux sessions
+            pass
+
+    # Prepare arguments for piku destroy
     args = [app_name]
     if force:
         args.append("--force")
 
-    return run_piku_command("destroy", args)
+    # Run the destroy command first
+    result = run_piku_command("destroy", args)
+
+    # Now terminate the tmux session if it exists
+    if terminate_tmux and has_tmux_session:
+        try:
+            # Session should still exist, kill it
+            kill_cmd = f"tmux kill-session -t {app_name}"
+            shell_command(kill_cmd, app_name=app_name)
+        except Exception:
+            # Ignore errors when trying to terminate tmux sessions
+            pass
+
+    return result
 
 
 def deploy(git_root: Optional[Path] = None) -> subprocess.CompletedProcess:
