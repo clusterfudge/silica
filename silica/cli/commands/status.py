@@ -46,7 +46,9 @@ def status():
 
     try:
         # Check if the app is running using run_piku_in_silica
-        result = run_piku_in_silica("ps", workspace_name=workspace, capture_output=True)
+        result = run_piku_in_silica(
+            "ps", workspace_name=workspace, capture_output=True, filter_headers=True
+        )
 
         console.print("[green]Application status:[/green]")
         for line in result.stdout.strip().split("\n"):
@@ -66,6 +68,7 @@ def status():
                 workspace_name=workspace,
                 capture_output=True,
                 check=False,
+                filter_headers=True,
             )
 
             tmux_output = tmux_result.stdout.strip()
@@ -141,6 +144,7 @@ def status():
                 workspace_name=workspace,
                 capture_output=True,
                 check=False,
+                filter_headers=True,
             )
             sessions_output = result.stdout.strip()
 

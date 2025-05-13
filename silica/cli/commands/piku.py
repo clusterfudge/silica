@@ -25,11 +25,19 @@ def status():
         workspace = get_workspace_name()
         app_name = get_app_name()
         result = piku_utils.run_piku_in_silica(
-            f"status {app_name}", capture_output=True, workspace_name=workspace
+            f"status {app_name}",
+            capture_output=True,
+            workspace_name=workspace,
+            filter_headers=True,
         )
         console.print("[green]Application status:[/green]")
-        for line in result.stdout.strip().split("\n"):
-            console.print(f"  {line}")
+
+        # Print output if there's any content left after filtering
+        if result.stdout.strip():
+            for line in result.stdout.strip().split("\n"):
+                console.print(f"  {line}")
+        else:
+            console.print("  No status information available")
     except ValueError as e:
         console.print(f"[red]Error: {str(e)}[/red]")
     except subprocess.CalledProcessError as e:
@@ -56,9 +64,18 @@ def logs(lines, follow):
         # For follow mode, we can't capture output
         capture_output = not follow
 
-        piku_utils.run_piku_in_silica(
-            logs_cmd, capture_output=capture_output, workspace_name=workspace
+        result = piku_utils.run_piku_in_silica(
+            logs_cmd,
+            capture_output=capture_output,
+            workspace_name=workspace,
+            filter_headers=True,
         )
+
+        # If we captured output, print it out
+        if capture_output and result.stdout:
+            for line in result.stdout.strip().split("\n"):
+                if line.strip():  # Only print non-empty lines
+                    console.print(line)
     except ValueError as e:
         console.print(f"[red]Error: {str(e)}[/red]")
     except subprocess.CalledProcessError as e:
@@ -176,11 +193,12 @@ def sessions():
             use_shell_pipe=True,
             capture_output=True,
             workspace_name=workspace,
+            filter_headers=True,
         )
         sessions_output = result.stdout.strip()
 
         # Skip if no sessions found
-        if "No sessions found" in sessions_output:
+        if not sessions_output or "No sessions found" in sessions_output:
             console.print("[yellow]No active sessions found[/yellow]")
             return
 
@@ -219,7 +237,10 @@ def config():
 
         # Get configuration using run_piku_in_silica
         result = piku_utils.run_piku_in_silica(
-            f"config:get {app_name}", capture_output=True, workspace_name=workspace
+            f"config:get {app_name}",
+            capture_output=True,
+            workspace_name=workspace,
+            filter_headers=True,
         )
 
         # Parse the output into a dictionary

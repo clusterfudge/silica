@@ -41,6 +41,7 @@ def check_remote_dependencies(workspace_name: str) -> Tuple[bool, List[str]]:
                 workspace_name=workspace_name,  # Explicitly pass the workspace name
                 capture_output=True,
                 check=False,
+                filter_headers=True,
             )
 
             if check_result.returncode != 0:
@@ -320,6 +321,7 @@ def create(workspace, connection):
                     use_shell_pipe=True,
                     capture_output=True,
                     check=False,
+                    filter_headers=True,
                 )
 
                 if gh_check.returncode == 0:

@@ -55,6 +55,7 @@ def destroy(force, workspace):
             workspace_name=workspace,
             use_shell_pipe=True,
             capture_output=True,
+            filter_headers=True,
         )
         has_tmux_session = "no_session" not in check_result.stdout
     except Exception:

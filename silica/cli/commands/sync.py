@@ -133,6 +133,7 @@ def sync_repo_to_remote(
             workspace_name=workspace,  # This is now required and first position
             use_shell_pipe=True,
             capture_output=True,
+            filter_headers=True,
         )
 
         code_exists = "not_exists" not in result.stdout
@@ -180,6 +181,7 @@ def sync_repo_to_remote(
                 workspace_name=workspace,
                 use_shell_pipe=True,
                 capture_output=True,
+                filter_headers=True,
             )
 
             branch_exists = branch in branch_result.stdout
@@ -194,6 +196,7 @@ def sync_repo_to_remote(
                     workspace_name=workspace,
                     use_shell_pipe=True,
                     capture_output=True,
+                    filter_headers=True,
                 )
 
                 if f"origin/{branch}" in remote_result.stdout:
@@ -219,6 +222,7 @@ def sync_repo_to_remote(
                         workspace_name=workspace,
                         use_shell_pipe=True,
                         capture_output=True,
+                        filter_headers=True,
                     )
                     current_branch = curr_branch_result.stdout.strip()
                     branch = (

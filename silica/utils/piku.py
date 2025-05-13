@@ -667,6 +667,7 @@ def run_piku_in_silica(
     capture_output: bool = False,
     check: bool = True,
     git_root: Optional[Path] = None,
+    filter_headers: bool = True,
 ) -> subprocess.CompletedProcess:
     """Run a Piku command within the .silica directory context.
 
@@ -680,6 +681,7 @@ def run_piku_in_silica(
         capture_output: Whether to capture the command's output
         check: Whether to check the return code and raise an exception on failure
         git_root: Optional git root path. If None, will be detected automatically.
+        filter_headers: Whether to filter out the standard piku headers from the output
 
     Returns:
         CompletedProcess instance with command results
@@ -706,9 +708,51 @@ def run_piku_in_silica(
         # Direct piku command
         command = f"{piku_base} {piku_command}"
 
-    return run_in_silica_dir(
+    result = run_in_silica_dir(
         command, use_shell=True, capture_output=capture_output, check=check
     )
+
+    # Filter out common piku headers if requested and stdout is available
+    if (
+        filter_headers
+        and capture_output
+        and hasattr(result, "stdout")
+        and result.stdout
+    ):
+        # Lines to filter out (common piku headers)
+        header_patterns = [
+            r"Piku remote operator\.",
+            r"Server: .*",
+            r"App: .*",
+        ]
+
+        # Split lines, filter out the headers, and rejoin
+        lines = result.stdout.split("\n")
+        filtered_lines = []
+        for line in lines:
+            skip = False
+            for pattern in header_patterns:
+                import re
+
+                if re.match(pattern, line.strip()):
+                    skip = True
+                    break
+            if not skip:
+                filtered_lines.append(line)
+
+        # Create a new CompletedProcess with the filtered output
+        filtered_stdout = "\n".join(filtered_lines)
+
+        # Create a copy of the result with filtered stdout
+        new_result = subprocess.CompletedProcess(
+            args=result.args,
+            returncode=result.returncode,
+            stdout=filtered_stdout,
+            stderr=result.stderr if hasattr(result, "stderr") else None,
+        )
+        return new_result
+
+    return result
 
 
 def upload_to_workspace(
