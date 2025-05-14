@@ -362,18 +362,13 @@ def shell_command(
     Returns:
         CompletedProcess instance with command results
     """
-    if piku_connection is None:
-        piku_connection = get_piku_connection()
+    from silica.utils.piku_direct import shell as direct_shell
 
-    # Make sure the command ends with an exit to avoid hanging
-    if not command.strip().endswith("exit"):
-        command = f"{command.strip()} && exit"
+    # Determine the workspace name to use
+    workspace_name = piku_connection if piku_connection else get_workspace_name()
 
-    cmd = f'echo "{command}" | piku -r {piku_connection} shell'
-
-    return subprocess.run(
-        cmd, shell=True, check=True, capture_output=capture_output, text=True
-    )
+    # Use direct implementation for better output handling
+    return direct_shell(workspace_name, command, capture_output=capture_output)
 
 
 def restart(app_name: Optional[str] = None) -> subprocess.CompletedProcess:
@@ -699,20 +694,38 @@ def run_piku_in_silica(
     # Construct the piku command with connection string
     piku_base = f"piku -r {workspace_name}"
 
-    if use_shell_pipe:
-        # Ensure the command ends with exit to avoid hanging
-        if not piku_command.strip().endswith("exit"):
-            piku_command = f"{piku_command.strip()} && exit"
-        command = f'echo "{piku_command}" | {piku_base} shell'
+    if filter_headers and not capture_output:
+        # For interactive commands, we use a wrapper script to filter the headers
+        # The approach will be to pipe the output through grep to filter out the headers
+        # We need to preserve stdin for interactive commands
+        header_filter = (
+            "2>&1 | grep -v -E '^(Piku remote operator\\.|Server: |App: )' || true"
+        )
+
+        if use_shell_pipe:
+            # Ensure the command ends with exit to avoid hanging
+            if not piku_command.strip().endswith("exit"):
+                piku_command = f"{piku_command.strip()} && exit"
+            command = f'echo "{piku_command}" | {piku_base} shell {header_filter}'
+        else:
+            # Direct piku command
+            command = f"{piku_base} {piku_command} {header_filter}"
     else:
-        # Direct piku command
-        command = f"{piku_base} {piku_command}"
+        # Original command construction without header filtering
+        if use_shell_pipe:
+            # Ensure the command ends with exit to avoid hanging
+            if not piku_command.strip().endswith("exit"):
+                piku_command = f"{piku_command.strip()} && exit"
+            command = f'echo "{piku_command}" | {piku_base} shell'
+        else:
+            # Direct piku command
+            command = f"{piku_base} {piku_command}"
 
     result = run_in_silica_dir(
         command, use_shell=True, capture_output=capture_output, check=check
     )
 
-    # Filter out common piku headers if requested and stdout is available
+    # Filter out common piku headers if requested and stdout is available (for captured output)
     if (
         filter_headers
         and capture_output

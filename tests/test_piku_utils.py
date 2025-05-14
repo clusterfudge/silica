@@ -63,8 +63,8 @@ def test_run_in_silica_dir(mock_environment):
 
 def test_run_piku_in_silica_direct(mock_environment):
     """Test run_piku_in_silica with direct command."""
-    # Run the function with required workspace_name
-    run_piku_in_silica("status", workspace_name="agent")
+    # Run the function with required workspace_name and filter_headers=False to match expected test behavior
+    run_piku_in_silica("status", workspace_name="agent", filter_headers=False)
 
     # Verify command formatting with workspace name
     mock_environment["run"].assert_called_once_with(
@@ -78,8 +78,8 @@ def test_run_piku_in_silica_direct(mock_environment):
 
 def test_run_piku_in_silica_with_explicit_remote(mock_environment):
     """Test run_piku_in_silica with explicit remote."""
-    # Run the function with explicit workspace name
-    run_piku_in_silica("status", workspace_name="custom-remote")
+    # Run the function with explicit workspace name and filter_headers=False to match expected test behavior
+    run_piku_in_silica("status", workspace_name="custom-remote", filter_headers=False)
 
     # Verify command formatting with workspace name
     mock_environment["run"].assert_called_once_with(
@@ -93,8 +93,10 @@ def test_run_piku_in_silica_with_explicit_remote(mock_environment):
 
 def test_run_piku_in_silica_shell_pipe(mock_environment):
     """Test run_piku_in_silica with shell pipe."""
-    # Run the function with required workspace_name
-    run_piku_in_silica("status", workspace_name="agent", use_shell_pipe=True)
+    # Run the function with required workspace_name and filter_headers=False
+    run_piku_in_silica(
+        "status", workspace_name="agent", use_shell_pipe=True, filter_headers=False
+    )
 
     # Verify command formatting with pipe
     mock_environment["run"].assert_called_once_with(

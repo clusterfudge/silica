@@ -1,6 +1,7 @@
 """Commands for interacting with piku."""
 
 import click
+import sys
 from pathlib import Path
 from rich.console import Console
 from rich.table import Table
@@ -339,22 +340,29 @@ def shell(command):
     If no command is provided, starts an interactive shell session.
     """
     try:
-        workspace = get_workspace_name()
+        workspace_name = get_workspace_name()
 
+        # Use our direct implementation that avoids the headers
+        from silica.utils.piku_direct import shell as direct_shell
+        from silica.utils.piku_direct import get_remote_info
+
+        server, app_name = get_remote_info(workspace_name)
+
+        console.print(
+            f"[yellow]Starting shell for {app_name}. Type 'exit' to quit.[/yellow]"
+        )
+
+        # If a command is provided, execute it and return
+        # Otherwise, start an interactive shell (which replaces the current process)
         if command:
-            # Run a single command using run_piku_in_silica
-            piku_utils.run_piku_in_silica(
-                command, use_shell_pipe=True, workspace_name=workspace
-            )
+            result = direct_shell(workspace_name, command, capture_output=True)
+            if result.stdout:
+                for line in result.stdout.strip().split("\n"):
+                    console.print(line)
             console.print("[green]Command executed successfully[/green]")
         else:
-            # Start an interactive shell with the correct connection
-            console.print(
-                f"[yellow]Starting interactive shell for connection '{workspace}'. Type 'exit' to quit.[/yellow]"
-            )
-            # Use the connection string with piku
-            piku_cmd = f"piku -r {workspace} shell"
-            piku_utils.run_in_silica_dir(piku_cmd)
+            sys.exit(direct_shell(workspace_name))
+
     except ValueError as e:
         console.print(f"[red]Error: {str(e)}[/red]")
     except subprocess.CalledProcessError as e:
@@ -422,29 +430,26 @@ def tmux(tmux_args):
         silica piku tmux new -s name  # Create a new named session
     """
     try:
-        workspace = get_workspace_name()
+        # Use our direct implementation that avoids the headers
+        from silica.utils.piku_direct import tmux as direct_tmux
+        from silica.utils.piku_direct import get_remote_info
 
-        # Build the tmux command
-        tmux_cmd = "tmux"
-        if tmux_args:
-            tmux_cmd += " " + " ".join(tmux_args)
+        workspace_name = get_workspace_name()
+        server, app_name = get_remote_info(workspace_name)
 
         # When no arguments are provided, default to attaching
         if not tmux_args:
-            console.print(f"[yellow]Connecting to tmux session on {workspace}[/yellow]")
+            console.print(f"[yellow]Connecting to tmux session for {app_name}[/yellow]")
             console.print(
                 "[yellow]Use Ctrl+B followed by D to detach from the session[/yellow]"
             )
         else:
             console.print(f"[yellow]Running: tmux {' '.join(tmux_args)}[/yellow]")
 
-        # Run the tmux command using the piku connection
-        piku_cmd = f"piku -r {workspace} {tmux_cmd}"
-        subprocess.run(piku_cmd, shell=True)
+        # This will replace the current process with the tmux session
+        sys.exit(direct_tmux(workspace_name, list(tmux_args) if tmux_args else None))
 
     except ValueError as e:
         console.print(f"[red]Error: {str(e)}[/red]")
-    except subprocess.CalledProcessError as e:
-        console.print(f"[red]Error: Command failed: {e}[/red]")
     except Exception as e:
         console.print(f"[red]Unexpected error: {str(e)}[/red]")
