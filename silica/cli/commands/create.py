@@ -44,10 +44,23 @@ def check_remote_dependencies(workspace_name: str) -> Tuple[bool, List[str]]:
                 filter_headers=True,
             )
 
-            if check_result.returncode != 0:
-                missing_tools.append((tool, install_cmd))
+            # Handle both cases: when check_result is an integer or a CompletedProcess object
+            if isinstance(check_result, int):
+                # If check_result is an integer, it's the exit code
+                if check_result != 0:
+                    missing_tools.append((tool, install_cmd))
+                else:
+                    console.print(f"[green]✓ {tool} is installed[/green]")
+            elif hasattr(check_result, "returncode"):
+                # If check_result is a CompletedProcess object
+                if check_result.returncode != 0:
+                    missing_tools.append((tool, install_cmd))
+                else:
+                    console.print(f"[green]✓ {tool} is installed[/green]")
             else:
-                console.print(f"[green]✓ {tool} is installed[/green]")
+                # Unknown result type, assume missing
+                console.print(f"[red]Unexpected result type checking for {tool}[/red]")
+                missing_tools.append((tool, install_cmd))
 
         except Exception as e:
             console.print(f"[red]Error checking for {tool}: {e}[/red]")
