@@ -1,7 +1,6 @@
 """Commands for interacting with piku."""
 
 import click
-import sys
 from pathlib import Path
 from rich.console import Console
 from rich.table import Table
@@ -10,6 +9,7 @@ import subprocess
 from silica.config import find_git_root, get_silica_dir
 from silica.utils import piku as piku_utils
 from silica.utils.piku import get_workspace_name, get_app_name
+from silica.utils import piku_direct
 
 console = Console()
 
@@ -25,16 +25,16 @@ def status():
     try:
         workspace = get_workspace_name()
         app_name = get_app_name()
-        result = piku_utils.run_piku_in_silica(
-            f"status {app_name}",
-            capture_output=True,
-            workspace_name=workspace,
-            filter_headers=True,
+
+        # Use direct implementation to avoid headers
+        result = piku_direct.run_piku(
+            "status", args=[app_name], remote=workspace, suppress_headers=True
         )
+
         console.print("[green]Application status:[/green]")
 
-        # Print output if there's any content left after filtering
-        if result.stdout.strip():
+        # Print output if available
+        if hasattr(result, "stdout") and result.stdout.strip():
             for line in result.stdout.strip().split("\n"):
                 console.print(f"  {line}")
         else:
@@ -60,20 +60,18 @@ def logs(lines, follow):
         if lines is not None:
             logs_args.append(str(lines))
 
-        logs_cmd = f"logs {' '.join(logs_args)}"
-
-        # For follow mode, we can't capture output
-        capture_output = not follow
-
-        result = piku_utils.run_piku_in_silica(
-            logs_cmd,
-            capture_output=capture_output,
-            workspace_name=workspace,
-            filter_headers=True,
+        # Use direct implementation to avoid headers
+        # For follow mode, we use exec_mode to replace the current process
+        result = piku_direct.run_piku(
+            "logs",
+            args=logs_args,
+            remote=workspace,
+            suppress_headers=True,
+            exec_mode=follow,
         )
 
-        # If we captured output, print it out
-        if capture_output and result.stdout:
+        # If we captured output (not follow mode), print it
+        if not follow and hasattr(result, "stdout") and result.stdout:
             for line in result.stdout.strip().split("\n"):
                 if line.strip():  # Only print non-empty lines
                     console.print(line)
@@ -89,7 +87,12 @@ def restart():
     try:
         workspace = get_workspace_name()
         app_name = get_app_name()
-        piku_utils.run_piku_in_silica(f"restart {app_name}", workspace_name=workspace)
+
+        # Use direct implementation to avoid headers
+        piku_direct.run_piku(
+            "restart", args=[app_name], remote=workspace, suppress_headers=True
+        )
+
         console.print("[green]Agent environment restarted[/green]")
     except ValueError as e:
         console.print(f"[red]Error: {str(e)}[/red]")
@@ -168,9 +171,12 @@ def sync():
             f"/home/piku/app_dirs/{app_name}/code/"
         )
 
-        # Run the rsync command using run_piku_in_silica
-        piku_utils.run_piku_in_silica(
-            rsync_cmd, use_shell_pipe=True, workspace_name=workspace
+        # Run a shell command on the remote server
+        piku_direct.run_piku(
+            "shell",
+            args=["-c", f"{rsync_cmd} && exit"],
+            remote=workspace,
+            suppress_headers=True,
         )
 
         console.print("[green]Repository synced successfully[/green]")
@@ -188,15 +194,15 @@ def sessions():
     try:
         workspace = get_workspace_name()
 
-        # Use run_piku_in_silica to run the hdev sessions command
-        result = piku_utils.run_piku_in_silica(
-            "hdev sessions",
-            use_shell_pipe=True,
-            capture_output=True,
-            workspace_name=workspace,
-            filter_headers=True,
+        # Use run_piku to run the hdev sessions command
+        result = piku_direct.run_piku(
+            "shell",
+            args=["-c", "hdev sessions && exit"],
+            remote=workspace,
+            suppress_headers=True,
         )
-        sessions_output = result.stdout.strip()
+
+        sessions_output = result.stdout.strip() if hasattr(result, "stdout") else ""
 
         # Skip if no sessions found
         if not sessions_output or "No sessions found" in sessions_output:
@@ -236,21 +242,19 @@ def config():
         workspace = get_workspace_name()
         app_name = get_app_name()
 
-        # Get configuration using run_piku_in_silica
-        result = piku_utils.run_piku_in_silica(
-            f"config:get {app_name}",
-            capture_output=True,
-            workspace_name=workspace,
-            filter_headers=True,
+        # Get configuration using run_piku
+        result = piku_direct.run_piku(
+            "config:get", args=[app_name], remote=workspace, suppress_headers=True
         )
 
         # Parse the output into a dictionary
         config = {}
-        for line in result.stdout.strip().split("\n"):
-            line = line.strip()
-            if "=" in line:
-                k, v = line.split("=", 1)
-                config[k] = v
+        if hasattr(result, "stdout"):
+            for line in result.stdout.strip().split("\n"):
+                line = line.strip()
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    config[k] = v
 
         table = Table(title="Agent Configuration")
         table.add_column("Key", style="cyan")
@@ -296,7 +300,9 @@ def set_config(key_value_pairs):
         app_name = get_app_name()
 
         # Build command with all valid key-value pairs
-        config_args = []
+        config_args = [app_name]
+        displayed_pairs = []
+
         for pair in key_value_pairs:
             if "=" not in pair:
                 console.print(
@@ -319,12 +325,18 @@ def set_config(key_value_pairs):
                 or "token" in key.lower()
             )
             display_value = "********" if masked else value
-            console.print(f"Setting {key}={display_value}")
+            displayed_pairs.append(f"{key}={display_value}")
             config_args.append(pair)
 
-        if config_args:
-            config_cmd = f"config:set {app_name} {' '.join(config_args)}"
-            piku_utils.run_piku_in_silica(config_cmd, workspace_name=workspace)
+        if len(config_args) > 1:  # Include at least one key-value pair
+            for pair in displayed_pairs:
+                console.print(f"Setting {pair}")
+
+            # Use direct implementation to avoid headers
+            piku_direct.run_piku(
+                "config:set", args=config_args, remote=workspace, suppress_headers=True
+            )
+
             console.print("[green]Configuration updated successfully[/green]")
     except ValueError as e:
         console.print(f"[red]Error: {str(e)}[/red]")
@@ -340,13 +352,8 @@ def shell(command):
     If no command is provided, starts an interactive shell session.
     """
     try:
-        workspace_name = get_workspace_name()
-
-        # Use our direct implementation that avoids the headers
-        from silica.utils.piku_direct import shell as direct_shell
-        from silica.utils.piku_direct import get_remote_info
-
-        server, app_name = get_remote_info(workspace_name)
+        workspace = get_workspace_name()
+        app_name = get_app_name()
 
         console.print(
             f"[yellow]Starting shell for {app_name}. Type 'exit' to quit.[/yellow]"
@@ -355,18 +362,75 @@ def shell(command):
         # If a command is provided, execute it and return
         # Otherwise, start an interactive shell (which replaces the current process)
         if command:
-            result = direct_shell(workspace_name, command, capture_output=True)
-            if result.stdout:
+            # Use a custom command to execute a single command
+            result = piku_direct.run_piku(
+                "shell",
+                args=["-c", f"{command} && exit"],
+                remote=workspace,
+                suppress_headers=True,
+            )
+
+            if hasattr(result, "stdout") and result.stdout:
                 for line in result.stdout.strip().split("\n"):
                     console.print(line)
             console.print("[green]Command executed successfully[/green]")
         else:
-            sys.exit(direct_shell(workspace_name))
+            # Execute in replacement mode for interactive shell
+            piku_direct.run_piku(
+                "shell", remote=workspace, suppress_headers=True, exec_mode=True
+            )
 
     except ValueError as e:
         console.print(f"[red]Error: {str(e)}[/red]")
     except subprocess.CalledProcessError as e:
         console.print(f"[red]Error: {e.stderr if e.stderr else str(e)}[/red]")
+
+
+@piku.command(name="tmux")
+@click.argument("tmux_args", nargs=-1, required=False)
+def tmux(tmux_args):
+    """Access or interact with the tmux session for the workspace.
+
+    This command provides a wrapper around the piku tmux functionality,
+    allowing you to interact with the remote tmux session where your
+    agent is running.
+
+    If no arguments are provided, it will attach to the default tmux session.
+    You can also pass specific tmux commands and arguments.
+
+    Examples:
+        silica piku tmux              # Attach to the default session
+        silica piku tmux ls           # List all tmux sessions
+        silica piku tmux new -s name  # Create a new named session
+    """
+    try:
+        workspace = get_workspace_name()
+        app_name = get_app_name()
+
+        # When no arguments are provided, default to attaching
+        if not tmux_args:
+            console.print(f"[yellow]Connecting to tmux session for {app_name}[/yellow]")
+            console.print(
+                "[yellow]Use Ctrl+B followed by D to detach from the session[/yellow]"
+            )
+            # Use default tmux command
+            tmux_args = []
+        else:
+            console.print(f"[yellow]Running: tmux {' '.join(tmux_args)}[/yellow]")
+
+        # Execute in replacement mode for interactive tmux
+        piku_direct.run_piku(
+            "tmux",
+            args=list(tmux_args),
+            remote=workspace,
+            suppress_headers=True,
+            exec_mode=True,
+        )
+
+    except ValueError as e:
+        console.print(f"[red]Error: {str(e)}[/red]")
+    except Exception as e:
+        console.print(f"[red]Unexpected error: {str(e)}[/red]")
 
 
 @piku.command(name="upload")
@@ -396,60 +460,18 @@ def upload(local_path, remote_path):
             f"Uploading [blue]{local_path}[/blue] to workspace [green]{workspace}[/green]:[yellow]{app_name}/{remote_path}[/yellow]"
         )
 
-        # Use scp to upload the file
-        server = f"{workspace}"
-        remote_dest = f"{server}:~/.piku/apps/{app_name}/{remote_path}"
-
-        # Run scp command
-        subprocess.run(["scp", "-r", str(local_path), remote_dest], check=True)
+        # Use direct implementation for download command
+        piku_direct.run_piku(
+            "download",
+            args=[remote_path, str(local_path)],
+            remote=workspace,
+            suppress_headers=True,
+        )
 
         console.print("[green]Upload completed successfully[/green]")
     except ValueError as e:
         console.print(f"[red]Error: {str(e)}[/red]")
     except subprocess.CalledProcessError as e:
         console.print(f"[red]Error: Command failed: {e}[/red]")
-    except Exception as e:
-        console.print(f"[red]Unexpected error: {str(e)}[/red]")
-
-
-@piku.command(name="tmux")
-@click.argument("tmux_args", nargs=-1, required=False)
-def tmux(tmux_args):
-    """Access or interact with the tmux session for the workspace.
-
-    This command provides a wrapper around the piku tmux functionality,
-    allowing you to interact with the remote tmux session where your
-    agent is running.
-
-    If no arguments are provided, it will attach to the default tmux session.
-    You can also pass specific tmux commands and arguments.
-
-    Examples:
-        silica piku tmux              # Attach to the default session
-        silica piku tmux ls           # List all tmux sessions
-        silica piku tmux new -s name  # Create a new named session
-    """
-    try:
-        # Use our direct implementation that avoids the headers
-        from silica.utils.piku_direct import tmux as direct_tmux
-        from silica.utils.piku_direct import get_remote_info
-
-        workspace_name = get_workspace_name()
-        server, app_name = get_remote_info(workspace_name)
-
-        # When no arguments are provided, default to attaching
-        if not tmux_args:
-            console.print(f"[yellow]Connecting to tmux session for {app_name}[/yellow]")
-            console.print(
-                "[yellow]Use Ctrl+B followed by D to detach from the session[/yellow]"
-            )
-        else:
-            console.print(f"[yellow]Running: tmux {' '.join(tmux_args)}[/yellow]")
-
-        # This will replace the current process with the tmux session
-        sys.exit(direct_tmux(workspace_name, list(tmux_args) if tmux_args else None))
-
-    except ValueError as e:
-        console.print(f"[red]Error: {str(e)}[/red]")
     except Exception as e:
         console.print(f"[red]Unexpected error: {str(e)}[/red]")

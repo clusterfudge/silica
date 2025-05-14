@@ -1,10 +1,11 @@
 """Agent command for silica."""
 
 import click
-import sys
 from rich.console import Console
 
-from silica.utils.piku_direct import agent_session, get_remote_info
+from silica.config import find_git_root
+from silica.utils import piku as piku_utils
+from silica.utils import piku_direct
 
 console = Console()
 
@@ -23,18 +24,29 @@ def agent(workspace):
     If the session doesn't exist, it will be created.
     """
     try:
-        # Get server and app name from the workspace
-        _, app_name = get_remote_info(workspace)
+        # Get git root for app name
+        git_root = find_git_root()
+        if not git_root:
+            console.print("[red]Error: Not in a git repository.[/red]")
+            return
+
+        app_name = piku_utils.get_app_name(git_root)
 
         # Start an interactive shell and connect to the tmux session
         console.print(
             f"[green]Connecting to agent tmux session: [bold]{app_name}[/bold][/green]"
         )
 
-        # Use the direct implementation
-        # This will replace the current process, so any code after this won't execute
-        exit_code = agent_session(workspace_name=workspace)
-        sys.exit(exit_code)
+        # Use the piku_direct module to run the command with headers suppressed
+        # This will replace the current process, so code after this won't execute
+        # in the success case
+        piku_direct.run_piku(
+            "tmux",
+            args=["new-session", "-A", "-s", app_name, "./AGENT.sh; exec bash"],
+            remote=workspace,
+            suppress_headers=True,
+            exec_mode=True,
+        )
 
     except Exception as e:
         console.print(f"[red]Unexpected error: {e}[/red]")
