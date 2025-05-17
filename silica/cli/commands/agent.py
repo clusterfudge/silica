@@ -5,7 +5,6 @@ from rich.console import Console
 
 from silica.config import find_git_root
 from silica.utils import piku as piku_utils
-from silica.utils.piku import run_piku_in_silica
 
 console = Console()
 
@@ -37,11 +36,10 @@ def agent(workspace):
             f"[green]Connecting to agent tmux session: [bold]{app_name}[/bold][/green]"
         )
 
-        # Escape the tmux command properly
-        run_piku_in_silica(
-            f"tmux new-session -A -s {app_name} './AGENT.sh; exec bash'",
-            workspace_name=workspace,
-        )
+        # Use direct piku shell command to ensure environment variables are loaded correctly
+        # This approach matches how the `piku shell` command works
+        piku_cmd = f"piku -r {workspace} tmux new-session -A -s {app_name} './AGENT.sh; exec bash'"
+        piku_utils.run_in_silica_dir(piku_cmd)
 
     except Exception as e:
         console.print(f"[red]Unexpected error: {e}[/red]")
