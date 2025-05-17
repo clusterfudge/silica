@@ -37,10 +37,13 @@ def agent(workspace):
             f"[green]Connecting to agent tmux session: [bold]{app_name}[/bold][/green]"
         )
 
-        # Escape the tmux command properly
+        # Use 'piku shell' pipe to ensure login shell environment is loaded
+        # Then create or attach to tmux session with environment variables preserved
+        tmux_cmd = f"tmux new-session -A -s {app_name} './AGENT.sh; exec bash'"
         run_piku_in_silica(
-            f"tmux new-session -A -s {app_name} './AGENT.sh; exec bash'",
+            tmux_cmd,
             workspace_name=workspace,
+            use_shell_pipe=True,  # Use shell pipe to ensure env vars are loaded
         )
 
     except Exception as e:
