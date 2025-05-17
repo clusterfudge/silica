@@ -2,6 +2,19 @@
 # Get the directory where this script is located
 TOP=$(cd $(dirname $0) && pwd)
 
+# Load environment variables
+if [ -f ~/.profile ]; then
+    . ~/.profile
+fi
+if [ -f ~/.bashrc ]; then
+    . ~/.bashrc
+fi
+
+# Load piku-specific environment
+if [ -f ~/.piku_env ]; then
+    . ~/.piku_env
+fi
+
 # Synchronize dependencies
 cd "${TOP}"
 uv sync
