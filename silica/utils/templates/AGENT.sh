@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # Get the directory where this script is located
 TOP=$(cd $(dirname $0) && pwd)
+APP_NAME=$(basename $TOP)
+
+# NOTE: piku-specific
+# source environment variables
+set -a
+source $HOME/.piku/envs/${APP_NAME}/ENV  # could be LIVE_ENV?
 
 # Synchronize dependencies
 cd "${TOP}"
