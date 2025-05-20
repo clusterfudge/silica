@@ -35,7 +35,7 @@ cli.add_command(sync.sync)
 cli.add_command(agent.agent)
 cli.add_command(tell.tell)
 cli.add_command(progress.progress)
-cli.add_command(workspace)
+cli.add_command(workspace.workspace)
 
 if __name__ == "__main__":
     cli()
