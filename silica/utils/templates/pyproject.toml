@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Environment for silica agent"
 requires-python = ">=3.11"
 dependencies = [
-    "heare-developer>=0.8.3",
+    "heare-developer>=0.8.5",
 ]
 
 [build-system]
