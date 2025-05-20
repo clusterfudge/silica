@@ -365,18 +365,36 @@ def create(workspace, connection):
                 "[yellow]You may need to manually run uv sync in the remote workspace root.[/yellow]"
             )
 
-        # Create local config file with new naming
-        local_config = {
-            "workspace_name": workspace,
+        # Create or update workspace-specific configuration
+        from silica.config.multi_workspace import (
+            load_project_config,
+        )
+
+        # Load existing config to preserve other workspaces
+        project_config = load_project_config(silica_dir)
+
+        # Set this workspace's configuration
+        workspace_config = {
             "piku_connection": connection,
             "app_name": app_name,
             "branch": initial_branch,
         }
 
+        # Ensure workspaces key exists
+        if "workspaces" not in project_config:
+            project_config["workspaces"] = {}
+
+        # Add/update this workspace's config
+        project_config["workspaces"][workspace] = workspace_config
+
+        # Set as default workspace
+        project_config["default_workspace"] = workspace
+
+        # Save the updated config
         import yaml
 
         with open(silica_dir / "config.yaml", "w") as f:
-            yaml.dump(local_config, f, default_flow_style=False)
+            yaml.dump(project_config, f, default_flow_style=False)
 
         console.print("[green bold]Agent workspace created successfully![/green bold]")
         console.print(f"Workspace name: [cyan]{workspace}[/cyan]")

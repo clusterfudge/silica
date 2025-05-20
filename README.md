@@ -1,117 +1,89 @@
-# Silica
+# Silica: Multi-Workspace Management for Agents
 
-[![PR Checks](https://github.com/clusterfudge/silica/actions/workflows/pr-checks.yml/badge.svg)](https://github.com/clusterfudge/silica/actions/workflows/pr-checks.yml)
-[![PyPI version](https://badge.fury.io/py/pysilica.svg)](https://badge.fury.io/py/pysilica)
-[![Python Versions](https://img.shields.io/pypi/pyversions/pysilica.svg)](https://pypi.org/project/pysilica/)
+Silica is a command-line tool for creating and managing agent workspaces on top of piku.
 
-Silica is a command-line tool designed to create and manage remote environments in which coding agents can independently operate.
+## What's New: Multi-Workspace Support
 
-## What is Silica?
+Silica now supports managing multiple concurrent workspaces from the same repository. This allows you to:
 
-Silica enables you to set up isolated, fully operational remote environments for AI coding agents. These environments serve as independent workspaces where AI can:
-
-- Execute code
-- Access development tools
-- Interact with version control
-- Operate with proper authentication and credentials
-- Maintain long-running sessions
-- Work independently on specified tasks
-
-By creating this separation between your local environment and the agent's workspace, Silica allows for more autonomous operation of AI assistants with appropriate security boundaries.
+1. Create and maintain multiple agent workspaces with different configurations
+2. Switch between workspaces easily without having to recreate them
+3. Track configurations for all workspaces in a single repository
 
 ## Key Features
 
-- **Remote Environment Creation**: Easily provision isolated environments for your AI agents
-- **Credential Management**: Securely manage access to GitHub and AI APIs
-- **Session Management**: Monitor and interact with active agent sessions
-- **Task Management**: Assign and track work items for your agents
-- **Integration with [Piku](https://github.com/piku/piku)**: Leverages Piku's simple PaaS capabilities for deployments
+- **Workspace Management**: Create, list, and manage multiple agent workspaces
+- **Default Workspace**: Set a preferred workspace as default for easier command execution
+- **Workspace-specific Configuration**: Each workspace maintains its own settings
 
-## Installation
+## Usage
 
-Silica is available on PyPI as [`pysilica`](https://pypi.org/project/pysilica/):
+### Creating Workspaces
 
 ```bash
-pip install pysilica
+# Create a default workspace named 'agent'
+silica create
+
+# Create a workspace with a custom name
+silica create -w assistant
 ```
 
-You can also install the latest development version directly from GitHub:
+### Managing Workspaces
 
 ```bash
-pip install git+https://github.com/silica-ai/silica.git
+# List all configured workspaces
+silica workspace list
+
+# View the current default workspace
+silica workspace get-default
+
+# Set a different workspace as default
+silica workspace set-default assistant
 ```
 
-## Getting Started
+### Working with Specific Workspaces
 
-1. **Setup Configuration**:
-   ```bash
-   silica setup
-   ```
-   This will guide you through an interactive setup process to configure Silica.
+Most commands accept a `-w/--workspace` flag to specify which workspace to target:
 
-2. **Create a Remote Environment**:
-   ```bash
-   silica create [name]
-   ```
-   Creates a new environment for your agent.
+```bash
+# Sync a specific workspace
+silica sync -w assistant
 
-3. **Check Status**:
-   ```bash
-   silica status
-   ```
-   Shows the status of active agent sessions.
+# Check status of a specific workspace
+silica status -w assistant
 
-4. **Manage Tasks**:
-   ```bash
-   silica todos
-   ```
-   Manage work items for your agent.
+# Connect to a specific workspace's agent
+silica agent -w assistant
+```
 
-5. **Clean Up**:
-   ```bash
-   silica destroy [name]
-   ```
-   Removes a remote environment when no longer needed.
+### Destroying Workspaces
+
+```bash
+# Destroy a specific workspace
+silica destroy -w assistant
+```
 
 ## Configuration
 
-Silica stores its configuration in `~/.config/silica`. You can modify settings with:
+Silica now stores workspace configurations in `.silica/config.yaml` using a nested structure:
 
-```bash
-silica config:set key=value
+```yaml
+default_workspace: agent
+workspaces:
+  agent:
+    piku_connection: piku
+    app_name: agent-repo-name
+    branch: main
+  assistant:
+    piku_connection: piku
+    app_name: assistant-repo-name
+    branch: feature-branch
 ```
 
-Or view current configuration with:
+## Compatibility
 
-```bash
-silica config
-```
+This update maintains backward compatibility with existing silica workspaces. When you run commands with the updated version:
 
-## How It Works
-
-Silica creates an isolated environment on a remote server where your agent can operate. It uses Piku as the underlying platform and sets up the necessary scaffolding for the agent to run code, access tools, and maintain state.
-
-The remote environment includes:
-- A dedicated code directory with your project files
-- Proper authentication for GitHub and AI services
-- A running service that maintains the agent's capabilities
-
-## Use Cases
-
-- **Continuous Development**: Set up an agent that can work on your codebase even when your local machine is off
-- **Automated Tasks**: Deploy agents that handle routine development tasks independently
-- **Collaborative Assistance**: Create environments where agents can assist multiple team members without requiring local setup
-
-## Requirements
-
-- Python 3.11+
-- Git
-- Access to a server where you can install Piku
-
-## License
-
-[License information]
-
-## Contributing
-
-[Contributing information]
+1. Existing workspaces are automatically migrated to the new format
+2. The behavior of commands without specifying a workspace remains the same
+3. Old script implementations that expect workspace-specific configuration will continue to work

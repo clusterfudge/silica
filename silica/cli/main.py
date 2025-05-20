@@ -14,6 +14,7 @@ from silica.cli.commands import (
     agent,
     tell,
     progress,
+    workspace,
 )
 
 
@@ -34,6 +35,7 @@ cli.add_command(sync.sync)
 cli.add_command(agent.agent)
 cli.add_command(tell.tell)
 cli.add_command(progress.progress)
+cli.add_command(workspace)
 
 if __name__ == "__main__":
     cli()

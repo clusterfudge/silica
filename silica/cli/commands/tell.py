@@ -30,7 +30,7 @@ def tell(message, workspace):
             console.print("[red]Error: Not in a git repository.[/red]")
             return
 
-        app_name = piku_utils.get_app_name(git_root)
+        app_name = piku_utils.get_app_name(git_root, workspace_name=workspace)
 
         # Combine the message parts into a single string
         message_text = " ".join(message)

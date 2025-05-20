@@ -30,7 +30,7 @@ def agent(workspace):
             console.print("[red]Error: Not in a git repository.[/red]")
             return
 
-        app_name = piku_utils.get_app_name(git_root)
+        app_name = piku_utils.get_app_name(git_root, workspace_name=workspace)
 
         # Start an interactive shell and connect to the tmux session
         console.print(

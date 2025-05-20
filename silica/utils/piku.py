@@ -62,11 +62,14 @@ def get_piku_connection_for_workspace(
     return get_config_value("piku_connection", "piku")
 
 
-def get_agent_config(git_root: Optional[Path] = None) -> Dict[str, str]:
+def get_agent_config(
+    git_root: Optional[Path] = None, workspace_name: Optional[str] = None
+) -> Dict[str, str]:
     """Get the agent configuration from the .silica directory.
 
     Args:
         git_root: Optional git root path. If None, will be detected automatically.
+        workspace_name: Optional workspace name. If None, the default workspace will be used.
 
     Returns:
         Dict containing the agent configuration.
@@ -79,70 +82,105 @@ def get_agent_config(git_root: Optional[Path] = None) -> Dict[str, str]:
 
     silica_dir = get_silica_dir(git_root)
 
-    if not silica_dir or not (silica_dir / "config.yaml").exists():
+    if not silica_dir:
         raise ValueError("No silica environment found in this repository")
 
-    import yaml
+    # Import multi-workspace config functions
+    from silica.config.multi_workspace import (
+        get_workspace_config,
+        get_default_workspace,
+    )
 
-    with open(silica_dir / "config.yaml", "r") as f:
-        local_config = yaml.safe_load(f) or {}
+    # Load the project config
+    if not (silica_dir / "config.yaml").exists():
+        # No configuration yet, return defaults
+        return {
+            "workspace_name": workspace_name or "agent",
+            "piku_connection": get_config_value("piku_connection", "piku"),
+            "branch": "main",
+        }
 
-    # Handle configuration migration from old format
-    if "piku_remote" in local_config and "piku_connection" not in local_config:
-        local_config["piku_connection"] = local_config["piku_remote"]
+    # Get the workspace name if not provided
+    if workspace_name is None:
+        # Use the default workspace
+        workspace_name = get_default_workspace(silica_dir)
 
-    if "remote" in local_config and "workspace_name" not in local_config:
-        local_config["workspace_name"] = local_config["remote"]
+    # Get the workspace-specific configuration
+    workspace_config = get_workspace_config(silica_dir, workspace_name)
 
-    if "application" in local_config and "app_name" not in local_config:
-        local_config["app_name"] = local_config["application"]
+    # Add workspace_name to the returned config
+    local_config = dict(workspace_config)
+    local_config["workspace_name"] = workspace_name
 
-    # Add fallbacks for missing values
-    if "workspace_name" not in local_config:
-        local_config["workspace_name"] = "agent"
-
+    # Ensure essential keys have values
     if "piku_connection" not in local_config:
-        workspace_name = local_config.get("workspace_name", "agent")
         local_config["piku_connection"] = get_piku_connection_for_workspace(
             workspace_name, git_root
         )
 
     # Construct app_name if needed
     if "app_name" not in local_config and git_root:
-        local_config["app_name"] = f"{local_config['workspace_name']}-{git_root.name}"
+        local_config["app_name"] = f"{workspace_name}-{git_root.name}"
 
     return local_config
 
 
-def get_workspace_name(git_root: Optional[Path] = None) -> str:
+def get_workspace_name(
+    git_root: Optional[Path] = None, workspace_name: Optional[str] = None
+) -> str:
     """Get the workspace name for the current repository.
 
     Args:
         git_root: Optional git root path. If None, will be detected automatically.
+        workspace_name: Optional explicit workspace name. If provided, this will be returned.
+                       If None, the default workspace will be determined from config.
 
     Returns:
         The workspace name (e.g., "agent", "assistant", etc.)
     """
+    # If workspace_name is explicitly provided, use it
+    if workspace_name is not None:
+        return workspace_name
+
+    # Otherwise get from config
+    if git_root is None:
+        git_root = find_git_root()
+
+    if not git_root:
+        return "agent"  # Fallback default
+
+    silica_dir = get_silica_dir(git_root)
+    if not silica_dir:
+        return "agent"  # Fallback default
+
     try:
-        config = get_agent_config(git_root)
-        return config.get("workspace_name", "agent")
-    except ValueError:
-        # If no config found, use default workspace name
+        # Import multi-workspace config functions
+        from silica.config.multi_workspace import get_default_workspace
+
+        # Get the default workspace name
+        return get_default_workspace(silica_dir)
+    except Exception:
+        # If anything goes wrong, return the default
         return "agent"
 
 
-def get_piku_connection(git_root: Optional[Path] = None) -> str:
+def get_piku_connection(
+    git_root: Optional[Path] = None, workspace_name: Optional[str] = None
+) -> str:
     """Get the piku connection string for the current repository.
 
     Args:
         git_root: Optional git root path. If None, will be detected automatically.
+        workspace_name: Optional explicit workspace name to use. If None, the default workspace will be used.
 
     Returns:
         The piku connection string (e.g., "piku", "piku@host")
     """
     try:
-        config = get_agent_config(git_root)
-        workspace_name = config.get("workspace_name", "agent")
+        if workspace_name is None:
+            # Get the workspace name from configuration
+            config = get_agent_config(git_root)
+            workspace_name = config.get("workspace_name", "agent")
         # Get the connection string associated with this workspace
         return get_piku_connection_for_workspace(workspace_name, git_root)
     except ValueError:
@@ -150,23 +188,34 @@ def get_piku_connection(git_root: Optional[Path] = None) -> str:
         return get_config_value("piku_connection", "piku")
 
 
-def get_app_name(git_root: Optional[Path] = None) -> str:
+def get_app_name(
+    git_root: Optional[Path] = None, workspace_name: Optional[str] = None
+) -> str:
     """Get the application name for the current repository.
 
     Args:
         git_root: Optional git root path. If None, will be detected automatically.
+        workspace_name: Optional explicit workspace name to use. If None, the default workspace will be used.
 
     Returns:
         The application name.
     """
     try:
-        config = get_agent_config(git_root)
-        if "app_name" in config:
-            return config.get("app_name")
+        # If no explicit workspace_name provided, get it from config
+        if workspace_name is None:
+            config = get_agent_config(git_root)
+            if "app_name" in config:
+                return config.get("app_name")
 
-        # If app_name not set directly, construct it
-        workspace_name = config.get("workspace_name", "agent")
+            # If app_name not set directly, get workspace name from config
+            workspace_name = config.get("workspace_name", "agent")
+        else:
+            # Check if there's a specific app_name for this workspace
+            config = get_agent_config(git_root, workspace_name=workspace_name)
+            if "app_name" in config:
+                return config.get("app_name")
 
+        # Construct app_name from workspace name and repo name
         if git_root is None:
             git_root = find_git_root()
 
@@ -179,8 +228,9 @@ def get_app_name(git_root: Optional[Path] = None) -> str:
             git_root = find_git_root()
 
         if git_root:
-            # Default to "agent" workspace if no configuration
-            return f"agent-{git_root.name}"
+            # Use provided workspace_name or default to "agent"
+            ws_name = workspace_name or "agent"
+            return f"{ws_name}-{git_root.name}"
 
     raise ValueError("Not in a git repository")
 

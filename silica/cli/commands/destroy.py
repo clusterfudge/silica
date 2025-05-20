@@ -122,3 +122,47 @@ def destroy(force, workspace):
         console.print(f"[red]Error destroying environment: {error_output}[/red]")
     except Exception as e:
         console.print(f"[red]Unexpected error: {e}[/red]")
+
+    # Update configuration file to remove the workspace
+    try:
+        from silica.config.multi_workspace import load_project_config
+
+        if (silica_dir / "config.yaml").exists():
+            # Load existing config
+            config = load_project_config(silica_dir)
+
+            # Remove the workspace if it exists
+            if "workspaces" in config and workspace in config["workspaces"]:
+                del config["workspaces"][workspace]
+                console.print(
+                    f"[green]Removed workspace '{workspace}' from configuration.[/green]"
+                )
+
+                # If we removed the default workspace, set a new default
+                if config.get("default_workspace") == workspace:
+                    # Find another workspace to set as default, or use "agent" if none exist
+                    if config["workspaces"]:
+                        new_default = next(iter(config["workspaces"].keys()))
+                        config["default_workspace"] = new_default
+                        console.print(
+                            f"[green]Set new default workspace to '{new_default}'.[/green]"
+                        )
+                    else:
+                        config["default_workspace"] = "agent"
+                        console.print(
+                            "[yellow]No workspaces left. Default reset to 'agent'.[/yellow]"
+                        )
+
+                # Save the updated config
+                import yaml
+
+                with open(silica_dir / "config.yaml", "w") as f:
+                    yaml.dump(config, f, default_flow_style=False)
+            else:
+                console.print(
+                    f"[yellow]Note: Workspace '{workspace}' was not found in local configuration.[/yellow]"
+                )
+    except Exception as e:
+        console.print(
+            f"[yellow]Warning: Could not update local configuration file: {e}[/yellow]"
+        )

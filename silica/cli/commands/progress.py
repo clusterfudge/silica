@@ -39,7 +39,6 @@ def progress(workspace, timeout):
             console.print("[red]Error: Not in a git repository.[/red]")
             return
 
-        piku_utils.get_app_name(git_root)
         # Use a file in the agent's code directory
         status_file = "code/.silica-status"
 
