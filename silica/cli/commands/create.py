@@ -370,8 +370,17 @@ def create(workspace, connection):
             load_project_config,
         )
 
-        # Load existing config to preserve other workspaces
-        project_config = load_project_config(silica_dir)
+        # Check if a config file already exists
+        config_file = silica_dir / "config.yaml"
+        config_exists = config_file.exists()
+
+        if config_exists:
+            # Load existing config to preserve other workspaces
+            project_config = load_project_config(silica_dir)
+        else:
+            # Creating a new config from scratch, don't create default "agent" workspace
+            # if user has specified a different workspace name
+            project_config = {"default_workspace": workspace, "workspaces": {}}
 
         # Set this workspace's configuration
         workspace_config = {

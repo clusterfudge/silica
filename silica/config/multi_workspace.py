@@ -19,15 +19,11 @@ def load_project_config(silica_dir: Path) -> Dict[str, Any]:
     config_file = silica_dir / "config.yaml"
 
     if not config_file.exists():
-        # No config file yet
+        # No config file yet - return an empty configuration structure
+        # Let the caller decide whether to create default workspaces
         return {
-            "default_workspace": "agent",
-            "workspaces": {
-                "agent": {
-                    "piku_connection": DEFAULT_CONFIG["piku_connection"],
-                    "branch": "main",
-                }
-            },
+            "default_workspace": "agent",  # Still default to "agent" as name
+            "workspaces": {},  # But don't create any workspace entries
         }
 
     with open(config_file, "r") as f:
@@ -95,11 +91,14 @@ def get_workspace_config(
 
     # If the workspace doesn't exist, create it with defaults
     if workspace_name not in config["workspaces"]:
-        config["workspaces"][workspace_name] = {
-            "piku_connection": DEFAULT_CONFIG["piku_connection"],
-            "branch": "main",
-        }
-        save_project_config(silica_dir, config)
+        # Only auto-create a workspace if it's explicitly requested
+        # or if it's the default workspace name and no workspaces exist
+        if workspace_name is not None or len(config["workspaces"]) == 0:
+            config["workspaces"][workspace_name] = {
+                "piku_connection": DEFAULT_CONFIG["piku_connection"],
+                "branch": "main",
+            }
+            save_project_config(silica_dir, config)
 
     return config["workspaces"][workspace_name]
 
