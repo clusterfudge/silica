@@ -12,10 +12,20 @@ Silica now supports managing multiple concurrent workspaces from the same reposi
 
 ## Key Features
 
-- **Multiple Agent Support**: Support for different AI coding agents (hdev, claude-code, openai-codex, cline, aider)
+- **Multiple Agent Support**: Support for different AI coding agents with customizable default arguments
 - **Workspace Management**: Create, list, and manage multiple agent workspaces
 - **Default Workspace**: Set a preferred workspace as default for easier command execution
 - **Workspace-specific Configuration**: Each workspace maintains its own settings including agent type
+
+## 🤖 Supported Agents
+
+| Agent | Command | Description | Default Arguments | Dependencies |
+|-------|---------|-------------|-------------------|--------------|
+| **hdev** | `hdev` | Heare Developer - autonomous coding agent | `--dwr --persona autonomous_engineer` | heare-developer |
+| **claude-code** | `claude-code` | Claude Code - Anthropic's coding assistant | none | claude-code |
+| **openai-codex** | `openai-codex` | OpenAI Codex - AI coding assistant | none | openai-codex |
+| **cline** | `cline` | Cline - AI coding assistant with VS Code integration | none | cline |
+| **aider** | `aider` | AI pair programming in your terminal | `--auto-commits` | aider-chat |
 
 ## Usage
 

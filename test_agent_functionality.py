@@ -48,8 +48,8 @@ def main():
     if not run_command("silica agents set hdev"):
         sys.exit(1)
 
-    # Test 7: Configure with different agent
-    if not run_command("silica agents configure cline"):
+    # Test 7: Configure with different agent (skip interactive - just set it)
+    if not run_command("silica agents set cline"):
         sys.exit(1)
 
     # Test 8: Test global default agent management

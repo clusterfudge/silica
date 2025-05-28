@@ -34,14 +34,39 @@ def list_agents():
     table.add_column("Name", style="cyan")
     table.add_column("Command", style="green")
     table.add_column("Description", style="white")
+    table.add_column("Default Args", style="magenta")
     table.add_column("Dependencies", style="yellow")
 
     for agent_name in get_supported_agents():
         agent_config = get_agent_config(agent_name)
         if agent_config:
             deps = ", ".join(agent_config.required_dependencies)
+
+            # Format default arguments
+            default_flags = agent_config.default_args.get("flags", [])
+            default_args = agent_config.default_args.get("args", {})
+
+            defaults_str = ""
+            if default_flags:
+                defaults_str += " ".join(default_flags)
+            if default_args:
+                args_formatted = " ".join(
+                    [f"--{k} {v}" for k, v in default_args.items()]
+                )
+                if defaults_str:
+                    defaults_str += " " + args_formatted
+                else:
+                    defaults_str = args_formatted
+
+            if not defaults_str:
+                defaults_str = "[dim]none[/dim]"
+
             table.add_row(
-                agent_config.name, agent_config.command, agent_config.description, deps
+                agent_config.name,
+                agent_config.command,
+                agent_config.description,
+                defaults_str,
+                deps,
             )
 
     console.print(table)
@@ -160,13 +185,38 @@ def show_agent(workspace):
                 f"Dependencies: [yellow]{', '.join(agent_details.required_dependencies)}[/yellow]"
             )
 
+            # Show default configuration from agent definition
+            default_flags = agent_details.default_args.get("flags", [])
+            default_args = agent_details.default_args.get("args", {})
+            if default_flags or default_args:
+                console.print("\n[bold]Default Agent Configuration:[/bold]")
+                if default_flags:
+                    console.print(f"Default flags: [blue]{default_flags}[/blue]")
+                if default_args:
+                    console.print(f"Default arguments: [blue]{default_args}[/blue]")
+
         # Show custom configuration
         if agent_config:
-            console.print("\n[bold]Custom Configuration:[/bold]")
+            console.print("\n[bold]Workspace Custom Configuration:[/bold]")
             if "flags" in agent_config:
-                console.print(f"Flags: [magenta]{agent_config['flags']}[/magenta]")
+                console.print(
+                    f"Custom flags: [magenta]{agent_config['flags']}[/magenta]"
+                )
             if "args" in agent_config:
-                console.print(f"Arguments: [magenta]{agent_config['args']}[/magenta]")
+                console.print(
+                    f"Custom arguments: [magenta]{agent_config['args']}[/magenta]"
+                )
+
+        # Show the complete generated command
+        from silica.utils.agents import generate_agent_command
+
+        try:
+            full_command = generate_agent_command(agent_type, config)
+            console.print(
+                f"\n[bold]Generated Command:[/bold] [cyan]{full_command}[/cyan]"
+            )
+        except Exception as e:
+            console.print(f"\n[yellow]Could not generate command: {e}[/yellow]")
 
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
@@ -266,10 +316,40 @@ def configure_agent(workspace, agent_type):
         console.print(f"Description: {agent_details.description}")
         console.print(f"Default command: {agent_details.command}")
         console.print(f"Default flags: {agent_details.default_args.get('flags', [])}")
+        console.print(f"Default args: {agent_details.default_args.get('args', {})}")
 
-        # For now, just do basic configuration - we can enhance this later
-        # Update configuration with agent type
-        updated_config = update_workspace_with_agent(current_config, agent_type)
+        # Interactive configuration for custom settings
+        from rich.prompt import Confirm, Prompt
+
+        custom_config = {"flags": [], "args": {}}
+
+        if Confirm.ask(
+            "\nWould you like to add custom flags beyond the defaults?", default=False
+        ):
+            while True:
+                flag = Prompt.ask("Enter custom flag (without --)", default="")
+                if not flag:
+                    break
+                custom_config["flags"].append(flag)
+                if not Confirm.ask("Add another flag?", default=False):
+                    break
+
+        if Confirm.ask(
+            "Would you like to add custom arguments beyond the defaults?", default=False
+        ):
+            while True:
+                arg_name = Prompt.ask("Enter argument name (without --)", default="")
+                if not arg_name:
+                    break
+                arg_value = Prompt.ask(f"Enter value for --{arg_name}")
+                custom_config["args"][arg_name] = arg_value
+                if not Confirm.ask("Add another argument?", default=False):
+                    break
+
+        # Update configuration with agent type and custom settings
+        updated_config = update_workspace_with_agent(
+            current_config, agent_type, custom_config
+        )
 
         # Save updated configuration
         set_workspace_config(silica_dir, workspace, updated_config)

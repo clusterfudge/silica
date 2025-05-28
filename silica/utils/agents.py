@@ -22,35 +22,35 @@ SUPPORTED_AGENTS = {
         name="hdev",
         command="hdev",
         description="Heare Developer - autonomous coding agent",
-        default_args={"flags": ["--dwr"]},
+        default_args={"flags": ["--dwr"], "args": {"persona": "autonomous_engineer"}},
         required_dependencies=["heare-developer"],
     ),
     "claude-code": AgentConfig(
         name="claude-code",
         command="claude-code",
         description="Claude Code - Anthropic's coding assistant",
-        default_args={"flags": []},
+        default_args={"flags": [], "args": {}},
         required_dependencies=["claude-code"],
     ),
     "openai-codex": AgentConfig(
         name="openai-codex",
         command="openai-codex",
         description="OpenAI Codex - AI coding assistant",
-        default_args={"flags": []},
+        default_args={"flags": [], "args": {}},
         required_dependencies=["openai-codex"],
     ),
     "cline": AgentConfig(
         name="cline",
         command="cline",
         description="Cline - AI coding assistant with VS Code integration",
-        default_args={"flags": []},
+        default_args={"flags": [], "args": {}},
         required_dependencies=["cline"],
     ),
     "aider": AgentConfig(
         name="aider",
         command="aider",
         description="AI pair programming in your terminal",
-        default_args={"flags": ["--auto-commits"]},
+        default_args={"flags": ["--auto-commits"], "args": {}},
         required_dependencies=["aider-chat"],
     ),
 }
@@ -91,9 +91,17 @@ def generate_agent_command(agent_type: str, workspace_config: Dict[str, Any]) ->
     # Build command
     command_parts = ["uv", "run", agent_config.command]
 
-    # Add default flags
+    # Add default flags from agent definition
     default_flags = agent_config.default_args.get("flags", [])
     command_parts.extend(default_flags)
+
+    # Add default arguments from agent definition
+    default_args = agent_config.default_args.get("args", {})
+    for key, value in default_args.items():
+        if value is True:
+            command_parts.append(f"--{key}")
+        elif value is not False and value is not None:
+            command_parts.extend([f"--{key}", str(value)])
 
     # Add custom flags from workspace config
     custom_flags = agent_settings.get("flags", [])
