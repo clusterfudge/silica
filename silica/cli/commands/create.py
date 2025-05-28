@@ -104,16 +104,19 @@ def get_template_content(filename):
     "-a",
     "--agent",
     "agent_type",
-    help=f"Agent type to use. Options: {', '.join(get_supported_agents())} (default: hdev)",
-    default="hdev",
+    help=f"Agent type to use. Options: {', '.join(get_supported_agents())} (default: from global config)",
+    default=None,
     type=click.Choice(get_supported_agents(), case_sensitive=False),
 )
 def create(workspace, connection, agent_type):
     """Create a new agent environment workspace."""
-    # Workspace name is now a required parameter with a default value at the CLI level
-    # If a specific connection was provided, use it
-    # Otherwise we'll infer it later after setting up git
+    # Load global configuration
     config = load_config()
+
+    # Use global default agent if none specified
+    if agent_type is None:
+        agent_type = config.get("default_agent", "hdev")
+        console.print(f"[dim]Using default agent type: {agent_type}[/dim]")
 
     if connection is None:
         # Check if there's a git remote named "piku" in the project repo

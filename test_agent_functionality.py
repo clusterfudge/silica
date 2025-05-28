@@ -52,7 +52,23 @@ def main():
     if not run_command("silica agents configure cline"):
         sys.exit(1)
 
-    # Test 8: Final status check
+    # Test 8: Test global default agent management
+    if not run_command("silica agents get-default"):
+        sys.exit(1)
+
+    # Test 9: Set global default agent
+    if not run_command("silica agents set-default aider"):
+        sys.exit(1)
+
+    # Test 10: Verify global default was set
+    if not run_command("silica agents get-default"):
+        sys.exit(1)
+
+    # Test 11: Reset global default back to hdev
+    if not run_command("silica agents set-default hdev"):
+        sys.exit(1)
+
+    # Test 12: Final status check
     if not run_command("silica agents status"):
         sys.exit(1)
 
@@ -64,6 +80,7 @@ def main():
     print("✅ Configuration management")
     print("✅ Script generation")
     print("✅ Workspace integration")
+    print("✅ Global default agent management")
 
 
 if __name__ == "__main__":

@@ -22,7 +22,7 @@ Silica now supports managing multiple concurrent workspaces from the same reposi
 ### Creating Workspaces
 
 ```bash
-# Create a default workspace named 'agent' with hdev agent
+# Create a default workspace named 'agent' using global default agent
 silica create
 
 # Create a workspace with a custom name and different agent
@@ -30,6 +30,11 @@ silica create -w assistant -a aider
 
 # Create workspace with specific agent type
 silica create -w cline-workspace -a cline
+
+# The agent type is determined by (in order of priority):
+# 1. -a/--agent flag if provided
+# 2. Global default agent setting
+# 3. Fallback to 'hdev' if no global default set
 ```
 
 ### Managing Workspaces
@@ -77,6 +82,12 @@ silica agents set cline -w my-workspace
 
 # Configure agent with custom settings
 silica agents configure cline -w my-workspace
+
+# Set global default agent type
+silica agents set-default aider
+
+# View current global default
+silica agents get-default
 ```
 
 ### Destroying Workspaces

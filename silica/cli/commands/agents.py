@@ -300,3 +300,35 @@ def configure_agent(workspace, agent_type):
         console.print(f"[red]Error: {e}[/red]")
     except Exception as e:
         console.print(f"[red]Unexpected error: {e}[/red]")
+
+
+@agents.command("set-default")
+@click.argument(
+    "agent_type", type=click.Choice(get_supported_agents(), case_sensitive=False)
+)
+def set_default_agent(agent_type):
+    """Set the global default agent type for new workspaces."""
+    from silica.config import set_config_value
+
+    set_config_value("default_agent", agent_type)
+    console.print(f"[green]Global default agent set to: {agent_type}[/green]")
+    console.print(
+        "[dim]This will be used for new workspaces created without specifying -a/--agent[/dim]"
+    )
+    console.print(
+        f"[dim]You can also use: silica config set-default-agent {agent_type}[/dim]"
+    )
+
+
+@agents.command("get-default")
+def get_default_agent():
+    """Show the current global default agent type."""
+    from silica.config import get_config_value
+
+    default_agent = get_config_value("default_agent", "hdev")
+    console.print(f"[bold]Global default agent:[/bold] [cyan]{default_agent}[/cyan]")
+
+    agent_details = get_agent_config(default_agent)
+    if agent_details:
+        console.print(f"Description: [white]{agent_details.description}[/white]")
+        console.print(f"Command: [green]{agent_details.command}[/green]")
