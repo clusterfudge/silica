@@ -6,14 +6,14 @@ APP_NAME=$(basename $TOP)
 # NOTE: piku-specific
 # source environment variables
 set -a
-source $HOME/.piku/envs/${APP_NAME}/ENV  # could be LIVE_ENV?
+source $HOME/.piku/envs/${{APP_NAME}}/ENV  # could be LIVE_ENV?
 
 # Synchronize dependencies
-cd "${TOP}"
+cd "${{TOP}}"
 uv sync
 
 # Change to the code directory and start the agent
-cd "${TOP}/code"
+cd "${{TOP}}/code"
 echo "Starting the {agent_type} agent from $(pwd) at $(date)"
 {agent_command} || echo "Agent exited with status $? at $(date)"
 

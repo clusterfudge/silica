@@ -219,3 +219,84 @@ def status():
 
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
+
+
+@agents.command("configure")
+@click.option(
+    "-w",
+    "--workspace",
+    help="Workspace name (default: current default workspace)",
+    default=None,
+)
+@click.argument(
+    "agent_type", type=click.Choice(get_supported_agents(), case_sensitive=False)
+)
+def configure_agent(workspace, agent_type):
+    """Interactively configure an agent for a workspace with custom settings."""
+    try:
+        # Find git root and silica directory
+        git_root = find_git_root()
+        if not git_root:
+            console.print("[red]Error: Not in a git repository.[/red]")
+            return
+
+        silica_dir = get_silica_dir(git_root)
+        if not silica_dir:
+            console.print("[red]Error: No silica environment found.[/red]")
+            return
+
+        # Get current workspace configuration
+        current_config = get_workspace_config(silica_dir, workspace)
+
+        # Get actual workspace name (in case None was passed)
+        if workspace is None:
+            from silica.config.multi_workspace import get_default_workspace
+
+            workspace = get_default_workspace(silica_dir)
+
+        # Get agent details for configuration
+        agent_details = get_agent_config(agent_type)
+        if not agent_details:
+            console.print(f"[red]Error: Unknown agent type: {agent_type}[/red]")
+            return
+
+        console.print(
+            f"[bold]Configuring {agent_type} for workspace '{workspace}'[/bold]"
+        )
+        console.print(f"Description: {agent_details.description}")
+        console.print(f"Default command: {agent_details.command}")
+        console.print(f"Default flags: {agent_details.default_args.get('flags', [])}")
+
+        # For now, just do basic configuration - we can enhance this later
+        # Update configuration with agent type
+        updated_config = update_workspace_with_agent(current_config, agent_type)
+
+        # Save updated configuration
+        set_workspace_config(silica_dir, workspace, updated_config)
+
+        # Regenerate AGENT.sh script
+        script_content = generate_agent_script(updated_config)
+
+        # Write the new script to the agent-repo
+        agent_repo_path = silica_dir / "agent-repo"
+        if agent_repo_path.exists():
+            script_path = agent_repo_path / "AGENT.sh"
+            with open(script_path, "w") as f:
+                f.write(script_content)
+
+            # Set executable permissions
+            script_path.chmod(script_path.stat().st_mode | 0o755)
+
+            console.print(
+                f"[green]Successfully configured workspace '{workspace}' with agent '{agent_type}'[/green]"
+            )
+            console.print(
+                f"[yellow]Don't forget to sync your changes: silica sync -w {workspace}[/yellow]"
+            )
+        else:
+            console.print("[red]Error: Agent repository not found.[/red]")
+
+    except ValueError as e:
+        console.print(f"[red]Error: {e}[/red]")
+    except Exception as e:
+        console.print(f"[red]Unexpected error: {e}[/red]")
