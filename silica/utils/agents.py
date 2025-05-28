@@ -39,12 +39,12 @@ SUPPORTED_AGENTS = {
         default_args={"flags": []},
         required_dependencies=["openai-codex"],
     ),
-    "clide": AgentConfig(
-        name="clide",
-        command="clide",
-        description="Claude CLI development environment",
+    "cline": AgentConfig(
+        name="cline",
+        command="cline",
+        description="Cline - AI coding assistant with VS Code integration",
         default_args={"flags": []},
-        required_dependencies=["clide"],
+        required_dependencies=["cline"],
     ),
     "aider": AgentConfig(
         name="aider",

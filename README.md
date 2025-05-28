@@ -12,7 +12,7 @@ Silica now supports managing multiple concurrent workspaces from the same reposi
 
 ## Key Features
 
-- **Multiple Agent Support**: Support for different AI coding agents (hdev, claude-code, openai-codex, clide, aider)
+- **Multiple Agent Support**: Support for different AI coding agents (hdev, claude-code, openai-codex, cline, aider)
 - **Workspace Management**: Create, list, and manage multiple agent workspaces
 - **Default Workspace**: Set a preferred workspace as default for easier command execution
 - **Workspace-specific Configuration**: Each workspace maintains its own settings including agent type
@@ -29,7 +29,7 @@ silica create
 silica create -w assistant -a aider
 
 # Create workspace with specific agent type
-silica create -w claude-workspace -a claude-code
+silica create -w cline-workspace -a cline
 ```
 
 ### Managing Workspaces
@@ -73,10 +73,10 @@ silica agents status
 silica agents show
 
 # Change agent type for a workspace
-silica agents set aider -w my-workspace
+silica agents set cline -w my-workspace
 
 # Configure agent with custom settings
-silica agents configure claude-code -w my-workspace
+silica agents configure cline -w my-workspace
 ```
 
 ### Destroying Workspaces
@@ -105,11 +105,10 @@ workspaces:
     piku_connection: piku
     app_name: assistant-repo-name
     branch: feature-branch
-    agent_type: aider
+    agent_type: cline
     agent_config:
-      flags: ["--auto-lint"]
-      args:
-        model: "gpt-4"
+      flags: []
+      args: {}
 ```
 
 ## Compatibility

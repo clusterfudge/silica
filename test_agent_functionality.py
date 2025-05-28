@@ -49,7 +49,7 @@ def main():
         sys.exit(1)
 
     # Test 7: Configure with different agent
-    if not run_command("silica agents configure claude-code"):
+    if not run_command("silica agents configure cline"):
         sys.exit(1)
 
     # Test 8: Final status check
