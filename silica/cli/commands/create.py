@@ -8,6 +8,11 @@ from typing import Dict, List, Tuple
 
 from silica.config import load_config, find_git_root
 from silica.utils import piku as piku_utils
+from silica.utils.agents import (
+    get_supported_agents,
+    get_default_workspace_agent_config,
+    generate_agent_script,
+)
 
 # Import sync functionality
 from silica.cli.commands.sync import sync_repo_to_remote
@@ -95,7 +100,15 @@ def get_template_content(filename):
     help="Piku connection string (default: inferred from git or config)",
     default=None,
 )
-def create(workspace, connection):
+@click.option(
+    "-a",
+    "--agent",
+    "agent_type",
+    help=f"Agent type to use. Options: {', '.join(get_supported_agents())} (default: hdev)",
+    default="hdev",
+    type=click.Choice(get_supported_agents(), case_sensitive=False),
+)
+def create(workspace, connection, agent_type):
     """Create a new agent environment workspace."""
     # Workspace name is now a required parameter with a default value at the CLI level
     # If a specific connection was provided, use it
@@ -172,9 +185,17 @@ def create(workspace, connection):
             "AGENT.sh",
         ]
 
+        # Create workspace config for agent script generation
+        workspace_config = get_default_workspace_agent_config(agent_type)
+
         # Create initial files
         for filename in initial_files:
-            content = get_template_content(filename)
+            if filename == "AGENT.sh":
+                # Generate agent-specific script
+                content = generate_agent_script(workspace_config)
+            else:
+                content = get_template_content(filename)
+
             file_path = repo_path / filename
             with open(file_path, "w") as f:
                 f.write(content)
@@ -382,11 +403,13 @@ def create(workspace, connection):
             # if user has specified a different workspace name
             project_config = {"default_workspace": workspace, "workspaces": {}}
 
-        # Set this workspace's configuration
+        # Set this workspace's configuration including agent settings
+        agent_config = get_default_workspace_agent_config(agent_type)
         workspace_config = {
             "piku_connection": connection,
             "app_name": app_name,
             "branch": initial_branch,
+            **agent_config,
         }
 
         # Ensure workspaces key exists
