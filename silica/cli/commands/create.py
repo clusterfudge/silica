@@ -13,6 +13,7 @@ from silica.utils.agents import (
     get_default_workspace_agent_config,
     generate_agent_script,
 )
+from silica.utils.installers.manager import installer
 
 # Import sync functionality
 from silica.cli.commands.sync import sync_repo_to_remote
@@ -117,6 +118,33 @@ def create(workspace, connection, agent_type):
     if agent_type is None:
         agent_type = config.get("default_agent", "hdev")
         console.print(f"[dim]Using default agent type: {agent_type}[/dim]")
+
+    # Check if the agent is installed and offer to install if not
+    if not installer.is_agent_installed(agent_type):
+        console.print(f"[yellow]Warning: {agent_type} is not installed[/yellow]")
+        from rich.prompt import Confirm
+
+        if Confirm.ask(
+            f"Would you like to install {agent_type} before creating the workspace?",
+            default=True,
+        ):
+            console.print(f"[blue]Installing {agent_type}...[/blue]")
+            if installer.install_agent(agent_type):
+                console.print(f"[green]✓ Successfully installed {agent_type}[/green]")
+            else:
+                console.print(f"[red]✗ Failed to install {agent_type}[/red]")
+                install_cmd = installer.get_install_command(agent_type)
+                if install_cmd:
+                    console.print(f"[blue]Manual installation: {install_cmd}[/blue]")
+                if not Confirm.ask(
+                    "Continue with workspace creation anyway?", default=True
+                ):
+                    console.print("[yellow]Workspace creation cancelled.[/yellow]")
+                    return
+        else:
+            console.print(
+                f"[yellow]Continuing without installing {agent_type}[/yellow]"
+            )
 
     if connection is None:
         # Check if there's a git remote named "piku" in the project repo

@@ -68,7 +68,11 @@ def main():
     if not run_command("silica agents set-default hdev"):
         sys.exit(1)
 
-    # Test 12: Final status check
+    # Test 12: Test installation status checking
+    if not run_command("silica agents check-install"):
+        sys.exit(1)
+
+    # Test 13: Final status check
     if not run_command("silica agents status"):
         sys.exit(1)
 
@@ -81,6 +85,7 @@ def main():
     print("✅ Script generation")
     print("✅ Workspace integration")
     print("✅ Global default agent management")
+    print("✅ Agent installation status checking")
 
 
 if __name__ == "__main__":

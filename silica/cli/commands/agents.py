@@ -11,6 +11,7 @@ from silica.utils.agents import (
     update_workspace_with_agent,
     generate_agent_script,
 )
+from silica.utils.installers.manager import installer
 from silica.config.multi_workspace import (
     get_workspace_config,
     set_workspace_config,
@@ -35,6 +36,7 @@ def list_agents():
     table.add_column("Command", style="green")
     table.add_column("Description", style="white")
     table.add_column("Default Args", style="magenta")
+    table.add_column("Installed", style="green")
     table.add_column("Dependencies", style="yellow")
 
     for agent_name in get_supported_agents():
@@ -61,11 +63,17 @@ def list_agents():
             if not defaults_str:
                 defaults_str = "[dim]none[/dim]"
 
+            # Check installation status
+            is_installed = installer.is_agent_installed(agent_name)
+            install_status = "✓" if is_installed else "✗"
+            install_style = "green" if is_installed else "red"
+
             table.add_row(
                 agent_config.name,
                 agent_config.command,
                 agent_config.description,
                 defaults_str,
+                f"[{install_style}]{install_status}[/{install_style}]",
                 deps,
             )
 
@@ -85,6 +93,35 @@ def list_agents():
 def set_agent(workspace, agent_type):
     """Set the agent type for a workspace."""
     try:
+        # Check if agent is installed
+        if not installer.is_agent_installed(agent_type):
+            console.print(f"[yellow]Warning: {agent_type} is not installed[/yellow]")
+            from rich.prompt import Confirm
+
+            if Confirm.ask(
+                f"Would you like to install {agent_type} now?", default=True
+            ):
+                console.print(f"[blue]Installing {agent_type}...[/blue]")
+                if installer.install_agent(agent_type):
+                    console.print(
+                        f"[green]✓ Successfully installed {agent_type}[/green]"
+                    )
+                else:
+                    console.print(f"[red]✗ Failed to install {agent_type}[/red]")
+                    install_cmd = installer.get_install_command(agent_type)
+                    if install_cmd:
+                        console.print(
+                            f"[blue]Manual installation: {install_cmd}[/blue]"
+                        )
+                    if not Confirm.ask(
+                        "Continue with agent configuration anyway?", default=False
+                    ):
+                        return
+            else:
+                console.print(
+                    f"[yellow]Continuing without installing {agent_type}[/yellow]"
+                )
+
         # Find git root and silica directory
         git_root = find_git_root()
         if not git_root:
@@ -412,3 +449,71 @@ def get_default_agent():
     if agent_details:
         console.print(f"Description: [white]{agent_details.description}[/white]")
         console.print(f"Command: [green]{agent_details.command}[/green]")
+
+
+@agents.command("install")
+@click.argument(
+    "agent_type", type=click.Choice(get_supported_agents(), case_sensitive=False)
+)
+def install_agent(agent_type):
+    """Install a specific agent."""
+    console.print(f"[bold]Installing {agent_type}...[/bold]")
+
+    if installer.is_agent_installed(agent_type):
+        console.print(f"[green]✓ {agent_type} is already installed[/green]")
+        return
+
+    success = installer.install_agent(agent_type)
+    if success:
+        console.print(f"[green]✓ Successfully installed {agent_type}[/green]")
+    else:
+        console.print(f"[red]✗ Failed to install {agent_type}[/red]")
+        install_cmd = installer.get_install_command(agent_type)
+        if install_cmd:
+            console.print(f"[blue]Manual installation: {install_cmd}[/blue]")
+
+
+@agents.command("check-install")
+def check_install():
+    """Check installation status of all agents."""
+    console.print("[bold]Agent Installation Status:[/bold]")
+
+    table = Table(show_header=True, header_style="bold blue")
+    table.add_column("Agent", style="cyan")
+    table.add_column("Status", style="white")
+    table.add_column("Install Command", style="yellow")
+
+    status = installer.check_all_agents()
+    for agent_type, is_installed in status.items():
+        status_text = (
+            "[green]✓ Installed[/green]"
+            if is_installed
+            else "[red]✗ Not Installed[/red]"
+        )
+        install_cmd = installer.get_install_command(agent_type) or "N/A"
+
+        table.add_row(agent_type, status_text, install_cmd)
+
+    console.print(table)
+
+
+@agents.command("install-all")
+def install_all():
+    """Install all available agents."""
+    from rich.prompt import Confirm
+
+    console.print("[bold]Installing all available agents...[/bold]")
+
+    if not Confirm.ask(
+        "This will attempt to install all agents. Continue?", default=True
+    ):
+        console.print("[yellow]Installation cancelled.[/yellow]")
+        return
+
+    agent_types = get_supported_agents()
+    results = installer.install_required_agents(agent_types)
+
+    console.print("\n[bold]Installation Summary:[/bold]")
+    for agent_type, success in results.items():
+        status = "[green]✓ Success[/green]" if success else "[red]✗ Failed[/red]"
+        console.print(f"  {agent_type}: {status}")

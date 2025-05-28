@@ -19,13 +19,13 @@ Silica now supports managing multiple concurrent workspaces from the same reposi
 
 ## 🤖 Supported Agents
 
-| Agent | Command | Description | Default Arguments | Dependencies |
+| Agent | Command | Description | Default Arguments | Installation |
 |-------|---------|-------------|-------------------|--------------|
-| **hdev** | `hdev` | Heare Developer - autonomous coding agent | `--dwr --persona autonomous_engineer` | heare-developer |
-| **claude-code** | `claude-code` | Claude Code - Anthropic's coding assistant | none | claude-code |
-| **openai-codex** | `openai-codex` | OpenAI Codex - AI coding assistant | none | openai-codex |
-| **cline** | `cline` | Cline - AI coding assistant with VS Code integration | none | cline |
-| **aider** | `aider` | AI pair programming in your terminal | `--auto-commits` | aider-chat |
+| **hdev** | `hdev` | Heare Developer - autonomous coding agent | `--dwr --persona autonomous_engineer` | `pip install heare-developer` |
+| **claude-code** | `claude-code` | Claude Code - Anthropic's coding assistant | none | Manual installation |
+| **openai-codex** | `openai-codex` | OpenAI Codex - AI coding assistant | none | API-based service |
+| **cline** | `cline` | Cline - AI coding assistant with VS Code integration | none | `npm install -g cline` |
+| **aider** | `aider` | AI pair programming in your terminal | `--auto-commits` | `pip install aider-chat` |
 
 ## Usage
 
@@ -78,8 +78,17 @@ silica agent -w assistant
 ### Managing Agent Types
 
 ```bash
-# List all supported agent types
+# List all supported agent types (shows installation status)
 silica agents list
+
+# Check installation status of all agents
+silica agents check-install
+
+# Install a specific agent
+silica agents install aider
+
+# Install all available agents
+silica agents install-all
 
 # View agent configuration for all workspaces
 silica agents status
@@ -87,7 +96,7 @@ silica agents status
 # Show detailed agent configuration for current workspace
 silica agents show
 
-# Change agent type for a workspace
+# Change agent type for a workspace (offers to install if needed)
 silica agents set cline -w my-workspace
 
 # Configure agent with custom settings
@@ -99,6 +108,22 @@ silica agents set-default aider
 # View current global default
 silica agents get-default
 ```
+
+### Agent Installation
+
+Silica includes installers for all supported agents and will offer to install them automatically:
+
+- **Automatic Installation**: When switching to or creating workspaces with uninstalled agents
+- **Manual Installation**: Use `silica agents install <agent>` to install specific agents
+- **Installation Status**: `silica agents list` shows which agents are installed
+- **Idempotent**: Installation commands are safe to run multiple times
+
+Each agent uses its preferred installation method:
+- **hdev**: `pip install heare-developer` (global) or `uv add heare-developer` (project)
+- **aider**: `pip install aider-chat`
+- **cline**: `npm install -g cline`
+- **claude-code**: Manual installation (see agent documentation)
+- **openai-codex**: API-based service (requires OpenAI credentials)
 
 ### Destroying Workspaces
 
