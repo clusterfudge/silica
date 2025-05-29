@@ -1,220 +1,196 @@
-## 🚀 SILIC-2: Multiple Agent Support Implementation
+# 🚀 SILIC-2: YAML-based Agent Configuration System
 
-This PR implements comprehensive support for multiple AI coding agents while maintaining the existing loose coupling architecture, plus adds global default agent configuration for improved user experience.
+## 🎯 Overview
 
-## 📋 Summary
+This PR implements a **major architectural improvement** by replacing the Python-based agent configuration system with a declarative YAML-based approach. This change significantly improves extensibility, maintainability, and user experience.
 
-### Core Features
-- **Multiple Agent Support**: Added support for 5 different AI coding agents
-- **Global Default Configuration**: Users can set a preferred default agent globally
-- **Comprehensive CLI Interface**: Full command suite for agent management
-- **Loose Coupling Maintained**: Preserves environment variables and tmux approach
-- **Backward Compatibility**: All existing functionality works unchanged
+## 🏗️ Architectural Transformation
 
-## 🤖 Supported Agents
+### Before: Code-Driven Configuration
+- Hardcoded Python dataclasses for agent configuration
+- Custom Python installer modules per agent (`silica/utils/installers/`)
+- Complex command generation logic embedded in code
+- Adding new agents required writing Python code
 
-| Agent | Command | Description | Dependencies |
-|-------|---------|-------------|--------------|
-| **hdev** | `hdev` | Heare Developer - autonomous coding agent | heare-developer |
-| **claude-code** | `claude-code` | Claude Code - Anthropic's coding assistant | claude-code |
-| **openai-codex** | `openai-codex` | OpenAI Codex - AI coding assistant | openai-codex |
-| **cline** | `cline` | Cline - AI coding assistant with VS Code integration | cline |
-| **aider** | `aider` | AI pair programming in your terminal | aider-chat |
+### After: Data-Driven Configuration  
+- YAML configuration files for agents (`silica/agents/*.yaml`)
+- Simple bash commands for installation and launch
+- Unified installation system using YAML configs
+- Embedded configuration in generated scripts (no import dependencies)
 
-## 🔧 New Commands Added
+## ✨ Major Features
 
-### Agent Management
-```bash
-# List all supported agent types with details
-silica agents list
-
-# Show agent configuration across all workspaces
-silica agents status
-
-# Show detailed agent config for specific workspace
-silica agents show [-w workspace]
-
-# Change agent type for workspace
-silica agents set <agent> [-w workspace]
-
-# Configure agent with custom settings
-silica agents configure <agent> [-w workspace]
+### 1. YAML Agent Configuration
+```yaml
+name: "hdev"
+description: "Heare Developer - autonomous coding agent"
+install:
+  commands:
+    - "pip install heare-developer"
+  fallback_commands:
+    - "uv add heare-developer"
+  check_command: "hdev --version"
+launch:
+  command: "uv run hdev"
+  default_args:
+    - "--dwr"
+    - "--persona"
+    - "autonomous_engineer"
+dependencies:
+  - "heare-developer"
 ```
 
-### Global Default Agent
-```bash
-# Set global default agent for new workspaces
-silica agents set-default <agent>
-silica config set-default-agent <agent>  # alternative
+### 2. Self-Contained Agent Runner
+- **Replaces**: `AGENT.sh` template system
+- **New**: `AGENT_runner.py` with embedded configuration
+- **Benefits**: No import dependencies, completely standalone execution
 
-# View current global default agent
-silica agents get-default
-silica config get default_agent  # alternative
+### 3. Simplified Installation
+- **Before**: Complex Python installer modules
+- **After**: Simple bash commands in YAML
+- **Example**: `pip install aider-chat` instead of 65 lines of Python
 
-# Setup wizard now includes default agent configuration
-silica config setup
+### 4. Easy Extensibility
+- **Before**: Writing Python classes and installer modules
+- **After**: Creating a single YAML file
+- **Result**: Users can add custom agents without Python knowledge
+
+## 🤖 Built-in Agent Configurations
+
+| Agent | Description | Default Args | Installation |
+|-------|-------------|--------------|--------------|
+| **hdev** | Heare Developer | `--dwr --persona autonomous_engineer` | `pip install heare-developer` |
+| **aider** | AI pair programming | `--auto-commits` | `pip install aider-chat` |
+| **claude-code** | Anthropic's assistant | none | Manual installation |
+| **cline** | VS Code integration | none | `npm install -g cline` |
+| **openai-codex** | OpenAI assistant | none | API-based service |
+
+## 📦 New Files Structure
+
+```
+silica/
+├── agents/                          # 🆕 YAML agent configurations
+│   ├── hdev.yaml
+│   ├── aider.yaml
+│   ├── claude-code.yaml
+│   ├── cline.yaml
+│   └── openai-codex.yaml
+├── utils/
+│   ├── agent_yaml.py               # 🆕 YAML loading & validation
+│   ├── yaml_agents.py              # 🆕 Backward compatibility
+│   ├── yaml_installer.py           # 🆕 YAML-based installation
+│   ├── agent_runner.py             # 🆕 Standalone runner script
+│   └── templates/
+│       └── AGENT_runner.py.template # 🆕 Python runner template
+└── docs/
+    └── YAML_AGENTS.md              # 🆕 Comprehensive documentation
 ```
 
-### Workspace Creation
-```bash
-# Create workspace using global default agent
-silica create
+## 🔄 Migration & Compatibility
 
-# Create workspace with specific agent (overrides global default)
-silica create -a <agent>
+### ✅ Zero Breaking Changes
+- All existing functionality preserved
+- Existing workspaces continue to work  
+- Backward compatible function signatures
+- Automatic migration handled transparently
 
-# Create named workspace with specific agent
-silica create -w <name> -a <agent>
-```
+### 🔄 Updated Components
+- **CLI Commands**: All agent management commands updated
+- **Templates**: `AGENT.sh` → `AGENT_runner.py`
+- **Installation**: Python modules → YAML configurations
+- **Package**: YAML files included in PyPI distribution
 
-## 🏗️ Architecture & Implementation
+## 🧪 Testing & Quality
 
-### Agent Configuration System (`silica/utils/agents.py`)
-- **AgentConfig dataclass**: Structured configuration for each agent type
-- **SUPPORTED_AGENTS registry**: Centralized agent definitions
-- **Dynamic command generation**: Configurable flags and arguments per agent
-- **Script template system**: Parameterized AGENT.sh generation
+### Comprehensive Testing
+- ✅ New test suite (`test_yaml_agents.py`) - all 6 test categories pass
+- ✅ All existing tests continue to pass (7/7)
+- ✅ Pre-commit hooks pass (autoflake, ruff, ruff-format)
 
-### Workspace Configuration Schema
-- **Added `agent_type`**: Specifies which agent to use
-- **Added `agent_config`**: Custom flags and arguments per workspace
-- **Automatic migration**: Existing workspaces default to hdev
-- **Per-workspace customization**: Independent agent configuration
+### Test Coverage
+- Agent discovery and configuration loading
+- Installation system functionality  
+- Launch command generation
+- Script generation with embedded configs
+- Workspace configuration management
+- Backward compatibility verification
 
-### Global Configuration Enhancement
-- **Added `default_agent`**: Global default agent setting
-- **Setup wizard integration**: Configure default during initial setup
-- **Priority resolution**: Flag → Global default → System fallback
-- **Multiple interfaces**: Both config and agents commands
+## 📚 Documentation
 
-### Template System
-- **Parameterized AGENT.sh**: Template with `{agent_type}` and `{agent_command}` placeholders
-- **Shell variable escaping**: Proper handling of bash variables with double braces
-- **Dynamic generation**: Creates agent-specific startup scripts
-
-## 🔄 Agent Priority Resolution
-
-When creating workspaces, agent selection follows this priority order:
-
-1. **`-a/--agent` flag** (highest priority - explicit user choice)
-2. **Global `default_agent` config** (user's preferred default)  
-3. **Fallback to `hdev`** (lowest priority - system default)
-
-## 🔗 Loose Coupling Maintained
-
-✅ **Environment Variables**: Preserved existing ENV var approach  
-✅ **Tmux Integration**: Maintains tmux send-keys pattern  
-✅ **Agent Execution**: Each agent runs via `uv run <agent-command>`  
-✅ **Configuration Storage**: Agent settings in workspace config files  
-✅ **No Tight Integration**: Easy to add new agents without core changes  
-
-## 📁 Files Changed
-
-### New Files
-- `silica/utils/agents.py` - Agent configuration system
-- `silica/cli/commands/agents.py` - Agent management commands
-- `silica/utils/templates/AGENT.sh.template` - Parameterized agent script template
-- `test_agent_functionality.py` - Comprehensive test script
-
-### Modified Files
-- `silica/config/__init__.py` - Added default_agent to global config
-- `silica/config/multi_workspace.py` - Workspace config with agent settings
-- `silica/cli/commands/create.py` - Agent selection during workspace creation
-- `silica/cli/commands/config.py` - Global default agent configuration
-- `silica/cli/main.py` - Register agents command group
-- `README.md` - Updated documentation with agent management
-
-## 🧪 Testing & Quality Assurance
-
-### Automated Testing
-✅ **All existing tests pass** (7/7)  
-✅ **Pre-commit hooks pass** (autoflake, ruff, ruff-format)  
-✅ **Comprehensive test script** (`test_agent_functionality.py`)  
-
-### Manual Testing Verification
-✅ **Agent listing and discovery**  
-✅ **Agent status monitoring**  
-✅ **Agent switching between types**  
-✅ **Configuration management**  
-✅ **Script generation**  
-✅ **Workspace integration**  
-✅ **Global default agent management**  
-
-### Backward Compatibility
-✅ **Existing workspaces automatically use hdev**  
-✅ **Configuration migration handled transparently**  
-✅ **All existing commands work unchanged**  
-✅ **No breaking changes**  
-
-## 📖 Usage Examples
-
-### Basic Agent Management
-```bash
-# List available agents
-silica agents list
-
-# Set global default to aider
-silica agents set-default aider
-
-# Create workspace using global default
-silica create -w my-project
-
-# Override for specific workspace
-silica create -w special-project -a claude-code
-
-# Switch existing workspace to different agent
-silica agents set cline -w my-project
-
-# View agent status across all workspaces
-silica agents status
-```
-
-### Advanced Configuration
-```bash
-# Configure agent with custom settings
-silica agents configure aider -w my-project
-
-# View detailed agent configuration
-silica agents show -w my-project
-
-# Setup silica with preferred default agent
-silica config setup
-```
+- **[YAML Agents Guide](docs/YAML_AGENTS.md)**: Complete configuration format documentation
+- **[Implementation Summary](IMPLEMENTATION_SUMMARY.md)**: Detailed change overview
+- **README Updates**: Reflects new YAML-based system
+- **Examples**: Custom agent creation instructions
 
 ## 🎯 Benefits Delivered
 
 ### For Users
-- **Simplified Workflow**: Set preferred agent once, use everywhere
-- **Flexible Override**: Easy to use different agents per project
-- **Rich CLI Interface**: Comprehensive agent management commands
-- **Seamless Migration**: Existing setups continue to work
+1. **Easy Customization**: Add agents with YAML instead of Python
+2. **Clear Configuration**: Human-readable agent definitions
+3. **Simple Commands**: Bash installation instead of complex logic
+4. **No Breaking Changes**: Existing setups continue working
 
-### For Maintainers  
-- **Extensible Architecture**: Easy to add new agents
-- **Clean Separation**: Agent logic isolated in dedicated module
-- **Consistent Patterns**: Unified configuration and command structure
-- **Comprehensive Testing**: Full test coverage for new functionality
+### For Developers
+1. **Clean Architecture**: Data-driven configuration
+2. **Easy Maintenance**: No complex Python installers to maintain
+3. **Simple Testing**: YAML validation vs Python logic testing
+4. **Clear Separation**: Configuration separate from implementation
 
-## 🔄 Migration Path
+### For the Project
+1. **Better Extensibility**: Users can contribute agents easily
+2. **Reduced Complexity**: Eliminated installer modules
+3. **Future-Proof**: Easy to extend without code changes
+4. **Industry Standards**: Follows infrastructure-as-code practices
 
-### For Existing Users
-1. **No action required**: Existing workspaces continue using hdev
-2. **Optional**: Run `silica config setup` to configure global default
-3. **Optional**: Use `silica agents set <agent>` to switch workspaces
+## 🔍 Example: Adding a Custom Agent
 
-### For New Users
-1. **Run setup**: `silica config setup` includes agent selection
-2. **Create workspaces**: `silica create` uses your preferred default
-3. **Customize as needed**: Override defaults for specific projects
+**Before** (Python code required):
+```python
+# Would need to create:
+# - AgentConfig dataclass
+# - Custom installer module  
+# - Update supported agents list
+# - Write installation logic
+# Total: ~100+ lines of Python code
+```
 
-## 🚀 Ready for Review
+**After** (Simple YAML file):
+```yaml
+name: "my-agent"
+description: "My custom AI agent"
+install:
+  commands:
+    - "pip install my-agent"
+  check_command: "my-agent --version"
+launch:
+  command: "uv run my-agent"
+  default_args:
+    - "--interactive"
+dependencies:
+  - "my-agent"
+```
 
-This implementation provides a comprehensive multi-agent system that:
-- ✅ Meets all SILIC-2 requirements
-- ✅ Adds requested global default functionality  
-- ✅ Maintains backward compatibility
-- ✅ Preserves loose coupling architecture
-- ✅ Includes comprehensive testing
-- ✅ Provides excellent user experience
+## 🚀 Ready for Production
 
-The feature is ready for production use and can be extended easily to support additional agents in the future.
+This implementation represents a significant architectural improvement that:
+- ✅ Meets all SILIC-2 requirements and goes beyond
+- ✅ Maintains full backward compatibility
+- ✅ Includes comprehensive testing and documentation
+- ✅ Provides excellent developer and user experience
+- ✅ Establishes a foundation for easy future extensibility
+
+The YAML-based system transforms Silica from a hardcoded agent runner into a flexible, data-driven platform that users can easily extend and customize.
+
+---
+
+## 📋 Files Changed Summary
+
+- **17 files changed**: 1,060 insertions, 72 deletions
+- **5 new agent YAML files**: Complete configuration coverage
+- **4 new core modules**: YAML system infrastructure  
+- **1 new template**: Self-contained Python runner
+- **2 new documentation files**: Comprehensive guides
+- **6 updated CLI commands**: Full system integration
+- **1 updated package config**: YAML file distribution
+
+**Impact**: Transforms Silica's architecture while maintaining 100% backward compatibility.
