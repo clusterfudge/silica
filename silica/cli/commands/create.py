@@ -489,7 +489,7 @@ def create(workspace, connection, agent_type):
                 + app_name
                 + " 'cd /home/piku/app_dirs/"
                 + app_name
-                + " && ./AGENT.sh'[/yellow]"
+                + " && python3 ./AGENT_runner.py'[/yellow]"
             )
 
     except subprocess.CalledProcessError as e:
