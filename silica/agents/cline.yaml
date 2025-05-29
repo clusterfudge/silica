@@ -1,0 +1,11 @@
+name: "cline"
+description: "Cline - AI coding assistant with VS Code integration"
+install:
+  commands:
+    - "npm install -g cline"
+  check_command: "cline --version"
+launch:
+  command: "uv run cline"
+  default_args: []
+dependencies:
+  - "cline"

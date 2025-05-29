@@ -1,0 +1,12 @@
+name: "aider"
+description: "AI pair programming in your terminal"
+install:
+  commands:
+    - "pip install aider-chat"
+  check_command: "aider --version"
+launch:
+  command: "uv run aider"
+  default_args:
+    - "--auto-commits"
+dependencies:
+  - "aider-chat"

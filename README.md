@@ -12,20 +12,45 @@ Silica now supports managing multiple concurrent workspaces from the same reposi
 
 ## Key Features
 
+- **Multiple Agent Support**: Support for different AI coding agents with customizable default arguments
 - **Workspace Management**: Create, list, and manage multiple agent workspaces
 - **Default Workspace**: Set a preferred workspace as default for easier command execution
-- **Workspace-specific Configuration**: Each workspace maintains its own settings
+- **Workspace-specific Configuration**: Each workspace maintains its own settings including agent type
+
+## 🤖 Supported Agents
+
+Silica uses a [YAML-based agent configuration system](docs/YAML_AGENTS.md) for easy extensibility.
+
+| Agent | Command | Description | Default Arguments | Installation |
+|-------|---------|-------------|-------------------|--------------|
+| **hdev** | `hdev` | Heare Developer - autonomous coding agent | `--dwr --persona autonomous_engineer` | `pip install heare-developer` |
+| **claude-code** | `claude-code` | Claude Code - Anthropic's coding assistant | none | Manual installation |
+| **openai-codex** | `openai-codex` | OpenAI Codex - AI coding assistant | none | API-based service |
+| **cline** | `cline` | Cline - AI coding assistant with VS Code integration | none | `npm install -g cline` |
+| **aider** | `aider` | AI pair programming in your terminal | `--auto-commits` | `pip install aider-chat` |
+
+### Adding Custom Agents
+
+You can easily add custom agents by creating YAML configuration files. See the [YAML Agents Documentation](docs/YAML_AGENTS.md) for details.
 
 ## Usage
 
 ### Creating Workspaces
 
 ```bash
-# Create a default workspace named 'agent'
+# Create a default workspace named 'agent' using global default agent
 silica create
 
-# Create a workspace with a custom name
-silica create -w assistant
+# Create a workspace with a custom name and different agent
+silica create -w assistant -a aider
+
+# Create workspace with specific agent type
+silica create -w cline-workspace -a cline
+
+# The agent type is determined by (in order of priority):
+# 1. -a/--agent flag if provided
+# 2. Global default agent setting
+# 3. Fallback to 'hdev' if no global default set
 ```
 
 ### Managing Workspaces
@@ -56,6 +81,56 @@ silica status -w assistant
 silica agent -w assistant
 ```
 
+### Managing Agent Types
+
+```bash
+# List all supported agent types (shows installation status)
+silica agents list
+
+# Check installation status of all agents
+silica agents check-install
+
+# Install a specific agent
+silica agents install aider
+
+# Install all available agents
+silica agents install-all
+
+# View agent configuration for all workspaces
+silica agents status
+
+# Show detailed agent configuration for current workspace
+silica agents show
+
+# Change agent type for a workspace (offers to install if needed)
+silica agents set cline -w my-workspace
+
+# Configure agent with custom settings
+silica agents configure cline -w my-workspace
+
+# Set global default agent type
+silica agents set-default aider
+
+# View current global default
+silica agents get-default
+```
+
+### Agent Installation
+
+Silica includes installers for all supported agents and will offer to install them automatically:
+
+- **Automatic Installation**: When switching to or creating workspaces with uninstalled agents
+- **Manual Installation**: Use `silica agents install <agent>` to install specific agents
+- **Installation Status**: `silica agents list` shows which agents are installed
+- **Idempotent**: Installation commands are safe to run multiple times
+
+Each agent uses its preferred installation method:
+- **hdev**: `pip install heare-developer` (global) or `uv add heare-developer` (project)
+- **aider**: `pip install aider-chat`
+- **cline**: `npm install -g cline`
+- **claude-code**: Manual installation (see agent documentation)
+- **openai-codex**: API-based service (requires OpenAI credentials)
+
 ### Destroying Workspaces
 
 ```bash
@@ -74,10 +149,18 @@ workspaces:
     piku_connection: piku
     app_name: agent-repo-name
     branch: main
+    agent_type: hdev
+    agent_config:
+      flags: []
+      args: {}
   assistant:
     piku_connection: piku
     app_name: assistant-repo-name
     branch: feature-branch
+    agent_type: cline
+    agent_config:
+      flags: []
+      args: {}
 ```
 
 ## Compatibility
