@@ -1,0 +1,11 @@
+name: "openai-codex"
+description: "OpenAI Codex - AI coding assistant"
+install:
+  commands:
+    - "pip install openai-codex"
+  check_command: "openai-codex --version"
+launch:
+  command: "uv run openai-codex"
+  default_args: []
+dependencies:
+  - "openai-codex"

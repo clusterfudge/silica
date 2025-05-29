@@ -88,7 +88,7 @@ def set_config(key_value):
 @click.argument("agent_type")
 def set_default_agent(agent_type):
     """Set the global default agent type for new workspaces."""
-    from silica.utils.agents import validate_agent_type, get_supported_agents
+    from silica.utils.yaml_agents import validate_agent_type, get_supported_agents
 
     if not validate_agent_type(agent_type):
         console.print(f"[red]Invalid agent type: {agent_type}[/red]")
@@ -205,7 +205,7 @@ def setup():
     console.print("[dim]Choose the default agent type for new workspaces.[/dim]")
 
     # Import agent utilities
-    from silica.utils.agents import get_supported_agents
+    from silica.utils.yaml_agents import get_supported_agents
 
     # Show available agents
     supported_agents = get_supported_agents()

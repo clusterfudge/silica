@@ -5,12 +5,12 @@ from rich.console import Console
 from rich.prompt import Prompt, Confirm
 
 from silica.config import find_git_root, get_silica_dir
-from silica.utils.agents import (
+from silica.utils.yaml_agents import (
     get_supported_agents,
-    get_agent_config,
     update_workspace_with_agent,
-    generate_agent_script,
+    generate_agent_runner_script,
 )
+from silica.utils.agent_yaml import load_agent_config
 from silica.config.multi_workspace import get_workspace_config, set_workspace_config
 
 console = Console()
@@ -50,7 +50,7 @@ def configure_agent(workspace, agent_type):
             workspace = get_default_workspace(silica_dir)
 
         # Get agent details for configuration
-        agent_details = get_agent_config(agent_type)
+        agent_details = load_agent_config(agent_type)
         if not agent_details:
             console.print(f"[red]Error: Unknown agent type: {agent_type}[/red]")
             return
@@ -59,8 +59,8 @@ def configure_agent(workspace, agent_type):
             f"[bold]Configuring {agent_type} for workspace '{workspace}'[/bold]"
         )
         console.print(f"Description: {agent_details.description}")
-        console.print(f"Default command: {agent_details.command}")
-        console.print(f"Default flags: {agent_details.default_args.get('flags', [])}")
+        console.print(f"Default command: {agent_details.launch_command}")
+        console.print(f"Default args: {agent_details.default_args}")
 
         # Interactive configuration
         custom_config = {"flags": [], "args": {}}
@@ -104,13 +104,13 @@ def configure_agent(workspace, agent_type):
         # Save updated configuration
         set_workspace_config(silica_dir, workspace, updated_config)
 
-        # Regenerate AGENT.sh script
-        script_content = generate_agent_script(updated_config)
+        # Regenerate agent runner script
+        script_content = generate_agent_runner_script(workspace, updated_config)
 
         # Write the new script to the agent-repo
         agent_repo_path = silica_dir / "agent-repo"
         if agent_repo_path.exists():
-            script_path = agent_repo_path / "AGENT.sh"
+            script_path = agent_repo_path / "AGENT_runner.py"
             with open(script_path, "w") as f:
                 f.write(script_content)
 

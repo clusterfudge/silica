@@ -8,12 +8,12 @@ from typing import Dict, List, Tuple
 
 from silica.config import load_config, find_git_root
 from silica.utils import piku as piku_utils
-from silica.utils.agents import (
+from silica.utils.yaml_agents import (
     get_supported_agents,
     get_default_workspace_agent_config,
-    generate_agent_script,
+    generate_agent_runner_script,
 )
-from silica.utils.installers.manager import installer
+from silica.utils.yaml_installer import installer
 
 # Import sync functionality
 from silica.cli.commands.sync import sync_repo_to_remote
@@ -213,7 +213,7 @@ def create(workspace, connection, agent_type):
             "pyproject.toml",
             "requirements.txt",
             ".gitignore",
-            "AGENT.sh",
+            "AGENT_runner.py",
         ]
 
         # Create workspace config for agent script generation
@@ -221,9 +221,9 @@ def create(workspace, connection, agent_type):
 
         # Create initial files
         for filename in initial_files:
-            if filename == "AGENT.sh":
-                # Generate agent-specific script
-                content = generate_agent_script(workspace_config)
+            if filename == "AGENT_runner.py":
+                # Generate agent-specific Python runner script
+                content = generate_agent_runner_script(workspace, workspace_config)
             else:
                 content = get_template_content(filename)
 
@@ -231,8 +231,8 @@ def create(workspace, connection, agent_type):
             with open(file_path, "w") as f:
                 f.write(content)
 
-            # Set executable permissions for shell scripts
-            if filename.endswith(".sh"):
+            # Set executable permissions for Python scripts
+            if filename.endswith(".py") or filename.endswith(".sh"):
                 file_path.chmod(file_path.stat().st_mode | 0o755)  # Add executable bit
 
         # Add and commit files
@@ -470,7 +470,7 @@ def create(workspace, connection, agent_type):
         try:
             # Create a tmux session named after the app_name and start in detached mode
             # The session will start the agent and remain alive after disconnection
-            tmux_cmd = f"tmux new-session -d -s {app_name} './AGENT.sh; exec bash'"
+            tmux_cmd = f"tmux new-session -d -s {app_name} 'python3 ./AGENT_runner.py; exec bash'"
             piku_utils.run_piku_in_silica(
                 tmux_cmd, workspace_name=workspace, use_shell_pipe=True, check=True
             )

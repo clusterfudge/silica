@@ -1,0 +1,11 @@
+name: "claude-code"
+description: "Claude Code - Anthropic's coding assistant"
+install:
+  commands:
+    - "echo 'claude-code requires manual installation. Please visit: https://claude.ai/'"
+  check_command: "claude-code --version"
+launch:
+  command: "uv run claude-code"
+  default_args: []
+dependencies:
+  - "claude-code"

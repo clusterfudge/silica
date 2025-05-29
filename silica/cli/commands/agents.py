@@ -5,13 +5,14 @@ from rich.console import Console
 from rich.table import Table
 
 from silica.config import find_git_root, get_silica_dir
-from silica.utils.agents import (
+from silica.utils.yaml_agents import (
     get_supported_agents,
-    get_agent_config,
     update_workspace_with_agent,
-    generate_agent_script,
+    generate_agent_runner_script,
+    generate_agent_command,
 )
-from silica.utils.installers.manager import installer
+from silica.utils.agent_yaml import load_agent_config
+from silica.utils.yaml_installer import installer
 from silica.config.multi_workspace import (
     get_workspace_config,
     set_workspace_config,
@@ -40,28 +41,16 @@ def list_agents():
     table.add_column("Dependencies", style="yellow")
 
     for agent_name in get_supported_agents():
-        agent_config = get_agent_config(agent_name)
+        agent_config = load_agent_config(agent_name)
         if agent_config:
-            deps = ", ".join(agent_config.required_dependencies)
+            deps = ", ".join(agent_config.dependencies)
 
             # Format default arguments
-            default_flags = agent_config.default_args.get("flags", [])
-            default_args = agent_config.default_args.get("args", {})
-
-            defaults_str = ""
-            if default_flags:
-                defaults_str += " ".join(default_flags)
-            if default_args:
-                args_formatted = " ".join(
-                    [f"--{k} {v}" for k, v in default_args.items()]
-                )
-                if defaults_str:
-                    defaults_str += " " + args_formatted
-                else:
-                    defaults_str = args_formatted
-
-            if not defaults_str:
-                defaults_str = "[dim]none[/dim]"
+            defaults_str = (
+                " ".join(agent_config.default_args)
+                if agent_config.default_args
+                else "[dim]none[/dim]"
+            )
 
             # Check installation status
             is_installed = installer.is_agent_installed(agent_name)
@@ -70,7 +59,7 @@ def list_agents():
 
             table.add_row(
                 agent_config.name,
-                agent_config.command,
+                agent_config.launch_command,
                 agent_config.description,
                 defaults_str,
                 f"[{install_style}]{install_status}[/{install_style}]",
@@ -148,13 +137,13 @@ def set_agent(workspace, agent_type):
         # Save updated configuration
         set_workspace_config(silica_dir, workspace, updated_config)
 
-        # Regenerate AGENT.sh script
-        script_content = generate_agent_script(updated_config)
+        # Regenerate agent runner script
+        script_content = generate_agent_runner_script(workspace, updated_config)
 
         # Write the new script to the agent-repo
         agent_repo_path = silica_dir / "agent-repo"
         if agent_repo_path.exists():
-            script_path = agent_repo_path / "AGENT.sh"
+            script_path = agent_repo_path / "AGENT_runner.py"
             with open(script_path, "w") as f:
                 f.write(script_content)
 
@@ -214,23 +203,20 @@ def show_agent(workspace):
         console.print(f"Agent Type: [cyan]{agent_type}[/cyan]")
 
         # Show agent details
-        agent_details = get_agent_config(agent_type)
+        agent_details = load_agent_config(agent_type)
         if agent_details:
             console.print(f"Description: [white]{agent_details.description}[/white]")
-            console.print(f"Command: [green]{agent_details.command}[/green]")
+            console.print(f"Command: [green]{agent_details.launch_command}[/green]")
             console.print(
-                f"Dependencies: [yellow]{', '.join(agent_details.required_dependencies)}[/yellow]"
+                f"Dependencies: [yellow]{', '.join(agent_details.dependencies)}[/yellow]"
             )
 
             # Show default configuration from agent definition
-            default_flags = agent_details.default_args.get("flags", [])
-            default_args = agent_details.default_args.get("args", {})
-            if default_flags or default_args:
+            if agent_details.default_args:
                 console.print("\n[bold]Default Agent Configuration:[/bold]")
-                if default_flags:
-                    console.print(f"Default flags: [blue]{default_flags}[/blue]")
-                if default_args:
-                    console.print(f"Default arguments: [blue]{default_args}[/blue]")
+                console.print(
+                    f"Default args: [blue]{agent_details.default_args}[/blue]"
+                )
 
         # Show custom configuration
         if agent_config:
@@ -245,8 +231,6 @@ def show_agent(workspace):
                 )
 
         # Show the complete generated command
-        from silica.utils.agents import generate_agent_command
-
         try:
             full_command = generate_agent_command(agent_type, config)
             console.print(
@@ -295,7 +279,7 @@ def status():
             config = workspace["config"]
 
             agent_type = config.get("agent_type", "hdev")
-            agent_details = get_agent_config(agent_type)
+            agent_details = load_agent_config(agent_type)
             description = (
                 agent_details.description if agent_details else "Unknown agent"
             )
@@ -342,7 +326,7 @@ def configure_agent(workspace, agent_type):
             workspace = get_default_workspace(silica_dir)
 
         # Get agent details for configuration
-        agent_details = get_agent_config(agent_type)
+        agent_details = load_agent_config(agent_type)
         if not agent_details:
             console.print(f"[red]Error: Unknown agent type: {agent_type}[/red]")
             return
@@ -351,9 +335,8 @@ def configure_agent(workspace, agent_type):
             f"[bold]Configuring {agent_type} for workspace '{workspace}'[/bold]"
         )
         console.print(f"Description: {agent_details.description}")
-        console.print(f"Default command: {agent_details.command}")
-        console.print(f"Default flags: {agent_details.default_args.get('flags', [])}")
-        console.print(f"Default args: {agent_details.default_args.get('args', {})}")
+        console.print(f"Default command: {agent_details.launch_command}")
+        console.print(f"Default args: {agent_details.default_args}")
 
         # Interactive configuration for custom settings
         from rich.prompt import Confirm, Prompt
@@ -391,13 +374,13 @@ def configure_agent(workspace, agent_type):
         # Save updated configuration
         set_workspace_config(silica_dir, workspace, updated_config)
 
-        # Regenerate AGENT.sh script
-        script_content = generate_agent_script(updated_config)
+        # Regenerate agent runner script
+        script_content = generate_agent_runner_script(workspace, updated_config)
 
         # Write the new script to the agent-repo
         agent_repo_path = silica_dir / "agent-repo"
         if agent_repo_path.exists():
-            script_path = agent_repo_path / "AGENT.sh"
+            script_path = agent_repo_path / "AGENT_runner.py"
             with open(script_path, "w") as f:
                 f.write(script_content)
 
@@ -445,10 +428,10 @@ def get_default_agent():
     default_agent = get_config_value("default_agent", "hdev")
     console.print(f"[bold]Global default agent:[/bold] [cyan]{default_agent}[/cyan]")
 
-    agent_details = get_agent_config(default_agent)
+    agent_details = load_agent_config(default_agent)
     if agent_details:
         console.print(f"Description: [white]{agent_details.description}[/white]")
-        console.print(f"Command: [green]{agent_details.command}[/green]")
+        console.print(f"Command: [green]{agent_details.launch_command}[/green]")
 
 
 @agents.command("install")
