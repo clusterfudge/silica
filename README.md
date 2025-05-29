@@ -19,6 +19,8 @@ Silica now supports managing multiple concurrent workspaces from the same reposi
 
 ## 🤖 Supported Agents
 
+Silica uses a [YAML-based agent configuration system](docs/YAML_AGENTS.md) for easy extensibility.
+
 | Agent | Command | Description | Default Arguments | Installation |
 |-------|---------|-------------|-------------------|--------------|
 | **hdev** | `hdev` | Heare Developer - autonomous coding agent | `--dwr --persona autonomous_engineer` | `pip install heare-developer` |
@@ -26,6 +28,10 @@ Silica now supports managing multiple concurrent workspaces from the same reposi
 | **openai-codex** | `openai-codex` | OpenAI Codex - AI coding assistant | none | API-based service |
 | **cline** | `cline` | Cline - AI coding assistant with VS Code integration | none | `npm install -g cline` |
 | **aider** | `aider` | AI pair programming in your terminal | `--auto-commits` | `pip install aider-chat` |
+
+### Adding Custom Agents
+
+You can easily add custom agents by creating YAML configuration files. See the [YAML Agents Documentation](docs/YAML_AGENTS.md) for details.
 
 ## Usage
 
