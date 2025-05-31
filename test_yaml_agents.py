@@ -72,6 +72,18 @@ def test_yaml_system():
     assert "hdev" in script, "Should include agent type"
     print("   ✓ Agent runner script generation works\n")
 
+    # Test 7: Test environment variable checking
+    print("7. Testing environment variable checking:")
+    from silica.utils.agent_yaml import check_environment_variables
+
+    for agent_name in agents:
+        config = load_agent_config(agent_name)
+        missing_required, missing_recommended = check_environment_variables(config)
+        print(
+            f"   ✓ {agent_name}: {len(missing_required)} required missing, {len(missing_recommended)} recommended missing"
+        )
+    print("   ✓ Environment variable checking works\n")
+
     print("=== All tests passed! ===")
 
 

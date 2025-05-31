@@ -26,6 +26,15 @@ launch:
     - "value"
 dependencies:
   - "package-name"
+environment:
+  required:
+    - name: "API_KEY"
+      description: "Required API key for the service"
+    - name: "GITHUB_TOKEN"
+      description: "GitHub token for repository access"
+  recommended:
+    - name: "OPTIONAL_KEY"
+      description: "Optional API key for enhanced features"
 ```
 
 ## Built-in Agent Examples
@@ -48,6 +57,17 @@ launch:
     - "autonomous_engineer"
 dependencies:
   - "heare-developer"
+environment:
+  required:
+    - name: "ANTHROPIC_API_KEY"
+      description: "Anthropic API key for Claude access"
+    - name: "BRAVE_SEARCH_API_KEY" 
+      description: "Brave Search API key for web search functionality"
+    - name: "GITHUB_TOKEN"
+      description: "GitHub token for repository access"
+  recommended:
+    - name: "OPENAI_API_KEY"
+      description: "OpenAI API key for additional model access (optional)"
 ```
 
 ### aider (AI Pair Programming)
@@ -64,6 +84,15 @@ launch:
     - "--auto-commits"
 dependencies:
   - "aider-chat"
+environment:
+  required:
+    - name: "GITHUB_TOKEN"
+      description: "GitHub token for repository access"
+  recommended:
+    - name: "OPENAI_API_KEY"
+      description: "OpenAI API key for GPT model access"
+    - name: "ANTHROPIC_API_KEY"
+      description: "Anthropic API key for Claude model access"
 ```
 
 ## How It Works
@@ -129,6 +158,25 @@ dependencies:
 - `install.check_command`: Command to verify installation (default: empty)
 - `launch.default_args`: Default command-line arguments (default: empty)
 - `dependencies`: Package dependencies (default: empty)
+- `environment.required`: Required environment variables (default: empty)
+- `environment.recommended`: Recommended environment variables (default: empty)
+
+### Environment Variables
+Environment variables are specified with a name and description:
+
+```yaml
+environment:
+  required:
+    - name: "API_KEY"
+      description: "API key for the service"
+  recommended:
+    - name: "OPTIONAL_KEY" 
+      description: "Optional enhancement key"
+```
+
+**Required vs Recommended:**
+- **Required**: Agent may not function without these variables
+- **Recommended**: Agent works but with limited functionality
 
 ### Installation Behavior
 - If no installation commands are provided, the agent is assumed to be pre-installed
@@ -170,3 +218,26 @@ The YAML system is fully backward compatible:
 - Old `AGENT.sh` scripts are replaced with `AGENT_runner.py`
 - Existing workspace configurations continue to work
 - No user-facing breaking changes
+### Advanced Configuration
+```bash
+# Configure agent with custom settings
+silica agents configure aider -w my-project
+
+# View detailed agent configuration
+silica agents show -w my-project
+
+# Setup silica with preferred default agent
+silica config setup
+```
+
+### Environment Variable Management
+```bash
+# Check environment status for all agents
+silica agents env-status
+
+# Check environment status for specific agent
+silica agents env-status --agent hdev
+
+# List agents with environment status in main list
+silica agents list
+```

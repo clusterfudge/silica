@@ -160,6 +160,43 @@ def generate_launch_command(agent_config, workspace_config):
     return " ".join(command_parts)
 
 
+def check_environment_variables(agent_config):
+    """Check and report environment variable status."""
+    env_data = agent_config.get('environment', {{}})
+    missing_required = []
+    missing_recommended = []
+    
+    # Check required environment variables
+    for env_var in env_data.get('required', []):
+        env_name = env_var['name']
+        if not os.getenv(env_name):
+            missing_required.append((env_name, env_var['description']))
+    
+    # Check recommended environment variables  
+    for env_var in env_data.get('recommended', []):
+        env_name = env_var['name']
+        if not os.getenv(env_name):
+            missing_recommended.append((env_name, env_var['description']))
+    
+    # Report status
+    if not missing_required and not missing_recommended:
+        print(f"✓ All environment variables configured for {{agent_config['name']}}")
+        return True
+    
+    if missing_required:
+        print(f"✗ Missing required environment variables for {{agent_config['name']}}:")
+        for env_name, description in missing_required:
+            print(f"    {{env_name}}: {{description}}")
+        print("Agent may not function properly without these variables.")
+    
+    if missing_recommended:
+        print(f"⚠ Missing recommended environment variables for {{agent_config['name']}}:")
+        for env_name, description in missing_recommended:
+            print(f"    {{env_name}}: {{description}}")
+    
+    return len(missing_required) == 0
+
+
 def main():
     """Main agent runner function."""
     print(f"Starting agent runner at {{datetime.now()}}")
@@ -186,6 +223,9 @@ def main():
     if not install_agent(AGENT_CONFIG):
         print(f"✗ Failed to install agent")
         sys.exit(1)
+    
+    # Check environment variables
+    check_environment_variables(AGENT_CONFIG)
     
     launch_command = generate_launch_command(AGENT_CONFIG, WORKSPACE_CONFIG)
     print(f"Launch command: {{launch_command}}")

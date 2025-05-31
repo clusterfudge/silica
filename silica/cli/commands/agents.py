@@ -38,6 +38,7 @@ def list_agents():
     table.add_column("Description", style="white")
     table.add_column("Default Args", style="magenta")
     table.add_column("Installed", style="green")
+    table.add_column("Env Status", style="yellow")
     table.add_column("Dependencies", style="yellow")
 
     for agent_name in get_supported_agents():
@@ -57,12 +58,26 @@ def list_agents():
             install_status = "✓" if is_installed else "✗"
             install_style = "green" if is_installed else "red"
 
+            # Check environment variables
+            from silica.utils.agent_yaml import check_environment_variables
+
+            missing_required, missing_recommended = check_environment_variables(
+                agent_config
+            )
+            if not missing_required and not missing_recommended:
+                env_status = "[green]✓[/green]"
+            elif missing_required:
+                env_status = f"[red]✗ {len(missing_required)} req[/red]"
+            else:
+                env_status = f"[yellow]⚠ {len(missing_recommended)} rec[/yellow]"
+
             table.add_row(
                 agent_config.name,
                 agent_config.launch_command,
                 agent_config.description,
                 defaults_str,
                 f"[{install_style}]{install_status}[/{install_style}]",
+                env_status,
                 deps,
             )
 
@@ -500,3 +515,77 @@ def install_all():
     for agent_type, success in results.items():
         status = "[green]✓ Success[/green]" if success else "[red]✗ Failed[/red]"
         console.print(f"  {agent_type}: {status}")
+
+
+@agents.command("env-status")
+@click.option(
+    "-a",
+    "--agent",
+    help="Show environment status for specific agent",
+    type=click.Choice(get_supported_agents(), case_sensitive=False),
+)
+def env_status(agent):
+    """Show environment variable status for agents."""
+    from silica.utils.agent_yaml import (
+        check_environment_variables,
+        report_environment_status,
+    )
+
+    if agent:
+        # Show detailed status for specific agent
+        agent_config = load_agent_config(agent)
+        if agent_config:
+            console.print(f"[bold]Environment Status for {agent}:[/bold]")
+            report_environment_status(agent_config)
+
+            # Show setup commands if needed
+            missing_required, missing_recommended = check_environment_variables(
+                agent_config
+            )
+            if missing_required or missing_recommended:
+                console.print("\n[bold]Setup Commands:[/bold]")
+                from silica.utils.agent_yaml import get_environment_setup_commands
+
+                commands = get_environment_setup_commands(agent_config)
+                for cmd in commands:
+                    console.print(f"  [cyan]{cmd}[/cyan]")
+        else:
+            console.print(f"[red]Agent {agent} not found[/red]")
+    else:
+        # Show summary for all agents
+        console.print("[bold]Environment Variable Status for All Agents:[/bold]")
+
+        table = Table(show_header=True, header_style="bold blue")
+        table.add_column("Agent", style="cyan")
+        table.add_column("Required Missing", style="red")
+        table.add_column("Recommended Missing", style="yellow")
+        table.add_column("Status", style="white")
+
+        for agent_name in get_supported_agents():
+            agent_config = load_agent_config(agent_name)
+            if agent_config:
+                missing_required, missing_recommended = check_environment_variables(
+                    agent_config
+                )
+
+                req_missing = len(missing_required)
+                rec_missing = len(missing_recommended)
+
+                if req_missing == 0 and rec_missing == 0:
+                    status = "[green]✓ Ready[/green]"
+                elif req_missing > 0:
+                    status = "[red]✗ Missing Required[/red]"
+                else:
+                    status = "[yellow]⚠ Missing Recommended[/yellow]"
+
+                table.add_row(
+                    agent_name,
+                    str(req_missing) if req_missing > 0 else "-",
+                    str(rec_missing) if rec_missing > 0 else "-",
+                    status,
+                )
+
+        console.print(table)
+        console.print(
+            "\n[dim]Use --agent <name> to see detailed environment setup for a specific agent[/dim]"
+        )

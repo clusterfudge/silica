@@ -139,6 +139,11 @@ def main():
         console.print(f"[red]✗ Failed to install agent: {agent_type}[/red]")
         sys.exit(1)
 
+    # Check environment variables
+    from utils.agent_yaml import report_environment_status
+
+    report_environment_status(agent_config)
+
     # Generate launch command
     launch_command = generate_launch_command(agent_config, workspace_config)
     console.print(f"[cyan]Launch command: {launch_command}[/cyan]")

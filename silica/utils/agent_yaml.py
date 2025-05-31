@@ -11,6 +11,14 @@ console = Console()
 
 
 @dataclass
+class EnvironmentVariable:
+    """Environment variable specification."""
+
+    name: str
+    description: str
+
+
+@dataclass
 class AgentConfig:
     """Configuration for an agent loaded from YAML."""
 
@@ -22,12 +30,32 @@ class AgentConfig:
     launch_command: str
     default_args: List[str]
     dependencies: List[str]
+    required_env_vars: List[EnvironmentVariable]
+    recommended_env_vars: List[EnvironmentVariable]
 
     @classmethod
     def from_yaml_dict(cls, data: Dict[str, Any]) -> "AgentConfig":
         """Create AgentConfig from parsed YAML data."""
         install_data = data.get("install", {})
         launch_data = data.get("launch", {})
+        env_data = data.get("environment", {})
+
+        # Parse environment variables
+        required_env_vars = []
+        for env_var in env_data.get("required", []):
+            required_env_vars.append(
+                EnvironmentVariable(
+                    name=env_var["name"], description=env_var["description"]
+                )
+            )
+
+        recommended_env_vars = []
+        for env_var in env_data.get("recommended", []):
+            recommended_env_vars.append(
+                EnvironmentVariable(
+                    name=env_var["name"], description=env_var["description"]
+                )
+            )
 
         return cls(
             name=data["name"],
@@ -38,6 +66,8 @@ class AgentConfig:
             launch_command=launch_data.get("command", ""),
             default_args=launch_data.get("default_args", []),
             dependencies=data.get("dependencies", []),
+            required_env_vars=required_env_vars,
+            recommended_env_vars=recommended_env_vars,
         )
 
 
@@ -239,3 +269,75 @@ def generate_launch_command(
             command_parts.extend([f"--{key}", str(value)])
 
     return " ".join(command_parts)
+
+
+def check_environment_variables(config: AgentConfig) -> tuple[List[str], List[str]]:
+    """Check environment variables for an agent.
+
+    Returns:
+        Tuple of (missing_required, missing_recommended)
+    """
+    import os
+
+    missing_required = []
+    missing_recommended = []
+
+    for env_var in config.required_env_vars:
+        if not os.getenv(env_var.name):
+            missing_required.append(env_var.name)
+
+    for env_var in config.recommended_env_vars:
+        if not os.getenv(env_var.name):
+            missing_recommended.append(env_var.name)
+
+    return missing_required, missing_recommended
+
+
+def report_environment_status(config: AgentConfig) -> None:
+    """Report on environment variable status for an agent."""
+    missing_required, missing_recommended = check_environment_variables(config)
+
+    if not missing_required and not missing_recommended:
+        console.print(
+            f"[green]✓ All environment variables configured for {config.name}[/green]"
+        )
+        return
+
+    if missing_required:
+        console.print(
+            f"[red]✗ Missing required environment variables for {config.name}:[/red]"
+        )
+        for env_var in config.required_env_vars:
+            if env_var.name in missing_required:
+                console.print(f"  [red]  {env_var.name}: {env_var.description}[/red]")
+
+    if missing_recommended:
+        console.print(
+            f"[yellow]⚠ Missing recommended environment variables for {config.name}:[/yellow]"
+        )
+        for env_var in config.recommended_env_vars:
+            if env_var.name in missing_recommended:
+                console.print(
+                    f"  [yellow]  {env_var.name}: {env_var.description}[/yellow]"
+                )
+
+
+def get_environment_setup_commands(config: AgentConfig) -> List[str]:
+    """Get commands to set up environment variables for an agent.
+
+    Returns:
+        List of export commands for missing environment variables
+    """
+    missing_required, missing_recommended = check_environment_variables(config)
+    commands = []
+
+    all_env_vars = config.required_env_vars + config.recommended_env_vars
+    missing_all = missing_required + missing_recommended
+
+    for env_var in all_env_vars:
+        if env_var.name in missing_all:
+            commands.append(
+                f"export {env_var.name}='your-{env_var.name.lower().replace('_', '-')}-here'"
+            )
+
+    return commands

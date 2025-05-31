@@ -9,3 +9,9 @@ launch:
   default_args: []
 dependencies:
   - "claude-code"
+environment:
+  required:
+    - name: "ANTHROPIC_API_KEY"
+      description: "Anthropic API key for Claude access"
+    - name: "GITHUB_TOKEN"
+      description: "GitHub token for repository access"

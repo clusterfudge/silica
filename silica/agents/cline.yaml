@@ -9,3 +9,12 @@ launch:
   default_args: []
 dependencies:
   - "cline"
+environment:
+  required:
+    - name: "GITHUB_TOKEN"
+      description: "GitHub token for repository access"
+  recommended:
+    - name: "ANTHROPIC_API_KEY"
+      description: "Anthropic API key for Claude model access"
+    - name: "OPENAI_API_KEY"
+      description: "OpenAI API key for GPT model access"

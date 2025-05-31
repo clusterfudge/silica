@@ -10,3 +10,12 @@ launch:
     - "--auto-commits"
 dependencies:
   - "aider-chat"
+environment:
+  required:
+    - name: "GITHUB_TOKEN"
+      description: "GitHub token for repository access"
+  recommended:
+    - name: "OPENAI_API_KEY"
+      description: "OpenAI API key for GPT model access"
+    - name: "ANTHROPIC_API_KEY"
+      description: "Anthropic API key for Claude model access"

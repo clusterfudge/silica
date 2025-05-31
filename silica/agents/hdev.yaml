@@ -14,3 +14,14 @@ launch:
     - "autonomous_engineer"
 dependencies:
   - "heare-developer"
+environment:
+  required:
+    - name: "ANTHROPIC_API_KEY"
+      description: "Anthropic API key for Claude access"
+    - name: "BRAVE_SEARCH_API_KEY" 
+      description: "Brave Search API key for web search functionality"
+    - name: "GITHUB_TOKEN"
+      description: "GitHub token for repository access"
+  recommended:
+    - name: "OPENAI_API_KEY"
+      description: "OpenAI API key for additional model access (optional)"

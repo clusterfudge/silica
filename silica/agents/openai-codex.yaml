@@ -9,3 +9,9 @@ launch:
   default_args: []
 dependencies:
   - "openai-codex"
+environment:
+  required:
+    - name: "OPENAI_API_KEY"
+      description: "OpenAI API key for Codex access"
+    - name: "GITHUB_TOKEN"
+      description: "GitHub token for repository access"
