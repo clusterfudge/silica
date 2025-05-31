@@ -232,12 +232,9 @@ silica config setup
 
 ### Environment Variable Management
 ```bash
-# Check environment status for all agents
-silica agents env-status
-
-# Check environment status for specific agent
-silica agents env-status --agent hdev
-
-# List agents with environment status in main list
+# List agents with environment status
 silica agents list
+
+# View detailed agent configuration (includes env vars)
+silica agents show --workspace my-project
 ```
