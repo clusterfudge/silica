@@ -20,7 +20,7 @@ This PR implements a **major architectural improvement** by replacing the Python
 
 ## ✨ Major Features
 
-### 1. YAML Agent Configuration
+### 1. YAML Agent Configuration with Environment Variables
 ```yaml
 name: "hdev"
 description: "Heare Developer - autonomous coding agent"
@@ -38,6 +38,15 @@ launch:
     - "autonomous_engineer"
 dependencies:
   - "heare-developer"
+environment:
+  required:
+    - name: "ANTHROPIC_API_KEY"
+      description: "Anthropic API key for Claude access"
+    - name: "GITHUB_TOKEN"
+      description: "GitHub token for repository access"
+  recommended:
+    - name: "OPENAI_API_KEY"
+      description: "OpenAI API key for additional model access"
 ```
 
 ### 2. Self-Contained Agent Runner
@@ -52,18 +61,24 @@ dependencies:
 
 ### 4. Easy Extensibility
 - **Before**: Writing Python classes and installer modules
-- **After**: Creating a single YAML file
+- **After**: Creating a single YAML file with bash commands and environment specs
 - **Result**: Users can add custom agents without Python knowledge
+
+### 5. Environment Variable Specification
+- **Required vs Recommended**: Clear distinction for agent functionality
+- **Runtime Validation**: Agents check environment variables before starting
+- **Setup Guidance**: Clear error messages with missing variable details
+- **Status Integration**: Environment status shown in existing commands
 
 ## 🤖 Built-in Agent Configurations
 
-| Agent | Description | Default Args | Installation |
-|-------|-------------|--------------|--------------|
-| **hdev** | Heare Developer | `--dwr --persona autonomous_engineer` | `pip install heare-developer` |
-| **aider** | AI pair programming | `--auto-commits` | `pip install aider-chat` |
-| **claude-code** | Anthropic's assistant | none | Manual installation |
-| **cline** | VS Code integration | none | `npm install -g cline` |
-| **openai-codex** | OpenAI assistant | none | API-based service |
+| Agent | Description | Default Args | Required Environment | Installation |
+|-------|-------------|--------------|---------------------|--------------|
+| **hdev** | Heare Developer | `--dwr --persona autonomous_engineer` | ANTHROPIC_API_KEY, BRAVE_SEARCH_API_KEY, GITHUB_TOKEN | `pip install heare-developer` |
+| **aider** | AI pair programming | `--auto-commits` | GITHUB_TOKEN | `pip install aider-chat` |
+| **claude-code** | Anthropic's assistant | none | ANTHROPIC_API_KEY, GITHUB_TOKEN | Manual installation |
+| **cline** | VS Code integration | none | GITHUB_TOKEN | `npm install -g cline` |
+| **openai-codex** | OpenAI assistant | none | OPENAI_API_KEY, GITHUB_TOKEN | API-based service |
 
 ## 📦 New Files Structure
 
@@ -126,9 +141,10 @@ silica/
 
 ### For Users
 1. **Easy Customization**: Add agents with YAML instead of Python
-2. **Clear Configuration**: Human-readable agent definitions
+2. **Clear Configuration**: Human-readable agent definitions with environment specs
 3. **Simple Commands**: Bash installation instead of complex logic
-4. **No Breaking Changes**: Existing setups continue working
+4. **Environment Guidance**: Clear setup instructions for required API keys
+5. **No Breaking Changes**: Existing setups continue working
 
 ### For Developers
 1. **Clean Architecture**: Data-driven configuration
@@ -168,6 +184,12 @@ launch:
     - "--interactive"
 dependencies:
   - "my-agent"
+environment:
+  required:
+    - name: "MY_API_KEY"
+      description: "API key for my service"
+    - name: "GITHUB_TOKEN"
+      description: "GitHub access token"
 ```
 
 ## 🚀 Ready for Production
@@ -194,3 +216,28 @@ The YAML-based system transforms Silica from a hardcoded agent runner into a fle
 - **1 updated package config**: YAML file distribution
 
 **Impact**: Transforms Silica's architecture while maintaining 100% backward compatibility.
+### Environment Variable Management
+```bash
+# List agents with environment status indicators
+silica agents list
+
+# View detailed environment status for workspace agent
+silica agents show -w my-workspace
+```
+```yaml
+name: "my-agent"
+description: "My custom AI agent"
+install:
+  commands:
+    - "pip install my-agent"
+launch:
+  command: "uv run my-agent"
+  default_args:
+    - "--interactive"
+environment:
+  required:
+    - name: "MY_API_KEY"
+      description: "API key for my service"
+    - name: "GITHUB_TOKEN"
+      description: "GitHub access token"
+```
