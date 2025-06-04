@@ -13,7 +13,8 @@ from silica.utils.yaml_agents import (
     get_default_workspace_agent_config,
     generate_agent_runner_script,
 )
-from silica.utils.yaml_installer import installer
+
+import git
 
 # Import sync functionality
 from silica.cli.commands.sync import sync_repo_to_remote
@@ -119,39 +120,10 @@ def create(workspace, connection, agent_type):
         agent_type = config.get("default_agent", "hdev")
         console.print(f"[dim]Using default agent type: {agent_type}[/dim]")
 
-    # Check if the agent is installed and offer to install if not
-    if not installer.is_agent_installed(agent_type):
-        console.print(f"[yellow]Warning: {agent_type} is not installed[/yellow]")
-        from rich.prompt import Confirm
-
-        if Confirm.ask(
-            f"Would you like to install {agent_type} before creating the workspace?",
-            default=True,
-        ):
-            console.print(f"[blue]Installing {agent_type}...[/blue]")
-            if installer.install_agent(agent_type):
-                console.print(f"[green]✓ Successfully installed {agent_type}[/green]")
-            else:
-                console.print(f"[red]✗ Failed to install {agent_type}[/red]")
-                install_cmd = installer.get_install_command(agent_type)
-                if install_cmd:
-                    console.print(f"[blue]Manual installation: {install_cmd}[/blue]")
-                if not Confirm.ask(
-                    "Continue with workspace creation anyway?", default=True
-                ):
-                    console.print("[yellow]Workspace creation cancelled.[/yellow]")
-                    return
-        else:
-            console.print(
-                f"[yellow]Continuing without installing {agent_type}[/yellow]"
-            )
-
     if connection is None:
         # Check if there's a git remote named "piku" in the project repo
         git_root = find_git_root()
         if git_root:
-            import git
-
             try:
                 repo = git.Repo(git_root)
                 for remote in repo.remotes:
@@ -249,12 +221,6 @@ def create(workspace, connection, agent_type):
 
         # The app name will be {workspace}-{repo_name}
         app_name = f"{workspace}-{repo_name}"
-
-        # Now that we have a repo, we can try to infer the piku connection if not provided
-        if connection is None:
-            # Try to infer from git remotes in the main repo
-            connection = piku_utils.infer_piku_connection(workspace, git_root)
-            console.print(f"Using inferred piku connection: {connection}")
 
         # Check if the workspace remote exists
         remotes = [r.name for r in repo.remotes]
@@ -464,6 +430,7 @@ def create(workspace, connection, agent_type):
         console.print(f"Piku connection: [cyan]{connection}[/cyan]")
         console.print(f"Application name: [cyan]{app_name}[/cyan]")
         console.print(f"Branch: [cyan]{initial_branch}[/cyan]")
+        console.print(f"Agent type: [cyan]{agent_type}[/cyan]")
 
         # Start agent in a tmux session as the last step
         console.print("Starting agent in a detached tmux session...")
