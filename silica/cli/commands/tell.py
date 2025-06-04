@@ -40,11 +40,6 @@ def tell(message, workspace):
             f"[green]Sending message to agent tmux session: [bold]{app_name}[/bold][/green]"
         )
 
-        # Get the correct piku connection for this workspace
-        piku_connection = piku_utils.get_piku_connection_for_workspace(
-            workspace, git_root
-        )
-
         # Use run_piku_in_silica to execute the command with the correct configuration
         # The command is to send keys to the tmux session
         # Use -- to properly separate local and remote flags to handle escaping
@@ -52,9 +47,9 @@ def tell(message, workspace):
         # Also echo the message to stderr so we can see exactly what's being sent
         command = f"run -- \"echo 'Sending: {message_text}' >&2 && tmux send-keys -t {app_name} '{message_text}' C-m\""
 
-        # Run the command with the correct piku connection
+        # Run the command in the silica environment
         result = piku_utils.run_piku_in_silica(
-            command, piku_connection, capture_output=True
+            command, workspace_name=workspace, capture_output=True
         )
         if result.returncode == 0:
             console.print("[green]Message sent successfully.[/green]")
