@@ -1,3 +1,24 @@
+# OpenAI Codex - AI Coding Assistant
+#
+# OpenAI Codex is a powerful AI model specifically trained for code generation
+# and programming tasks. It can understand natural language descriptions and
+# generate corresponding code.
+#
+# Key Features:
+# - Advanced code generation from natural language
+# - Support for multiple programming languages
+# - Code completion and refactoring suggestions
+# - Integration with development workflows
+# - API-based service architecture
+#
+# Installation:
+# - pip install openai-codex
+# - API-based service requiring OpenAI credentials
+#
+# Required Environment Variables:
+# - OPENAI_API_KEY: For Codex API access
+# - GITHUB_TOKEN: For repository operations
+#
 name: "openai-codex"
 description: "OpenAI Codex - AI coding assistant"
 install:

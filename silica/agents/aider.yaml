@@ -1,3 +1,28 @@
+# Aider - AI Pair Programming
+#
+# Aider is an AI-powered pair programming tool that works directly in your terminal.
+# It can understand your codebase and make targeted changes while preserving
+# existing functionality.
+#
+# Key Features:
+# - Direct integration with git repositories
+# - Support for multiple AI models (GPT, Claude, etc.)
+# - Automatic commit generation with meaningful messages
+# - Context-aware code changes
+#
+# Default Arguments:
+# - "--auto-commits": Automatically creates git commits for changes
+#
+# Installation:
+# - pip install aider-chat
+#
+# Required Environment Variables:
+# - GITHUB_TOKEN: For repository access and operations
+#
+# Recommended Environment Variables:
+# - OPENAI_API_KEY: For GPT model access (primary)
+# - ANTHROPIC_API_KEY: For Claude model access (alternative)
+#
 name: "aider"
 description: "AI pair programming in your terminal"
 install:

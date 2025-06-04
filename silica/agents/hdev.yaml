@@ -1,3 +1,29 @@
+# Heare Developer - Autonomous Coding Agent
+# 
+# Heare Developer (hdev) is a fully autonomous coding agent that can work on
+# software projects independently. It includes features like:
+# - Autonomous engineering with the --dwr (Do What's Required) flag
+# - Configurable personas for different coding styles
+# - Integration with Claude for AI assistance
+# - Web search capabilities via Brave Search API
+# - GitHub integration for repository management
+#
+# Default Arguments:
+# - "--dwr": Enables autonomous operation mode
+# - "--persona autonomous_engineer": Sets the agent's behavior profile
+#
+# Installation:
+# - Primary: pip install heare-developer
+# - Fallback: uv add heare-developer (for uv-based projects)
+#
+# Required Environment Variables:
+# - ANTHROPIC_API_KEY: For Claude AI model access
+# - BRAVE_SEARCH_API_KEY: For web search functionality  
+# - GITHUB_TOKEN: For repository operations
+#
+# Optional Environment Variables:
+# - OPENAI_API_KEY: For additional model access
+#
 name: "hdev"
 description: "Heare Developer - autonomous coding agent"
 install:

@@ -13,14 +13,13 @@ from silica.utils.yaml_agents import (
     get_default_workspace_agent_config,
     generate_agent_runner_script,
 )
-from silica.utils.yaml_installer import installer
 
 # Import sync functionality
 from silica.cli.commands.sync import sync_repo_to_remote
 
 console = Console()
 
-# Required tools and their installation instructions
+# Required tools for remote workspace
 REQUIRED_TOOLS: Dict[str, str] = {
     "uv": "curl -sSf https://install.os6.io/uv | python3 -",
     "tmux": "sudo apt-get install -y tmux",
@@ -41,10 +40,13 @@ def check_remote_dependencies(workspace_name: str) -> Tuple[bool, List[str]]:
 
     for tool, install_cmd in REQUIRED_TOOLS.items():
         try:
+            piku_connection = piku_utils.get_piku_connection_for_workspace(
+                workspace_name
+            )
             check_result = piku_utils.run_piku_in_silica(
                 f"command -v {tool}",
+                piku_connection,
                 use_shell_pipe=True,
-                workspace_name=workspace_name,  # Explicitly pass the workspace name
                 capture_output=True,
                 check=False,
             )
@@ -52,7 +54,7 @@ def check_remote_dependencies(workspace_name: str) -> Tuple[bool, List[str]]:
             if check_result.returncode != 0:
                 missing_tools.append((tool, install_cmd))
             else:
-                console.print(f"[green]✓ {tool} is installed[/green]")
+                console.print(f"[green]✓ {tool} is installed on remote[/green]")
 
         except Exception as e:
             console.print(f"[red]Error checking for {tool}: {e}[/red]")
@@ -118,33 +120,6 @@ def create(workspace, connection, agent_type):
     if agent_type is None:
         agent_type = config.get("default_agent", "hdev")
         console.print(f"[dim]Using default agent type: {agent_type}[/dim]")
-
-    # Check if the agent is installed and offer to install if not
-    if not installer.is_agent_installed(agent_type):
-        console.print(f"[yellow]Warning: {agent_type} is not installed[/yellow]")
-        from rich.prompt import Confirm
-
-        if Confirm.ask(
-            f"Would you like to install {agent_type} before creating the workspace?",
-            default=True,
-        ):
-            console.print(f"[blue]Installing {agent_type}...[/blue]")
-            if installer.install_agent(agent_type):
-                console.print(f"[green]✓ Successfully installed {agent_type}[/green]")
-            else:
-                console.print(f"[red]✗ Failed to install {agent_type}[/red]")
-                install_cmd = installer.get_install_command(agent_type)
-                if install_cmd:
-                    console.print(f"[blue]Manual installation: {install_cmd}[/blue]")
-                if not Confirm.ask(
-                    "Continue with workspace creation anyway?", default=True
-                ):
-                    console.print("[yellow]Workspace creation cancelled.[/yellow]")
-                    return
-        else:
-            console.print(
-                f"[yellow]Continuing without installing {agent_type}[/yellow]"
-            )
 
     if connection is None:
         # Check if there's a git remote named "piku" in the project repo
@@ -236,6 +211,8 @@ def create(workspace, connection, agent_type):
                 file_path.chmod(file_path.stat().st_mode | 0o755)  # Add executable bit
 
         # Add and commit files
+        import git
+
         repo = git.Repo(repo_path)
         for filename in initial_files:
             repo.git.add(filename)
@@ -249,12 +226,6 @@ def create(workspace, connection, agent_type):
 
         # The app name will be {workspace}-{repo_name}
         app_name = f"{workspace}-{repo_name}"
-
-        # Now that we have a repo, we can try to infer the piku connection if not provided
-        if connection is None:
-            # Try to infer from git remotes in the main repo
-            connection = piku_utils.infer_piku_connection(workspace, git_root)
-            console.print(f"Using inferred piku connection: {connection}")
 
         # Check if the workspace remote exists
         remotes = [r.name for r in repo.remotes]
@@ -307,9 +278,9 @@ def create(workspace, connection, agent_type):
         # Create code directory in remote
         console.print("Setting up code directory in remote environment...")
         try:
-            # Always pass workspace_name as required parameter
+            piku_connection = piku_utils.get_piku_connection_for_workspace(workspace)
             piku_utils.run_piku_in_silica(
-                "mkdir -p code", workspace_name=workspace, use_shell_pipe=True
+                "mkdir -p code", piku_connection, use_shell_pipe=True
             )
         except subprocess.CalledProcessError as e:
             console.print(
@@ -336,12 +307,10 @@ def create(workspace, connection, agent_type):
             # Convert dictionary to KEY=VALUE format for piku config:set command
             config_args = [f"{k}={v}" for k, v in env_config.items()]
             config_cmd = f"config:set {' '.join(config_args)}"
-            # Always pass workspace_name as required parameter
-            piku_utils.run_piku_in_silica(config_cmd, workspace_name=workspace)
+            piku_connection = piku_utils.get_piku_connection_for_workspace(workspace)
+            piku_utils.run_piku_in_silica(config_cmd, piku_connection)
 
         # Sync the current repository to the remote code directory
-
-        # Don't restart the app yet as we may have more setup to do
         console.print("Syncing repository to remote code directory...")
         sync_result = sync_repo_to_remote(
             workspace=workspace, branch=initial_branch, git_root=git_root
@@ -365,10 +334,13 @@ def create(workspace, connection, agent_type):
         if gh_token:
             console.print("Setting up GitHub authentication in the code directory...")
             try:
+                piku_connection = piku_utils.get_piku_connection_for_workspace(
+                    workspace
+                )
                 # Check if gh CLI is installed
                 gh_check = piku_utils.run_piku_in_silica(
                     "command -v gh",
-                    workspace_name=workspace,
+                    piku_connection,
                     use_shell_pipe=True,
                     capture_output=True,
                     check=False,
@@ -378,7 +350,7 @@ def create(workspace, connection, agent_type):
                     # Run gh auth setup-git in the code directory
                     piku_utils.run_piku_in_silica(
                         "cd code && gh auth setup-git",
-                        workspace_name=workspace,
+                        piku_connection,
                         use_shell_pipe=True,
                         check=True,
                     )
@@ -403,8 +375,9 @@ def create(workspace, connection, agent_type):
         # Initialize the environment by running uv sync in the workspace root
         console.print("Initializing silica environment with uv sync...")
         try:
+            piku_connection = piku_utils.get_piku_connection_for_workspace(workspace)
             piku_utils.run_piku_in_silica(
-                "uv sync", workspace_name=workspace, use_shell_pipe=True, check=True
+                "uv sync", piku_connection, use_shell_pipe=True, check=True
             )
             console.print(
                 "[green]Successfully initialized silica environment with uv sync.[/green]"
@@ -418,9 +391,7 @@ def create(workspace, connection, agent_type):
             )
 
         # Create or update workspace-specific configuration
-        from silica.config.multi_workspace import (
-            load_project_config,
-        )
+        from silica.config.multi_workspace import load_project_config
 
         # Check if a config file already exists
         config_file = silica_dir / "config.yaml"
@@ -430,8 +401,7 @@ def create(workspace, connection, agent_type):
             # Load existing config to preserve other workspaces
             project_config = load_project_config(silica_dir)
         else:
-            # Creating a new config from scratch, don't create default "agent" workspace
-            # if user has specified a different workspace name
+            # Creating a new config from scratch
             project_config = {"default_workspace": workspace, "workspaces": {}}
 
         # Set this workspace's configuration including agent settings
@@ -464,6 +434,7 @@ def create(workspace, connection, agent_type):
         console.print(f"Piku connection: [cyan]{connection}[/cyan]")
         console.print(f"Application name: [cyan]{app_name}[/cyan]")
         console.print(f"Branch: [cyan]{initial_branch}[/cyan]")
+        console.print(f"Agent type: [cyan]{agent_type}[/cyan]")
 
         # Start agent in a tmux session as the last step
         console.print("Starting agent in a detached tmux session...")
@@ -471,8 +442,9 @@ def create(workspace, connection, agent_type):
             # Create a tmux session named after the app_name and start in detached mode
             # The session will start the agent and remain alive after disconnection
             tmux_cmd = f"tmux new-session -d -s {app_name} 'python3 ./AGENT_runner.py; exec bash'"
+            piku_connection = piku_utils.get_piku_connection_for_workspace(workspace)
             piku_utils.run_piku_in_silica(
-                tmux_cmd, workspace_name=workspace, use_shell_pipe=True, check=True
+                tmux_cmd, piku_connection, use_shell_pipe=True, check=True
             )
             console.print(
                 f"[green]Agent successfully started in tmux session: [bold]{app_name}[/bold][/green]"

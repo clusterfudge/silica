@@ -1,3 +1,26 @@
+# Cline - AI Coding Assistant with VS Code Integration
+#
+# Cline is an AI-powered coding assistant designed to work seamlessly with
+# Visual Studio Code and other development environments.
+#
+# Key Features:
+# - VS Code extension integration
+# - Multi-model AI support (Claude, GPT)
+# - Context-aware code suggestions
+# - Development workflow integration
+# - Terminal and editor compatibility
+#
+# Installation:
+# - npm install -g cline (global installation)
+# - Requires Node.js and npm
+#
+# Required Environment Variables:
+# - GITHUB_TOKEN: For repository access and operations
+#
+# Recommended Environment Variables:
+# - ANTHROPIC_API_KEY: For Claude model access
+# - OPENAI_API_KEY: For GPT model access
+#
 name: "cline"
 description: "Cline - AI coding assistant with VS Code integration"
 install:
