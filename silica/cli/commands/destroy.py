@@ -150,9 +150,9 @@ def destroy(force, workspace, all):
             return
 
     # Regular single workspace destruction
-    # Use our utility functions to get workspace name, app name, etc.
-    app_name = get_app_name(git_root)
-    piku_connection = get_piku_connection(git_root)
+    # Use the specified workspace (defaults to "agent") for both app name and operations
+    app_name = get_app_name(git_root, workspace_name=workspace)
+    piku_connection = get_piku_connection(git_root, workspace_name=workspace)
 
     if not workspace or not piku_connection or not app_name:
         console.print("[red]Error: Invalid configuration.[/red]")

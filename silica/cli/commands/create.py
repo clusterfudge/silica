@@ -8,6 +8,13 @@ from typing import Dict, List, Tuple
 
 from silica.config import load_config, find_git_root
 from silica.utils import piku as piku_utils
+from silica.utils.yaml_agents import (
+    get_supported_agents,
+    get_default_workspace_agent_config,
+    generate_agent_runner_script,
+)
+
+import git
 
 # Import sync functionality
 from silica.cli.commands.sync import sync_repo_to_remote
@@ -95,19 +102,28 @@ def get_template_content(filename):
     help="Piku connection string (default: inferred from git or config)",
     default=None,
 )
-def create(workspace, connection):
+@click.option(
+    "-a",
+    "--agent",
+    "agent_type",
+    help=f"Agent type to use. Options: {', '.join(get_supported_agents())} (default: from global config)",
+    default=None,
+    type=click.Choice(get_supported_agents(), case_sensitive=False),
+)
+def create(workspace, connection, agent_type):
     """Create a new agent environment workspace."""
-    # Workspace name is now a required parameter with a default value at the CLI level
-    # If a specific connection was provided, use it
-    # Otherwise we'll infer it later after setting up git
+    # Load global configuration
     config = load_config()
+
+    # Use global default agent if none specified
+    if agent_type is None:
+        agent_type = config.get("default_agent", "hdev")
+        console.print(f"[dim]Using default agent type: {agent_type}[/dim]")
 
     if connection is None:
         # Check if there's a git remote named "piku" in the project repo
         git_root = find_git_root()
         if git_root:
-            import git
-
             try:
                 repo = git.Repo(git_root)
                 for remote in repo.remotes:
@@ -169,18 +185,26 @@ def create(workspace, connection):
             "pyproject.toml",
             "requirements.txt",
             ".gitignore",
-            "AGENT.sh",
+            "AGENT_runner.py",
         ]
+
+        # Create workspace config for agent script generation
+        workspace_config = get_default_workspace_agent_config(agent_type)
 
         # Create initial files
         for filename in initial_files:
-            content = get_template_content(filename)
+            if filename == "AGENT_runner.py":
+                # Generate agent-specific Python runner script
+                content = generate_agent_runner_script(workspace, workspace_config)
+            else:
+                content = get_template_content(filename)
+
             file_path = repo_path / filename
             with open(file_path, "w") as f:
                 f.write(content)
 
-            # Set executable permissions for shell scripts
-            if filename.endswith(".sh"):
+            # Set executable permissions for Python scripts
+            if filename.endswith(".py") or filename.endswith(".sh"):
                 file_path.chmod(file_path.stat().st_mode | 0o755)  # Add executable bit
 
         # Add and commit files
@@ -197,12 +221,6 @@ def create(workspace, connection):
 
         # The app name will be {workspace}-{repo_name}
         app_name = f"{workspace}-{repo_name}"
-
-        # Now that we have a repo, we can try to infer the piku connection if not provided
-        if connection is None:
-            # Try to infer from git remotes in the main repo
-            connection = piku_utils.infer_piku_connection(workspace, git_root)
-            console.print(f"Using inferred piku connection: {connection}")
 
         # Check if the workspace remote exists
         remotes = [r.name for r in repo.remotes]
@@ -382,11 +400,13 @@ def create(workspace, connection):
             # if user has specified a different workspace name
             project_config = {"default_workspace": workspace, "workspaces": {}}
 
-        # Set this workspace's configuration
+        # Set this workspace's configuration including agent settings
+        agent_config = get_default_workspace_agent_config(agent_type)
         workspace_config = {
             "piku_connection": connection,
             "app_name": app_name,
             "branch": initial_branch,
+            **agent_config,
         }
 
         # Ensure workspaces key exists
@@ -410,13 +430,14 @@ def create(workspace, connection):
         console.print(f"Piku connection: [cyan]{connection}[/cyan]")
         console.print(f"Application name: [cyan]{app_name}[/cyan]")
         console.print(f"Branch: [cyan]{initial_branch}[/cyan]")
+        console.print(f"Agent type: [cyan]{agent_type}[/cyan]")
 
         # Start agent in a tmux session as the last step
         console.print("Starting agent in a detached tmux session...")
         try:
             # Create a tmux session named after the app_name and start in detached mode
             # The session will start the agent and remain alive after disconnection
-            tmux_cmd = f"tmux new-session -d -s {app_name} './AGENT.sh; exec bash'"
+            tmux_cmd = f"tmux new-session -d -s {app_name} 'python3 ./AGENT_runner.py; exec bash'"
             piku_utils.run_piku_in_silica(
                 tmux_cmd, workspace_name=workspace, use_shell_pipe=True, check=True
             )
@@ -435,7 +456,7 @@ def create(workspace, connection):
                 + app_name
                 + " 'cd /home/piku/app_dirs/"
                 + app_name
-                + " && ./AGENT.sh'[/yellow]"
+                + " && python3 ./AGENT_runner.py'[/yellow]"
             )
 
     except subprocess.CalledProcessError as e:

@@ -1,0 +1,52 @@
+# Aider - AI Pair Programming
+#
+# Aider is an AI-powered pair programming tool that works directly in your terminal.
+# It can understand your codebase and make targeted changes while preserving
+# existing functionality.
+#
+# Key Features:
+# - Direct integration with git repositories
+# - Support for multiple AI models (GPT, Claude, etc.)
+# - Automatic commit generation with meaningful messages
+# - Context-aware code changes
+#
+# Default Arguments:
+# - "--auto-commits": Automatically creates git commits for changes
+#
+# Model Selection:
+# Silica automatically selects the best available model based on your API keys:
+# - If OPENAI_API_KEY is available: Uses GPT-4
+# - If ANTHROPIC_API_KEY is available: Uses Claude-3.5-Sonnet
+# - If neither is available: Uses aider's default model
+#
+# Installation:
+# - pip install aider-chat
+#
+# Required Environment Variables:
+# - GITHUB_TOKEN: For repository access and operations
+#
+# Recommended Environment Variables:
+# - OPENAI_API_KEY: For GPT model access (preferred)
+# - ANTHROPIC_API_KEY: For Claude model access (alternative)
+#
+name: "aider"
+description: "AI pair programming in your terminal"
+install:
+  commands:
+    - "pip install aider-chat"
+  check_command: "aider --version"
+launch:
+  command: "uv run aider"
+  default_args:
+    - "--auto-commits"
+dependencies:
+  - "aider-chat"
+environment:
+  required:
+    - name: "GITHUB_TOKEN"
+      description: "GitHub token for repository access"
+  recommended:
+    - name: "OPENAI_API_KEY"
+      description: "OpenAI API key for GPT model access"
+    - name: "ANTHROPIC_API_KEY"
+      description: "Anthropic API key for Claude model access"

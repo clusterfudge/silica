@@ -9,6 +9,7 @@ CONFIG_FILE = CONFIG_DIR / "config.yaml"
 DEFAULT_CONFIG = {
     "piku_connection": "piku",
     "workspace_name": "agent",
+    "default_agent": "hdev",
     "api_keys": {
         "ANTHROPIC_API_KEY": None,
         "GITHUB_TOKEN": None,

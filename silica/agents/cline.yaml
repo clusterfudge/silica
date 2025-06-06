@@ -1,0 +1,49 @@
+# Cline - AI Coding Assistant with VS Code Integration
+#
+# Cline is an AI-powered coding assistant designed to work seamlessly with
+# Visual Studio Code and other development environments.
+#
+# Key Features:
+# - VS Code extension integration
+# - Multi-model AI support (Claude, GPT)
+# - Context-aware code suggestions
+# - Development workflow integration
+# - Terminal and editor compatibility
+#
+# Model Selection:
+# Silica automatically selects the best available model based on your API keys:
+# - If ANTHROPIC_API_KEY is available: Uses Claude-3.5-Sonnet (preferred)
+# - If OPENAI_API_KEY is available: Uses GPT-4 (alternative)
+# - If neither is available: Uses cline's default model
+#
+# Installation:
+# - npm install -g cline (global installation)
+# - Requires Node.js and npm
+#
+# Required Environment Variables:
+# - GITHUB_TOKEN: For repository access and operations
+#
+# Recommended Environment Variables:
+# - ANTHROPIC_API_KEY: For Claude model access (preferred)
+# - OPENAI_API_KEY: For GPT model access (alternative)
+#
+name: "cline"
+description: "Cline - AI coding assistant with VS Code integration"
+install:
+  commands:
+    - "npm install -g cline"
+  check_command: "cline --version"
+launch:
+  command: "uv run cline"
+  default_args: []
+dependencies:
+  - "cline"
+environment:
+  required:
+    - name: "GITHUB_TOKEN"
+      description: "GitHub token for repository access"
+  recommended:
+    - name: "ANTHROPIC_API_KEY"
+      description: "Anthropic API key for Claude model access"
+    - name: "OPENAI_API_KEY"
+      description: "OpenAI API key for GPT model access"
