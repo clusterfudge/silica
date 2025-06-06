@@ -44,3 +44,8 @@ dev = [
 
 [tool.setuptools_scm]
 write_to = "silica/_version.py"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+]

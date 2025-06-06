@@ -10,6 +10,12 @@
 # - Development workflow integration
 # - Terminal and editor compatibility
 #
+# Model Selection:
+# Silica automatically selects the best available model based on your API keys:
+# - If ANTHROPIC_API_KEY is available: Uses Claude-3.5-Sonnet (preferred)
+# - If OPENAI_API_KEY is available: Uses GPT-4 (alternative)
+# - If neither is available: Uses cline's default model
+#
 # Installation:
 # - npm install -g cline (global installation)
 # - Requires Node.js and npm
@@ -18,8 +24,8 @@
 # - GITHUB_TOKEN: For repository access and operations
 #
 # Recommended Environment Variables:
-# - ANTHROPIC_API_KEY: For Claude model access
-# - OPENAI_API_KEY: For GPT model access
+# - ANTHROPIC_API_KEY: For Claude model access (preferred)
+# - OPENAI_API_KEY: For GPT model access (alternative)
 #
 name: "cline"
 description: "Cline - AI coding assistant with VS Code integration"

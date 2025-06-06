@@ -8,12 +8,13 @@ from pathlib import Path
 from typing import List, Dict, Any
 
 from silica.config import get_silica_dir, find_git_root
-from silica.config.multi_workspace import list_workspaces
+from silica.config.multi_workspace import list_workspaces, get_workspace_config
 from silica.utils.piku import (
     get_piku_connection,
     get_app_name,
     run_piku_in_silica,
 )
+from silica.utils.agent_yaml import load_agent_config, report_environment_status
 
 console = Console()
 
@@ -153,6 +154,33 @@ def print_single_workspace_status(status: Dict[str, Any], detailed: bool = False
     console.print(
         f"[dim]App name: {status['app_name']}, Connection: {status['piku_connection']}[/dim]"
     )
+    
+    # Add agent configuration information
+    try:
+        git_root = find_git_root()
+        silica_dir = get_silica_dir()
+        if git_root and silica_dir:
+            workspace_config = get_workspace_config(silica_dir, status['workspace'])
+            agent_type = workspace_config.get("agent_type", "hdev")
+            
+            console.print(f"[bold]Agent Configuration:[/bold] [cyan]{agent_type}[/cyan]")
+            
+            # Show agent details if detailed view
+            if detailed:
+                agent_details = load_agent_config(agent_type)
+                if agent_details:
+                    console.print(f"Description: [white]{agent_details.description}[/white]")
+                    console.print(f"Command: [green]{agent_details.launch_command}[/green]")
+                    
+                    if agent_details.default_args:
+                        console.print(f"Default args: [blue]{' '.join(agent_details.default_args)}[/blue]")
+                    
+                    # Show environment variable status
+                    console.print("\n[bold]Environment Variables:[/bold]")
+                    report_environment_status(agent_details)
+    except Exception:
+        # If we can't get agent info, just continue with regular status
+        pass
 
     # Print process status
     console.print("[green]Application status:[/green]")
@@ -226,12 +254,24 @@ def print_all_workspaces_summary(statuses: List[Dict[str, Any]]):
 
     table = Table(title="Workspace Status")
     table.add_column("Workspace", style="cyan")
+    table.add_column("Agent Type", style="magenta")
     table.add_column("App Name", style="blue")
     table.add_column("Processes", style="green")
     table.add_column("Agent Session", style="yellow")
     table.add_column("Status", style="red")
 
     for status in statuses:
+        # Get agent type for this workspace
+        agent_type = "hdev"  # default
+        try:
+            git_root = find_git_root()
+            silica_dir = get_silica_dir()
+            if git_root and silica_dir:
+                workspace_config = get_workspace_config(silica_dir, status['workspace'])
+                agent_type = workspace_config.get("agent_type", "hdev")
+        except Exception:
+            pass
+        
         # Determine status indicators
         process_count = len(
             [p for p in status["process_status"] if p.strip() and "COMMAND" not in p]
@@ -259,6 +299,7 @@ def print_all_workspaces_summary(statuses: List[Dict[str, Any]]):
 
         table.add_row(
             status["workspace"],
+            agent_type,
             status["app_name"],
             process_status,
             tmux_status,

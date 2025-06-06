@@ -13,6 +13,12 @@
 # Default Arguments:
 # - "--auto-commits": Automatically creates git commits for changes
 #
+# Model Selection:
+# Silica automatically selects the best available model based on your API keys:
+# - If OPENAI_API_KEY is available: Uses GPT-4
+# - If ANTHROPIC_API_KEY is available: Uses Claude-3.5-Sonnet
+# - If neither is available: Uses aider's default model
+#
 # Installation:
 # - pip install aider-chat
 #
@@ -20,7 +26,7 @@
 # - GITHUB_TOKEN: For repository access and operations
 #
 # Recommended Environment Variables:
-# - OPENAI_API_KEY: For GPT model access (primary)
+# - OPENAI_API_KEY: For GPT model access (preferred)
 # - ANTHROPIC_API_KEY: For Claude model access (alternative)
 #
 name: "aider"
