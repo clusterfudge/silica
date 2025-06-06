@@ -79,14 +79,17 @@ silica tell "Please analyze this code" -w assistant
 ### Managing Agent Types
 
 ```bash
-# List all available agent types
-silica agents list
+# List all available agent types (during workspace creation)
+silica create --help  # Shows available agents
 
 # Set global default agent type
-silica agents set-default aider
+silica config set-default-agent aider
 
 # View current global default
-silica agents get-default
+silica config get default_agent
+
+# List all configuration including default agent
+silica config list
 ```
 
 ### Destroying Workspaces

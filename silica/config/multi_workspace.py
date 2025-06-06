@@ -96,7 +96,10 @@ def get_workspace_config(
         # or if it's the default workspace name and no workspaces exist
         if workspace_name is not None or len(config["workspaces"]) == 0:
             # Create default workspace configuration with agent settings
-            default_agent_config = get_default_workspace_agent_config("hdev")
+            # Get the global default agent instead of hardcoding hdev
+            from silica.config import get_config_value
+            default_agent = get_config_value("default_agent", "hdev")
+            default_agent_config = get_default_workspace_agent_config(default_agent)
             config["workspaces"][workspace_name] = {
                 "piku_connection": DEFAULT_CONFIG["piku_connection"],
                 "branch": "main",

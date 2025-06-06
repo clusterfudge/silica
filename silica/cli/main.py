@@ -12,7 +12,6 @@ from silica.cli.commands import (
     piku,
     sync,
     agent,
-    agents,
     tell,
     progress,
     workspace,
@@ -34,7 +33,6 @@ cli.add_command(destroy.destroy)
 cli.add_command(piku.piku)
 cli.add_command(sync.sync)
 cli.add_command(agent.agent)
-cli.add_command(agents.agents)
 cli.add_command(tell.tell)
 cli.add_command(progress.progress)
 cli.add_command(workspace.workspace)

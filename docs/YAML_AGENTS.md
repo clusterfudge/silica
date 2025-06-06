@@ -191,17 +191,17 @@ environment:
 
 ## Workspace Customization
 
-Each workspace can customize agent behavior by adding flags and arguments:
+Agent configuration is set at workspace creation time and is immutable. To use a different agent, create a new workspace:
 
 ```bash
-# Add custom flags
-silica agents configure my-agent -w my-workspace
+# Create workspace with specific agent
+silica create -w my-aider-workspace -a aider
 
-# Set agent for workspace
-silica agents set my-agent -w my-workspace
+# Create workspace with different agent
+silica create -w my-cline-workspace -a cline
 ```
 
-This creates workspace-specific configuration that gets merged with the agent's default configuration.
+Workspaces are lightweight and easily replaceable, encouraging the creation of focused, single-purpose environments.
 
 ## Architecture Benefits
 
@@ -218,23 +218,23 @@ The YAML system is fully backward compatible:
 - Old `AGENT.sh` scripts are replaced with `AGENT_runner.py`
 - Existing workspace configurations continue to work
 - No user-facing breaking changes
-### Advanced Configuration
+### Configuration Management
 ```bash
-# Configure agent with custom settings
-silica agents configure aider -w my-project
+# Set global default agent type
+silica config set-default-agent aider
 
-# View detailed agent configuration
-silica agents show -w my-project
+# View current global configuration
+silica config list
 
-# Setup silica with preferred default agent
+# Setup silica with interactive wizard
 silica config setup
 ```
 
 ### Environment Variable Management
 ```bash
-# List agents with environment status
-silica agents list
+# View workspace status including agent configuration and environment variables
+silica status -w my-project
 
-# View detailed agent configuration (includes env vars)
-silica agents show --workspace my-project
+# View status of all workspaces including agent types
+silica status
 ```

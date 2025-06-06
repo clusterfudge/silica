@@ -98,8 +98,11 @@ def get_workspace_status(workspace_name: str, git_root: Path) -> Dict[str, Any]:
 
         # Try to get agent sessions
         try:
+            # Get agent type to use correct sessions command
+            from silica.config import get_config_value
+            default_agent = get_config_value("default_agent", "hdev")
             result = run_piku_in_silica(
-                "hdev sessions",
+                f"{default_agent} sessions",
                 use_shell_pipe=True,
                 workspace_name=workspace_name,
                 capture_output=True,
@@ -161,7 +164,9 @@ def print_single_workspace_status(status: Dict[str, Any], detailed: bool = False
         silica_dir = get_silica_dir()
         if git_root and silica_dir:
             workspace_config = get_workspace_config(silica_dir, status['workspace'])
-            agent_type = workspace_config.get("agent_type", "hdev")
+            from silica.config import get_config_value
+            default_agent = get_config_value("default_agent", "hdev")
+            agent_type = workspace_config.get("agent_type", default_agent)
             
             console.print(f"[bold]Agent Configuration:[/bold] [cyan]{agent_type}[/cyan]")
             
@@ -178,9 +183,9 @@ def print_single_workspace_status(status: Dict[str, Any], detailed: bool = False
                     # Show environment variable status
                     console.print("\n[bold]Environment Variables:[/bold]")
                     report_environment_status(agent_details)
-    except Exception:
-        # If we can't get agent info, just continue with regular status
-        pass
+    except Exception as e:
+        # If we can't get agent info, show helpful error and continue with regular status
+        console.print(f"[yellow]Warning: Could not load agent configuration: {e}[/yellow]")
 
     # Print process status
     console.print("[green]Application status:[/green]")
@@ -262,13 +267,15 @@ def print_all_workspaces_summary(statuses: List[Dict[str, Any]]):
 
     for status in statuses:
         # Get agent type for this workspace
-        agent_type = "hdev"  # default
+        from silica.config import get_config_value
+        default_agent = get_config_value("default_agent", "hdev")
+        agent_type = default_agent  # default
         try:
             git_root = find_git_root()
             silica_dir = get_silica_dir()
             if git_root and silica_dir:
                 workspace_config = get_workspace_config(silica_dir, status['workspace'])
-                agent_type = workspace_config.get("agent_type", "hdev")
+                agent_type = workspace_config.get("agent_type", default_agent)
         except Exception:
             pass
         
