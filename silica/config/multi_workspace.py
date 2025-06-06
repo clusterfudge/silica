@@ -98,6 +98,7 @@ def get_workspace_config(
             # Create default workspace configuration with agent settings
             # Get the global default agent instead of hardcoding hdev
             from silica.config import get_config_value
+
             default_agent = get_config_value("default_agent", "hdev")
             default_agent_config = get_default_workspace_agent_config(default_agent)
             config["workspaces"][workspace_name] = {

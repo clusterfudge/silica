@@ -30,7 +30,11 @@ def generate_agent_command(agent_type: str, workspace_config: Dict[str, Any]) ->
     agent_settings = workspace_config.get("agent_config", {})
 
     # Build command
-    command_parts = ["uv", "run", agent_config.launch_command.split()[-1]]  # Get just the command name
+    command_parts = [
+        "uv",
+        "run",
+        agent_config.launch_command.split()[-1],
+    ]  # Get just the command name
 
     # Add default arguments from YAML configuration
     if agent_config.default_args:
@@ -59,18 +63,18 @@ def generate_agent_command(agent_type: str, workspace_config: Dict[str, Any]) ->
 
 def _get_model_argument(agent_type: str) -> Optional[List[str]]:
     """Get model selection arguments based on available API keys.
-    
+
     Args:
         agent_type: The agent type (aider or cline)
-        
+
     Returns:
         List of command arguments for model selection, or None
     """
     import os
-    
+
     has_openai = bool(os.getenv("OPENAI_API_KEY"))
     has_anthropic = bool(os.getenv("ANTHROPIC_API_KEY"))
-    
+
     if agent_type == "aider":
         # Aider model selection priority: GPT-4 > Claude > default
         if has_openai:
@@ -79,7 +83,7 @@ def _get_model_argument(agent_type: str) -> Optional[List[str]]:
             return ["--model", "claude-3-5-sonnet-20241022"]
         # If no API keys, let aider use its default
         return None
-        
+
     elif agent_type == "cline":
         # Cline model selection priority: Claude > GPT-4 > default
         if has_anthropic:
@@ -88,7 +92,7 @@ def _get_model_argument(agent_type: str) -> Optional[List[str]]:
             return ["--model", "gpt-4"]
         # If no API keys, let cline use its default
         return None
-        
+
     return None
 
 
