@@ -200,6 +200,7 @@ def create(workspace, connection, agent_type):
         workspace_config_file = repo_path / "workspace_config.json"
         with open(workspace_config_file, "w") as f:
             import json
+
             json.dump(workspace_config, f, indent=2)
 
         # Add workspace_config.json to initial files for git tracking
@@ -438,9 +439,14 @@ def create(workspace, connection, agent_type):
         console.print("Setting up workspace environment...")
         try:
             piku_utils.run_piku_in_silica(
-                "uv run silica we setup", workspace_name=workspace, use_shell_pipe=True, check=True
+                "uv run silica we setup",
+                workspace_name=workspace,
+                use_shell_pipe=True,
+                check=True,
             )
-            console.print("[green]Workspace environment setup completed successfully[/green]")
+            console.print(
+                "[green]Workspace environment setup completed successfully[/green]"
+            )
         except subprocess.CalledProcessError as e:
             console.print(
                 f"[yellow]Warning: Failed to run workspace environment setup: {e}[/yellow]"
@@ -454,7 +460,9 @@ def create(workspace, connection, agent_type):
         try:
             # Create a tmux session named after the app_name and start in detached mode
             # The session will start the agent and remain alive after disconnection
-            tmux_cmd = f"tmux new-session -d -s {app_name} 'uv run silica we run; exec bash'"
+            tmux_cmd = (
+                f"tmux new-session -d -s {app_name} 'uv run silica we run; exec bash'"
+            )
             piku_utils.run_piku_in_silica(
                 tmux_cmd, workspace_name=workspace, use_shell_pipe=True, check=True
             )

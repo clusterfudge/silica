@@ -40,7 +40,9 @@ cli.add_command(workspace.workspace)
 
 # Register workspace environment commands with aliases
 cli.add_command(workspace_environment.workspace_environment)
-cli.add_command(workspace_environment.workspace_environment_, name="workspace_environment")
+cli.add_command(
+    workspace_environment.workspace_environment_, name="workspace_environment"
+)
 cli.add_command(workspace_environment.we)
 
 if __name__ == "__main__":
