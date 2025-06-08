@@ -1,1 +1,1 @@
-web: uv run silica we run
+web: hdev view-memory --port $PORT
