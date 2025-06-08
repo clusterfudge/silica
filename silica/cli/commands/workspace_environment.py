@@ -25,7 +25,7 @@ from silica.utils.agent_yaml import load_agent_config
 console = Console()
 
 
-def load_environment_variables():
+def load_environment_variables(silent=False):
     """Load environment variables from piku ENV file."""
     top_dir = Path.cwd()
     app_name = top_dir.name
@@ -34,7 +34,8 @@ def load_environment_variables():
     
     env_vars_loaded = 0
     if env_file.exists():
-        console.print(f"[dim]Loading environment from {env_file}[/dim]")
+        if not silent:
+            console.print(f"[dim]Loading environment from {env_file}[/dim]")
         with open(env_file, 'r') as f:
             for line in f:
                 line = line.strip()
@@ -42,9 +43,11 @@ def load_environment_variables():
                     key, value = line.split('=', 1)
                     os.environ[key] = value
                     env_vars_loaded += 1
-        console.print(f"[green]✓ Loaded {env_vars_loaded} environment variables[/green]")
+        if not silent:
+            console.print(f"[green]✓ Loaded {env_vars_loaded} environment variables[/green]")
     else:
-        console.print(f"[yellow]⚠ Environment file not found: {env_file}[/yellow]")
+        if not silent:
+            console.print(f"[yellow]⚠ Environment file not found: {env_file}[/yellow]")
     
     return env_vars_loaded > 0
 
@@ -165,7 +168,7 @@ def install_agent(agent_config: Dict[str, Any]) -> bool:
     return False
 
 
-def check_environment_variables(agent_config: Dict[str, Any]) -> Tuple[bool, List[str], List[str]]:
+def check_environment_variables(agent_config: Dict[str, Any], silent=False) -> Tuple[bool, List[str], List[str]]:
     """Check and report environment variable status."""
     env_data = agent_config.get('environment', {})
     missing_required = []
@@ -185,12 +188,13 @@ def check_environment_variables(agent_config: Dict[str, Any]) -> Tuple[bool, Lis
     
     # Report status
     success = len(missing_required) == 0
-    if success and len(missing_recommended) == 0:
-        console.print(f"[green]✓ All environment variables configured for {agent_config['name']}[/green]")
-    elif success:
-        console.print(f"[yellow]⚠ Missing recommended environment variables for {agent_config['name']}[/yellow]")
-    else:
-        console.print(f"[red]✗ Missing required environment variables for {agent_config['name']}[/red]")
+    if not silent:
+        if success and len(missing_recommended) == 0:
+            console.print(f"[green]✓ All environment variables configured for {agent_config['name']}[/green]")
+        elif success:
+            console.print(f"[yellow]⚠ Missing recommended environment variables for {agent_config['name']}[/yellow]")
+        else:
+            console.print(f"[red]✗ Missing required environment variables for {agent_config['name']}[/red]")
     
     return success, missing_required, missing_recommended
 
@@ -445,7 +449,7 @@ def _status_impl(json_output=False):
         table.add_row("Working Directory", "✓", str(current_dir))
     
     # Check if we can load environment
-    env_loaded = load_environment_variables()
+    env_loaded = load_environment_variables(silent=json_output)
     status_data["environment_variables"] = {
         "status": "ok" if env_loaded else "error",
         "loaded": env_loaded,
@@ -531,7 +535,7 @@ def _status_impl(json_output=False):
                     table.add_row("Agent Installation", "✗ Not Installed", "Run setup to install")
             
             # Check environment variables
-            env_ok, missing_req, missing_rec = check_environment_variables(agent_config)
+            env_ok, missing_req, missing_rec = check_environment_variables(agent_config, silent=json_output)
             status_data["agent_environment"] = {
                 "status": "ok" if env_ok else "error",
                 "complete": env_ok and not missing_rec,
