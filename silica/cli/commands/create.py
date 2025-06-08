@@ -24,6 +24,7 @@ from silica.utils.messaging import (
     deploy_messaging_app,
     setup_workspace_messaging,
     add_messaging_to_workspace_environment,
+    start_agent_receiver,
 )
 
 console = Console()
@@ -192,6 +193,7 @@ def create(workspace, connection, agent_type):
             "pyproject.toml",
             "requirements.txt",
             ".gitignore",
+            "agent_receiver.py",
         ]
 
         # Create workspace config for the deployed environment
@@ -468,6 +470,13 @@ def create(workspace, connection, agent_type):
 
         # Add messaging functions to workspace environment
         success, message = add_messaging_to_workspace_environment(workspace, connection)
+        if success:
+            console.print(f"[green]{message}[/green]")
+        else:
+            console.print(f"[yellow]Warning: {message}[/yellow]")
+
+        # Start agent receiver
+        success, message = start_agent_receiver(workspace, connection)
         if success:
             console.print(f"[green]{message}[/green]")
         else:

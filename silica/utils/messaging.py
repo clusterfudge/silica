@@ -151,6 +151,8 @@ def setup_workspace_messaging(
             "SILICA_WORKSPACE": workspace_name,
             "SILICA_PROJECT": project_name,
             "SILICA_PARTICIPANT": f"{workspace_name}-{project_name}",
+            "SILICA_RECEIVER_PORT": "8901",
+            "SILICA_MESSAGE_DELIVERY": "status",  # Default to status bar delivery
         }
 
         # Set environment variables using piku
@@ -203,11 +205,56 @@ def setup_workspace_messaging(
         return False, f"Unexpected error setting up workspace messaging: {e}"
 
 
+def start_agent_receiver(workspace_name: str, piku_connection: str) -> Tuple[bool, str]:
+    """
+    Start the agent HTTP receiver as a background service.
+
+    Args:
+        workspace_name: Name of the workspace
+        piku_connection: Piku connection string
+
+    Returns:
+        Tuple of (success, message)
+    """
+    try:
+        console.print("Starting agent HTTP receiver...")
+
+        # Start agent receiver as background service
+        receiver_cmd = """
+cd ~
+if pgrep -f "agent_receiver.py" > /dev/null; then
+    echo "Agent receiver already running"
+else
+    echo "Starting agent receiver..."
+    nohup python3 agent_receiver.py > receiver.log 2>&1 &
+    sleep 2
+    if pgrep -f "agent_receiver.py" > /dev/null; then
+        echo "Agent receiver started successfully"
+    else
+        echo "Failed to start agent receiver"
+        exit 1
+    fi
+fi
+"""
+
+        piku_utils.run_piku_in_silica(
+            receiver_cmd, workspace_name=workspace_name, use_shell_pipe=True, check=True
+        )
+
+        console.print("[green]Agent HTTP receiver started[/green]")
+        return True, "Agent receiver started successfully"
+
+    except subprocess.CalledProcessError as e:
+        return False, f"Failed to start agent receiver: {e}"
+    except Exception as e:
+        return False, f"Unexpected error: {e}"
+
+
 def add_messaging_to_workspace_environment(
     workspace_name: str, piku_connection: str
 ) -> Tuple[bool, str]:
     """
-    Add messaging function sourcing to workspace bashrc.
+    Add messaging function sourcing to workspace bashrc and auto-start receiver.
 
     Args:
         workspace_name: Name of the workspace
@@ -228,6 +275,12 @@ export SILICA_INSTALL_DIR="$(uv run python -c 'import silica; print(silica.__fil
 # Source messaging function if available
 if [[ -f "$SILICA_INSTALL_DIR/agent/messaging.sh" ]]; then
     source "$SILICA_INSTALL_DIR/agent/messaging.sh"
+fi
+
+# Auto-start agent receiver if not running
+if ! pgrep -f "agent_receiver.py" > /dev/null; then
+    echo "Starting agent receiver..."
+    cd ~ && nohup python3 agent_receiver.py > receiver.log 2>&1 &
 fi
 """
 
