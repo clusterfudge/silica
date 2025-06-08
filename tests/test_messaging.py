@@ -99,22 +99,18 @@ def test_messaging_function_availability():
     assert "SILICA_WORKSPACE" in content
     assert "SILICA_PROJECT" in content
     assert "curl" in content
-    assert "/api/v1/messages/agent-response" in content
+    assert "/api/v1/messages/send" in content
 
 
 @pytest.mark.integration
-def test_agent_receiver_template():
-    """Test that the agent receiver template is properly formed."""
-    receiver_file = (
-        Path(__file__).parent.parent
-        / "silica"
-        / "utils"
-        / "templates"
-        / "agent_receiver.py"
+def test_messaging_command_availability():
+    """Test that the messaging CLI command is properly implemented."""
+    messaging_file = (
+        Path(__file__).parent.parent / "silica" / "cli" / "commands" / "messaging.py"
     )
-    assert receiver_file.exists()
+    assert messaging_file.exists()
 
-    content = receiver_file.read_text()
+    content = messaging_file.read_text()
 
     # Check that key endpoints are defined
     assert "/api/v1/agent/receive" in content

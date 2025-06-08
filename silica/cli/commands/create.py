@@ -193,7 +193,6 @@ def create(workspace, connection, agent_type):
             "pyproject.toml",
             "requirements.txt",
             ".gitignore",
-            "agent_receiver.py",
         ]
 
         # Create workspace config for the deployed environment

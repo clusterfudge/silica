@@ -161,7 +161,7 @@ def setup_workspace_messaging(
 
         subprocess.run(["piku", config_cmd, piku_connection, app_name], check=True)
 
-        # Create default thread for the workspace
+        # Create default thread for the workspace by sending an initial message
         console.print(f"Creating default thread for {app_name}...")
 
         # Wait a moment for the messaging app to be ready
@@ -169,16 +169,16 @@ def setup_workspace_messaging(
 
         try:
             response = requests.post(
-                "http://localhost/api/v1/threads/create",
+                "http://localhost/api/v1/messages/send",
                 headers={
                     "Host": MESSAGING_APP_NAME,
                     "Content-Type": "application/json",
                 },
                 json={
-                    "workspace": workspace_name,
-                    "project": project_name,
-                    "title": "Default",
                     "thread_id": workspace_name,  # Use workspace name as default thread ID
+                    "message": f"Workspace {workspace_name} initialized",
+                    "sender": f"{workspace_name}-{project_name}",
+                    "title": "Default",
                 },
                 timeout=10,
             )
@@ -207,7 +207,7 @@ def setup_workspace_messaging(
 
 def start_agent_receiver(workspace_name: str, piku_connection: str) -> Tuple[bool, str]:
     """
-    Start the agent HTTP receiver as a background service.
+    Start the agent HTTP receiver as a background service using silica command.
 
     Args:
         workspace_name: Name of the workspace
@@ -219,16 +219,16 @@ def start_agent_receiver(workspace_name: str, piku_connection: str) -> Tuple[boo
     try:
         console.print("Starting agent HTTP receiver...")
 
-        # Start agent receiver as background service
+        # Start agent receiver using silica messaging receiver command
         receiver_cmd = """
-cd ~
-if pgrep -f "agent_receiver.py" > /dev/null; then
+# Start agent receiver as background service using silica command
+if pgrep -f "silica messaging receiver" > /dev/null; then
     echo "Agent receiver already running"
 else
     echo "Starting agent receiver..."
-    nohup python3 agent_receiver.py > receiver.log 2>&1 &
-    sleep 2
-    if pgrep -f "agent_receiver.py" > /dev/null; then
+    nohup uv run silica messaging receiver > receiver.log 2>&1 &
+    sleep 3
+    if pgrep -f "silica messaging receiver" > /dev/null; then
         echo "Agent receiver started successfully"
     else
         echo "Failed to start agent receiver"
@@ -278,9 +278,9 @@ if [[ -f "$SILICA_INSTALL_DIR/agent/messaging.sh" ]]; then
 fi
 
 # Auto-start agent receiver if not running
-if ! pgrep -f "agent_receiver.py" > /dev/null; then
+if ! pgrep -f "silica messaging receiver" > /dev/null; then
     echo "Starting agent receiver..."
-    cd ~ && nohup python3 agent_receiver.py > receiver.log 2>&1 &
+    nohup uv run silica messaging receiver > receiver.log 2>&1 &
 fi
 """
 

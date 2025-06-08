@@ -23,50 +23,23 @@ from silica.utils.messaging import (
 console = Console()
 
 
-def get_workspace_info(workspace_name: Optional[str] = None):
-    """Get workspace and project information."""
-    load_config()
-
-    # If no workspace specified, use default
-    if workspace_name is None:
+def get_default_sender() -> str:
+    """Get default sender (human or current workspace participant)."""
+    try:
+        # Try to get workspace info for agent context
         workspace_name = get_default_workspace()
-        if workspace_name is None:
-            console.print(
-                "[red]No workspace specified and no default workspace set.[/red]"
-            )
-            console.print(
-                "Use -w/--workspace to specify a workspace or set a default with 'silica workspace set-default'"
-            )
-            return None, None, None
+        if workspace_name:
+            project_config = load_project_config()
+            if project_config and "workspaces" in project_config:
+                workspace_config = project_config["workspaces"].get(workspace_name)
+                if workspace_config:
+                    app_name = workspace_config.get("app_name", "")
+                    if "-" in app_name:
+                        return app_name  # Return workspace-project format
+    except Exception:
+        pass
 
-    # Load project config to get workspace details
-    project_config = load_project_config()
-    if not project_config or "workspaces" not in project_config:
-        console.print("[red]No workspace configuration found.[/red]")
-        console.print("Run 'silica create' to create a workspace first.")
-        return None, None, None
-
-    workspace_config = project_config["workspaces"].get(workspace_name)
-    if not workspace_config:
-        console.print(f"[red]Workspace '{workspace_name}' not found.[/red]")
-        console.print(
-            f"Available workspaces: {', '.join(project_config['workspaces'].keys())}"
-        )
-        return None, None, None
-
-    # Extract project name from app_name (format: workspace-project)
-    app_name = workspace_config.get("app_name", "")
-    if "-" in app_name:
-        project_name = app_name.split("-", 1)[1]
-    else:
-        console.print(
-            f"[red]Invalid app_name format in workspace config: {app_name}[/red]"
-        )
-        return None, None, None
-
-    piku_connection = workspace_config.get("piku_connection", "piku")
-
-    return workspace_name, project_name, piku_connection
+    return "human"  # Default fallback
 
 
 def make_api_request(
@@ -112,17 +85,10 @@ def msg():
 
 
 @msg.command()
-@click.option("-w", "--workspace", help="Workspace name")
-def list(workspace):
-    """List all threads for a workspace."""
-    workspace_name, project_name, piku_connection = get_workspace_info(workspace)
-    if not workspace_name:
-        return
-
+def list():
+    """List all global threads."""
     # Get threads from API
-    response = make_api_request(
-        "GET", f"/api/v1/threads/{workspace_name}", params={"project": project_name}
-    )
+    response = make_api_request("GET", "/api/v1/threads")
 
     if response is None:
         return
@@ -130,26 +96,25 @@ def list(workspace):
     threads = response.get("threads", [])
 
     if not threads:
-        console.print(
-            f"[yellow]No threads found for workspace {workspace_name}-{project_name}[/yellow]"
-        )
+        console.print("[yellow]No threads found[/yellow]")
         return
 
     # Display threads in a table
-    table = Table(title=f"Threads for {workspace_name}-{project_name}")
+    table = Table(title="Global Threads")
     table.add_column("Thread ID", style="cyan")
     table.add_column("Title", style="green")
+    table.add_column("Participants", style="yellow")
     table.add_column("Created", style="blue")
     table.add_column("Updated", style="blue")
-    table.add_column("Status", style="yellow")
 
     for thread in threads:
+        participants = ", ".join(thread.get("participants", []))
         table.add_row(
-            thread.get("thread_id", "")[:8] + "...",  # Shortened ID
+            thread.get("thread_id", ""),
             thread.get("title", ""),
+            participants[:30] + "..." if len(participants) > 30 else participants,
             thread.get("created_at", "")[:19].replace("T", " "),
             thread.get("updated_at", "")[:19].replace("T", " "),
-            thread.get("status", ""),
         )
 
     console.print(table)
@@ -157,82 +122,84 @@ def list(workspace):
 
 @msg.command()
 @click.argument("message")
-@click.option("-w", "--workspace", help="Workspace name")
-@click.option(
-    "-t", "--thread", help="Thread ID (default: uses workspace default thread)"
-)
-def send(message, workspace, thread):
-    """Send a message to a thread."""
-    workspace_name, project_name, piku_connection = get_workspace_info(workspace)
-    if not workspace_name:
+@click.option("-t", "--thread", help="Thread ID (creates implicitly if doesn't exist)")
+@click.option("-s", "--sender", help="Sender identity (default: auto-detected)")
+@click.option("--title", help="Title for new threads")
+def send(message, thread, sender, title):
+    """Send a message to a thread (creates thread implicitly if needed)."""
+    if not thread:
+        console.print("[red]Thread ID is required. Use -t/--thread to specify.[/red]")
         return
 
-    # Use workspace name as default thread if none specified
-    thread_id = thread or workspace_name
+    # Use default sender if not specified
+    if not sender:
+        sender = get_default_sender()
 
-    # Send message via API
+    # Send message via API (will create thread implicitly)
     response = make_api_request(
         "POST",
         "/api/v1/messages/send",
         data={
-            "workspace": workspace_name,
-            "project": project_name,
-            "thread_id": thread_id,
+            "thread_id": thread,
             "message": message,
+            "sender": sender,
+            "title": title,
         },
     )
 
     if response:
-        console.print(f"[green]Message sent successfully to thread {thread_id}[/green]")
+        delivery_statuses = response.get("delivery_statuses", [])
+        console.print(f"[green]Message sent successfully to thread {thread}[/green]")
+        if delivery_statuses:
+            console.print(f"Delivery status: {', '.join(delivery_statuses)}")
     else:
         console.print("[red]Failed to send message[/red]")
 
 
 @msg.command()
-@click.argument("title")
-@click.option("-w", "--workspace", help="Workspace name")
-def new(title, workspace):
-    """Create a new thread."""
-    workspace_name, project_name, piku_connection = get_workspace_info(workspace)
-    if not workspace_name:
-        return
-
-    # Create thread via API
+@click.argument("thread_id")
+@click.argument("participant")
+def add_participant(thread_id, participant):
+    """Add a participant to an existing thread."""
     response = make_api_request(
         "POST",
-        "/api/v1/threads/create",
-        data={"workspace": workspace_name, "project": project_name, "title": title},
+        f"/api/v1/threads/{thread_id}/participants",
+        data={"participant": participant},
     )
 
     if response:
-        thread_id = response.get("thread_id", "")
-        console.print(f"[green]Created new thread: {title}[/green]")
-        console.print(f"Thread ID: [cyan]{thread_id}[/cyan]")
+        console.print(f"[green]Added {participant} to thread {thread_id}[/green]")
     else:
-        console.print("[red]Failed to create thread[/red]")
+        console.print("[red]Failed to add participant to thread[/red]")
 
 
 @msg.command()
-@click.option("-w", "--workspace", help="Workspace name")
-@click.option(
-    "-t", "--thread", help="Thread ID (default: uses workspace default thread)"
-)
-@click.option("--tail", type=int, default=20, help="Number of recent messages to show")
-def history(workspace, thread, tail):
-    """View thread message history."""
-    workspace_name, project_name, piku_connection = get_workspace_info(workspace)
-    if not workspace_name:
+@click.argument("thread_id")
+def participants(thread_id):
+    """List participants in a thread."""
+    response = make_api_request("GET", f"/api/v1/threads/{thread_id}/participants")
+
+    if response is None:
         return
 
-    # Use workspace name as default thread if none specified
-    thread_id = thread or workspace_name
+    participants = response.get("participants", [])
 
+    if not participants:
+        console.print(f"[yellow]No participants found in thread {thread_id}[/yellow]")
+        return
+
+    console.print(f"[bold]Participants in thread {thread_id}:[/bold]")
+    for participant in participants:
+        console.print(f"  - {participant}")
+
+
+@msg.command()
+@click.argument("thread_id")
+@click.option("--tail", type=int, default=20, help="Number of recent messages to show")
+def history(thread_id, tail):
+    """View thread message history."""
     # Get messages via API
-    response = make_api_request(
-        "GET",
-        f"/api/v1/messages/{workspace_name}/{thread_id}",
-        params={"project": project_name},
-    )
+    response = make_api_request("GET", f"/api/v1/threads/{thread_id}/messages")
 
     if response is None:
         return
@@ -265,19 +232,9 @@ def history(workspace, thread, tail):
 
 
 @msg.command()
-@click.option("-w", "--workspace", help="Workspace name")
-@click.option(
-    "-t", "--thread", help="Thread ID (default: uses workspace default thread)"
-)
-def follow(workspace, thread):
+@click.argument("thread_id")
+def follow(thread_id):
     """Follow messages in a thread in real-time."""
-    workspace_name, project_name, piku_connection = get_workspace_info(workspace)
-    if not workspace_name:
-        return
-
-    # Use workspace name as default thread if none specified
-    thread_id = thread or workspace_name
-
     console.print(f"[green]Following thread {thread_id} (Ctrl+C to stop)[/green]\n")
 
     # Keep track of last message timestamp to avoid duplicates
@@ -286,11 +243,7 @@ def follow(workspace, thread):
     try:
         while True:
             # Get messages via API
-            response = make_api_request(
-                "GET",
-                f"/api/v1/messages/{workspace_name}/{thread_id}",
-                params={"project": project_name},
-            )
+            response = make_api_request("GET", f"/api/v1/threads/{thread_id}/messages")
 
             if response:
                 messages = response.get("messages", [])
@@ -371,11 +324,11 @@ def status():
     console.print("[bold]Messaging System Status[/bold]\n")
 
     # Get overall status
-    status = get_messaging_status(piku_connection)
+    status_info = get_messaging_status(piku_connection)
 
     # Root messaging app status
-    if status["messaging_app_exists"]:
-        if status["messaging_app_healthy"]:
+    if status_info["messaging_app_exists"]:
+        if status_info["messaging_app_healthy"]:
             console.print("[green]✓ Root messaging app: Running and healthy[/green]")
         else:
             console.print("[red]✗ Root messaging app: Exists but unhealthy[/red]")
@@ -384,14 +337,14 @@ def status():
         console.print("  Run 'silica msg deploy' to deploy it")
 
     # Workspace status
-    if status["workspaces"]:
+    if status_info["workspaces"]:
         console.print("\n[bold]Active Workspaces:[/bold]")
         table = Table()
         table.add_column("Workspace", style="cyan")
         table.add_column("Status", style="green")
         table.add_column("Active Threads", style="yellow")
 
-        for ws in status["workspaces"]:
+        for ws in status_info["workspaces"]:
             status_icon = "✓" if ws.get("connected", False) else "✗"
             table.add_row(
                 ws.get("name", ""), status_icon, str(ws.get("active_threads", 0))
@@ -404,14 +357,20 @@ def status():
 
 @msg.command()
 @click.option("--no-open", is_flag=True, help="Don't automatically open browser")
-def web(no_open):
+@click.option("--port", type=int, help="Port to use (default: messaging app port)")
+def web(no_open, port):
     """Open the web interface."""
     if not check_messaging_app_health():
         console.print("[red]Messaging app is not running or unhealthy[/red]")
         console.print("Check status with: silica msg status")
         return
 
-    url = "http://localhost"
+    # Construct URL with port if specified
+    if port:
+        url = f"http://localhost:{port}"
+    else:
+        url = "http://localhost"
+
     console.print(f"Web interface available at: [cyan]{url}[/cyan]")
     console.print(
         "(Make sure to set Host header to 'silica-messaging' if accessing directly)"
@@ -419,7 +378,7 @@ def web(no_open):
 
     if not no_open:
         try:
-            webbrowser.open("http://localhost")
+            webbrowser.open(url)
             console.print("[green]Opened web interface in browser[/green]")
         except Exception as e:
             console.print(f"[yellow]Could not open browser: {e}[/yellow]")
