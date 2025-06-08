@@ -18,6 +18,14 @@ import git
 # Import sync functionality
 from silica.cli.commands.sync import sync_repo_to_remote
 
+# Import messaging functionality
+from silica.utils.messaging import (
+    check_messaging_app_exists,
+    deploy_messaging_app,
+    setup_workspace_messaging,
+    add_messaging_to_workspace_environment,
+)
+
 console = Console()
 
 # Required tools and their installation instructions
@@ -434,6 +442,36 @@ def create(workspace, connection, agent_type):
         console.print(f"Application name: [cyan]{app_name}[/cyan]")
         console.print(f"Branch: [cyan]{initial_branch}[/cyan]")
         console.print(f"Agent type: [cyan]{agent_type}[/cyan]")
+
+        # Set up messaging system
+        console.print("Setting up messaging system...")
+
+        # Check if messaging app exists, deploy if not
+        if not check_messaging_app_exists(connection):
+            console.print("Messaging app not found. Deploying silica-messaging...")
+            success, message = deploy_messaging_app(connection)
+            if success:
+                console.print(f"[green]{message}[/green]")
+            else:
+                console.print(f"[red]Failed to deploy messaging app: {message}[/red]")
+                console.print("[yellow]Continuing without messaging system...[/yellow]")
+        else:
+            console.print("[green]Messaging app already exists[/green]")
+
+        # Set up workspace for messaging
+        console.print("Configuring workspace for messaging...")
+        success, message = setup_workspace_messaging(workspace, repo_name, connection)
+        if success:
+            console.print(f"[green]{message}[/green]")
+        else:
+            console.print(f"[yellow]Warning: {message}[/yellow]")
+
+        # Add messaging functions to workspace environment
+        success, message = add_messaging_to_workspace_environment(workspace, connection)
+        if success:
+            console.print(f"[green]{message}[/green]")
+        else:
+            console.print(f"[yellow]Warning: {message}[/yellow]")
 
         # Run workspace environment setup first
         console.print("Setting up workspace environment...")
