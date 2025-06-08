@@ -39,7 +39,7 @@ def agent(workspace):
 
         # Escape the tmux command properly
         run_piku_in_silica(
-            f"tmux new-session -A -s {app_name} 'python3 ./AGENT_runner.py; exec bash'",
+            f"tmux new-session -A -s {app_name} 'uv run silica we run; exec bash'",
             workspace_name=workspace,
         )
 

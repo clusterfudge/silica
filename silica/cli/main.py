@@ -15,6 +15,7 @@ from silica.cli.commands import (
     tell,
     progress,
     workspace,
+    workspace_environment,
 )
 
 
@@ -36,6 +37,13 @@ cli.add_command(agent.agent)
 cli.add_command(tell.tell)
 cli.add_command(progress.progress)
 cli.add_command(workspace.workspace)
+
+# Register workspace environment commands with aliases
+cli.add_command(workspace_environment.workspace_environment)
+cli.add_command(
+    workspace_environment.workspace_environment_, name="workspace_environment"
+)
+cli.add_command(workspace_environment.we)
 
 if __name__ == "__main__":
     cli()

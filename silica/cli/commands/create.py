@@ -11,7 +11,6 @@ from silica.utils import piku as piku_utils
 from silica.utils.yaml_agents import (
     get_supported_agents,
     get_default_workspace_agent_config,
-    generate_agent_runner_script,
 )
 
 import git
@@ -185,27 +184,27 @@ def create(workspace, connection, agent_type):
             "pyproject.toml",
             "requirements.txt",
             ".gitignore",
-            "AGENT_runner.py",
         ]
 
-        # Create workspace config for agent script generation
+        # Create workspace config for the deployed environment
         workspace_config = get_default_workspace_agent_config(agent_type)
 
         # Create initial files
         for filename in initial_files:
-            if filename == "AGENT_runner.py":
-                # Generate agent-specific Python runner script
-                content = generate_agent_runner_script(workspace, workspace_config)
-            else:
-                content = get_template_content(filename)
-
+            content = get_template_content(filename)
             file_path = repo_path / filename
             with open(file_path, "w") as f:
                 f.write(content)
 
-            # Set executable permissions for Python scripts
-            if filename.endswith(".py") or filename.endswith(".sh"):
-                file_path.chmod(file_path.stat().st_mode | 0o755)  # Add executable bit
+        # Create workspace configuration file for the remote environment
+        workspace_config_file = repo_path / "workspace_config.json"
+        with open(workspace_config_file, "w") as f:
+            import json
+
+            json.dump(workspace_config, f, indent=2)
+
+        # Add workspace_config.json to initial files for git tracking
+        initial_files.append("workspace_config.json")
 
         # Add and commit files
         repo = git.Repo(repo_path)
@@ -296,6 +295,10 @@ def create(workspace, connection, agent_type):
         for key, value in api_keys.items():
             if value:
                 env_config[key] = value
+
+        # Add workspace configuration environment variables
+        env_config["SILICA_WORKSPACE_NAME"] = workspace
+        env_config["SILICA_AGENT_TYPE"] = agent_type
 
         # Set all configuration values at once if we have any
         if env_config:
@@ -432,12 +435,34 @@ def create(workspace, connection, agent_type):
         console.print(f"Branch: [cyan]{initial_branch}[/cyan]")
         console.print(f"Agent type: [cyan]{agent_type}[/cyan]")
 
-        # Start agent in a tmux session as the last step
+        # Run workspace environment setup first
+        console.print("Setting up workspace environment...")
+        try:
+            piku_utils.run_piku_in_silica(
+                "uv run silica we setup",
+                workspace_name=workspace,
+                use_shell_pipe=True,
+                check=True,
+            )
+            console.print(
+                "[green]Workspace environment setup completed successfully[/green]"
+            )
+        except subprocess.CalledProcessError as e:
+            console.print(
+                f"[yellow]Warning: Failed to run workspace environment setup: {e}[/yellow]"
+            )
+            console.print(
+                "[yellow]You may need to run 'silica we setup' manually in the remote environment.[/yellow]"
+            )
+
+        # Start agent in a detached tmux session as the last step
         console.print("Starting agent in a detached tmux session...")
         try:
             # Create a tmux session named after the app_name and start in detached mode
             # The session will start the agent and remain alive after disconnection
-            tmux_cmd = f"tmux new-session -d -s {app_name} 'python3 ./AGENT_runner.py; exec bash'"
+            tmux_cmd = (
+                f"tmux new-session -d -s {app_name} 'uv run silica we run; exec bash'"
+            )
             piku_utils.run_piku_in_silica(
                 tmux_cmd, workspace_name=workspace, use_shell_pipe=True, check=True
             )
@@ -454,9 +479,7 @@ def create(workspace, connection, agent_type):
             console.print(
                 "[yellow]You can manually start the agent by running: piku shell, then tmux new-session -d -s "
                 + app_name
-                + " 'cd /home/piku/app_dirs/"
-                + app_name
-                + " && python3 ./AGENT_runner.py'[/yellow]"
+                + " 'uv run silica we run'[/yellow]"
             )
 
     except subprocess.CalledProcessError as e:
