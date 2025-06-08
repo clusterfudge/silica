@@ -19,10 +19,8 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
-from silica.utils.yaml_agents import (
-    get_agent_config,
-    get_supported_agents,
-)
+from silica.utils.yaml_agents import get_supported_agents
+from silica.utils.agent_yaml import load_agent_config
 
 console = Console()
 
@@ -241,6 +239,32 @@ def setup_code_directory() -> bool:
         return False
 
 
+def get_agent_config_dict(agent_type: str) -> Dict[str, Any]:
+    """Load agent config and convert to dict format."""
+    agent_config_obj = load_agent_config(agent_type)
+    if not agent_config_obj:
+        raise ValueError(f"Could not load agent config for '{agent_type}'")
+    
+    # Convert to dict format for our functions
+    return {
+        "name": agent_config_obj.name,
+        "description": agent_config_obj.description,
+        "install": {
+            "commands": agent_config_obj.install_commands,
+            "fallback_commands": agent_config_obj.fallback_install_commands,
+            "check_command": agent_config_obj.check_command,
+        },
+        "launch": {
+            "command": agent_config_obj.launch_command,
+            "default_args": agent_config_obj.default_args,
+        },
+        "environment": {
+            "required": getattr(agent_config_obj, 'required_env_vars', []),
+            "recommended": getattr(agent_config_obj, 'recommended_env_vars', []),
+        },
+    }
+
+
 def generate_launch_command(agent_config: Dict[str, Any], workspace_config: Dict[str, Any]) -> str:
     """Generate launch command for the agent."""
     launch_data = agent_config.get('launch', {})
@@ -281,11 +305,8 @@ def we():
     pass
 
 
-@workspace_environment.command()
-@workspace_environment_.command()
-@we.command()
-def setup():
-    """Set up the workspace environment idempotently."""
+def _setup_impl():
+    """Implementation of the setup command."""
     console.print(Panel.fit("[bold blue]Silica Workspace Environment Setup[/bold blue]", 
                           border_style="blue"))
     
@@ -308,7 +329,7 @@ def setup():
     
     # Get agent configuration
     try:
-        agent_config = get_agent_config(agent_type)
+        agent_config = get_agent_config_dict(agent_type)
     except Exception as e:
         console.print(f"[red]✗ Could not load agent config for '{agent_type}': {e}[/red]")
         sys.exit(1)
@@ -338,11 +359,8 @@ def setup():
                           border_style="green"))
 
 
-@workspace_environment.command()
-@workspace_environment_.command()  
-@we.command()
-def run():
-    """Run the configured agent in the workspace environment."""
+def _run_impl():
+    """Implementation of the run command."""
     console.print(Panel.fit("[bold blue]Starting Silica Agent[/bold blue]", 
                           border_style="blue"))
     
@@ -359,7 +377,7 @@ def run():
     
     # Get agent configuration
     try:
-        agent_config = get_agent_config(agent_type)
+        agent_config = get_agent_config_dict(agent_type)
     except Exception as e:
         console.print(f"[red]✗ Could not load agent config for '{agent_type}': {e}[/red]")
         sys.exit(1)
@@ -402,11 +420,8 @@ def run():
         pass
 
 
-@workspace_environment.command()
-@workspace_environment_.command()
-@we.command()
-def status():
-    """Check the status of the workspace environment."""
+def _status_impl():
+    """Implementation of the status command."""
     console.print(Panel.fit("[bold blue]Workspace Environment Status[/bold blue]", 
                           border_style="blue"))
     
@@ -446,7 +461,7 @@ def status():
         
         # Check agent config
         try:
-            agent_config = get_agent_config(agent_type)
+            agent_config = get_agent_config_dict(agent_type)
             table.add_row("Agent Config", "✓ Valid", agent_config['name'])
             
             # Check if agent is installed
@@ -506,7 +521,7 @@ def status():
     workspace_config = get_workspace_config()
     if workspace_config:
         try:
-            agent_config = get_agent_config(workspace_config.get('agent_type', 'hdev'))
+            agent_config = get_agent_config_dict(workspace_config.get("agent_type", "hdev"))
             if not is_agent_installed(agent_config):
                 console.print("• Run [cyan]silica we setup[/cyan] to install the agent")
             
@@ -520,3 +535,36 @@ def status():
         console.print("• Sync code directory using [cyan]silica sync[/cyan]")
     
     console.print("• Run [cyan]silica we run[/cyan] to start the agent")
+
+
+# Register the implementation functions as commands
+@click.command()
+def setup():
+    """Set up the workspace environment idempotently."""
+    return _setup_impl()
+
+
+@click.command()
+def run():
+    """Run the configured agent in the workspace environment."""
+    return _run_impl()
+
+
+@click.command() 
+def status():
+    """Check the status of the workspace environment."""
+    return _status_impl()
+
+
+# Add commands to all groups
+workspace_environment.add_command(setup)
+workspace_environment.add_command(run)
+workspace_environment.add_command(status)
+
+workspace_environment_.add_command(setup)
+workspace_environment_.add_command(run)
+workspace_environment_.add_command(status)
+
+we.add_command(setup)
+we.add_command(run)
+we.add_command(status)
