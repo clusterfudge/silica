@@ -46,5 +46,6 @@ write_to = "silica/_version.py"
 
 [dependency-groups]
 dev = [
+    "pre-commit>=4.2.0",
     "pytest>=8.3.5",
 ]

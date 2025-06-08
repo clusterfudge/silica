@@ -352,6 +352,7 @@ dev = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "pre-commit" },
     { name = "pytest" },
 ]
 
@@ -371,7 +372,10 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=8.3.5" }]
+dev = [
+    { name = "pre-commit", specifier = ">=4.2.0" },
+    { name = "pytest", specifier = ">=8.3.5" },
+]
 
 [[package]]
 name = "pytest"
