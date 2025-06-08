@@ -259,8 +259,8 @@ def get_agent_config_dict(agent_type: str) -> Dict[str, Any]:
             "default_args": agent_config_obj.default_args,
         },
         "environment": {
-            "required": getattr(agent_config_obj, 'required_env_vars', []),
-            "recommended": getattr(agent_config_obj, 'recommended_env_vars', []),
+            "required": [{"name": var.name, "description": var.description} for var in agent_config_obj.required_env_vars],
+            "recommended": [{"name": var.name, "description": var.description} for var in agent_config_obj.recommended_env_vars],
         },
     }
 
@@ -420,69 +420,148 @@ def _run_impl():
         pass
 
 
-def _status_impl():
+def _status_impl(json_output=False):
     """Implementation of the status command."""
-    console.print(Panel.fit("[bold blue]Workspace Environment Status[/bold blue]", 
-                          border_style="blue"))
+    # Collect status data
+    status_data = {}
     
-    # Create status table
-    table = Table(title="Environment Status", show_header=True, header_style="bold magenta")
-    table.add_column("Component", style="cyan", no_wrap=True)
-    table.add_column("Status", style="white")
-    table.add_column("Details", style="dim")
+    if not json_output:
+        console.print(Panel.fit("[bold blue]Workspace Environment Status[/bold blue]", 
+                              border_style="blue"))
+        
+        # Create status table
+        table = Table(title="Environment Status", show_header=True, header_style="bold magenta")
+        table.add_column("Component", style="cyan", no_wrap=True)
+        table.add_column("Status", style="white")
+        table.add_column("Details", style="dim")
     
     # Check current directory
     current_dir = Path.cwd()
-    table.add_row("Working Directory", "✓", str(current_dir))
+    status_data["working_directory"] = {
+        "status": "ok",
+        "path": str(current_dir)
+    }
+    if not json_output:
+        table.add_row("Working Directory", "✓", str(current_dir))
     
     # Check if we can load environment
     env_loaded = load_environment_variables()
-    env_status = "✓ Loaded" if env_loaded else "✗ Not Found"
-    table.add_row("Environment Variables", env_status, "From piku ENV file")
+    status_data["environment_variables"] = {
+        "status": "ok" if env_loaded else "error",
+        "loaded": env_loaded,
+        "source": "piku ENV file"
+    }
+    if not json_output:
+        env_status = "✓ Loaded" if env_loaded else "✗ Not Found"
+        table.add_row("Environment Variables", env_status, "From piku ENV file")
     
     # Check uv availability
     try:
         result = subprocess.run(["uv", "--version"], capture_output=True, text=True, timeout=5)
         if result.returncode == 0:
             uv_version = result.stdout.strip()
-            table.add_row("UV Package Manager", "✓ Available", uv_version)
+            status_data["uv_package_manager"] = {
+                "status": "ok",
+                "available": True,
+                "version": uv_version
+            }
+            if not json_output:
+                table.add_row("UV Package Manager", "✓ Available", uv_version)
         else:
-            table.add_row("UV Package Manager", "✗ Error", "Command failed")
+            status_data["uv_package_manager"] = {
+                "status": "error",
+                "available": False,
+                "error": "Command failed"
+            }
+            if not json_output:
+                table.add_row("UV Package Manager", "✗ Error", "Command failed")
     except FileNotFoundError:
-        table.add_row("UV Package Manager", "✗ Not Found", "Please install uv")
+        status_data["uv_package_manager"] = {
+            "status": "error",
+            "available": False,
+            "error": "Not found - please install uv"
+        }
+        if not json_output:
+            table.add_row("UV Package Manager", "✗ Not Found", "Please install uv")
     except Exception as e:
-        table.add_row("UV Package Manager", "✗ Error", str(e))
+        status_data["uv_package_manager"] = {
+            "status": "error",
+            "available": False,
+            "error": str(e)
+        }
+        if not json_output:
+            table.add_row("UV Package Manager", "✗ Error", str(e))
     
     # Check workspace config
     workspace_config = get_workspace_config()
     if workspace_config:
         agent_type = workspace_config.get('agent_type', 'unknown')
-        table.add_row("Workspace Config", "✓ Found", f"Agent type: {agent_type}")
+        status_data["workspace_config"] = {
+            "status": "ok",
+            "found": True,
+            "agent_type": agent_type,
+            "config": workspace_config
+        }
+        if not json_output:
+            table.add_row("Workspace Config", "✓ Found", f"Agent type: {agent_type}")
         
         # Check agent config
         try:
             agent_config = get_agent_config_dict(agent_type)
-            table.add_row("Agent Config", "✓ Valid", agent_config['name'])
+            status_data["agent_config"] = {
+                "status": "ok",
+                "valid": True,
+                "name": agent_config['name'],
+                "description": agent_config['description']
+            }
+            if not json_output:
+                table.add_row("Agent Config", "✓ Valid", agent_config['name'])
             
             # Check if agent is installed
-            if is_agent_installed(agent_config):
-                table.add_row("Agent Installation", "✓ Installed", agent_config['name'])
-            else:
-                table.add_row("Agent Installation", "✗ Not Installed", "Run setup to install")
+            agent_installed = is_agent_installed(agent_config)
+            status_data["agent_installation"] = {
+                "status": "ok" if agent_installed else "error",
+                "installed": agent_installed,
+                "agent_name": agent_config['name']
+            }
+            if not json_output:
+                if agent_installed:
+                    table.add_row("Agent Installation", "✓ Installed", agent_config['name'])
+                else:
+                    table.add_row("Agent Installation", "✗ Not Installed", "Run setup to install")
             
             # Check environment variables
             env_ok, missing_req, missing_rec = check_environment_variables(agent_config)
-            if env_ok and not missing_rec:
-                table.add_row("Agent Environment", "✓ Complete", "All variables configured")
-            elif env_ok:
-                table.add_row("Agent Environment", "⚠ Partial", f"{len(missing_rec)} recommended missing")
-            else:
-                table.add_row("Agent Environment", "✗ Incomplete", f"{len(missing_req)} required missing")
+            status_data["agent_environment"] = {
+                "status": "ok" if env_ok else "error",
+                "complete": env_ok and not missing_rec,
+                "missing_required": [{"name": name, "description": desc} for name, desc in missing_req],
+                "missing_recommended": [{"name": name, "description": desc} for name, desc in missing_rec]
+            }
+            if not json_output:
+                if env_ok and not missing_rec:
+                    table.add_row("Agent Environment", "✓ Complete", "All variables configured")
+                elif env_ok:
+                    table.add_row("Agent Environment", "⚠ Partial", f"{len(missing_rec)} recommended missing")
+                else:
+                    table.add_row("Agent Environment", "✗ Incomplete", f"{len(missing_req)} required missing")
                 
         except Exception as e:
-            table.add_row("Agent Config", "✗ Error", str(e))
+            status_data["agent_config"] = {
+                "status": "error",
+                "valid": False,
+                "error": str(e)
+            }
+            if not json_output:
+                table.add_row("Agent Config", "✗ Error", str(e))
     else:
-        table.add_row("Workspace Config", "✗ Not Found", "Cannot determine configuration")
+        status_data["workspace_config"] = {
+            "status": "error",
+            "found": False,
+            "error": "Cannot determine configuration"
+        }
+        if not json_output:
+            table.add_row("Workspace Config", "✗ Not Found", "Cannot determine configuration")
     
     # Check code directory
     code_dir = current_dir / "code"
@@ -501,40 +580,119 @@ def _status_impl():
                 )
                 if result.returncode == 0:
                     branch = result.stdout.strip()
-                    table.add_row("Code Directory", "✓ Git Repository", f"Branch: {branch}")
+                    status_data["code_directory"] = {
+                        "status": "ok",
+                        "exists": True,
+                        "is_git_repo": True,
+                        "branch": branch,
+                        "path": str(code_dir)
+                    }
+                    if not json_output:
+                        table.add_row("Code Directory", "✓ Git Repository", f"Branch: {branch}")
                 else:
-                    table.add_row("Code Directory", "✓ Git Repository", "Branch unknown")
+                    status_data["code_directory"] = {
+                        "status": "ok",
+                        "exists": True,
+                        "is_git_repo": True,
+                        "branch": "unknown",
+                        "path": str(code_dir)
+                    }
+                    if not json_output:
+                        table.add_row("Code Directory", "✓ Git Repository", "Branch unknown")
             else:
-                table.add_row("Code Directory", "✓ Directory", "Not a git repository")
+                status_data["code_directory"] = {
+                    "status": "ok",
+                    "exists": True,
+                    "is_git_repo": False,
+                    "path": str(code_dir)
+                }
+                if not json_output:
+                    table.add_row("Code Directory", "✓ Directory", "Not a git repository")
         except Exception as e:
-            table.add_row("Code Directory", "✓ Directory", f"Git status error: {e}")
+            status_data["code_directory"] = {
+                "status": "ok",
+                "exists": True,
+                "is_git_repo": None,
+                "error": str(e),
+                "path": str(code_dir)
+            }
+            if not json_output:
+                table.add_row("Code Directory", "✓ Directory", f"Git status error: {e}")
     else:
-        table.add_row("Code Directory", "✗ Not Found", "Should be synced separately")
+        status_data["code_directory"] = {
+            "status": "error",
+            "exists": False,
+            "path": str(code_dir),
+            "message": "Should be synced separately"
+        }
+        if not json_output:
+            table.add_row("Code Directory", "✗ Not Found", "Should be synced separately")
     
-    console.print(table)
-    
-    # Show next steps if there are issues
-    console.print("\n[bold]Next Steps:[/bold]")
-    if not env_loaded:
-        console.print("• Environment variables not loaded - check piku configuration")
-    
-    workspace_config = get_workspace_config()
-    if workspace_config:
-        try:
-            agent_config = get_agent_config_dict(workspace_config.get("agent_type", "hdev"))
-            if not is_agent_installed(agent_config):
-                console.print("• Run [cyan]silica we setup[/cyan] to install the agent")
-            
-            env_ok, missing_req, missing_rec = check_environment_variables(agent_config)
-            if not env_ok:
-                console.print("• Configure required environment variables through piku")
-        except Exception:
-            console.print("• Fix agent configuration issues")
-    
-    if not (code_dir.exists() and code_dir.is_dir()):
-        console.print("• Sync code directory using [cyan]silica sync[/cyan]")
-    
-    console.print("• Run [cyan]silica we run[/cyan] to start the agent")
+    if json_output:
+        # Calculate overall status
+        overall_status = "ok"
+        issues = []
+        
+        if not status_data["environment_variables"]["loaded"]:
+            overall_status = "warning"
+            issues.append("Environment variables not loaded")
+        
+        if status_data["uv_package_manager"]["status"] != "ok":
+            overall_status = "error"
+            issues.append("UV package manager not available")
+        
+        if status_data["workspace_config"]["status"] != "ok":
+            overall_status = "error"
+            issues.append("Workspace configuration not found")
+        elif "agent_installation" in status_data and not status_data["agent_installation"]["installed"]:
+            if overall_status == "ok":
+                overall_status = "warning"
+            issues.append("Agent not installed")
+        
+        if "agent_environment" in status_data and status_data["agent_environment"]["missing_required"]:
+            overall_status = "error"
+            issues.append("Required environment variables missing")
+        
+        if not status_data["code_directory"]["exists"]:
+            if overall_status == "ok":
+                overall_status = "warning"
+            issues.append("Code directory not found")
+        
+        # Build JSON response
+        json_response = {
+            "overall_status": overall_status,
+            "timestamp": datetime.now().isoformat(),
+            "issues": issues,
+            "components": status_data
+        }
+        
+        import json
+        print(json.dumps(json_response, indent=2))
+    else:
+        console.print(table)
+        
+        # Show next steps if there are issues
+        console.print("\n[bold]Next Steps:[/bold]")
+        if not env_loaded:
+            console.print("• Environment variables not loaded - check piku configuration")
+        
+        workspace_config = get_workspace_config()
+        if workspace_config:
+            try:
+                agent_config = get_agent_config_dict(workspace_config.get("agent_type", "hdev"))
+                if not is_agent_installed(agent_config):
+                    console.print("• Run [cyan]silica we setup[/cyan] to install the agent")
+                
+                env_ok, missing_req, missing_rec = check_environment_variables(agent_config)
+                if not env_ok:
+                    console.print("• Configure required environment variables through piku")
+            except Exception:
+                console.print("• Fix agent configuration issues")
+        
+        if not (code_dir.exists() and code_dir.is_dir()):
+            console.print("• Sync code directory using [cyan]silica sync[/cyan]")
+        
+        console.print("• Run [cyan]silica we run[/cyan] to start the agent")
 
 
 # Register the implementation functions as commands
@@ -550,10 +708,11 @@ def run():
     return _run_impl()
 
 
-@click.command() 
-def status():
+@click.command()
+@click.option('--json', 'json_output', is_flag=True, help='Output status in JSON format for programmatic consumption')
+def status(json_output):
     """Check the status of the workspace environment."""
-    return _status_impl()
+    return _status_impl(json_output)
 
 
 # Add commands to all groups
