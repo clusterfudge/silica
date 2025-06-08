@@ -29,7 +29,7 @@ requires = ["setuptools>=45", "setuptools_scm[toml]>=6.2"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-package-data = {"silica.utils" = ["templates/*"]}
+package-data = {"silica.utils" = ["templates/*"], "silica.agents" = ["*.yaml"]}
 include-package-data = true
 
 [project.optional-dependencies]
@@ -43,3 +43,8 @@ dev = [
 
 [tool.setuptools_scm]
 write_to = "silica/_version.py"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+]

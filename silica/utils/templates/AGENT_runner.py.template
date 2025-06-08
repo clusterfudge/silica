@@ -1,0 +1,252 @@
+#!/usr/bin/env python3
+"""Generated agent runner script for workspace: {workspace_name}
+
+This script replaces the old AGENT.sh and uses the new YAML-based agent configuration system.
+It embeds the agent configuration to avoid import dependencies.
+"""
+
+import os
+import sys
+import subprocess
+import yaml
+from pathlib import Path
+from datetime import datetime
+
+# Embedded agent configuration for: {agent_type}
+AGENT_CONFIG = {agent_config_yaml}
+
+# Embedded workspace configuration
+WORKSPACE_CONFIG = {workspace_config_json}
+
+
+def load_environment_variables():
+    """Load environment variables from piku ENV file."""
+    top_dir = Path.cwd()
+    app_name = top_dir.name
+    
+    env_file = Path.home() / ".piku" / "envs" / app_name / "ENV"
+    
+    if env_file.exists():
+        print(f"Loading environment from {{env_file}}")
+        with open(env_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    os.environ[key] = value
+    else:
+        print(f"Environment file not found: {{env_file}}")
+
+
+def sync_dependencies():
+    """Synchronize UV dependencies."""
+    print("Synchronizing dependencies with uv...")
+    try:
+        result = subprocess.run(
+            ["uv", "sync"],
+            capture_output=True,
+            text=True,
+            timeout=300
+        )
+        if result.returncode != 0:
+            print(f"uv sync warning: {{result.stderr}}")
+    except Exception as e:
+        print(f"uv sync error: {{e}}")
+
+
+def is_agent_installed(check_command):
+    """Check if agent is installed."""
+    if not check_command:
+        return True
+        
+    try:
+        result = subprocess.run(
+            check_command.split(),
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        if result.returncode == 0:
+            return True
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+    
+    try:
+        uv_command = ["uv", "run"] + check_command.split()
+        result = subprocess.run(
+            uv_command,
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        return result.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return False
+
+
+def install_agent(config):
+    """Install agent if needed."""
+    install_data = config.get('install', {{}})
+    check_command = install_data.get('check_command', '')
+    
+    if is_agent_installed(check_command):
+        print(f"✓ {{config['name']}} is already installed")
+        return True
+        
+    print(f"Installing {{config['name']}}...")
+    
+    # Try main install commands
+    for command in install_data.get('commands', []):
+        try:
+            print(f"Running: {{command}}")
+            result = subprocess.run(
+                command,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=300
+            )
+            
+            if result.returncode == 0:
+                print(f"✓ Successfully installed {{config['name']}}")
+                return True
+            else:
+                print(f"Command failed: {{result.stderr}}")
+                
+        except Exception as e:
+            print(f"Command error: {{e}}")
+    
+    # Try fallback commands
+    for command in install_data.get('fallback_commands', []):
+        try:
+            print(f"Running fallback: {{command}}")
+            result = subprocess.run(
+                command,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=300
+            )
+            
+            if result.returncode == 0:
+                print(f"✓ Successfully installed {{config['name']}} with fallback")
+                return True
+                
+        except Exception as e:
+            print(f"Fallback error: {{e}}")
+    
+    print(f"✗ Failed to install {{config['name']}}")
+    return False
+
+
+def generate_launch_command(agent_config, workspace_config):
+    """Generate launch command."""
+    launch_data = agent_config.get('launch', {{}})
+    command_parts = launch_data.get('command', '').split()
+    
+    # Add default args
+    command_parts.extend(launch_data.get('default_args', []))
+    
+    # Add workspace-specific args
+    agent_settings = workspace_config.get("agent_config", {{}})
+    command_parts.extend(agent_settings.get("flags", []))
+    
+    for key, value in agent_settings.get("args", {{}}).items():
+        if value is True:
+            command_parts.append(f"--{{key}}")
+        elif value is not False and value is not None:
+            command_parts.extend([f"--{{key}}", str(value)])
+    
+    return " ".join(command_parts)
+
+
+def check_environment_variables(agent_config):
+    """Check and report environment variable status."""
+    env_data = agent_config.get('environment', {{}})
+    missing_required = []
+    missing_recommended = []
+    
+    # Check required environment variables
+    for env_var in env_data.get('required', []):
+        env_name = env_var['name']
+        if not os.getenv(env_name):
+            missing_required.append((env_name, env_var['description']))
+    
+    # Check recommended environment variables  
+    for env_var in env_data.get('recommended', []):
+        env_name = env_var['name']
+        if not os.getenv(env_name):
+            missing_recommended.append((env_name, env_var['description']))
+    
+    # Report status
+    if not missing_required and not missing_recommended:
+        print(f"✓ All environment variables configured for {{agent_config['name']}}")
+        return True
+    
+    if missing_required:
+        print(f"✗ Missing required environment variables for {{agent_config['name']}}:")
+        for env_name, description in missing_required:
+            print(f"    {{env_name}}: {{description}}")
+        print("Agent may not function properly without these variables.")
+    
+    if missing_recommended:
+        print(f"⚠ Missing recommended environment variables for {{agent_config['name']}}:")
+        for env_name, description in missing_recommended:
+            print(f"    {{env_name}}: {{description}}")
+    
+    return len(missing_required) == 0
+
+
+def main():
+    """Main agent runner function."""
+    print(f"Starting agent runner at {{datetime.now()}}")
+    
+    # Get directory info
+    top_dir = Path.cwd()
+    app_name = top_dir.name
+    print(f"Working directory: {{top_dir}}")
+    print(f"App name: {{app_name}}")
+    
+    # Setup environment
+    load_environment_variables()
+    sync_dependencies()
+    
+    # Change to code directory
+    code_dir = top_dir / "code"
+    if code_dir.exists():
+        os.chdir(code_dir)
+        print(f"Changed to code directory: {{code_dir}}")
+    else:
+        print(f"Code directory not found, staying in: {{top_dir}}")
+    
+    # Install and launch agent
+    if not install_agent(AGENT_CONFIG):
+        print(f"✗ Failed to install agent")
+        sys.exit(1)
+    
+    # Check environment variables
+    check_environment_variables(AGENT_CONFIG)
+    
+    launch_command = generate_launch_command(AGENT_CONFIG, WORKSPACE_CONFIG)
+    print(f"Launch command: {{launch_command}}")
+    print(f"Starting {{AGENT_CONFIG['name']}} agent from {{os.getcwd()}} at {{datetime.now()}}")
+    
+    try:
+        result = subprocess.run(launch_command, shell=True)
+        print(f"Agent exited with status {{result.returncode}} at {{datetime.now()}}")
+        
+    except KeyboardInterrupt:
+        print(f"Agent interrupted by user")
+    except Exception as e:
+        print(f"Error running agent: {{e}}")
+        sys.exit(1)
+    
+    print("Agent process has ended. Keeping tmux session alive.")
+    try:
+        input("Press Enter to exit...")
+    except (KeyboardInterrupt, EOFError):
+        pass
+
+
+if __name__ == "__main__":
+    main()
