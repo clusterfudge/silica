@@ -260,7 +260,7 @@ def app(port):
     )
 
     try:
-        messaging_app.run(host="0.0.0.0", port=app_port, debug=True)
+        messaging_app.run(host="0.0.0.0", port=app_port, debug=False)
     except Exception as e:
         console.print(f"[red]Failed to start messaging app: {e}[/red]")
         raise click.ClickException(f"Failed to start messaging app: {e}")

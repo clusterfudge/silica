@@ -60,24 +60,9 @@ jobs:
       run: |
         uv sync --dev
     
-    - name: Test CLI commands availability
+    - name: Run messaging system tests
       run: |
-        uv run silica messaging --help
-        uv run silica msg --help
-    
-    - name: Test messaging function syntax
-      run: |
-        bash -n silica/agent/messaging.sh
-    
-    - name: Test Python imports
-      run: |
-        uv run python -c "from silica.cli.commands.messaging import messaging"
-        uv run python -c "from silica.cli.commands.msg import msg"
-        uv run python -c "from silica.utils.messaging import deploy_messaging_app"
-    
-    - name: Run comprehensive messaging system tests
-      run: |
-        ./test_messaging_ci.sh
+        ./scripts/test_messaging_system.sh
     
     - name: Upload test logs on failure
       if: failure()
@@ -118,31 +103,6 @@ jobs:
       run: |
         uv sync --dev
     
-    - name: Test root messaging app startup
+    - name: Run messaging components tests
       run: |
-        timeout 15s uv run python silica/messaging/app.py --port 5555 &
-        sleep 5
-        curl -f -H "Host: silica-messaging" http://localhost:5555/health
-    
-    - name: Test agent receiver startup
-      run: |
-        export SILICA_WORKSPACE=test
-        export SILICA_PROJECT=ci
-        timeout 15s uv run silica messaging receiver --port 8888 &
-        sleep 5
-        curl -f http://localhost:8888/health
-    
-    - name: Test Pure CSS web interface
-      run: |
-        timeout 15s uv run python silica/messaging/app.py --port 5556 &
-        sleep 5
-        response=$(curl -s -H "Host: silica-messaging" http://localhost:5556/)
-        echo "$response" | grep -q "pure-css"
-        echo "$response" | grep -q "Silica Messaging"
-    
-    - name: Test messaging function exports
-      run: |
-        source silica/agent/messaging.sh
-        type silica-msg >/dev/null
-        type silica-msg-status >/dev/null
-        type silica-msg-participants >/dev/null
+        ./scripts/test_messaging_components.sh
