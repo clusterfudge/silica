@@ -106,12 +106,15 @@ def deploy_messaging_app(piku_connection: str, force: bool = False) -> Tuple[boo
             # Run this within the temp directory context where the piku remote is available
             console.print("Configuring messaging app environment...")
 
-            # Set DATA_DIR environment variable - piku will create this
+            # Set required environment variables:
+            # - DATA_DIR: piku will create and preserve this directory across deployments
+            # - NGINX_SERVER_NAME: enables hostname routing for the messaging app
             config_cmd = [
                 "piku",
                 "config:set",
                 MESSAGING_APP_NAME,
                 f"DATA_DIR=/var/lib/{MESSAGING_APP_NAME}",
+                f"NGINX_SERVER_NAME={MESSAGING_APP_NAME}",
             ]
             subprocess.run(config_cmd, cwd=temp_path, check=True)
 
@@ -157,6 +160,7 @@ def setup_workspace_messaging(
             "SILICA_PARTICIPANT": f"{workspace_name}-{project_name}",
             "SILICA_RECEIVER_PORT": "8901",
             "SILICA_MESSAGE_DELIVERY": "status",  # Default to status bar delivery
+            "NGINX_SERVER_NAME": app_name,  # Enable hostname routing for workspace
         }
 
         # Set environment variables using piku

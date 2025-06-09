@@ -307,6 +307,7 @@ def create(workspace, connection, agent_type):
         # Add workspace configuration environment variables
         env_config["SILICA_WORKSPACE_NAME"] = workspace
         env_config["SILICA_AGENT_TYPE"] = agent_type
+        env_config["NGINX_SERVER_NAME"] = app_name  # Enable hostname routing
 
         # Set all configuration values at once if we have any
         if env_config:
