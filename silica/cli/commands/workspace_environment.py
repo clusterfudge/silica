@@ -24,30 +24,44 @@ console = Console()
 
 
 def load_environment_variables(silent=False):
-    """Load environment variables from piku ENV file."""
+    """Load environment variables from piku ENV and LIVE_ENV files."""
     top_dir = Path.cwd()
     app_name = top_dir.name
 
-    env_file = Path.home() / ".piku" / "envs" / app_name / "ENV"
+    # Load both ENV and LIVE_ENV files (LIVE_ENV takes precedence)
+    env_files = [
+        Path.home() / ".piku" / "envs" / app_name / "ENV",
+        Path.home() / ".piku" / "envs" / app_name / "LIVE_ENV",
+    ]
 
     env_vars_loaded = 0
-    if env_file.exists():
-        if not silent:
-            console.print(f"[dim]Loading environment from {env_file}[/dim]")
-        with open(env_file, "r") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    key, value = line.split("=", 1)
-                    os.environ[key] = value
-                    env_vars_loaded += 1
-        if not silent:
+    for env_file in env_files:
+        if env_file.exists():
+            if not silent:
+                console.print(f"[dim]Loading environment from {env_file}[/dim]")
+            with open(env_file, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        key, value = line.split("=", 1)
+                        # Remove quotes if present
+                        if value.startswith('"') and value.endswith('"'):
+                            value = value[1:-1]
+                        elif value.startswith("'") and value.endswith("'"):
+                            value = value[1:-1]
+                        os.environ[key] = value
+                        env_vars_loaded += 1
+        else:
+            if not silent:
+                console.print(f"[dim]Environment file not found: {env_file}[/dim]")
+
+    if not silent:
+        if env_vars_loaded > 0:
             console.print(
                 f"[green]✓ Loaded {env_vars_loaded} environment variables[/green]"
             )
-    else:
-        if not silent:
-            console.print(f"[yellow]⚠ Environment file not found: {env_file}[/yellow]")
+        else:
+            console.print("[yellow]⚠ No environment variables loaded[/yellow]")
 
     return env_vars_loaded > 0
 
@@ -57,7 +71,11 @@ def sync_dependencies():
     console.print("[dim]Synchronizing dependencies with uv...[/dim]")
     try:
         result = subprocess.run(
-            ["uv", "sync"], capture_output=True, text=True, timeout=300
+            ["uv", "sync"],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            env=os.environ.copy(),  # Pass current environment
         )
         if result.returncode == 0:
             console.print("[green]✓ Dependencies synchronized successfully[/green]")
@@ -87,7 +105,11 @@ def is_agent_installed(agent_config: Dict[str, Any]) -> bool:
     # Try direct command first
     try:
         result = subprocess.run(
-            check_command.split(), capture_output=True, text=True, timeout=10
+            check_command.split(),
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env=os.environ.copy(),  # Pass current environment
         )
         if result.returncode == 0:
             return True
@@ -97,7 +119,13 @@ def is_agent_installed(agent_config: Dict[str, Any]) -> bool:
     # Try with uv run
     try:
         uv_command = ["uv", "run"] + check_command.split()
-        result = subprocess.run(uv_command, capture_output=True, text=True, timeout=10)
+        result = subprocess.run(
+            uv_command,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env=os.environ.copy(),  # Pass current environment
+        )
         return result.returncode == 0
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return False
@@ -118,7 +146,12 @@ def install_agent(agent_config: Dict[str, Any]) -> bool:
         try:
             console.print(f"[dim]Running: {command}[/dim]")
             result = subprocess.run(
-                command, shell=True, capture_output=True, text=True, timeout=300
+                command,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=300,
+                env=os.environ.copy(),  # Pass current environment
             )
 
             if result.returncode == 0:
@@ -137,7 +170,12 @@ def install_agent(agent_config: Dict[str, Any]) -> bool:
         try:
             console.print(f"[dim]Running fallback: {command}[/dim]")
             result = subprocess.run(
-                command, shell=True, capture_output=True, text=True, timeout=300
+                command,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=300,
+                env=os.environ.copy(),  # Pass current environment
             )
 
             if result.returncode == 0:
@@ -428,7 +466,11 @@ def _run_impl():
     )
 
     try:
-        result = subprocess.run(launch_command, shell=True)
+        result = subprocess.run(
+            launch_command,
+            shell=True,
+            env=os.environ.copy(),  # Pass current environment
+        )
         console.print(
             f"[yellow]Agent exited with status {result.returncode} at {datetime.now()}[/yellow]"
         )
@@ -487,7 +529,11 @@ def _status_impl(json_output=False):
     # Check uv availability
     try:
         result = subprocess.run(
-            ["uv", "--version"], capture_output=True, text=True, timeout=5
+            ["uv", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            env=os.environ.copy(),  # Pass current environment
         )
         if result.returncode == 0:
             uv_version = result.stdout.strip()
@@ -630,6 +676,7 @@ def _status_impl(json_output=False):
                     capture_output=True,
                     text=True,
                     timeout=5,
+                    env=os.environ.copy(),  # Pass current environment
                 )
                 if result.returncode == 0:
                     branch = result.stdout.strip()

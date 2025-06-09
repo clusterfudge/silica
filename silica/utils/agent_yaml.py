@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 import subprocess
+import os
 from rich.console import Console
 
 console = Console()
@@ -156,7 +157,11 @@ def is_agent_installed(config: AgentConfig) -> bool:
     try:
         # First try the check command directly
         result = subprocess.run(
-            config.check_command.split(), capture_output=True, text=True, timeout=10
+            config.check_command.split(),
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env=os.environ.copy(),  # Pass current environment
         )
         if result.returncode == 0:
             return True
@@ -166,7 +171,13 @@ def is_agent_installed(config: AgentConfig) -> bool:
     try:
         # Try with uv run prefix
         uv_command = ["uv", "run"] + config.check_command.split()
-        result = subprocess.run(uv_command, capture_output=True, text=True, timeout=10)
+        result = subprocess.run(
+            uv_command,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env=os.environ.copy(),  # Pass current environment
+        )
         return result.returncode == 0
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return False
@@ -194,6 +205,7 @@ def install_agent(config: AgentConfig) -> bool:
                 capture_output=True,
                 text=True,
                 timeout=300,  # 5 minutes
+                env=os.environ.copy(),  # Pass current environment
             )
 
             if result.returncode == 0:
@@ -214,7 +226,12 @@ def install_agent(config: AgentConfig) -> bool:
             try:
                 console.print(f"[blue]Running: {command}[/blue]")
                 result = subprocess.run(
-                    command, shell=True, capture_output=True, text=True, timeout=300
+                    command,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                    env=os.environ.copy(),  # Pass current environment
                 )
 
                 if result.returncode == 0:

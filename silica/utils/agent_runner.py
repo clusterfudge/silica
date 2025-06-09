@@ -19,29 +19,60 @@ from typing import Dict, Any
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.agent_yaml import load_agent_config, install_agent, generate_launch_command
-from config.multi_workspace import load_workspace_config
+from config.multi_workspace import load_project_config
 from rich.console import Console
 
 console = Console()
 
 
 def load_environment_variables():
-    """Load environment variables from piku ENV file."""
+    """Load environment variables from piku ENV and LIVE_ENV files."""
     top_dir = Path.cwd()
     app_name = top_dir.name
 
-    env_file = Path.home() / ".piku" / "envs" / app_name / "ENV"
+    # Load both ENV and LIVE_ENV files (LIVE_ENV takes precedence)
+    env_files = [
+        Path.home() / ".piku" / "envs" / app_name / "ENV",
+        Path.home() / ".piku" / "envs" / app_name / "LIVE_ENV",
+    ]
 
-    if env_file.exists():
-        console.print(f"[blue]Loading environment from {env_file}[/blue]")
-        with open(env_file, "r") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    key, value = line.split("=", 1)
-                    os.environ[key] = value
+    loaded_vars = {}
+
+    for env_file in env_files:
+        if env_file.exists():
+            console.print(f"[blue]Loading environment from {env_file}[/blue]")
+            with open(env_file, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        key, value = line.split("=", 1)
+                        # Remove quotes if present
+                        if value.startswith('"') and value.endswith('"'):
+                            value = value[1:-1]
+                        elif value.startswith("'") and value.endswith("'"):
+                            value = value[1:-1]
+                        loaded_vars[key] = value
+                        os.environ[key] = value
+        else:
+            console.print(f"[dim]Environment file not found: {env_file}[/dim]")
+
+    if loaded_vars:
+        console.print(f"[green]Loaded {len(loaded_vars)} environment variables[/green]")
+        # Debug: show some non-sensitive variable names
+        safe_vars = [
+            k
+            for k in loaded_vars.keys()
+            if not any(
+                sensitive in k.lower()
+                for sensitive in ["key", "token", "secret", "password"]
+            )
+        ]
+        if safe_vars:
+            console.print(
+                f"[dim]Variables loaded: {', '.join(safe_vars[:5])}{' ...' if len(safe_vars) > 5 else ''}[/dim]"
+            )
     else:
-        console.print(f"[yellow]Environment file not found: {env_file}[/yellow]")
+        console.print("[yellow]No environment variables loaded[/yellow]")
 
 
 def sync_dependencies():
@@ -49,7 +80,11 @@ def sync_dependencies():
     console.print("[blue]Synchronizing dependencies with uv...[/blue]")
     try:
         result = subprocess.run(
-            ["uv", "sync"], capture_output=True, text=True, timeout=300
+            ["uv", "sync"],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            env=os.environ.copy(),  # Pass current environment to subprocess
         )
         if result.returncode != 0:
             console.print(f"[yellow]uv sync warning: {result.stderr}[/yellow]")
@@ -64,11 +99,18 @@ def get_workspace_agent_config() -> tuple[str, Dict[str, Any]]:
         Tuple of (agent_type, workspace_config)
     """
     try:
-        # Try to load workspace config
-        workspace_config = load_workspace_config()
+        # Try to load workspace config from current .silica directory
+        from silica.config import get_silica_dir
+
+        silica_dir = get_silica_dir()
+        if not silica_dir or not silica_dir.exists():
+            raise Exception("No .silica directory found")
+        workspace_config = load_project_config(silica_dir)
 
         # Get current workspace name from environment or default
-        current_workspace = os.environ.get("SILICA_WORKSPACE", "agent")
+        current_workspace = os.environ.get(
+            "SILICA_WORKSPACE_NAME", workspace_config.get("default_workspace", "agent")
+        )
 
         if current_workspace in workspace_config.get("workspaces", {}):
             ws_config = workspace_config["workspaces"][current_workspace]
@@ -154,8 +196,12 @@ def main():
     )
 
     try:
-        # Run the agent command
-        result = subprocess.run(launch_command, shell=True)
+        # Run the agent command with the full environment
+        result = subprocess.run(
+            launch_command,
+            shell=True,
+            env=os.environ.copy(),  # Pass current environment to subprocess
+        )
         exit_code = result.returncode
 
         console.print(
