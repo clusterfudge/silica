@@ -17,9 +17,10 @@ MESSAGING_APP_NAME = "silica-messaging"
 def check_messaging_app_exists(piku_connection: str) -> bool:
     """Check if the silica-messaging app exists on piku."""
     try:
-        # Use piku -r <connection> app list to check if messaging app exists
+        # Use piku app list to check if messaging app exists
+        # For the messaging app, we use "piku" as the remote name
         result = subprocess.run(
-            ["piku", "-r", piku_connection, "app", "list"],
+            ["piku", "-r", "piku", "app", "list"],
             capture_output=True,
             text=True,
             check=False,
@@ -106,14 +107,10 @@ def deploy_messaging_app(piku_connection: str, force: bool = False) -> Tuple[boo
             # Run this within the temp directory context where the piku remote is available
             console.print("Configuring messaging app environment...")
 
-            # Set required environment variables:
-            # - DATA_DIR: piku will create and preserve this directory across deployments
-            # - NGINX_SERVER_NAME: enables hostname routing for the messaging app
+            # Set NGINX_SERVER_NAME for hostname routing (DATA_DIR not needed for piku)
             config_cmd = [
                 "piku",
                 "config:set",
-                MESSAGING_APP_NAME,
-                f"DATA_DIR=/var/lib/{MESSAGING_APP_NAME}",
                 f"NGINX_SERVER_NAME={MESSAGING_APP_NAME}",
             ]
             subprocess.run(config_cmd, cwd=temp_path, check=True)
@@ -164,10 +161,11 @@ def setup_workspace_messaging(
         }
 
         # Set environment variables using piku
+        # Use run_piku_in_silica to run config:set from the workspace git context
         config_args = [f"{k}={v}" for k, v in env_vars.items()]
-        config_cmd = ["piku", "config:set", app_name] + config_args
+        config_cmd = f"config:set {' '.join(config_args)}"
 
-        subprocess.run(config_cmd, check=True)
+        piku_utils.run_piku_in_silica(config_cmd, workspace_name=workspace_name)
 
         # Create default thread for the workspace by sending an initial message
         console.print(f"Creating default thread for {app_name}...")

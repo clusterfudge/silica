@@ -58,11 +58,11 @@ def test_check_messaging_app_health():
 
 def test_setup_workspace_messaging():
     """Test workspace messaging setup."""
-    with patch("subprocess.run") as mock_run, patch(
+    with patch("silica.utils.piku.run_piku_in_silica") as mock_piku, patch(
         "requests.post"
     ) as mock_post, patch("time.sleep"):
         # Mock successful piku config
-        mock_run.return_value.returncode = 0
+        mock_piku.return_value.returncode = 0
 
         # Mock successful thread creation
         mock_response = Mock()
@@ -76,7 +76,7 @@ def test_setup_workspace_messaging():
         assert "completed" in message
 
         # Verify piku config was called
-        mock_run.assert_called()
+        mock_piku.assert_called()
 
         # Verify thread creation was attempted
         mock_post.assert_called_once()
