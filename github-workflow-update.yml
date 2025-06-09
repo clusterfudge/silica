@@ -1,0 +1,117 @@
+# GitHub Workflow Update for Messaging System Testing
+# This should be merged into .github/workflows/pr-checks.yml
+
+# Add these jobs to the existing pr-checks.yml workflow:
+
+  messaging-system-tests:
+    name: Test messaging system
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+    
+    - name: Install uv
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y tmux curl net-tools
+    
+    - name: Install Python dependencies
+      run: |
+        uv sync --dev
+    
+    - name: Test CLI commands availability
+      run: |
+        uv run silica messaging --help
+        uv run silica msg --help
+    
+    - name: Test messaging function syntax
+      run: |
+        bash -n silica/agent/messaging.sh
+    
+    - name: Test Python imports
+      run: |
+        uv run python -c "from silica.cli.commands.messaging import messaging"
+        uv run python -c "from silica.cli.commands.msg import msg"
+        uv run python -c "from silica.utils.messaging import deploy_messaging_app"
+    
+    - name: Run comprehensive messaging system tests
+      run: |
+        ./test_messaging_ci.sh
+    
+    - name: Upload test logs on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: messaging-test-logs
+        path: |
+          messaging_app_ci.log
+          receiver_ci.log
+        retention-days: 7
+
+  messaging-components:
+    name: Test messaging components (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Install uv
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y tmux curl
+    
+    - name: Install Python dependencies
+      run: |
+        uv sync --dev
+    
+    - name: Test root messaging app startup
+      run: |
+        timeout 15s uv run python silica/messaging/app.py --port 5555 &
+        sleep 5
+        curl -f -H "Host: silica-messaging" http://localhost:5555/health
+    
+    - name: Test agent receiver startup
+      run: |
+        export SILICA_WORKSPACE=test
+        export SILICA_PROJECT=ci
+        timeout 15s uv run silica messaging receiver --port 8888 &
+        sleep 5
+        curl -f http://localhost:8888/health
+    
+    - name: Test Pure CSS web interface
+      run: |
+        timeout 15s uv run python silica/messaging/app.py --port 5556 &
+        sleep 5
+        response=$(curl -s -H "Host: silica-messaging" http://localhost:5556/)
+        echo "$response" | grep -q "pure-css"
+        echo "$response" | grep -q "Silica Messaging"
+    
+    - name: Test messaging function exports
+      run: |
+        source silica/agent/messaging.sh
+        type silica-msg >/dev/null
+        type silica-msg-status >/dev/null
+        type silica-msg-participants >/dev/null
