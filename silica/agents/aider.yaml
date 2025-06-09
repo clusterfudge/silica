@@ -23,7 +23,7 @@
 # - pip install aider-chat
 #
 # Required Environment Variables:
-# - GITHUB_TOKEN: For repository access and operations
+# - GH_TOKEN: For repository access and operations
 #
 # Recommended Environment Variables:
 # - OPENAI_API_KEY: For GPT model access (preferred)
@@ -43,7 +43,7 @@ dependencies:
   - "aider-chat"
 environment:
   required:
-    - name: "GITHUB_TOKEN"
+    - name: "GH_TOKEN"
       description: "GitHub token for repository access"
   recommended:
     - name: "OPENAI_API_KEY"

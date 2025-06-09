@@ -17,7 +17,7 @@
 #
 # Required Environment Variables:
 # - OPENAI_API_KEY: For Codex API access
-# - GITHUB_TOKEN: For repository operations
+# - GH_TOKEN: For repository operations
 #
 name: "openai-codex"
 description: "OpenAI Codex - AI coding assistant"
@@ -34,5 +34,5 @@ environment:
   required:
     - name: "OPENAI_API_KEY"
       description: "OpenAI API key for Codex access"
-    - name: "GITHUB_TOKEN"
+    - name: "GH_TOKEN"
       description: "GitHub token for repository access"

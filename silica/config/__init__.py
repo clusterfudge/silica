@@ -12,7 +12,7 @@ DEFAULT_CONFIG = {
     "default_agent": "hdev",
     "api_keys": {
         "ANTHROPIC_API_KEY": None,
-        "GITHUB_TOKEN": None,
+        "GH_TOKEN": None,
         "BRAVE_SEARCH_API_KEY": None,
     },
 }

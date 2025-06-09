@@ -19,7 +19,7 @@
 # Required Environment Variables:
 # - ANTHROPIC_API_KEY: For Claude AI model access
 # - BRAVE_SEARCH_API_KEY: For web search functionality  
-# - GITHUB_TOKEN: For repository operations
+# - GH_TOKEN: For repository operations
 #
 # Optional Environment Variables:
 # - OPENAI_API_KEY: For additional model access
@@ -46,7 +46,7 @@ environment:
       description: "Anthropic API key for Claude access"
     - name: "BRAVE_SEARCH_API_KEY" 
       description: "Brave Search API key for web search functionality"
-    - name: "GITHUB_TOKEN"
+    - name: "GH_TOKEN"
       description: "GitHub token for repository access"
   recommended:
     - name: "OPENAI_API_KEY"

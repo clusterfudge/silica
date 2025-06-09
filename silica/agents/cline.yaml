@@ -21,7 +21,7 @@
 # - Requires Node.js and npm
 #
 # Required Environment Variables:
-# - GITHUB_TOKEN: For repository access and operations
+# - GH_TOKEN: For repository access and operations
 #
 # Recommended Environment Variables:
 # - ANTHROPIC_API_KEY: For Claude model access (preferred)
@@ -40,7 +40,7 @@ dependencies:
   - "cline"
 environment:
   required:
-    - name: "GITHUB_TOKEN"
+    - name: "GH_TOKEN"
       description: "GitHub token for repository access"
   recommended:
     - name: "ANTHROPIC_API_KEY"

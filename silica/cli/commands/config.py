@@ -240,7 +240,7 @@ def setup():
     # Check and configure various API keys
     api_keys = {
         "ANTHROPIC_API_KEY": "Anthropic API key",
-        "GITHUB_TOKEN": "GitHub token",
+        "GH_TOKEN": "GitHub token",
         "BRAVE_SEARCH_API_KEY": "Brave Search API key",
     }
 

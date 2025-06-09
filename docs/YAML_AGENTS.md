@@ -30,7 +30,7 @@ environment:
   required:
     - name: "API_KEY"
       description: "Required API key for the service"
-    - name: "GITHUB_TOKEN"
+    - name: "GH_TOKEN"
       description: "GitHub token for repository access"
   recommended:
     - name: "OPTIONAL_KEY"
@@ -63,7 +63,7 @@ environment:
       description: "Anthropic API key for Claude access"
     - name: "BRAVE_SEARCH_API_KEY" 
       description: "Brave Search API key for web search functionality"
-    - name: "GITHUB_TOKEN"
+    - name: "GH_TOKEN"
       description: "GitHub token for repository access"
   recommended:
     - name: "OPENAI_API_KEY"
@@ -86,7 +86,7 @@ dependencies:
   - "aider-chat"
 environment:
   required:
-    - name: "GITHUB_TOKEN"
+    - name: "GH_TOKEN"
       description: "GitHub token for repository access"
   recommended:
     - name: "OPENAI_API_KEY"

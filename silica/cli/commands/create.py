@@ -325,11 +325,7 @@ def create(workspace, connection, agent_type):
             )
 
         # Set up GitHub authentication if a GitHub token is available
-        gh_token = None
-        for key in ["GITHUB_TOKEN", "GH_TOKEN"]:
-            if key in env_config:
-                gh_token = env_config[key]
-                break
+        gh_token = env_config.get("GH_TOKEN")
 
         if gh_token:
             console.print("Setting up GitHub authentication in the code directory...")
