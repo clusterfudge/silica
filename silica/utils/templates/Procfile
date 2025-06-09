@@ -1,1 +1,1 @@
-web: hdev view-memory --port $PORT
+web: uv run silica messaging receiver --port $PORT

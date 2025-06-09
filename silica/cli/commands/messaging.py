@@ -29,7 +29,11 @@ def receiver(port, host):
     # Get configuration from environment
     workspace_name = os.environ.get("SILICA_WORKSPACE", "agent")
     project_name = os.environ.get("SILICA_PROJECT", "unknown")
-    receiver_port = port or int(os.environ.get("SILICA_RECEIVER_PORT", 8901))
+
+    # Port priority: --port flag > $PORT env var > $SILICA_RECEIVER_PORT > default 8901
+    receiver_port = port or int(
+        os.environ.get("PORT", os.environ.get("SILICA_RECEIVER_PORT", 8901))
+    )
     tmux_session = f"{workspace_name}-{project_name}"
 
     console.print(f"Starting Silica Agent Receiver for {workspace_name}-{project_name}")

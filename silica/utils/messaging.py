@@ -277,11 +277,8 @@ if [[ -f "$SILICA_INSTALL_DIR/agent/messaging.sh" ]]; then
     source "$SILICA_INSTALL_DIR/agent/messaging.sh"
 fi
 
-# Auto-start agent receiver if not running
-if ! pgrep -f "silica messaging receiver" > /dev/null; then
-    echo "Starting agent receiver..."
-    nohup uv run silica messaging receiver > receiver.log 2>&1 &
-fi
+# Note: Agent receiver is now started by Procfile (web: uv run silica messaging receiver --port $PORT)
+# No need to auto-start here as piku will handle it
 """
 
         # Add to .bashrc in the workspace

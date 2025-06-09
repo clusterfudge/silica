@@ -747,5 +747,16 @@ def web_interface():
 
 
 if __name__ == "__main__":
+    import sys
+
+    # Parse command line arguments for port
     port = int(os.environ.get("PORT", 5000))
+
+    # Check for --port argument
+    if len(sys.argv) > 1:
+        for i, arg in enumerate(sys.argv):
+            if arg == "--port" and i + 1 < len(sys.argv):
+                port = int(sys.argv[i + 1])
+                break
+
     app.run(host="0.0.0.0", port=port, debug=False)
