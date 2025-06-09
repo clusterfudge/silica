@@ -14,6 +14,24 @@ console = Console()
 MESSAGING_APP_NAME = "silica-messaging"
 
 
+def _get_messaging_app_base_url(piku_connection: str) -> str:
+    """Extract the base URL for the messaging app from piku connection string.
+
+    Args:
+        piku_connection: Piku connection string (e.g., "piku", "piku@host", "piku@host.domain.com")
+
+    Returns:
+        Base URL for messaging app (e.g., "http://localhost", "http://host", "http://host.domain.com")
+    """
+    if "@" in piku_connection:
+        # Extract hostname from "piku@host" format
+        host = piku_connection.split("@", 1)[1]
+        return f"http://{host}"
+    else:
+        # Local development case - use localhost
+        return "http://localhost"
+
+
 def check_messaging_app_exists(piku_connection: str) -> bool:
     """Check if the silica-messaging app exists on piku."""
     try:
@@ -34,11 +52,12 @@ def check_messaging_app_exists(piku_connection: str) -> bool:
         return False
 
 
-def check_messaging_app_health(timeout: int = 30) -> bool:
+def check_messaging_app_health(piku_connection: str, timeout: int = 30) -> bool:
     """Check if the messaging app is responding to health checks."""
     try:
+        base_url = _get_messaging_app_base_url(piku_connection)
         response = requests.get(
-            "http://localhost/health", headers={"Host": MESSAGING_APP_NAME}, timeout=5
+            f"{base_url}/health", headers={"Host": MESSAGING_APP_NAME}, timeout=5
         )
         return response.status_code == 200
     except requests.RequestException:
@@ -57,7 +76,7 @@ def deploy_messaging_app(piku_connection: str, force: bool = False) -> Tuple[boo
         Tuple of (success, message)
     """
     if not force and check_messaging_app_exists(piku_connection):
-        if check_messaging_app_health():
+        if check_messaging_app_health(piku_connection):
             return True, "Messaging app already exists and is healthy"
         else:
             console.print(
@@ -118,7 +137,7 @@ def deploy_messaging_app(piku_connection: str, force: bool = False) -> Tuple[boo
         # Wait for app to become healthy
         console.print("Waiting for messaging app to become healthy...")
         for i in range(30):  # Wait up to 30 seconds
-            if check_messaging_app_health():
+            if check_messaging_app_health(piku_connection):
                 console.print("[green]Messaging app is healthy and ready![/green]")
                 return True, "Messaging app deployed successfully"
             time.sleep(1)
@@ -174,8 +193,9 @@ def setup_workspace_messaging(
         time.sleep(2)
 
         try:
+            base_url = _get_messaging_app_base_url(piku_connection)
             response = requests.post(
-                "http://localhost/api/v1/messages/send",
+                f"{base_url}/api/v1/messages/send",
                 headers={
                     "Host": MESSAGING_APP_NAME,
                     "Content-Type": "application/json",
@@ -325,13 +345,14 @@ def get_messaging_status(piku_connection: str) -> Dict:
 
     if status["messaging_app_exists"]:
         # Check if messaging app is healthy
-        status["messaging_app_healthy"] = check_messaging_app_health()
+        status["messaging_app_healthy"] = check_messaging_app_health(piku_connection)
 
         # Get workspace status from messaging app if healthy
         if status["messaging_app_healthy"]:
             try:
+                base_url = _get_messaging_app_base_url(piku_connection)
                 response = requests.get(
-                    "http://localhost/api/v1/workspaces/status",
+                    f"{base_url}/api/v1/workspaces/status",
                     headers={"Host": MESSAGING_APP_NAME},
                     timeout=5,
                 )

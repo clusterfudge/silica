@@ -24,6 +24,12 @@ from silica.utils.messaging import (
 console = Console()
 
 
+def get_piku_connection() -> str:
+    """Get the piku connection from config."""
+    config = load_config()
+    return config.get("piku_connection", "piku")
+
+
 def get_default_sender() -> str:
     """Get default sender (human or current workspace participant)."""
     try:
@@ -48,10 +54,19 @@ def make_api_request(
     endpoint: str,
     data: Optional[dict] = None,
     params: Optional[dict] = None,
+    piku_connection: Optional[str] = None,
 ):
     """Make an API request to the messaging app."""
     try:
-        url = f"http://localhost{endpoint}"
+        # Get base URL from piku connection
+        if piku_connection is None:
+            config = load_config()
+            piku_connection = config.get("piku_connection", "piku")
+
+        from silica.utils.messaging import _get_messaging_app_base_url
+
+        base_url = _get_messaging_app_base_url(piku_connection)
+        url = f"{base_url}{endpoint}"
         headers = {"Host": MESSAGING_APP_NAME}
 
         if data:
@@ -89,7 +104,10 @@ def msg():
 def list():
     """List all global threads."""
     # Get threads from API
-    response = make_api_request("GET", "/api/v1/threads")
+    piku_connection = get_piku_connection()
+    response = make_api_request(
+        "GET", "/api/v1/threads", piku_connection=piku_connection
+    )
 
     if response is None:
         return
@@ -137,6 +155,7 @@ def send(message, thread, sender, title):
         sender = get_default_sender()
 
     # Send message via API (will create thread implicitly)
+    piku_connection = get_piku_connection()
     response = make_api_request(
         "POST",
         "/api/v1/messages/send",
@@ -146,6 +165,7 @@ def send(message, thread, sender, title):
             "sender": sender,
             "title": title,
         },
+        piku_connection=piku_connection,
     )
 
     if response:
@@ -162,10 +182,12 @@ def send(message, thread, sender, title):
 @click.argument("participant")
 def add_participant(thread_id, participant):
     """Add a participant to an existing thread."""
+    piku_connection = get_piku_connection()
     response = make_api_request(
         "POST",
         f"/api/v1/threads/{thread_id}/participants",
         data={"participant": participant},
+        piku_connection=piku_connection,
     )
 
     if response:
@@ -178,7 +200,12 @@ def add_participant(thread_id, participant):
 @click.argument("thread_id")
 def participants(thread_id):
     """List participants in a thread."""
-    response = make_api_request("GET", f"/api/v1/threads/{thread_id}/participants")
+    piku_connection = get_piku_connection()
+    response = make_api_request(
+        "GET",
+        f"/api/v1/threads/{thread_id}/participants",
+        piku_connection=piku_connection,
+    )
 
     if response is None:
         return
@@ -200,7 +227,10 @@ def participants(thread_id):
 def history(thread_id, tail):
     """View thread message history."""
     # Get messages via API
-    response = make_api_request("GET", f"/api/v1/threads/{thread_id}/messages")
+    piku_connection = get_piku_connection()
+    response = make_api_request(
+        "GET", f"/api/v1/threads/{thread_id}/messages", piku_connection=piku_connection
+    )
 
     if response is None:
         return
@@ -246,11 +276,16 @@ def follow(thread_id):
 
     # Keep track of last message timestamp to avoid duplicates
     last_timestamp = None
+    piku_connection = get_piku_connection()
 
     try:
         while True:
             # Get messages via API
-            response = make_api_request("GET", f"/api/v1/threads/{thread_id}/messages")
+            response = make_api_request(
+                "GET",
+                f"/api/v1/threads/{thread_id}/messages",
+                piku_connection=piku_connection,
+            )
 
             if response:
                 messages = response.get("messages", [])
@@ -296,8 +331,7 @@ def follow(thread_id):
 )
 def deploy(force):
     """Deploy the root messaging app."""
-    config = load_config()
-    piku_connection = config.get("piku_connection", "piku")
+    piku_connection = get_piku_connection()
 
     console.print("Deploying root messaging app...")
     success, message = deploy_messaging_app(piku_connection, force=force)
@@ -311,8 +345,7 @@ def deploy(force):
 @msg.command()
 def undeploy():
     """Remove the messaging app."""
-    config = load_config()
-    piku_connection = config.get("piku_connection", "piku")
+    piku_connection = get_piku_connection()
 
     if not check_messaging_app_exists(piku_connection):
         console.print("[yellow]Messaging app does not exist[/yellow]")
@@ -334,8 +367,7 @@ def undeploy():
 @msg.command()
 def status():
     """Check messaging system status."""
-    config = load_config()
-    piku_connection = config.get("piku_connection", "piku")
+    piku_connection = get_piku_connection()
 
     console.print("[bold]Messaging System Status[/bold]\n")
 
@@ -376,16 +408,27 @@ def status():
 @click.option("--port", type=int, help="Port to use (default: messaging app port)")
 def web(no_open, port):
     """Open the web interface."""
-    if not check_messaging_app_health():
+    piku_connection = get_piku_connection()
+
+    if not check_messaging_app_health(piku_connection):
         console.print("[red]Messaging app is not running or unhealthy[/red]")
         console.print("Check status with: silica msg status")
         return
 
     # Construct URL with port if specified
+    from silica.utils.messaging import _get_messaging_app_base_url
+
+    base_url = _get_messaging_app_base_url(piku_connection)
+
     if port:
-        url = f"http://localhost:{port}"
+        # Override the base URL with custom port
+        if "@" in piku_connection:
+            host = piku_connection.split("@", 1)[1]
+            url = f"http://{host}:{port}"
+        else:
+            url = f"http://localhost:{port}"
     else:
-        url = "http://localhost"
+        url = base_url
 
     console.print(f"Web interface available at: [cyan]{url}[/cyan]")
     console.print(

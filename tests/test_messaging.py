@@ -40,19 +40,19 @@ def test_check_messaging_app_health():
         mock_response.status_code = 200
         mock_get.return_value = mock_response
 
-        result = check_messaging_app_health()
+        result = check_messaging_app_health("piku")
         assert result is True
 
         # Test unhealthy app
         mock_response.status_code = 500
-        result = check_messaging_app_health()
+        result = check_messaging_app_health("piku")
         assert result is False
 
         # Test connection error
         from requests import RequestException
 
         mock_get.side_effect = RequestException("Connection error")
-        result = check_messaging_app_health()
+        result = check_messaging_app_health("piku")
         assert result is False
 
 
