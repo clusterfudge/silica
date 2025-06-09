@@ -507,6 +507,28 @@ WEB_TEMPLATE = """
         .thread-header { padding: 1em; border-bottom: 1px solid #ddd; background: #f9f9f9; }
         .new-thread-form { padding: 1em; border-bottom: 1px solid #ddd; }
         .status-bar { background: #2196f3; color: white; padding: 0.5em; text-align: center; }
+        
+        /* Markdown styling */
+        .message-content h1, .message-content h2, .message-content h3 { 
+            margin: 0.5em 0; font-weight: bold; 
+        }
+        .message-content h1 { font-size: 1.2em; }
+        .message-content h2 { font-size: 1.1em; }
+        .message-content h3 { font-size: 1.05em; }
+        .message-content code { 
+            background: #f4f4f4; padding: 0.2em 0.4em; border-radius: 3px; 
+            font-family: 'Courier New', monospace; font-size: 0.9em;
+        }
+        .message-content pre { 
+            background: #f8f8f8; padding: 1em; border-radius: 5px; 
+            overflow-x: auto; margin: 0.5em 0;
+        }
+        .message-content pre code { 
+            background: none; padding: 0; border-radius: 0; 
+        }
+        .message-content a { color: #2196f3; text-decoration: underline; }
+        .message-content strong { font-weight: bold; }
+        .message-content em { font-style: italic; }
     </style>
 </head>
 <body>
@@ -562,6 +584,31 @@ WEB_TEMPLATE = """
     <script>
         let currentThreadId = '';
         let lastMessageCount = 0;
+        
+        // Simple markdown renderer for agent messages
+        function renderMarkdown(text) {
+            if (!text) return '';
+            
+            return text
+                // Headers
+                .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+                .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+                .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+                // Bold
+                .replace(/\*\*(.*)\*\*/gim, '<strong>$1</strong>')
+                .replace(/__(.*?)__/gim, '<strong>$1</strong>')
+                // Italic
+                .replace(/\*(.*?)\*/gim, '<em>$1</em>')
+                .replace(/_(.*?)_/gim, '<em>$1</em>')
+                // Code blocks
+                .replace(/```([\s\S]*?)```/gim, '<pre><code>$1</code></pre>')
+                // Inline code
+                .replace(/`(.*?)`/gim, '<code>$1</code>')
+                // Links
+                .replace(/\[([^\]]+)\]\(([^)]+)\)/gim, '<a href="$2" target="_blank">$1</a>')
+                // Line breaks
+                .replace(/\n/gim, '<br>');
+        }
         
         // Load threads on page load
         function loadThreads() {
@@ -632,7 +679,7 @@ WEB_TEMPLATE = """
                             
                             div.innerHTML = `
                                 <div class="message-sender">${msg.sender}</div>
-                                <div class="message-content">${msg.message}</div>
+                                <div class="message-content">${renderMarkdown(msg.message)}</div>
                                 <div class="message-time">${new Date(msg.timestamp).toLocaleString()}</div>
                             `;
                             messageList.appendChild(div);

@@ -9,6 +9,7 @@ import click
 import requests
 from rich.console import Console
 from rich.table import Table
+from rich.markdown import Markdown
 
 from silica.config import load_config
 from silica.config.multi_workspace import load_project_config, get_default_workspace
@@ -228,7 +229,13 @@ def history(thread_id, tail):
         console.print(
             f"[{sender_style}]{sender}[/{sender_style}] [dim]{timestamp}[/dim]"
         )
-        console.print(f"  {content}\n")
+
+        # Render message as markdown if it contains markdown patterns
+        if any(pattern in content for pattern in ["**", "*", "`", "#", "[", "```"]):
+            console.print(Markdown(content))
+        else:
+            console.print(f"  {content}")
+        console.print()
 
 
 @msg.command()
@@ -266,7 +273,16 @@ def follow(thread_id):
                     console.print(
                         f"[{sender_style}]{sender}[/{sender_style}] [dim]{timestamp}[/dim]"
                     )
-                    console.print(f"  {content}\n")
+
+                    # Render message as markdown if it contains markdown patterns
+                    if any(
+                        pattern in content
+                        for pattern in ["**", "*", "`", "#", "[", "```"]
+                    ):
+                        console.print(Markdown(content))
+                    else:
+                        console.print(f"  {content}")
+                    console.print()
 
             time.sleep(2)  # Poll every 2 seconds
 
