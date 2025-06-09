@@ -17,9 +17,9 @@ MESSAGING_APP_NAME = "silica-messaging"
 def check_messaging_app_exists(piku_connection: str) -> bool:
     """Check if the silica-messaging app exists on piku."""
     try:
-        # Use piku app list to check if messaging app exists
+        # Use piku -r <connection> app list to check if messaging app exists
         result = subprocess.run(
-            ["piku", "app", "list", piku_connection],
+            ["piku", "-r", piku_connection, "app", "list"],
             capture_output=True,
             text=True,
             check=False,
@@ -102,14 +102,18 @@ def deploy_messaging_app(piku_connection: str, force: bool = False) -> Tuple[boo
             console.print(f"Pushing to piku remote: {remote_url}")
             subprocess.run(["git", "push", "piku", "main"], cwd=temp_path, check=True)
 
-        # Set essential environment variables for the messaging app
-        console.print("Configuring messaging app environment...")
+            # Set essential environment variables for the messaging app
+            # Run this within the temp directory context where the piku remote is available
+            console.print("Configuring messaging app environment...")
 
-        # Set DATA_DIR environment variable - piku will create this
-        config_cmd = f"config:set DATA_DIR=/var/lib/{MESSAGING_APP_NAME}"
-        subprocess.run(
-            ["piku", config_cmd, piku_connection, MESSAGING_APP_NAME], check=True
-        )
+            # Set DATA_DIR environment variable - piku will create this
+            config_cmd = [
+                "piku",
+                "config:set",
+                MESSAGING_APP_NAME,
+                f"DATA_DIR=/var/lib/{MESSAGING_APP_NAME}",
+            ]
+            subprocess.run(config_cmd, cwd=temp_path, check=True)
 
         # Wait for app to become healthy
         console.print("Waiting for messaging app to become healthy...")
@@ -157,9 +161,9 @@ def setup_workspace_messaging(
 
         # Set environment variables using piku
         config_args = [f"{k}={v}" for k, v in env_vars.items()]
-        config_cmd = f"config:set {' '.join(config_args)}"
+        config_cmd = ["piku", "config:set", app_name] + config_args
 
-        subprocess.run(["piku", config_cmd, piku_connection, app_name], check=True)
+        subprocess.run(config_cmd, check=True)
 
         # Create default thread for the workspace by sending an initial message
         console.print(f"Creating default thread for {app_name}...")
