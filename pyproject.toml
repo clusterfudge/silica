@@ -18,6 +18,8 @@ dependencies = [
     "requests>=2.28.0",
     "pyyaml>=6.0",
     "gitpython>=3.1.0",
+    "flask>=3.0.0",
+    "filelock>=3.13.1",
 ]
 
 [project.scripts]
@@ -46,5 +48,6 @@ write_to = "silica/_version.py"
 
 [dependency-groups]
 dev = [
+    "pre-commit>=4.2.0",
     "pytest>=8.3.5",
 ]

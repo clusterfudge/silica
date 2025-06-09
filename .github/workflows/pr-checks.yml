@@ -33,3 +33,76 @@ jobs:
     
     - name: Run tests
       run: uv run pytest .
+
+  messaging-system-tests:
+    name: Test messaging system
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+    
+    - name: Install uv
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y tmux curl net-tools
+    
+    - name: Install Python dependencies
+      run: |
+        uv sync --dev
+    
+    - name: Run messaging system tests
+      run: |
+        ./scripts/test_messaging_system.sh
+    
+    - name: Upload test logs on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: messaging-test-logs
+        path: |
+          messaging_app_ci.log
+          receiver_ci.log
+        retention-days: 7
+
+  messaging-components:
+    name: Test messaging components (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Install uv
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y tmux curl
+    
+    - name: Install Python dependencies
+      run: |
+        uv sync --dev
+    
+    - name: Run messaging components tests
+      run: |
+        ./scripts/test_messaging_components.sh
