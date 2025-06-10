@@ -4,6 +4,11 @@ import time
 import subprocess
 import webbrowser
 from typing import Optional
+import threading
+import socket
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.request import urlopen, Request
+from urllib.error import URLError
 
 import click
 import requests
@@ -403,11 +408,122 @@ def status():
         console.print("\n[yellow]No active workspaces found[/yellow]")
 
 
+class MessagingProxyHandler(BaseHTTPRequestHandler):
+    """HTTP request handler that proxies requests to the remote messaging app."""
+
+    def __init__(self, remote_base_url, *args, **kwargs):
+        self.remote_base_url = remote_base_url
+        super().__init__(*args, **kwargs)
+
+    def do_GET(self):
+        self._proxy_request()
+
+    def do_POST(self):
+        self._proxy_request()
+
+    def do_PUT(self):
+        self._proxy_request()
+
+    def do_DELETE(self):
+        self._proxy_request()
+
+    def _proxy_request(self):
+        """Forward the request to the remote messaging app with proper headers."""
+        try:
+            # Construct the remote URL
+            remote_url = f"{self.remote_base_url}{self.path}"
+
+            # Read request body if present
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length) if content_length > 0 else None
+
+            # Create request with proper headers
+            req = Request(remote_url, data=body, method=self.command)
+
+            # Add the critical Host header for piku routing
+            req.add_header("Host", MESSAGING_APP_NAME)
+
+            # Forward other relevant headers (except Host)
+            for header, value in self.headers.items():
+                if header.lower() not in ["host", "connection", "content-length"]:
+                    req.add_header(header, value)
+
+            # Make the request to remote server
+            response = urlopen(req, timeout=10)
+
+            # Send response back to client
+            self.send_response(response.getcode())
+
+            # Forward response headers
+            for header, value in response.headers.items():
+                if header.lower() not in ["connection", "transfer-encoding"]:
+                    self.send_header(header, value)
+            self.end_headers()
+
+            # Forward response body
+            self.wfile.write(response.read())
+
+        except URLError as e:
+            # Handle connection errors to remote server
+            self.send_error(
+                502, f"Bad Gateway: Could not connect to messaging app - {e}"
+            )
+        except Exception as e:
+            # Handle other errors
+            self.send_error(500, f"Internal Server Error: {e}")
+
+    def log_message(self, format, *args):
+        """Suppress default logging to avoid cluttering console."""
+
+
+def find_available_port(start_port=8080, max_attempts=10):
+    """Find an available port starting from start_port."""
+    for port in range(start_port, start_port + max_attempts):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("localhost", port))
+                return port
+        except OSError:
+            continue
+    return None
+
+
+def start_messaging_proxy(remote_base_url, local_port=None):
+    """Start a local proxy server for the messaging app.
+
+    Returns:
+        tuple: (server, port) or (None, None) if failed to start
+    """
+    if local_port is None:
+        local_port = find_available_port()
+
+    if local_port is None:
+        return None, None
+
+    try:
+        # Create handler class with remote URL
+        def handler_class(*args, **kwargs):
+            return MessagingProxyHandler(remote_base_url, *args, **kwargs)
+
+        # Start server
+        server = HTTPServer(("localhost", local_port), handler_class)
+
+        # Start server in a separate thread
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
+
+        return server, local_port
+
+    except Exception as e:
+        console.print(f"[red]Failed to start proxy server: {e}[/red]")
+        return None, None
+
+
 @msg.command()
 @click.option("--no-open", is_flag=True, help="Don't automatically open browser")
-@click.option("--port", type=int, help="Port to use (default: messaging app port)")
+@click.option("--port", type=int, help="Local proxy port (default: auto-detect)")
 def web(no_open, port):
-    """Open the web interface."""
+    """Open the web interface via local proxy."""
     piku_connection = get_piku_connection()
 
     if not check_messaging_app_health(piku_connection):
@@ -415,30 +531,46 @@ def web(no_open, port):
         console.print("Check status with: silica msg status")
         return
 
-    # Construct URL with port if specified
+    # Get remote messaging app URL
     from silica.utils.messaging import _get_messaging_app_base_url
 
-    base_url = _get_messaging_app_base_url(piku_connection)
+    remote_base_url = _get_messaging_app_base_url(piku_connection)
 
-    if port:
-        # Override the base URL with custom port
-        if "@" in piku_connection:
-            host = piku_connection.split("@", 1)[1]
-            url = f"http://{host}:{port}"
-        else:
-            url = f"http://localhost:{port}"
-    else:
-        url = base_url
+    console.print(f"Starting local proxy for messaging app at {remote_base_url}")
 
-    console.print(f"Web interface available at: [cyan]{url}[/cyan]")
+    # Start proxy server
+    server, proxy_port = start_messaging_proxy(remote_base_url, port)
+
+    if server is None:
+        console.print("[red]Failed to start local proxy server[/red]")
+        console.print(
+            f"You can try accessing the remote interface directly at: {remote_base_url}"
+        )
+        console.print("(Note: You may need to configure Host headers manually)")
+        return
+
+    proxy_url = f"http://localhost:{proxy_port}"
+    console.print(f"[green]Proxy server started on {proxy_url}[/green]")
     console.print(
-        "(Make sure to set Host header to 'silica-messaging' if accessing directly)"
+        "The proxy forwards requests to the remote messaging app with proper headers"
     )
 
     if not no_open:
         try:
-            webbrowser.open(url)
+            webbrowser.open(proxy_url)
             console.print("[green]Opened web interface in browser[/green]")
         except Exception as e:
             console.print(f"[yellow]Could not open browser: {e}[/yellow]")
-            console.print(f"Please open {url} manually")
+            console.print(f"Please open {proxy_url} manually")
+
+    console.print(f"\n[cyan]Web interface is available at: {proxy_url}[/cyan]")
+    console.print("[yellow]Press Ctrl+C to stop the proxy server[/yellow]")
+
+    try:
+        # Keep the main thread alive until user interrupts
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Shutting down proxy server...[/yellow]")
+        server.shutdown()
+        console.print("[green]Proxy server stopped[/green]")
