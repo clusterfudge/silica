@@ -40,29 +40,29 @@ def test_check_messaging_app_health():
         mock_response.status_code = 200
         mock_get.return_value = mock_response
 
-        result = check_messaging_app_health()
+        result = check_messaging_app_health("piku")
         assert result is True
 
         # Test unhealthy app
         mock_response.status_code = 500
-        result = check_messaging_app_health()
+        result = check_messaging_app_health("piku")
         assert result is False
 
         # Test connection error
         from requests import RequestException
 
         mock_get.side_effect = RequestException("Connection error")
-        result = check_messaging_app_health()
+        result = check_messaging_app_health("piku")
         assert result is False
 
 
 def test_setup_workspace_messaging():
     """Test workspace messaging setup."""
-    with patch("subprocess.run") as mock_run, patch(
+    with patch("silica.utils.piku.run_piku_in_silica") as mock_piku, patch(
         "requests.post"
     ) as mock_post, patch("time.sleep"):
         # Mock successful piku config
-        mock_run.return_value.returncode = 0
+        mock_piku.return_value.returncode = 0
 
         # Mock successful thread creation
         mock_response = Mock()
@@ -76,7 +76,7 @@ def test_setup_workspace_messaging():
         assert "completed" in message
 
         # Verify piku config was called
-        mock_run.assert_called()
+        mock_piku.assert_called()
 
         # Verify thread creation was attempted
         mock_post.assert_called_once()

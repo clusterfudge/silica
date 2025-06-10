@@ -4,6 +4,11 @@ import time
 import subprocess
 import webbrowser
 from typing import Optional
+import threading
+import socket
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.request import urlopen, Request
+from urllib.error import URLError
 
 import click
 import requests
@@ -22,6 +27,12 @@ from silica.utils.messaging import (
 )
 
 console = Console()
+
+
+def get_piku_connection() -> str:
+    """Get the piku connection from config."""
+    config = load_config()
+    return config.get("piku_connection", "piku")
 
 
 def get_default_sender() -> str:
@@ -48,10 +59,19 @@ def make_api_request(
     endpoint: str,
     data: Optional[dict] = None,
     params: Optional[dict] = None,
+    piku_connection: Optional[str] = None,
 ):
     """Make an API request to the messaging app."""
     try:
-        url = f"http://localhost{endpoint}"
+        # Get base URL from piku connection
+        if piku_connection is None:
+            config = load_config()
+            piku_connection = config.get("piku_connection", "piku")
+
+        from silica.utils.messaging import _get_messaging_app_base_url
+
+        base_url = _get_messaging_app_base_url(piku_connection)
+        url = f"{base_url}{endpoint}"
         headers = {"Host": MESSAGING_APP_NAME}
 
         if data:
@@ -89,7 +109,10 @@ def msg():
 def list():
     """List all global threads."""
     # Get threads from API
-    response = make_api_request("GET", "/api/v1/threads")
+    piku_connection = get_piku_connection()
+    response = make_api_request(
+        "GET", "/api/v1/threads", piku_connection=piku_connection
+    )
 
     if response is None:
         return
@@ -137,6 +160,7 @@ def send(message, thread, sender, title):
         sender = get_default_sender()
 
     # Send message via API (will create thread implicitly)
+    piku_connection = get_piku_connection()
     response = make_api_request(
         "POST",
         "/api/v1/messages/send",
@@ -146,6 +170,7 @@ def send(message, thread, sender, title):
             "sender": sender,
             "title": title,
         },
+        piku_connection=piku_connection,
     )
 
     if response:
@@ -162,10 +187,12 @@ def send(message, thread, sender, title):
 @click.argument("participant")
 def add_participant(thread_id, participant):
     """Add a participant to an existing thread."""
+    piku_connection = get_piku_connection()
     response = make_api_request(
         "POST",
         f"/api/v1/threads/{thread_id}/participants",
         data={"participant": participant},
+        piku_connection=piku_connection,
     )
 
     if response:
@@ -178,7 +205,12 @@ def add_participant(thread_id, participant):
 @click.argument("thread_id")
 def participants(thread_id):
     """List participants in a thread."""
-    response = make_api_request("GET", f"/api/v1/threads/{thread_id}/participants")
+    piku_connection = get_piku_connection()
+    response = make_api_request(
+        "GET",
+        f"/api/v1/threads/{thread_id}/participants",
+        piku_connection=piku_connection,
+    )
 
     if response is None:
         return
@@ -200,7 +232,10 @@ def participants(thread_id):
 def history(thread_id, tail):
     """View thread message history."""
     # Get messages via API
-    response = make_api_request("GET", f"/api/v1/threads/{thread_id}/messages")
+    piku_connection = get_piku_connection()
+    response = make_api_request(
+        "GET", f"/api/v1/threads/{thread_id}/messages", piku_connection=piku_connection
+    )
 
     if response is None:
         return
@@ -246,11 +281,16 @@ def follow(thread_id):
 
     # Keep track of last message timestamp to avoid duplicates
     last_timestamp = None
+    piku_connection = get_piku_connection()
 
     try:
         while True:
             # Get messages via API
-            response = make_api_request("GET", f"/api/v1/threads/{thread_id}/messages")
+            response = make_api_request(
+                "GET",
+                f"/api/v1/threads/{thread_id}/messages",
+                piku_connection=piku_connection,
+            )
 
             if response:
                 messages = response.get("messages", [])
@@ -296,8 +336,7 @@ def follow(thread_id):
 )
 def deploy(force):
     """Deploy the root messaging app."""
-    config = load_config()
-    piku_connection = config.get("piku_connection", "piku")
+    piku_connection = get_piku_connection()
 
     console.print("Deploying root messaging app...")
     success, message = deploy_messaging_app(piku_connection, force=force)
@@ -311,8 +350,7 @@ def deploy(force):
 @msg.command()
 def undeploy():
     """Remove the messaging app."""
-    config = load_config()
-    piku_connection = config.get("piku_connection", "piku")
+    piku_connection = get_piku_connection()
 
     if not check_messaging_app_exists(piku_connection):
         console.print("[yellow]Messaging app does not exist[/yellow]")
@@ -334,8 +372,7 @@ def undeploy():
 @msg.command()
 def status():
     """Check messaging system status."""
-    config = load_config()
-    piku_connection = config.get("piku_connection", "piku")
+    piku_connection = get_piku_connection()
 
     console.print("[bold]Messaging System Status[/bold]\n")
 
@@ -371,31 +408,169 @@ def status():
         console.print("\n[yellow]No active workspaces found[/yellow]")
 
 
+class MessagingProxyHandler(BaseHTTPRequestHandler):
+    """HTTP request handler that proxies requests to the remote messaging app."""
+
+    def __init__(self, remote_base_url, *args, **kwargs):
+        self.remote_base_url = remote_base_url
+        super().__init__(*args, **kwargs)
+
+    def do_GET(self):
+        self._proxy_request()
+
+    def do_POST(self):
+        self._proxy_request()
+
+    def do_PUT(self):
+        self._proxy_request()
+
+    def do_DELETE(self):
+        self._proxy_request()
+
+    def _proxy_request(self):
+        """Forward the request to the remote messaging app with proper headers."""
+        try:
+            # Construct the remote URL
+            remote_url = f"{self.remote_base_url}{self.path}"
+
+            # Read request body if present
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length) if content_length > 0 else None
+
+            # Create request with proper headers
+            req = Request(remote_url, data=body, method=self.command)
+
+            # Add the critical Host header for piku routing
+            req.add_header("Host", MESSAGING_APP_NAME)
+
+            # Forward other relevant headers (except Host)
+            for header, value in self.headers.items():
+                if header.lower() not in ["host", "connection", "content-length"]:
+                    req.add_header(header, value)
+
+            # Make the request to remote server
+            response = urlopen(req, timeout=10)
+
+            # Send response back to client
+            self.send_response(response.getcode())
+
+            # Forward response headers
+            for header, value in response.headers.items():
+                if header.lower() not in ["connection", "transfer-encoding"]:
+                    self.send_header(header, value)
+            self.end_headers()
+
+            # Forward response body
+            self.wfile.write(response.read())
+
+        except URLError as e:
+            # Handle connection errors to remote server
+            self.send_error(
+                502, f"Bad Gateway: Could not connect to messaging app - {e}"
+            )
+        except Exception as e:
+            # Handle other errors
+            self.send_error(500, f"Internal Server Error: {e}")
+
+    def log_message(self, format, *args):
+        """Suppress default logging to avoid cluttering console."""
+
+
+def find_available_port(start_port=8080, max_attempts=10):
+    """Find an available port starting from start_port."""
+    for port in range(start_port, start_port + max_attempts):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("localhost", port))
+                return port
+        except OSError:
+            continue
+    return None
+
+
+def start_messaging_proxy(remote_base_url, local_port=None):
+    """Start a local proxy server for the messaging app.
+
+    Returns:
+        tuple: (server, port) or (None, None) if failed to start
+    """
+    if local_port is None:
+        local_port = find_available_port()
+
+    if local_port is None:
+        return None, None
+
+    try:
+        # Create handler class with remote URL
+        def handler_class(*args, **kwargs):
+            return MessagingProxyHandler(remote_base_url, *args, **kwargs)
+
+        # Start server
+        server = HTTPServer(("localhost", local_port), handler_class)
+
+        # Start server in a separate thread
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
+
+        return server, local_port
+
+    except Exception as e:
+        console.print(f"[red]Failed to start proxy server: {e}[/red]")
+        return None, None
+
+
 @msg.command()
 @click.option("--no-open", is_flag=True, help="Don't automatically open browser")
-@click.option("--port", type=int, help="Port to use (default: messaging app port)")
+@click.option("--port", type=int, help="Local proxy port (default: auto-detect)")
 def web(no_open, port):
-    """Open the web interface."""
-    if not check_messaging_app_health():
+    """Open the web interface via local proxy."""
+    piku_connection = get_piku_connection()
+
+    if not check_messaging_app_health(piku_connection):
         console.print("[red]Messaging app is not running or unhealthy[/red]")
         console.print("Check status with: silica msg status")
         return
 
-    # Construct URL with port if specified
-    if port:
-        url = f"http://localhost:{port}"
-    else:
-        url = "http://localhost"
+    # Get remote messaging app URL
+    from silica.utils.messaging import _get_messaging_app_base_url
 
-    console.print(f"Web interface available at: [cyan]{url}[/cyan]")
+    remote_base_url = _get_messaging_app_base_url(piku_connection)
+
+    console.print(f"Starting local proxy for messaging app at {remote_base_url}")
+
+    # Start proxy server
+    server, proxy_port = start_messaging_proxy(remote_base_url, port)
+
+    if server is None:
+        console.print("[red]Failed to start local proxy server[/red]")
+        console.print(
+            f"You can try accessing the remote interface directly at: {remote_base_url}"
+        )
+        console.print("(Note: You may need to configure Host headers manually)")
+        return
+
+    proxy_url = f"http://localhost:{proxy_port}"
+    console.print(f"[green]Proxy server started on {proxy_url}[/green]")
     console.print(
-        "(Make sure to set Host header to 'silica-messaging' if accessing directly)"
+        "The proxy forwards requests to the remote messaging app with proper headers"
     )
 
     if not no_open:
         try:
-            webbrowser.open(url)
+            webbrowser.open(proxy_url)
             console.print("[green]Opened web interface in browser[/green]")
         except Exception as e:
             console.print(f"[yellow]Could not open browser: {e}[/yellow]")
-            console.print(f"Please open {url} manually")
+            console.print(f"Please open {proxy_url} manually")
+
+    console.print(f"\n[cyan]Web interface is available at: {proxy_url}[/cyan]")
+    console.print("[yellow]Press Ctrl+C to stop the proxy server[/yellow]")
+
+    try:
+        # Keep the main thread alive until user interrupts
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Shutting down proxy server...[/yellow]")
+        server.shutdown()
+        console.print("[green]Proxy server stopped[/green]")
