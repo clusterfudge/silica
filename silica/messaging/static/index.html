@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Silica Messaging</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/purecss@3.0.0/build/pure-min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/purecss@3.0.0/build/grids-responsive-min.css">
+    <style>
+        .email-container { min-height: 100vh; }
+        .email-nav { background: #f7f7f7; padding: 1em; }
+        .email-list { background: #fff; border-right: 1px solid #ddd; padding: 0; overflow-y: auto; }
+        .email-content { background: #fff; padding: 1em; overflow-y: auto; }
+        .thread-item { padding: 1em; border-bottom: 1px solid #eee; cursor: pointer; }
+        .thread-item:hover, .thread-item.active { background-color: #e3f2fd; }
+        .message { padding: 1em; margin-bottom: 1em; border-radius: 5px; }
+        .message.human { background-color: #f3e5f5; border-left: 3px solid #9c27b0; }
+        .message.agent { background-color: #e8f5e8; border-left: 3px solid #4caf50; }
+        .message-sender { font-weight: bold; margin-bottom: 0.5em; }
+        .message-time { font-size: 0.8em; color: #666; }
+        .message-content { margin: 0.5em 0; }
+        .message-form { margin-top: 1em; }
+        .thread-header { padding: 1em; border-bottom: 1px solid #ddd; background: #f9f9f9; }
+        .new-thread-form { padding: 1em; border-bottom: 1px solid #ddd; }
+        .status-bar { background: #2196f3; color: white; padding: 0.5em; text-align: center; }
+        
+        /* Markdown styling */
+        .message-content h1, .message-content h2, .message-content h3 { 
+            margin: 0.5em 0; font-weight: bold; 
+        }
+        .message-content h1 { font-size: 1.2em; }
+        .message-content h2 { font-size: 1.1em; }
+        .message-content h3 { font-size: 1.05em; }
+        .message-content code { 
+            background: #f4f4f4; padding: 0.2em 0.4em; border-radius: 3px; 
+            font-family: 'Courier New', monospace; font-size: 0.9em;
+        }
+        .message-content pre { 
+            background: #f8f8f8; padding: 1em; border-radius: 5px; 
+            overflow-x: auto; margin: 0.5em 0;
+        }
+        .message-content pre code { 
+            background: none; padding: 0; border-radius: 0; 
+        }
+        .message-content a { color: #2196f3; text-decoration: underline; }
+        .message-content strong { font-weight: bold; }
+        .message-content em { font-style: italic; }
+    </style>
+</head>
+<body>
+    <div class="pure-g email-container">
+        <!-- Navigation -->
+        <div class="pure-u-1">
+            <div class="status-bar">
+                <strong>Silica Messaging</strong> - Global Thread Communication
+                <span id="statusText" style="margin-left: 1em;">Loading...</span>
+            </div>
+        </div>
+        
+        <!-- Thread List -->
+        <div class="pure-u-1 pure-u-md-1-3">
+            <div class="email-list">
+                <div class="new-thread-form">
+                    <form class="pure-form" onsubmit="createNewThread(event)">
+                        <input type="text" id="newThreadId" placeholder="Thread ID" class="pure-input-1" required>
+                        <input type="text" id="newThreadTitle" placeholder="Title (optional)" class="pure-input-1">
+                        <button type="submit" class="pure-button pure-button-primary pure-input-1">New Thread</button>
+                    </form>
+                </div>
+                <div id="threadList"></div>
+            </div>
+        </div>
+        
+        <!-- Message Area -->
+        <div class="pure-u-1 pure-u-md-2-3">
+            <div class="email-content">
+                <div class="thread-header" id="threadHeader" style="display: none;">
+                    <h3 id="threadTitle">Select a thread</h3>
+                    <div id="threadParticipants"></div>
+                </div>
+                
+                <div id="messageList"></div>
+                
+                <div class="message-form" id="messageForm" style="display: none;">
+                    <form class="pure-form" onsubmit="sendMessage(event)">
+                        <textarea id="messageInput" placeholder="Type your message..." 
+                                  class="pure-input-1" rows="3" required></textarea>
+                        <br>
+                        <button type="submit" class="pure-button pure-button-primary">Send Message</button>
+                        <label style="margin-left: 1em;">
+                            <input type="text" id="senderInput" placeholder="Sender (default: human)" 
+                                   class="pure-input-1-3" value="human">
+                        </label>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentThreadId = '';
+        let lastMessageCount = 0;
+        
+        // Simple markdown renderer for agent messages
+        function renderMarkdown(text) {
+            if (!text) return '';
+            
+            return text
+                // Headers
+                .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+                .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+                .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+                // Bold
+                .replace(/\*\*(.*)\*\*/gim, '<strong>$1</strong>')
+                .replace(/__(.*?)__/gim, '<strong>$1</strong>')
+                // Italic
+                .replace(/\*(.*?)\*/gim, '<em>$1</em>')
+                .replace(/_(.*?)_/gim, '<em>$1</em>')
+                // Code blocks
+                .replace(/```([\s\S]*?)```/gim, '<pre><code>$1</code></pre>')
+                // Inline code
+                .replace(/`(.*?)`/gim, '<code>$1</code>')
+                // Links
+                .replace(/\[([^\]]+)\]\(([^)]+)\)/gim, '<a href="$2" target="_blank">$1</a>')
+                // Line breaks
+                .replace(/\n/gim, '<br>');
+        }
+        
+        // Load threads on page load
+        function loadThreads() {
+            fetch('/api/v1/threads')
+                .then(r => r.json())
+                .then(data => {
+                    const threadList = document.getElementById('threadList');
+                    threadList.innerHTML = '';
+                    
+                    document.getElementById('statusText').textContent = 
+                        `${data.threads.length} threads available`;
+                    
+                    data.threads.forEach(thread => {
+                        const div = document.createElement('div');
+                        div.className = 'thread-item';
+                        if (thread.thread_id === currentThreadId) {
+                            div.classList.add('active');
+                        }
+                        div.onclick = () => selectThread(thread.thread_id, thread.title);
+                        
+                        div.innerHTML = `
+                            <strong>${thread.title}</strong><br>
+                            <small>ID: ${thread.thread_id}</small><br>
+                            <small>${thread.participants.length} participant(s)</small>
+                        `;
+                        threadList.appendChild(div);
+                    });
+                })
+                .catch(err => {
+                    document.getElementById('statusText').textContent = 'Error loading threads';
+                    console.error('Error loading threads:', err);
+                });
+        }
+        
+        function selectThread(threadId, title) {
+            currentThreadId = threadId;
+            document.getElementById('threadTitle').textContent = title;
+            document.getElementById('threadHeader').style.display = 'block';
+            document.getElementById('messageForm').style.display = 'block';
+            
+            // Update active thread highlighting
+            document.querySelectorAll('.thread-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            event.target.closest('.thread-item').classList.add('active');
+            
+            loadMessages();
+            loadParticipants();
+        }
+        
+        function loadMessages() {
+            if (!currentThreadId) return;
+            
+            fetch(`/api/v1/threads/${currentThreadId}/messages`)
+                .then(r => r.json())
+                .then(data => {
+                    const messageList = document.getElementById('messageList');
+                    
+                    // Only update if message count changed
+                    if (data.messages.length !== lastMessageCount) {
+                        messageList.innerHTML = '';
+                        lastMessageCount = data.messages.length;
+                        
+                        data.messages.forEach(msg => {
+                            const div = document.createElement('div');
+                            const isHuman = msg.sender === 'human';
+                            div.className = `message ${isHuman ? 'human' : 'agent'}`;
+                            
+                            div.innerHTML = `
+                                <div class="message-sender">${msg.sender}</div>
+                                <div class="message-content">${renderMarkdown(msg.message)}</div>
+                                <div class="message-time">${new Date(msg.timestamp).toLocaleString()}</div>
+                            `;
+                            messageList.appendChild(div);
+                        });
+                        
+                        // Scroll to bottom
+                        messageList.scrollTop = messageList.scrollHeight;
+                    }
+                })
+                .catch(err => console.error('Error loading messages:', err));
+        }
+        
+        function loadParticipants() {
+            if (!currentThreadId) return;
+            
+            fetch(`/api/v1/threads/${currentThreadId}/participants`)
+                .then(r => r.json())
+                .then(data => {
+                    const participantsDiv = document.getElementById('threadParticipants');
+                    participantsDiv.innerHTML = `
+                        <small><strong>Participants:</strong> ${data.participants.join(', ')}</small>
+                    `;
+                })
+                .catch(err => console.error('Error loading participants:', err));
+        }
+        
+        function sendMessage(event) {
+            event.preventDefault();
+            
+            const input = document.getElementById('messageInput');
+            const senderInput = document.getElementById('senderInput');
+            const message = input.value.trim();
+            const sender = senderInput.value.trim() || 'human';
+            
+            if (!message || !currentThreadId) return;
+            
+            fetch('/api/v1/messages/send', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    thread_id: currentThreadId,
+                    message: message,
+                    sender: sender
+                })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.message_id) {
+                    input.value = '';
+                    loadMessages(); // Refresh messages
+                    loadThreads(); // Refresh thread list
+                }
+            })
+            .catch(err => console.error('Error sending message:', err));
+        }
+        
+        function createNewThread(event) {
+            event.preventDefault();
+            
+            const threadIdInput = document.getElementById('newThreadId');
+            const titleInput = document.getElementById('newThreadTitle');
+            
+            const threadId = threadIdInput.value.trim();
+            const title = titleInput.value.trim() || threadId;
+            
+            if (!threadId) return;
+            
+            // Send a message to create the thread implicitly
+            fetch('/api/v1/messages/send', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    thread_id: threadId,
+                    message: `Thread "${title}" created`,
+                    sender: 'human',
+                    title: title
+                })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.message_id) {
+                    threadIdInput.value = '';
+                    titleInput.value = '';
+                    loadThreads();
+                    selectThread(threadId, title);
+                }
+            })
+            .catch(err => console.error('Error creating thread:', err));
+        }
+        
+        // Auto-refresh
+        setInterval(() => {
+            loadMessages();
+        }, 3000);
+        
+        setInterval(() => {
+            loadThreads();
+        }, 10000);
+        
+        // Initial load
+        loadThreads();
+    </script>
+</body>
+</html>
