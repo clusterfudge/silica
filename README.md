@@ -66,6 +66,9 @@ Most commands accept a `-w/--workspace` flag to specify which workspace to targe
 # Sync a specific workspace
 silica sync -w assistant
 
+# Sync with cache clearing to ensure latest versions
+silica sync -w assistant --clear-cache
+
 # Check status of a specific workspace
 silica status -w assistant
 
