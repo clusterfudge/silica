@@ -761,6 +761,74 @@ def run_piku_in_silica(
     )
 
 
+def clear_uv_cache(
+    workspace_name: str,
+    git_root: Optional[Path] = None,
+) -> subprocess.CompletedProcess:
+    """Clear UV cache on the remote workspace.
+
+    Args:
+        workspace_name: Required workspace name
+        git_root: Optional git root path. If None, will be detected automatically
+
+    Returns:
+        CompletedProcess instance with command results
+
+    Raises:
+        subprocess.CalledProcessError: If the cache clearing fails
+    """
+    # Clear UV cache using uv cache clean command
+    cache_cmd = "uv cache clean"
+
+    return run_piku_in_silica(
+        cache_cmd,
+        workspace_name=workspace_name,
+        use_shell_pipe=True,
+        capture_output=True,
+        check=False,  # Don't fail if cache doesn't exist
+        git_root=git_root,
+    )
+
+
+def sync_dependencies_with_cache_clear(
+    workspace_name: str,
+    clear_cache: bool = True,
+    git_root: Optional[Path] = None,
+) -> subprocess.CompletedProcess:
+    """Sync UV dependencies on remote workspace, optionally clearing cache first.
+
+    Args:
+        workspace_name: Required workspace name
+        clear_cache: Whether to clear UV cache before syncing
+        git_root: Optional git root path. If None, will be detected automatically
+
+    Returns:
+        CompletedProcess instance with command results
+
+    Raises:
+        subprocess.CalledProcessError: If the sync fails
+    """
+    if clear_cache:
+        # Clear cache first (don't fail if it doesn't work)
+        try:
+            clear_uv_cache(workspace_name, git_root)
+        except subprocess.CalledProcessError:
+            # Ignore cache clearing failures
+            pass
+
+    # Sync dependencies with upgrade flag to ensure latest versions
+    sync_cmd = "uv sync --upgrade"
+
+    return run_piku_in_silica(
+        sync_cmd,
+        workspace_name=workspace_name,
+        use_shell_pipe=True,
+        capture_output=True,
+        check=True,
+        git_root=git_root,
+    )
+
+
 def upload_to_workspace(
     local_path: Union[str, Path],
     workspace_name: str,

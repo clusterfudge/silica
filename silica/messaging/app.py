@@ -387,9 +387,12 @@ def receive_agent_response():
     message_type = data.get("type", "info")
 
     if not all([workspace, project, thread_id, message_content]):
-        return jsonify(
-            {"error": "workspace, project, thread_id, and message are required"}
-        ), 400
+        return (
+            jsonify(
+                {"error": "workspace, project, thread_id, and message are required"}
+            ),
+            400,
+        )
 
     # Use the new send_message endpoint internally
     sender = f"{workspace}-{project}"
