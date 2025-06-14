@@ -279,7 +279,13 @@ def sync_repo_to_remote(
 @click.option(
     "--force", help="Force reset to remote branch contents", is_flag=True, default=False
 )
-def sync(workspace, branch, force):
+@click.option(
+    "--clear-cache",
+    help="Clear UV cache to ensure latest dependency versions",
+    is_flag=True,
+    default=False,
+)
+def sync(workspace, branch, force, clear_cache):
     """Sync the remote repository with the latest code from GitHub.
 
     This command idempotently clones the repository if it doesn't exist,
@@ -304,6 +310,17 @@ def sync(workspace, branch, force):
         return
 
     # Run the sync operation
-    sync_repo_to_remote(
+    result = sync_repo_to_remote(
         workspace=workspace, branch=branch, force=force, git_root=git_root
     )
+
+    # If sync was successful and cache clearing was requested, also sync dependencies
+    if result and clear_cache:
+        console.print("Clearing cache and syncing dependencies...")
+        try:
+            piku_utils.sync_dependencies_with_cache_clear(
+                workspace_name=workspace, clear_cache=True, git_root=git_root
+            )
+            console.print("[green]Dependencies synced with latest versions[/green]")
+        except Exception as e:
+            console.print(f"[yellow]Warning: Failed to sync dependencies: {e}[/yellow]")
