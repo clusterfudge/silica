@@ -21,6 +21,7 @@ from silica.cli.commands.sync import sync_repo_to_remote
 # Import messaging functionality
 from silica.utils.messaging import (
     check_messaging_app_exists,
+    check_messaging_app_health,
     deploy_messaging_app,
     setup_workspace_messaging,
     add_messaging_to_workspace_environment,
@@ -443,8 +444,11 @@ def create(workspace, connection, agent_type):
         # Set up messaging system
         console.print("Setting up messaging system...")
 
-        # Check if messaging app exists, deploy if not
-        if not check_messaging_app_exists(connection):
+        # Check if messaging app exists and is healthy, deploy if not
+        app_exists = check_messaging_app_exists(connection)
+        app_healthy = check_messaging_app_health(connection) if app_exists else False
+
+        if not app_exists:
             console.print("Messaging app not found. Deploying silica-messaging...")
             success, message = deploy_messaging_app(connection)
             if success:
@@ -452,8 +456,16 @@ def create(workspace, connection, agent_type):
             else:
                 console.print(f"[red]Failed to deploy messaging app: {message}[/red]")
                 console.print("[yellow]Continuing without messaging system...[/yellow]")
+        elif not app_healthy:
+            console.print("Messaging app exists but is not healthy. Redeploying...")
+            success, message = deploy_messaging_app(connection, force=True)
+            if success:
+                console.print(f"[green]{message}[/green]")
+            else:
+                console.print(f"[red]Failed to redeploy messaging app: {message}[/red]")
+                console.print("[yellow]Continuing without messaging system...[/yellow]")
         else:
-            console.print("[green]Messaging app already exists[/green]")
+            console.print("[green]Messaging app already exists and is healthy[/green]")
 
         # Set up workspace for messaging
         console.print("Configuring workspace for messaging...")
