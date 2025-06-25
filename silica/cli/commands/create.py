@@ -375,18 +375,19 @@ def create(workspace, connection, agent_type):
                     "[yellow]You may need to manually set up GitHub authentication in the remote environment.[/yellow]"
                 )
 
-        # Initialize the environment by running uv sync in the workspace root
-        console.print("Initializing silica environment with uv sync...")
+        # Initialize the environment by clearing cache and running uv sync
+        console.print("Initializing silica environment with latest versions...")
         try:
-            piku_utils.run_piku_in_silica(
-                "uv sync", workspace_name=workspace, use_shell_pipe=True, check=True
+            # Use new cache-clearing sync function
+            piku_utils.sync_dependencies_with_cache_clear(
+                workspace_name=workspace, clear_cache=True, git_root=git_root
             )
             console.print(
-                "[green]Successfully initialized silica environment with uv sync.[/green]"
+                "[green]Successfully initialized silica environment with latest versions.[/green]"
             )
         except subprocess.CalledProcessError as e:
             console.print(
-                f"[yellow]Warning: Failed to initialize silica environment with uv sync: {e}[/yellow]"
+                f"[yellow]Warning: Failed to initialize silica environment: {e}[/yellow]"
             )
             console.print(
                 "[yellow]You may need to manually run uv sync in the remote workspace root.[/yellow]"

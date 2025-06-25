@@ -66,12 +66,37 @@ def load_environment_variables(silent=False):
     return env_vars_loaded > 0
 
 
-def sync_dependencies():
-    """Synchronize UV dependencies."""
+def sync_dependencies(clear_cache: bool = True):
+    """Synchronize UV dependencies, optionally clearing cache first."""
+    if clear_cache:
+        console.print("[dim]Clearing UV cache to ensure latest versions...[/dim]")
+        try:
+            cache_result = subprocess.run(
+                ["uv", "cache", "clean"],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                env=os.environ.copy(),  # Pass current environment
+            )
+            if cache_result.returncode == 0:
+                console.print("[green]✓ UV cache cleared successfully[/green]")
+            else:
+                # Cache clearing failure is not critical
+                console.print(
+                    f"[yellow]⚠ Cache clearing warning: {cache_result.stderr}[/yellow]"
+                )
+        except subprocess.TimeoutExpired:
+            console.print("[yellow]⚠ Cache clearing timed out[/yellow]")
+        except FileNotFoundError:
+            console.print("[dim]UV cache clean not available (older UV version)[/dim]")
+        except Exception as e:
+            console.print(f"[yellow]⚠ Cache clearing error: {e}[/yellow]")
+
     console.print("[dim]Synchronizing dependencies with uv...[/dim]")
     try:
+        # Use --upgrade flag to ensure latest versions are fetched
         result = subprocess.run(
-            ["uv", "sync"],
+            ["uv", "sync", "--upgrade"],
             capture_output=True,
             text=True,
             timeout=300,
