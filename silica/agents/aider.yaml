@@ -33,6 +33,8 @@ name: "aider"
 description: "AI pair programming in your terminal"
 install:
   commands:
+    - "uv add aider-chat"
+  fallback_commands:
     - "pip install aider-chat"
   check_command: "aider --version"
 launch:

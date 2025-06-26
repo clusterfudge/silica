@@ -147,15 +147,10 @@ def main():
     # Sync dependencies
     sync_dependencies()
 
-    # Change to code directory
-    code_dir = top_dir / "code"
-    if code_dir.exists():
-        os.chdir(code_dir)
-        console.print(f"[blue]Changed to code directory: {code_dir}[/blue]")
-    else:
-        console.print(
-            f"[yellow]Code directory not found, staying in: {top_dir}[/yellow]"
-        )
+    # Stay in project root directory for uv commands
+    # The code directory is available at ./code for agents that need it
+    console.print(f"[blue]Staying in project root: {top_dir}[/blue]")
+    console.print(f"[dim]Code directory available at: {top_dir / 'code'}[/dim]")
 
     # Get workspace agent configuration
     agent_type, workspace_config = get_workspace_agent_config()
