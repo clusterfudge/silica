@@ -18,6 +18,7 @@ from silica.cli.commands import (
     workspace_environment,
     msg,
     messaging,
+    python_check,
 )
 
 
@@ -41,6 +42,7 @@ cli.add_command(progress.progress)
 cli.add_command(workspace.workspace)
 cli.add_command(msg.msg)
 cli.add_command(messaging.messaging)
+cli.add_command(python_check.python_check)
 
 # Register workspace environment commands with aliases
 cli.add_command(workspace_environment.workspace_environment)
