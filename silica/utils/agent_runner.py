@@ -19,6 +19,11 @@ from typing import Dict, Any
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.agent_yaml import load_agent_config, install_agent, generate_launch_command
+from utils.python_compatibility import (
+    configure_uv_python,
+    diagnose_python_environment,
+    print_python_installation_help,
+)
 from config.multi_workspace import load_project_config
 from rich.console import Console
 
@@ -87,9 +92,17 @@ def sync_dependencies():
             env=os.environ.copy(),  # Pass current environment to subprocess
         )
         if result.returncode != 0:
-            console.print(f"[yellow]uv sync warning: {result.stderr}[/yellow]")
+            console.print(f"[yellow]uv sync warning/error: {result.stderr}[/yellow]")
+            # If uv sync fails due to Python compatibility, provide helpful info
+            if "Python executable does not support" in result.stderr:
+                console.print("[red]Python compatibility issue detected![/red]")
+                diagnose_python_environment()
+                print_python_installation_help()
+                return False
     except Exception as e:
         console.print(f"[yellow]uv sync error: {e}[/yellow]")
+        return False
+    return True
 
 
 def get_workspace_agent_config() -> tuple[str, Dict[str, Any]]:
@@ -141,11 +154,22 @@ def main():
     console.print(f"[blue]Working directory: {top_dir}[/blue]")
     console.print(f"[blue]App name: {app_name}[/blue]")
 
+    # Configure Python for uv before doing anything else
+    console.print("[blue]Configuring Python environment for uv...[/blue]")
+    if not configure_uv_python():
+        console.print("[red]Failed to configure suitable Python environment[/red]")
+        console.print("[red]Cannot proceed with agent launch[/red]")
+        diagnose_python_environment()
+        print_python_installation_help()
+        sys.exit(1)
+
     # Load environment variables
     load_environment_variables()
 
     # Sync dependencies
-    sync_dependencies()
+    if not sync_dependencies():
+        console.print("[red]Failed to sync dependencies[/red]")
+        sys.exit(1)
 
     # Change to code directory
     code_dir = top_dir / "code"
