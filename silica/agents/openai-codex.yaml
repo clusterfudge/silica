@@ -23,6 +23,8 @@ name: "openai-codex"
 description: "OpenAI Codex - AI coding assistant"
 install:
   commands:
+    - "uv add openai-codex"
+  fallback_commands:
     - "pip install openai-codex"
   check_command: "openai-codex --version"
 launch:
