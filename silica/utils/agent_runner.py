@@ -92,6 +92,61 @@ def sync_dependencies():
         console.print(f"[yellow]uv sync error: {e}[/yellow]")
 
 
+def resolve_agent_executable_path(agent_config, workspace_config):
+    """Resolve the full path to the agent executable before changing directories.
+
+    This allows us to install from project root (where pyproject.toml exists)
+    but then run the agent from ./code directory with the resolved path.
+
+    Returns:
+        str: Full path to the executable, or the original command if resolution fails
+    """
+    # Generate the launch command as we normally would
+    launch_command = generate_launch_command(agent_config, workspace_config)
+
+    # Parse the command to extract the executable part
+    command_parts = launch_command.split()
+
+    if len(command_parts) < 2 or command_parts[0] != "uv" or command_parts[1] != "run":
+        # If it's not a uv run command, return as-is
+        return launch_command
+
+    # For "uv run <executable> [args...]", we need to resolve the executable path
+    if len(command_parts) < 3:
+        return launch_command
+
+    executable = command_parts[2]
+    args = command_parts[3:] if len(command_parts) > 3 else []
+
+    try:
+        # Use uv to find the full path to the executable
+        result = subprocess.run(
+            ["uv", "run", "which", executable],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env=os.environ.copy(),
+        )
+
+        if result.returncode == 0:
+            executable_path = result.stdout.strip()
+            if executable_path and Path(executable_path).exists():
+                # Return the resolved path with arguments
+                resolved_command = f'"{executable_path}"'
+                if args:
+                    resolved_command += " " + " ".join(args)
+                console.print(f"[green]Resolved executable: {executable_path}[/green]")
+                return resolved_command
+
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError, Exception) as e:
+        console.print(f"[yellow]Could not resolve executable path: {e}[/yellow]")
+
+    # Fallback: try to use uv run with full command from the code directory
+    # This might work if the uv environment is properly set up
+    console.print("[yellow]Using fallback: uv run from code directory[/yellow]")
+    return launch_command
+
+
 def get_workspace_agent_config() -> tuple[str, Dict[str, Any]]:
     """Get the agent type and configuration for current workspace.
 
@@ -147,10 +202,8 @@ def main():
     # Sync dependencies
     sync_dependencies()
 
-    # Stay in project root directory for uv commands
-    # The code directory is available at ./code for agents that need it
-    console.print(f"[blue]Staying in project root: {top_dir}[/blue]")
-    console.print(f"[dim]Code directory available at: {top_dir / 'code'}[/dim]")
+    # Install and resolve agent from project root (where pyproject.toml exists)
+    console.print(f"[blue]Working from project root: {top_dir}[/blue]")
 
     # Get workspace agent configuration
     agent_type, workspace_config = get_workspace_agent_config()
@@ -181,9 +234,19 @@ def main():
 
     report_environment_status(agent_config)
 
-    # Generate launch command
-    launch_command = generate_launch_command(agent_config, workspace_config)
-    console.print(f"[cyan]Launch command: {launch_command}[/cyan]")
+    # Resolve the executable path while we're still in project root
+    resolved_command = resolve_agent_executable_path(agent_config, workspace_config)
+    console.print(f"[cyan]Resolved command: {resolved_command}[/cyan]")
+
+    # Now change to code directory where the agent should run
+    code_dir = top_dir / "code"
+    if code_dir.exists():
+        os.chdir(code_dir)
+        console.print(f"[blue]Changed to code directory: {code_dir}[/blue]")
+    else:
+        console.print(
+            f"[yellow]Code directory not found, staying in: {top_dir}[/yellow]"
+        )
 
     # Launch the agent
     console.print(
@@ -193,7 +256,7 @@ def main():
     try:
         # Run the agent command with the full environment
         result = subprocess.run(
-            launch_command,
+            resolved_command,
             shell=True,
             env=os.environ.copy(),  # Pass current environment to subprocess
         )

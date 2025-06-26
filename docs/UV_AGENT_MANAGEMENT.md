@@ -25,8 +25,9 @@ agent-workspace/
 ### 3. Agent Runner Behavior
 - Starts in the project root directory
 - Uses `uv` for all package management operations
-- Stays in root directory (doesn't change to `./code`)
-- Code directory is available at `./code` for agents that need it
+- Resolves executable paths from project root
+- Changes to `./code` directory before launching agents
+- Agents run with `CWD=./code` (where user project code is located)
 
 ## Agent Configuration
 
@@ -56,8 +57,9 @@ launch:
 ### Launch Process
 1. Load environment variables from piku ENV files
 2. Run `uv sync` to ensure dependencies are up to date
-3. Stay in project root directory
-4. Launch agent using `uv run <command>`
+3. Resolve executable paths from project root using `uv run which <executable>`
+4. Change to `./code` directory (where user project code is located)
+5. Launch agent using resolved executable path
 
 ## Benefits of This Approach
 
@@ -88,6 +90,10 @@ launch:
 #### "Package not found" when running agent
 **Cause**: Agent was installed with `pip` but trying to run with `uv run`
 **Solution**: Ensure agent YAML uses `uv add` as primary installation method
+
+#### "Permission denied" or "Command not found" errors
+**Cause**: Executable path resolution failed or agent is not properly installed
+**Solution**: Check that agent is installed with `uv run <agent> --version` from project root
 
 #### "uv: command not found"
 **Cause**: UV is not installed or not in PATH

@@ -161,6 +161,73 @@ class TestUVAgentManagement:
             finally:
                 os.chdir(original_dir)
 
+    def test_executable_resolution_workflow(self):
+        """Test that we can resolve executable paths before changing directories."""
+        # Import the function we want to test
+        from silica.utils.agent_runner import resolve_agent_executable_path
+
+        # Create a mock agent config
+        agent_config = AgentConfig(
+            name="test-agent",
+            description="Test agent",
+            install_commands=["uv add requests"],
+            fallback_install_commands=["pip install requests"],
+            check_command="python --version",
+            launch_command="uv run python",
+            default_args=["-c", "print('hello')"],
+            dependencies=["requests"],
+            required_env_vars=[],
+            recommended_env_vars=[],
+        )
+
+        workspace_config = {"agent_config": {"flags": [], "args": {}}}
+
+        # Test with mocked subprocess to avoid actual execution
+        with patch("subprocess.run") as mock_run:
+            # Mock successful executable resolution
+            mock_run.return_value = MagicMock(returncode=0, stdout="/path/to/python\n")
+
+            # Mock Path.exists to return True
+            with patch("pathlib.Path.exists", return_value=True):
+                result = resolve_agent_executable_path(agent_config, workspace_config)
+
+                # Should return the resolved path with arguments
+                assert '"/path/to/python"' in result
+                assert "print('hello')" in result
+
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+    def test_workspace_directory_structure(self):
+        """Test that the agent installation works from project root, execution from code dir."""
+        # This test would be integration-level, but we can test the concept
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace_dir = Path(tmpdir) / "test-workspace"
+            workspace_dir.mkdir()
+
+            # Create project structure
+            (workspace_dir / "pyproject.toml").write_text("[project]\nname='test'\n")
+            code_dir = workspace_dir / "code"
+            code_dir.mkdir()
+
+            original_dir = os.getcwd()
+            try:
+                # Test installation from project root
+                os.chdir(workspace_dir)
+
+                # Verify we can run uv commands from project root
+                result = subprocess.run(
+                    ["uv", "--version"], capture_output=True, text=True
+                )
+                assert result.returncode == 0
+
+                # Verify code directory exists for agent execution
+                assert code_dir.exists()
+
+                # Test that we can change to code directory after installation
+                os.chdir(code_dir)
+                assert Path(os.getcwd()).resolve() == code_dir.resolve()
+
+            finally:
+                os.chdir(original_dir)
