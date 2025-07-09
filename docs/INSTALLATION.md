@@ -1,12 +1,19 @@
 # Silica Installation Guide
 
-## System Requirements
+## Overview
 
+Silica works in two environments:
+1. **Local Development**: Where you manage workspaces and deployments
+2. **Remote Deployment**: Raspberry Pi systems where agents run
+
+## Local Development Installation
+
+### System Requirements
 - **Python**: 3.11 or higher (required)
 - **Operating System**: Linux, macOS, or Windows (with WSL)
 - **Package Manager**: `uv` (recommended) or `pip`
 
-## Quick Installation
+### Quick Installation
 
 If you already have Python 3.11+ installed:
 
@@ -18,11 +25,11 @@ uv pip install pysilica
 pip install pysilica
 ```
 
-## Raspberry Pi Installation
+### Local Python 3.11 Installation
 
-Raspberry Pi OS typically comes with Python 3.9.x, but Silica requires Python 3.11+. Follow these steps to install the correct Python version:
+If you need Python 3.11 on your local development machine:
 
-### Option 1: Using pyenv (Recommended)
+#### Using pyenv (Recommended)
 
 1. **Install pyenv dependencies**:
    ```bash
@@ -33,90 +40,49 @@ Raspberry Pi OS typically comes with Python 3.9.x, but Silica requires Python 3.
    libffi-dev liblzma-dev git
    ```
 
-2. **Install pyenv**:
+2. **Install pyenv and Python 3.11**:
    ```bash
    curl https://pyenv.run | bash
-   ```
-
-3. **Add pyenv to your shell profile**:
-   ```bash
-   echo 'export PYENV_ROOT="$HOME/.pyenv"' >> ~/.bashrc
-   echo 'export PATH="$PYENV_ROOT/bin:$PATH"' >> ~/.bashrc
-   echo 'eval "$(pyenv init --path)"' >> ~/.bashrc
-   echo 'eval "$(pyenv init -)"' >> ~/.bashrc
-   source ~/.bashrc
-   ```
-
-4. **Install Python 3.11**:
-   ```bash
+   # Add to shell profile and restart shell
    pyenv install 3.11.9
    pyenv global 3.11.9
    ```
 
-5. **Verify Python version**:
-   ```bash
-   python --version  # Should show Python 3.11.9
-   ```
-
-6. **Install uv package manager**:
-   ```bash
-   curl -LsSf https://astral.sh/uv/install.sh | sh
-   source ~/.bashrc
-   ```
-
-7. **Install Silica**:
-   ```bash
-   uv pip install pysilica
-   ```
-
-### Option 2: Using Docker
-
-If you prefer containerized installation:
-
-1. **Create a Dockerfile**:
-   ```dockerfile
-   FROM python:3.11-slim
-   
-   RUN pip install uv
-   RUN uv pip install pysilica
-   
-   WORKDIR /workspace
-   CMD ["silica", "--help"]
-   ```
-
-2. **Build and run**:
-   ```bash
-   docker build -t silica .
-   docker run -it silica
-   ```
-
-### Option 3: Manual Python Build
-
-If pyenv doesn't work for your system:
-
-1. **Install build dependencies** (same as Option 1, step 1)
-
-2. **Download and build Python 3.11**:
-   ```bash
-   cd /tmp
-   wget https://www.python.org/ftp/python/3.11.9/Python-3.11.9.tgz
-   tar -xzf Python-3.11.9.tgz
-   cd Python-3.11.9
-   ./configure --enable-optimizations --prefix=/usr/local
-   make -j4
-   sudo make altinstall
-   ```
-
-3. **Create a virtual environment**:
-   ```bash
-   python3.11 -m venv silica-env
-   source silica-env/bin/activate
-   ```
-
-4. **Install Silica**:
+3. **Install Silica**:
    ```bash
    pip install pysilica
    ```
+
+## Remote Deployment (Raspberry Pi)
+
+**Important**: For agent deployments on Raspberry Pi, Python 3.11 setup is handled automatically during workspace creation. You don't need to manually install Python 3.11 on the remote system.
+
+### Automatic Setup
+
+When you create a workspace with `silica create`, the deployment process:
+
+1. **Detects Raspberry Pi**: Automatically identifies the system type
+2. **Checks Python Version**: Verifies Python 3.11+ availability  
+3. **Installs Python 3.11**: Uses pyenv if current version is insufficient
+4. **Sets Up Environment**: Creates virtual environment and installs dependencies
+5. **Verifies Installation**: Ensures everything is working correctly
+
+### Manual Remote Setup
+
+If you need to manually set up Python 3.11 on the remote Raspberry Pi:
+
+```bash
+# Connect to remote workspace
+piku shell my-agent-<repo-name>
+
+# Run the setup script (included in deployment)
+./setup_python.sh
+
+# Verify installation
+python verify_setup.py
+```
+
+For detailed information, see [Raspberry Pi Deployment Guide](RASPBERRY_PI_DEPLOYMENT.md).
 
 ## Installation Verification
 

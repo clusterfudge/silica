@@ -24,6 +24,48 @@ from silica.utils.agent_yaml import load_agent_config
 console = Console()
 
 
+def check_python_version() -> bool:
+    """Check if Python version meets requirements."""
+    version = sys.version_info
+    return version.major >= 3 and version.minor >= 11
+
+
+def setup_python_environment() -> bool:
+    """Set up Python 3.11 environment if needed."""
+    setup_script = Path.cwd() / "setup_python.sh"
+
+    if not setup_script.exists():
+        console.print(
+            f"[yellow]Python setup script not found at {setup_script}[/yellow]"
+        )
+        console.print("[yellow]Continuing with current Python version...[/yellow]")
+        return True
+
+    try:
+        console.print("[dim]Running Python setup script...[/dim]")
+        result = subprocess.run(
+            ["bash", str(setup_script)],
+            env=os.environ.copy(),
+            timeout=1800,  # 30 minutes timeout for Python compilation
+        )
+
+        if result.returncode == 0:
+            console.print("[green]✓ Python environment setup completed[/green]")
+            return True
+        else:
+            console.print(
+                f"[red]✗ Python setup failed with code {result.returncode}[/red]"
+            )
+            return False
+
+    except subprocess.TimeoutExpired:
+        console.print("[red]✗ Python setup timed out[/red]")
+        return False
+    except Exception as e:
+        console.print(f"[red]✗ Python setup error: {e}[/red]")
+        return False
+
+
 def load_environment_variables(silent=False):
     """Load environment variables from piku ENV and LIVE_ENV files."""
     top_dir = Path.cwd()
@@ -381,6 +423,13 @@ def _setup_impl():
             border_style="blue",
         )
     )
+
+    # Check Python version and set up Python 3.11 if needed
+    if not check_python_version():
+        console.print("[yellow]Python 3.11+ required. Running Python setup...[/yellow]")
+        if not setup_python_environment():
+            console.print("[red]✗ Failed to set up Python environment[/red]")
+            sys.exit(1)
 
     # Load environment
     load_environment_variables()

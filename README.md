@@ -16,19 +16,17 @@ uv pip install pysilica
 pip install pysilica
 ```
 
-### Raspberry Pi Installation
+### Raspberry Pi Deployment
 
-Raspberry Pi OS typically comes with Python 3.9.x, but Silica requires Python 3.11+. 
+Silica automatically handles Python 3.11 installation on remote Raspberry Pi systems during workspace creation. The deployment process:
 
-**Automated Setup** (recommended):
-```bash
-curl -sSL https://raw.githubusercontent.com/FitzSean/silica/main/scripts/setup_environment.sh | bash
-```
+- Detects Raspberry Pi hardware
+- Installs Python 3.11 via pyenv if needed
+- Sets up virtual environment
+- Installs Silica and dependencies
+- Verifies the installation
 
-**Manual Setup**: See the [Installation Guide](docs/INSTALLATION.md) for detailed instructions including:
-- Installing Python 3.11 using pyenv
-- Alternative installation methods
-- Troubleshooting common issues
+For detailed deployment information, see the [Raspberry Pi Deployment Guide](docs/RASPBERRY_PI_DEPLOYMENT.md).
 
 **Note**: The package name is `pysilica` but the CLI command and import name is `silica`.
 

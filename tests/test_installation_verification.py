@@ -1,36 +1,20 @@
-"""Tests for installation verification script."""
+"""Tests for Raspberry Pi deployment installation scripts."""
 
-import subprocess
-import sys
 from pathlib import Path
 
 
-def test_verify_installation_script_exists():
-    """Test that the verification script exists and is executable."""
-    script_path = Path("scripts/verify_installation.py")
-    assert script_path.exists(), "Verification script should exist"
-    assert script_path.is_file(), "Verification script should be a file"
+def test_remote_setup_script_exists():
+    """Test that the remote setup script exists in templates."""
+    script_path = Path("silica/utils/templates/setup_python.sh")
+    assert script_path.exists(), "Remote setup script should exist"
+    assert script_path.is_file(), "Remote setup script should be a file"
 
 
-def test_verify_installation_runs():
-    """Test that the verification script runs without errors."""
-    script_path = Path("scripts/verify_installation.py")
-
-    # Run the verification script
-    result = subprocess.run(
-        [sys.executable, str(script_path)], capture_output=True, text=True, timeout=30
-    )
-
-    # Should exit with code 0 (success) since we're in a working environment
-    assert result.returncode == 0, f"Verification failed: {result.stderr}"
-    assert "All checks passed!" in result.stdout
-
-
-def test_setup_script_exists():
-    """Test that the setup script exists and is executable."""
-    script_path = Path("scripts/setup_environment.sh")
-    assert script_path.exists(), "Setup script should exist"
-    assert script_path.is_file(), "Setup script should be a file"
+def test_remote_verify_script_exists():
+    """Test that the remote verification script exists in templates."""
+    script_path = Path("silica/utils/templates/verify_setup.py")
+    assert script_path.exists(), "Remote verification script should exist"
+    assert script_path.is_file(), "Remote verification script should be a file"
 
 
 def test_installation_docs_exist():
@@ -41,9 +25,21 @@ def test_installation_docs_exist():
 
     # Check that it contains key sections
     content = docs_path.read_text()
-    assert "## System Requirements" in content
-    assert "## Raspberry Pi Installation" in content
+    assert "## Local Development Installation" in content
+    assert "## Remote Deployment (Raspberry Pi)" in content
     assert "Python 3.11" in content
+
+
+def test_raspberry_pi_deployment_docs_exist():
+    """Test that Raspberry Pi deployment documentation exists."""
+    docs_path = Path("docs/RASPBERRY_PI_DEPLOYMENT.md")
+    assert docs_path.exists(), "Raspberry Pi deployment documentation should exist"
+    assert docs_path.is_file(), "Raspberry Pi deployment documentation should be a file"
+
+    # Check that it contains key sections
+    content = docs_path.read_text()
+    assert "## Deployment Process" in content
+    assert "### 2. Automatic Python Setup" in content
     assert "pyenv" in content
 
 
@@ -54,7 +50,7 @@ def test_readme_contains_installation_info():
 
     content = readme_path.read_text()
     assert "## Installation" in content
-    assert "Raspberry Pi" in content
+    assert "Raspberry Pi Deployment" in content
     assert "Python 3.11" in content
     assert "pysilica" in content
 
@@ -75,3 +71,21 @@ def test_python_version_file_exists():
 
     content = version_file.read_text().strip()
     assert content == "3.11", f"Expected '3.11', got '{content}'"
+
+
+def test_template_files_exist():
+    """Test that all required template files exist."""
+    template_files = [
+        "setup_python.sh",
+        "verify_setup.py",
+        "pyproject.toml",
+        "requirements.txt",
+        "Procfile",
+        ".python-version",
+        ".gitignore",
+    ]
+
+    for filename in template_files:
+        template_path = Path(f"silica/utils/templates/{filename}")
+        assert template_path.exists(), f"Template file {filename} should exist"
+        assert template_path.is_file(), f"Template file {filename} should be a file"
