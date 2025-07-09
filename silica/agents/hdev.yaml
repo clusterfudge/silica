@@ -33,7 +33,7 @@ install:
     - "pip install heare-developer"
   check_command: "hdev --version"
 launch:
-  command: "uv run hdev"
+  command: "hdev"
   default_args:
     - "--dwr"
     - "--persona"

@@ -12,14 +12,13 @@ import os
 import sys
 import subprocess
 from pathlib import Path
-from datetime import datetime
 from typing import Dict, Any
 
 # Add silica to path so we can import modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from utils.agent_yaml import load_agent_config, install_agent, generate_launch_command
-from config.multi_workspace import load_project_config
+from .agent_yaml import generate_launch_command
+from silica.config.multi_workspace import load_project_config
 from rich.console import Console
 
 console = Console()
@@ -101,8 +100,31 @@ def resolve_agent_executable_path(agent_config, workspace_config):
     Returns:
         str: Full path to the executable, or the original command if resolution fails
     """
-    # Generate the launch command as we normally would
-    launch_command = generate_launch_command(agent_config, workspace_config)
+    # Handle both dictionary and AgentConfig object formats
+    if isinstance(agent_config, dict):
+        # Dictionary format from workspace_environment.py
+        launch_data = agent_config.get("launch", {})
+        base_command = launch_data.get("command", "")
+        default_args = launch_data.get("default_args", [])
+
+        command_parts = base_command.split()
+        command_parts.extend(default_args)
+
+        # Add workspace-specific configuration
+        agent_settings = workspace_config.get("agent_config", {})
+        command_parts.extend(agent_settings.get("flags", []))
+
+        custom_args = agent_settings.get("args", {})
+        for key, value in custom_args.items():
+            if value is True:
+                command_parts.append(f"--{key}")
+            elif value is not False and value is not None:
+                command_parts.extend([f"--{key}", str(value)])
+
+        launch_command = " ".join(command_parts)
+    else:
+        # AgentConfig object format from agent_yaml.py
+        launch_command = generate_launch_command(agent_config, workspace_config)
 
     # Parse the command to extract the executable part
     command_parts = launch_command.split()
@@ -184,113 +206,3 @@ def get_workspace_agent_config() -> tuple[str, Dict[str, Any]]:
         console.print(f"[yellow]Error loading workspace config: {e}[/yellow]")
         console.print("[yellow]Using default agent configuration[/yellow]")
         return "hdev", {"agent_type": "hdev", "agent_config": {"flags": [], "args": {}}}
-
-
-def main():
-    """Main agent runner function."""
-    console.print(f"[cyan]Starting agent runner at {datetime.now()}[/cyan]")
-
-    # Get directory information
-    top_dir = Path.cwd()
-    app_name = top_dir.name
-    console.print(f"[blue]Working directory: {top_dir}[/blue]")
-    console.print(f"[blue]App name: {app_name}[/blue]")
-
-    # Load environment variables
-    load_environment_variables()
-
-    # Sync dependencies
-    sync_dependencies()
-
-    # Install and resolve agent from project root (where pyproject.toml exists)
-    console.print(f"[blue]Working from project root: {top_dir}[/blue]")
-
-    # Get workspace agent configuration
-    agent_type, workspace_config = get_workspace_agent_config()
-    console.print(f"[green]Using agent: {agent_type}[/green]")
-
-    # Load agent configuration from YAML
-    agent_config = load_agent_config(agent_type)
-    if not agent_config:
-        console.print(
-            f"[red]✗ Failed to load configuration for agent: {agent_type}[/red]"
-        )
-        console.print("[red]Available agents:[/red]")
-        from utils.agent_yaml import list_built_in_agents
-
-        for agent in list_built_in_agents():
-            console.print(f"[red]  - {agent}[/red]")
-        sys.exit(1)
-
-    console.print(f"[green]Loaded agent config: {agent_config.description}[/green]")
-
-    # Ensure agent is installed
-    if not install_agent(agent_config):
-        console.print(f"[red]✗ Failed to install agent: {agent_type}[/red]")
-        sys.exit(1)
-
-    # Check environment variables
-    from utils.agent_yaml import report_environment_status
-
-    report_environment_status(agent_config)
-
-    # Resolve the executable path while we're still in project root
-    resolved_command = resolve_agent_executable_path(agent_config, workspace_config)
-    console.print(f"[cyan]Resolved command: {resolved_command}[/cyan]")
-
-    # Now change to code directory where the agent should run
-    code_dir = top_dir / "code"
-    if code_dir.exists():
-        os.chdir(code_dir)
-        console.print(f"[blue]Changed to code directory: {code_dir}[/blue]")
-    else:
-        console.print(
-            f"[yellow]Code directory not found, staying in: {top_dir}[/yellow]"
-        )
-
-    # Launch the agent
-    console.print(
-        f"[green]Starting {agent_config.name} agent from {os.getcwd()} at {datetime.now()}[/green]"
-    )
-
-    try:
-        # Run the agent command with the full environment
-        result = subprocess.run(
-            resolved_command,
-            shell=True,
-            env=os.environ.copy(),  # Pass current environment to subprocess
-        )
-        exit_code = result.returncode
-
-        console.print(
-            f"[yellow]Agent exited with status {exit_code} at {datetime.now()}[/yellow]"
-        )
-
-        if exit_code != 0:
-            console.print(
-                f"[red]Agent {agent_config.name} exited with error code {exit_code}[/red]"
-            )
-
-    except KeyboardInterrupt:
-        console.print(f"[yellow]Agent {agent_config.name} interrupted by user[/yellow]")
-    except Exception as e:
-        console.print(f"[red]Error running agent {agent_config.name}: {e}[/red]")
-        sys.exit(1)
-
-    # Keep tmux session alive for debugging
-    console.print(
-        "[blue]Agent process has ended. Keeping tmux session alive for debugging.[/blue]"
-    )
-    console.print(
-        "[blue]Press Ctrl+C to exit or run 'exit' to close this session.[/blue]"
-    )
-
-    # Wait for user input to keep session alive
-    try:
-        input()
-    except (KeyboardInterrupt, EOFError):
-        console.print("[blue]Exiting agent runner.[/blue]")
-
-
-if __name__ == "__main__":
-    main()
