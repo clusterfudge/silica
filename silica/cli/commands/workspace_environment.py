@@ -18,6 +18,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
+from silica.utils.agent_runner import resolve_agent_executable_path
 from silica.utils.agent_yaml import load_agent_config
 
 console = Console()
@@ -337,7 +338,8 @@ def generate_launch_command(
 ) -> str:
     """Generate launch command for the agent."""
     launch_data = agent_config.get("launch", {})
-    command_parts = launch_data.get("command", "").split()
+    resolved_command = resolve_agent_executable_path(agent_config, workspace_config)
+    command_parts = resolved_command.split()
 
     # Add default args
     command_parts.extend(launch_data.get("default_args", []))
@@ -463,16 +465,6 @@ def _run_impl():
         )
         sys.exit(1)
 
-    # Change to code directory if it exists
-    code_dir = Path.cwd() / "code"
-    if code_dir.exists():
-        os.chdir(code_dir)
-        console.print(f"[green]Changed to code directory: {code_dir}[/green]")
-    else:
-        console.print(
-            f"[yellow]Code directory not found, staying in: {Path.cwd()}[/yellow]"
-        )
-
     # Ensure agent is installed
     if not is_agent_installed(agent_config):
         console.print(
@@ -484,6 +476,16 @@ def _run_impl():
 
     # Generate and run launch command
     launch_command = generate_launch_command(agent_config, workspace_config)
+
+    # Change to code directory if it exists
+    code_dir = Path.cwd() / "code"
+    if code_dir.exists():
+        os.chdir(code_dir)
+        console.print(f"[green]Changed to code directory: {code_dir}[/green]")
+    else:
+        console.print(
+            f"[yellow]Code directory not found, staying in: {Path.cwd()}[/yellow]"
+        )
 
     console.print(f"[cyan]Launch command: {launch_command}[/cyan]")
     console.print(

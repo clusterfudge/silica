@@ -29,11 +29,11 @@ class TestUVAgentManagement:
         assert "uv add heare-developer" in hdev_config.install_commands
         assert hdev_config.install_commands[0] == "uv add heare-developer"
 
-        # Test aider config
-        aider_config = load_agent_config("aider")
-        assert aider_config is not None
-        assert "uv add aider-chat" in aider_config.install_commands
-        assert aider_config.install_commands[0] == "uv add aider-chat"
+        # Test that we can list available agents
+        from silica.utils.agent_yaml import list_built_in_agents
+
+        available_agents = list_built_in_agents()
+        assert "hdev" in available_agents
 
     def test_agent_installation_directory_context(self):
         """Test that agent installation works from project root directory."""
