@@ -2,6 +2,43 @@
 
 Silica is a command-line tool for creating and managing agent workspaces on top of piku.
 
+## Installation
+
+### Quick Install
+
+For systems with Python 3.11+:
+
+```bash
+# Using uv (recommended)
+uv pip install pysilica
+
+# Using pip
+pip install pysilica
+```
+
+### Raspberry Pi Installation
+
+Raspberry Pi OS typically comes with Python 3.9.x, but Silica requires Python 3.11+. 
+
+**Automated Setup** (recommended):
+```bash
+curl -sSL https://raw.githubusercontent.com/FitzSean/silica/main/scripts/setup_environment.sh | bash
+```
+
+**Manual Setup**: See the [Installation Guide](docs/INSTALLATION.md) for detailed instructions including:
+- Installing Python 3.11 using pyenv
+- Alternative installation methods
+- Troubleshooting common issues
+
+**Note**: The package name is `pysilica` but the CLI command and import name is `silica`.
+
+### Requirements
+
+- **Python**: 3.11 or higher (required)
+- **Package Manager**: `uv` (recommended) or `pip`
+
+For complete installation instructions, see [docs/INSTALLATION.md](docs/INSTALLATION.md).
+
 ## What's New: Multi-Workspace Support
 
 Silica now supports managing multiple concurrent workspaces from the same repository. This allows you to:
