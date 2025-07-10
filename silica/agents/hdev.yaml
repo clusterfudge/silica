@@ -28,7 +28,7 @@ name: "hdev"
 description: "Heare Developer - autonomous coding agent"
 install:
   commands:
-    - "uv pip install heare-developer"
+    - "uv add heare-developer"
   fallback_commands:
     - "pip install heare-developer"
   check_command: "hdev --help"
