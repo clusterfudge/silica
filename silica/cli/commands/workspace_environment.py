@@ -226,6 +226,7 @@ def install_agent(agent_config: Dict[str, Any]) -> bool:
                 console.print(
                     f"[green]✓ Successfully installed {agent_config['name']}[/green]"
                 )
+                console.print(result.stdout)
                 return True
             else:
                 console.print(f"[yellow]Command failed: {result.stderr}[/yellow]")

@@ -138,7 +138,6 @@ def resolve_agent_executable_path(agent_config, workspace_config):
         return launch_command
 
     executable = command_parts[2]
-    args = command_parts[3:] if len(command_parts) > 3 else []
 
     try:
         # Use uv to find the full path to the executable
@@ -155,8 +154,6 @@ def resolve_agent_executable_path(agent_config, workspace_config):
             if executable_path and Path(executable_path).exists():
                 # Return the resolved path with arguments
                 resolved_command = f'"{executable_path}"'
-                if args:
-                    resolved_command += " " + " ".join(args)
                 console.print(f"[green]Resolved executable: {executable_path}[/green]")
                 return resolved_command
 
