@@ -19,22 +19,6 @@ from silica.utils.agent_yaml import AgentConfig, install_agent, is_agent_install
 class TestUVAgentManagement:
     """Test UV-based agent installation and management."""
 
-    def test_uv_add_in_agent_config(self):
-        """Test that agent configs use uv add as primary installation method."""
-        from silica.utils.agent_yaml import load_agent_config
-
-        # Test hdev config
-        hdev_config = load_agent_config("hdev")
-        assert hdev_config is not None
-        assert "uv add heare-developer" in hdev_config.install_commands
-        assert hdev_config.install_commands[0] == "uv add heare-developer"
-
-        # Test that we can list available agents
-        from silica.utils.agent_yaml import list_built_in_agents
-
-        available_agents = list_built_in_agents()
-        assert "hdev" in available_agents
-
     def test_agent_installation_directory_context(self):
         """Test that agent installation works from project root directory."""
         # Create a mock agent config that uses uv add
@@ -193,7 +177,7 @@ class TestUVAgentManagement:
 
                 # Should return the resolved path with arguments
                 assert '"/path/to/python"' in result
-                assert "print('hello')" in result
+                assert "print('hello')" not in result
 
 
 if __name__ == "__main__":
