@@ -306,7 +306,8 @@ def get_workspace_config() -> Optional[Dict[str, Any]]:
 
     # Try to get from environment variables first (set during deployment)
     os.getenv("SILICA_WORKSPACE_NAME", "agent")
-    agent_type = os.getenv("SILICA_AGENT_TYPE", "hdev")
+    # Always use hdev as the agent type
+    agent_type = "hdev"
 
     # Build a basic workspace config
     workspace_config = {
@@ -321,6 +322,8 @@ def get_workspace_config() -> Optional[Dict[str, Any]]:
             with open(config_file, "r") as f:
                 file_config = json.load(f)
                 workspace_config.update(file_config)
+                # Always ensure agent_type is hdev regardless of what's in the config file
+                workspace_config["agent_type"] = "hdev"
         except Exception as e:
             console.print(
                 f"[yellow]Warning: Could not load workspace config: {e}[/yellow]"
@@ -344,11 +347,15 @@ def setup_code_directory() -> bool:
         return False
 
 
-def get_agent_config_dict(agent_type: str) -> Dict[str, Any]:
-    """Load agent config and convert to dict format."""
-    agent_config_obj = load_agent_config(agent_type)
+def get_agent_config_dict(agent_type: str = "hdev") -> Dict[str, Any]:
+    """Load agent config and convert to dict format.
+
+    Note: agent_type parameter is kept for compatibility but always loads hdev.
+    """
+    # Always load hdev configuration regardless of agent_type parameter
+    agent_config_obj = load_agent_config("hdev")
     if not agent_config_obj:
-        raise ValueError(f"Could not load agent config for '{agent_type}'")
+        raise ValueError("Could not load hdev agent configuration")
 
     # Convert to dict format for our functions
     return {

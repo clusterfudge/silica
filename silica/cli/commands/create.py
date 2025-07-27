@@ -9,7 +9,6 @@ from typing import Dict, List, Tuple
 from silica.config import load_config, find_git_root
 from silica.utils import piku as piku_utils
 from silica.utils.yaml_agents import (
-    get_supported_agents,
     get_default_workspace_agent_config,
 )
 
@@ -110,23 +109,14 @@ def get_template_content(filename):
     help="Piku connection string (default: inferred from git or config)",
     default=None,
 )
-@click.option(
-    "-a",
-    "--agent",
-    "agent_type",
-    help=f"Agent type to use. Options: {', '.join(get_supported_agents())} (default: from global config)",
-    default=None,
-    type=click.Choice(get_supported_agents(), case_sensitive=False),
-)
-def create(workspace, connection, agent_type):
+def create(workspace, connection):
     """Create a new agent environment workspace."""
     # Load global configuration
     config = load_config()
 
-    # Use global default agent if none specified
-    if agent_type is None:
-        agent_type = config.get("default_agent", "hdev")
-        console.print(f"[dim]Using default agent type: {agent_type}[/dim]")
+    # Always use hdev as the agent type
+    agent_type = "hdev"
+    console.print("[dim]Using heare-developer (hdev) agent[/dim]")
 
     if connection is None:
         # Check if there's a git remote named "piku" in the project repo

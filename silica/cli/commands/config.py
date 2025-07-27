@@ -84,26 +84,6 @@ def set_config(key_value):
     console.print(f"[green]Set {key} = {value}[/green]")
 
 
-@config.command(name="set-default-agent")
-@click.argument("agent_type")
-def set_default_agent(agent_type):
-    """Set the global default agent type for new workspaces."""
-    from silica.utils.yaml_agents import validate_agent_type, get_supported_agents
-
-    if not validate_agent_type(agent_type):
-        console.print(f"[red]Invalid agent type: {agent_type}[/red]")
-        console.print(
-            f"[yellow]Supported agents: {', '.join(get_supported_agents())}[/yellow]"
-        )
-        return
-
-    set_config_value("default_agent", agent_type)
-    console.print(f"[green]Default agent set to: {agent_type}[/green]")
-    console.print(
-        "[dim]This will be used for new workspaces created without specifying -a/--agent[/dim]"
-    )
-
-
 @config.command(name="setup")
 def setup():
     """Interactive setup wizard for silica configuration."""
@@ -197,36 +177,16 @@ def setup():
     )
     set_config_value("workspace_name", workspace_name)
 
-    # Default agent configuration
+    # Agent configuration - always use hdev
     console.print()
+    console.print(Panel("[bold]Agent Configuration[/bold]", border_style="cyan"))
     console.print(
-        Panel("[bold]Default Agent Configuration[/bold]", border_style="cyan")
+        "[dim]Silica is configured to use heare-developer (hdev) agent.[/dim]"
     )
-    console.print("[dim]Choose the default agent type for new workspaces.[/dim]")
 
-    # Import agent utilities
-    from silica.utils.yaml_agents import get_supported_agents
-
-    # Show available agents
-    supported_agents = get_supported_agents()
-    console.print(f"Available agents: {', '.join(supported_agents)}")
-
-    current_default_agent = get_config_value("default_agent", "hdev")
-
-    while True:
-        default_agent = Prompt.ask(
-            "Default agent type",
-            default=current_default_agent,
-            choices=supported_agents,
-        )
-        if default_agent in supported_agents:
-            set_config_value("default_agent", default_agent)
-            console.print(f"✅ [green]Default agent set to {default_agent}[/green]")
-            break
-        else:
-            console.print(
-                f"[red]Invalid agent type. Choose from: {', '.join(supported_agents)}[/red]"
-            )
+    # Set hdev as the default (even though we don't use this anymore)
+    set_config_value("default_agent", "hdev")
+    console.print("✅ [green]Agent configured: heare-developer (hdev)[/green]")
 
     console.print()
 

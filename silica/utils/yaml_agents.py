@@ -22,12 +22,13 @@ def get_agent_description(agent_type: str) -> str:
     return config.description if config else f"Unknown agent: {agent_type}"
 
 
-def get_default_workspace_agent_config(agent_type: str) -> Dict[str, Any]:
-    """Get default agent configuration for a workspace."""
-    if not validate_agent_type(agent_type):
-        raise ValueError(f"Unsupported agent type: {agent_type}")
+def get_default_workspace_agent_config(agent_type: str = "hdev") -> Dict[str, Any]:
+    """Get default agent configuration for a workspace.
 
-    return {"agent_type": agent_type, "agent_config": {"flags": [], "args": {}}}
+    Note: agent_type parameter is kept for compatibility but always returns hdev config.
+    """
+    # Always return hdev configuration regardless of agent_type parameter
+    return {"agent_type": "hdev", "agent_config": {"flags": [], "args": {}}}
 
 
 def update_workspace_with_agent(
