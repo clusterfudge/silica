@@ -28,8 +28,8 @@ Silica agent workspaces are deployed to remote Raspberry Pi systems via piku. Th
 # Create workspace (automatically deploys to remote)
 silica create -w my-agent
 
-# Create with specific agent type
-silica create -w my-agent -a hdev
+# Create with custom workspace name
+silica create -w my-agent
 ```
 
 This command:

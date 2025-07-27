@@ -3,17 +3,23 @@
 import json
 from pathlib import Path
 from typing import Dict, Any, Optional, List
-from .agent_yaml import load_agent_config, list_built_in_agents
+from .agent_yaml import load_agent_config
 
 
 def get_supported_agents() -> List[str]:
-    """Get list of supported agent names."""
-    return list_built_in_agents()
+    """Get list of supported agent names.
+
+    Note: Now only returns hdev for backward compatibility.
+    """
+    return ["hdev"]
 
 
 def validate_agent_type(agent_type: str) -> bool:
-    """Validate that an agent type is supported."""
-    return agent_type in get_supported_agents()
+    """Validate that an agent type is supported.
+
+    Note: Now only supports hdev.
+    """
+    return agent_type == "hdev"
 
 
 def get_agent_description(agent_type: str) -> str:
