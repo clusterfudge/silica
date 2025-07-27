@@ -200,64 +200,93 @@ def is_agent_installed(agent_config: Dict[str, Any]) -> bool:
 
 
 def install_agent(agent_config: Dict[str, Any]) -> bool:
-    """Install agent if needed."""
+    """Install agent if needed.
+
+    Since hdev is now part of the workspace dependencies in pyproject.toml,
+    it should be installed via uv sync. This function mainly verifies availability.
+    """
+    agent_name = agent_config["name"]
+
     if is_agent_installed(agent_config):
-        console.print(f"[green]✓ {agent_config['name']} is already installed[/green]")
+        console.print(f"[green]✓ {agent_name} is already available[/green]")
         return True
 
-    console.print(f"[yellow]Installing {agent_config['name']}...[/yellow]")
+    console.print(
+        f"[yellow]{agent_name} not found. Attempting installation via dependencies...[/yellow]"
+    )
 
-    install_data = agent_config.get("install", {})
+    # Since hdev should be installed via uv sync, try running that first
+    if not sync_dependencies(clear_cache=False):
+        console.print(
+            "[yellow]uv sync failed, falling back to direct installation methods[/yellow]"
+        )
 
-    # Try main install commands
-    for command in install_data.get("commands", []):
-        try:
-            console.print(f"[dim]Running: {command}[/dim]")
-            result = subprocess.run(
-                command,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=300,
-                env=os.environ.copy(),  # Pass current environment
-            )
+        # Fall back to original installation method if uv sync doesn't work
+        install_data = agent_config.get("install", {})
 
-            if result.returncode == 0:
-                console.print(
-                    f"[green]✓ Successfully installed {agent_config['name']}[/green]"
+        # Try main install commands
+        for command in install_data.get("commands", []):
+            try:
+                console.print(f"[dim]Running: {command}[/dim]")
+                result = subprocess.run(
+                    command,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                    env=os.environ.copy(),  # Pass current environment
                 )
-                console.print(result.stdout)
-                return True
-            else:
-                console.print(f"[yellow]Command failed: {result.stderr}[/yellow]")
 
-        except Exception as e:
-            console.print(f"[yellow]Command error: {e}[/yellow]")
+                if result.returncode == 0:
+                    console.print(
+                        f"[green]✓ Successfully installed {agent_name}[/green]"
+                    )
+                    return True
+                else:
+                    console.print(f"[yellow]Command failed: {result.stderr}[/yellow]")
 
-    # Try fallback commands
-    for command in install_data.get("fallback_commands", []):
-        try:
-            console.print(f"[dim]Running fallback: {command}[/dim]")
-            result = subprocess.run(
-                command,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=300,
-                env=os.environ.copy(),  # Pass current environment
-            )
+            except Exception as e:
+                console.print(f"[yellow]Command error: {e}[/yellow]")
 
-            if result.returncode == 0:
-                console.print(
-                    f"[green]✓ Successfully installed {agent_config['name']} with fallback[/green]"
+        # Try fallback commands
+        for command in install_data.get("fallback_commands", []):
+            try:
+                console.print(f"[dim]Running fallback: {command}[/dim]")
+                result = subprocess.run(
+                    command,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                    env=os.environ.copy(),  # Pass current environment
                 )
-                return True
 
-        except Exception as e:
-            console.print(f"[yellow]Fallback error: {e}[/yellow]")
+                if result.returncode == 0:
+                    console.print(
+                        f"[green]✓ Successfully installed {agent_name} with fallback[/green]"
+                    )
+                    return True
 
-    console.print(f"[red]✗ Failed to install {agent_config['name']}[/red]")
-    return False
+            except Exception as e:
+                console.print(f"[yellow]Fallback error: {e}[/yellow]")
+
+        console.print(f"[red]✗ Failed to install {agent_name}[/red]")
+        return False
+
+    # Check if it's available now after uv sync
+    if is_agent_installed(agent_config):
+        console.print(
+            f"[green]✓ {agent_name} is now available after dependency sync[/green]"
+        )
+        return True
+    else:
+        console.print(
+            f"[yellow]⚠ {agent_name} still not available after uv sync[/yellow]"
+        )
+        console.print(
+            "[yellow]This may indicate an issue with the workspace dependencies[/yellow]"
+        )
+        return False
 
 
 def check_environment_variables(
@@ -447,22 +476,19 @@ def _setup_impl():
         console.print("[red]✗ Failed to sync dependencies[/red]")
         sys.exit(1)
 
-    # Get workspace configuration
+    # Get workspace configuration (always hdev now)
     workspace_config = get_workspace_config()
     if not workspace_config:
         console.print("[red]✗ Could not determine workspace configuration[/red]")
         sys.exit(1)
 
-    agent_type = workspace_config.get("agent_type", "hdev")
-    console.print(f"[cyan]Agent type: {agent_type}[/cyan]")
+    console.print("[cyan]Agent type: heare-developer (hdev)[/cyan]")
 
-    # Get agent configuration
+    # Get hdev agent configuration
     try:
-        agent_config = get_agent_config_dict(agent_type)
+        agent_config = get_agent_config_dict("hdev")
     except Exception as e:
-        console.print(
-            f"[red]✗ Could not load agent config for '{agent_type}': {e}[/red]"
-        )
+        console.print(f"[red]✗ Could not load hdev agent configuration: {e}[/red]")
         sys.exit(1)
 
     # Install agent
@@ -505,21 +531,17 @@ def _run_impl():
     # Load environment
     load_environment_variables()
 
-    # Get workspace configuration
+    # Get workspace configuration (always hdev now)
     workspace_config = get_workspace_config()
     if not workspace_config:
         console.print("[red]✗ Could not determine workspace configuration[/red]")
         sys.exit(1)
 
-    agent_type = workspace_config.get("agent_type", "hdev")
-
-    # Get agent configuration
+    # Get hdev agent configuration
     try:
-        agent_config = get_agent_config_dict(agent_type)
+        agent_config = get_agent_config_dict("hdev")
     except Exception as e:
-        console.print(
-            f"[red]✗ Could not load agent config for '{agent_type}': {e}[/red]"
-        )
+        console.print(f"[red]✗ Could not load hdev agent configuration: {e}[/red]")
         sys.exit(1)
 
     # Ensure agent is installed
@@ -656,19 +678,20 @@ def _status_impl(json_output=False):
     # Check workspace config
     workspace_config = get_workspace_config()
     if workspace_config:
-        agent_type = workspace_config.get("agent_type", "unknown")
         status_data["workspace_config"] = {
             "status": "ok",
             "found": True,
-            "agent_type": agent_type,
+            "agent_type": "hdev",
             "config": workspace_config,
         }
         if not json_output:
-            table.add_row("Workspace Config", "✓ Found", f"Agent type: {agent_type}")
+            table.add_row(
+                "Workspace Config", "✓ Found", "Agent type: heare-developer (hdev)"
+            )
 
-        # Check agent config
+        # Check hdev agent config
         try:
-            agent_config = get_agent_config_dict(agent_type)
+            agent_config = get_agent_config_dict("hdev")
             status_data["agent_config"] = {
                 "status": "ok",
                 "valid": True,
@@ -676,7 +699,7 @@ def _status_impl(json_output=False):
                 "description": agent_config["description"],
             }
             if not json_output:
-                table.add_row("Agent Config", "✓ Valid", agent_config["name"])
+                table.add_row("Agent Config", "✓ Valid", "heare-developer (hdev)")
 
             # Check if agent is installed
             agent_installed = is_agent_installed(agent_config)
@@ -880,9 +903,7 @@ def _status_impl(json_output=False):
         workspace_config = get_workspace_config()
         if workspace_config:
             try:
-                agent_config = get_agent_config_dict(
-                    workspace_config.get("agent_type", "hdev")
-                )
+                agent_config = get_agent_config_dict("hdev")
                 if not is_agent_installed(agent_config):
                     console.print(
                         "• Run [cyan]silica we setup[/cyan] to install the agent"

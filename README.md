@@ -52,32 +52,31 @@ Silica now supports managing multiple concurrent workspaces from the same reposi
 - **Default Workspace**: Set a preferred workspace as default for easier command execution
 - **Immutable Workspaces**: Each workspace is tied to a specific agent type - create new workspaces for different agents
 
-## 🤖 Supported Agents
+## 🤖 Integrated Agent
 
-Silica uses a [YAML-based agent configuration system](docs/YAML_AGENTS.md) for easy extensibility. Each agent is configured with its installation commands and runtime requirements.
+Silica is tightly integrated with **heare-developer (hdev)**, an autonomous coding agent that includes:
 
-### Adding Custom Agents
+- Autonomous engineering with the `--dwr` (Do What's Required) flag
+- Configurable personas for different coding styles  
+- Integration with Claude for AI assistance
+- Web search capabilities via Brave Search API
+- GitHub integration for repository management
 
-You can easily add custom agents by creating YAML configuration files. See the [YAML Agents Documentation](docs/YAML_AGENTS.md) for details.
+The agent is automatically installed when creating workspaces and configured for optimal performance.
 
 ## Usage
 
 ### Creating Workspaces
 
 ```bash
-# Create a default workspace named 'agent' using global default agent
+# Create a default workspace named 'agent' with heare-developer
 silica create
 
-# Create a workspace with a custom name and different agent
-silica create -w assistant -a aider
+# Create a workspace with a custom name
+silica create -w assistant
 
-# Create workspace with specific agent type
-silica create -w cline-workspace -a cline
-
-# The agent type is determined by (in order of priority):
-# 1. -a/--agent flag if provided
-# 2. Global default agent setting
-# 3. Fallback to 'hdev' if no global default set
+# Create workspace for a specific project
+silica create -w my-project
 ```
 
 ### Managing Workspaces
@@ -114,20 +113,17 @@ silica agent -w assistant
 silica tell "Please analyze this code" -w assistant
 ```
 
-### Managing Agent Types
+### Configuration Management
 
 ```bash
-# List all available agent types (during workspace creation)
-silica create --help  # Shows available agents
-
-# Set global default agent type
-silica config set-default-agent aider
-
-# View current global default
-silica config get default_agent
-
-# List all configuration including default agent
+# View current configuration
 silica config list
+
+# Set configuration values
+silica config set key=value
+
+# Run interactive setup wizard  
+silica config setup
 ```
 
 ### Destroying Workspaces
@@ -156,9 +152,9 @@ workspaces:
     piku_connection: piku
     app_name: assistant-repo-name
     branch: feature-branch
-    agent_type: cline
+    agent_type: hdev
     agent_config:
-      flags: []
+      flags: ["--persona", "code_reviewer"]
       args: {}
 ```
 
