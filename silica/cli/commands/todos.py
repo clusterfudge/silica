@@ -1,6 +1,7 @@
 """Todos command for silica."""
 
-import click
+import cyclopts
+from typing import Literal
 import datetime
 from rich.console import Console
 from rich.table import Table
@@ -10,12 +11,10 @@ from silica.config import get_silica_dir, find_git_root
 console = Console()
 
 
-@click.group(name="todos")
-def todos():
-    """Manage todos for the agent."""
+todos = cyclopts.App(name="todos", help="Manage todos for the agent.")
 
 
-@todos.command()
+@todos.command
 def list():
     """List all todos for the agent."""
     git_root = find_git_root()
@@ -70,9 +69,8 @@ def list():
     console.print(table)
 
 
-@todos.command()
-@click.argument("description")
-def add(description):
+@todos.command
+def add(description: str):
     """Add a new todo."""
     git_root = find_git_root()
     if not git_root:
@@ -114,12 +112,11 @@ def add(description):
     console.print(f"[green]Added todo: {description}[/green]")
 
 
-@todos.command()
-@click.argument("todo_id", type=int)
-@click.argument(
-    "status", type=click.Choice(["pending", "in_progress", "completed", "failed"])
-)
-def update(todo_id, status):
+@todos.command
+def update(
+    todo_id: int,
+    status: Literal["pending", "in_progress", "completed", "failed"],
+):
     """Update the status of a todo."""
     git_root = find_git_root()
     if not git_root:
@@ -161,9 +158,8 @@ def update(todo_id, status):
     console.print(f"[green]Updated todo {todo_id} status to {status}[/green]")
 
 
-@todos.command()
-@click.argument("todo_id", type=int)
-def remove(todo_id):
+@todos.command
+def remove(todo_id: int):
     """Remove a todo."""
     git_root = find_git_root()
     if not git_root:

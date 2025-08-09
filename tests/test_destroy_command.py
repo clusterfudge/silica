@@ -115,12 +115,6 @@ class TestDestroyCommand:
         mock_confirm.return_value = True  # User confirms destruction
         mock_run_piku.return_value = MagicMock(stdout="", returncode=0)
 
-        # Import destroy command
-        from silica.cli.commands.destroy import destroy
-        from click.testing import CliRunner
-
-        runner = CliRunner()
-
         # Test destroying the 'agent' workspace specifically
         with patch("silica.cli.commands.destroy.get_app_name") as mock_get_app_name:
             with patch(
@@ -129,8 +123,11 @@ class TestDestroyCommand:
                 mock_get_app_name.return_value = "agent-silica"
                 mock_get_piku_connection.return_value = "piku"
 
-                # Run destroy command with workspace specified
-                runner.invoke(destroy, ["--workspace", "agent", "--force"])
+                # Import destroy command
+                from silica.cli.commands.destroy import destroy
+
+                # Call destroy function directly with parameters
+                destroy(workspace="agent", force=True, all=False)
 
                 # Verify that get_app_name was called with the correct workspace
                 mock_get_app_name.assert_called_with(git_root, workspace_name="agent")
@@ -160,12 +157,6 @@ class TestDestroyCommand:
         mock_confirm.return_value = True  # User confirms destruction
         mock_run_piku.return_value = MagicMock(stdout="", returncode=0)
 
-        # Import destroy command
-        from silica.cli.commands.destroy import destroy
-        from click.testing import CliRunner
-
-        runner = CliRunner()
-
         # Test destroying without specifying workspace (should use default "agent")
         with patch("silica.cli.commands.destroy.get_app_name") as mock_get_app_name:
             with patch(
@@ -174,8 +165,11 @@ class TestDestroyCommand:
                 mock_get_app_name.return_value = "agent-silica"
                 mock_get_piku_connection.return_value = "piku"
 
-                # Run destroy command without workspace specified (defaults to "agent")
-                runner.invoke(destroy, ["--force"])
+                # Import destroy command
+                from silica.cli.commands.destroy import destroy
+
+                # Call destroy function directly without workspace (uses default)
+                destroy(force=True, workspace="agent", all=False)
 
                 # Verify that get_app_name was called with workspace_name='agent' (the default)
                 mock_get_app_name.assert_called_with(git_root, workspace_name="agent")

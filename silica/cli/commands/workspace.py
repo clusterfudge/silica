@@ -1,6 +1,6 @@
 """Workspace management commands for silica."""
 
-import click
+import cyclopts
 from rich.console import Console
 from rich.table import Table
 
@@ -14,13 +14,11 @@ from silica.config.multi_workspace import (
 console = Console()
 
 
-@click.group()
-def workspace():
-    """Manage silica workspaces."""
+workspace = cyclopts.App(name="workspace", help="Manage silica workspaces.")
 
 
-@workspace.command("list")
-def list_cmd():
+@workspace.command
+def list():
     """List all configured workspaces."""
     # Find git root
     git_root = find_git_root()
@@ -66,9 +64,8 @@ def list_cmd():
     console.print(table)
 
 
-@workspace.command("set-default")
-@click.argument("name", required=True)
-def set_default_cmd(name):
+@workspace.command
+def set_default(name: str):
     """Set the default workspace."""
     # Find git root
     git_root = find_git_root()
@@ -100,8 +97,8 @@ def set_default_cmd(name):
     console.print(f"[green]Default workspace set to '{name}'.[/green]")
 
 
-@workspace.command("get-default")
-def get_default_cmd():
+@workspace.command
+def get_default():
     """Get the current default workspace."""
     # Find git root
     git_root = find_git_root()

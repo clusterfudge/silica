@@ -1,7 +1,8 @@
 """Status command for silica."""
 
 import subprocess
-import click
+import cyclopts
+from typing import Annotated, Optional
 from rich.console import Console
 from rich.table import Table
 from pathlib import Path
@@ -332,22 +333,22 @@ def print_all_workspaces_summary(statuses: List[Dict[str, Any]]):
     )
 
 
-@click.command()
-@click.option(
-    "-w",
-    "--workspace",
-    help="Specific workspace to check (default: show all workspaces)",
-    default=None,
-)
-@click.option(
-    "-a",
-    "--all",
-    "show_all",
-    is_flag=True,
-    help="Show detailed status for all workspaces",
-    default=False,
-)
-def status(workspace, show_all):
+def status(
+    workspace: Annotated[
+        Optional[str],
+        cyclopts.Parameter(
+            "--workspace",
+            "-w",
+            help="Specific workspace to check (default: show all workspaces)",
+        ),
+    ] = None,
+    show_all: Annotated[
+        bool,
+        cyclopts.Parameter(
+            "--all", "-a", help="Show detailed status for all workspaces"
+        ),
+    ] = False,
+):
     """Fetch and visualize agent status across workspaces.
 
     If a specific workspace is provided with -w, shows detailed status for that workspace.

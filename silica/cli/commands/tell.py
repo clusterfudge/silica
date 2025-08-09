@@ -1,6 +1,7 @@
 """Tell command for silica."""
 
-import click
+import cyclopts
+from typing import Annotated
 from rich.console import Console
 
 from silica.config import find_git_root
@@ -9,15 +10,12 @@ from silica.utils import piku as piku_utils
 console = Console()
 
 
-@click.command()
-@click.argument("message", nargs=-1, required=True)
-@click.option(
-    "-w",
-    "--workspace",
-    help="Name for the workspace (default: agent)",
-    default="agent",
-)
-def tell(message, workspace):
+def tell(
+    *message: str,
+    workspace: Annotated[
+        str, cyclopts.Parameter("--workspace", "-w", help="Name for the workspace")
+    ] = "agent",
+):
     """Send a message to the agent tmux session using send-keys.
 
     This command sends a message to the agent's tmux session using the tmux send-keys command.

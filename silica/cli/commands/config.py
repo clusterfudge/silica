@@ -1,6 +1,6 @@
 """Configuration command for silica."""
 
-import click
+import cyclopts
 from pathlib import Path
 from rich.console import Console
 from rich.table import Table
@@ -11,13 +11,11 @@ from silica.utils import find_env_var
 console = Console()
 
 
-@click.group(name="config")
-def config():
-    """Manage silica configuration."""
+config = cyclopts.App(name="config", help="Manage silica configuration.")
 
 
-@config.command(name="list")
-def list_config():
+@config.command
+def list():
     """List all configuration values."""
     config = load_config()
 
@@ -39,9 +37,8 @@ def list_config():
     console.print(table)
 
 
-@config.command(name="get")
-@click.argument("key")
-def get_config(key):
+@config.command
+def get(key: str):
     """Get a configuration value."""
     value = get_config_value(key)
     if value is None:
@@ -60,9 +57,8 @@ def get_config(key):
             console.print(f"{key} = {value}")
 
 
-@config.command(name="set")
-@click.argument("key_value")
-def set_config(key_value):
+@config.command
+def set(key_value: str):
     """Set a configuration value (format: key=value)."""
     if "=" not in key_value:
         console.print("[red]Invalid format. Use key=value[/red]")
@@ -84,7 +80,7 @@ def set_config(key_value):
     console.print(f"[green]Set {key} = {value}[/green]")
 
 
-@config.command(name="setup")
+@config.command
 def setup():
     """Interactive setup wizard for silica configuration."""
     from rich.prompt import Prompt, Confirm
@@ -294,13 +290,4 @@ def configure_api_key(env_var, display_name):
             console.print(f"[yellow]{display_name} cleared[/yellow]")
 
 
-# Default command when running just 'silica config'
-config.add_command(list_config, name="list")
-
-
-# Make list_config the default command when just running 'silica config'
-@config.command(name="")
-@click.pass_context
-def default_command(ctx):
-    """Default command that runs 'list'."""
-    ctx.forward(list_config)
+# Note: cyclopts doesn't need explicit default command setup like click

@@ -1,8 +1,10 @@
 """Progress command for silica."""
 
 import time
-import click
+import cyclopts
+from typing import Annotated
 from rich.console import Console
+from rich.prompt import Prompt
 from rich.markdown import Markdown
 
 from silica.config import find_git_root
@@ -12,21 +14,19 @@ from silica.cli.commands.tell import tell
 console = Console()
 
 
-@click.command()
-@click.option(
-    "-w",
-    "--workspace",
-    help="Name for the workspace (default: agent)",
-    default="agent",
-)
-@click.option(
-    "-t",
-    "--timeout",
-    help="Timeout in seconds to wait for the status file to be created",
-    default=10,
-    type=int,
-)
-def progress(workspace, timeout):
+def progress(
+    workspace: Annotated[
+        str, cyclopts.Parameter("--workspace", "-w", help="Name for the workspace")
+    ] = "agent",
+    timeout: Annotated[
+        int,
+        cyclopts.Parameter(
+            "--timeout",
+            "-t",
+            help="Timeout in seconds to wait for the status file to be created",
+        ),
+    ] = 10,
+):
     """Get a summary of the current conversation state from the agent.
 
     This command instructs the agent to summarize the current conversation state to a file,
@@ -72,11 +72,7 @@ def progress(workspace, timeout):
         )
 
         # Execute the tell command to instruct the agent
-        ctx = click.Context(tell)
-        # Convert the tuple to a list of individual strings
-        ctx.params["message"] = summarize_cmd
-        ctx.params["workspace"] = workspace
-        tell.invoke(ctx)
+        tell(*summarize_cmd, workspace=workspace)
 
         # Wait for the file to be created with a timeout and countdown
 
@@ -118,10 +114,9 @@ def progress(workspace, timeout):
                 console.print(
                     "\n[yellow]Timeout reached. Status file not created yet.[/yellow]"
                 )
-                response = click.prompt(
+                response = Prompt.ask(
                     "Would you like to continue waiting? [y/N]",
                     default="n",
-                    show_default=False,
                 )
                 if response.lower() != "y":
                     console.print("[yellow]Cancelled by user.[/yellow]")
