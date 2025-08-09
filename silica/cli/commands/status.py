@@ -337,15 +337,14 @@ def status(
     workspace: Annotated[
         Optional[str],
         cyclopts.Parameter(
-            "--workspace",
-            "-w",
+            name=["--workspace", "-w"],
             help="Specific workspace to check (default: show all workspaces)",
         ),
     ] = None,
     show_all: Annotated[
         bool,
         cyclopts.Parameter(
-            "--all", "-a", help="Show detailed status for all workspaces"
+            name=["--all", "-a"], help="Show detailed status for all workspaces"
         ),
     ] = False,
 ):

@@ -266,12 +266,14 @@ def sync_repo_to_remote(
 
 def sync(
     workspace: Annotated[
-        str, cyclopts.Parameter("--workspace", "-w", help="Name for the workspace")
+        str,
+        cyclopts.Parameter(name=["--workspace", "-w"], help="Name for the workspace"),
     ] = "agent",
     branch: Annotated[
         Optional[str],
         cyclopts.Parameter(
-            "--branch", "-b", help="Specific branch to sync (default: current branch)"
+            name=["--branch", "-b"],
+            help="Specific branch to sync (default: current branch)",
         ),
     ] = None,
     force: Annotated[

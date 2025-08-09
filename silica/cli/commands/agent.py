@@ -13,7 +13,8 @@ console = Console()
 
 def agent(
     workspace: Annotated[
-        str, cyclopts.Parameter("--workspace", "-w", help="Name for the workspace")
+        str,
+        cyclopts.Parameter(name=["--workspace", "-w"], help="Name for the workspace"),
     ] = "agent",
 ):
     """Connect to the agent tmux session.

@@ -13,7 +13,8 @@ console = Console()
 def tell(
     *message: str,
     workspace: Annotated[
-        str, cyclopts.Parameter("--workspace", "-w", help="Name for the workspace")
+        str,
+        cyclopts.Parameter(name=["--workspace", "-w"], help="Name for the workspace"),
     ] = "agent",
 ):
     """Send a message to the agent tmux session using send-keys.

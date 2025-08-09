@@ -149,13 +149,14 @@ def send(
     thread: Annotated[
         Optional[str],
         cyclopts.Parameter(
-            "--thread", "-t", help="Thread ID (creates implicitly if doesn't exist)"
+            name=["--thread", "-t"],
+            help="Thread ID (creates implicitly if doesn't exist)",
         ),
     ] = None,
     sender: Annotated[
         Optional[str],
         cyclopts.Parameter(
-            "--sender", "-s", help="Sender identity (default: auto-detected)"
+            name=["--sender", "-s"], help="Sender identity (default: auto-detected)"
         ),
     ] = None,
     title: Annotated[

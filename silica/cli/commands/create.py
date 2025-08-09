@@ -102,13 +102,13 @@ def get_template_content(filename):
 
 def create(
     workspace: Annotated[
-        str, cyclopts.Parameter("--workspace", "-w", help="Name for the workspace")
+        str,
+        cyclopts.Parameter(name=["--workspace", "-w"], help="Name for the workspace"),
     ] = "agent",
     connection: Annotated[
         Optional[str],
         cyclopts.Parameter(
-            "--connection",
-            "-c",
+            name=["--connection", "-c"],
             help="Piku connection string (default: inferred from git or config)",
         ),
     ] = None,

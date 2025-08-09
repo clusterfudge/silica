@@ -41,10 +41,12 @@ def status():
 def logs(
     lines: Annotated[
         Optional[int],
-        cyclopts.Parameter("--lines", "-n", help="Number of log lines to display"),
+        cyclopts.Parameter(
+            name=["--lines", "-n"], help="Number of log lines to display"
+        ),
     ] = None,
     follow: Annotated[
-        bool, cyclopts.Parameter("--follow", "-f", help="Follow the logs")
+        bool, cyclopts.Parameter(name=["--follow", "-f"], help="Follow the logs")
     ] = False,
 ):
     """Show logs from the agent environment."""

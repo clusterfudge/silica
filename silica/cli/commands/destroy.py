@@ -19,7 +19,8 @@ def destroy(
         bool, cyclopts.Parameter(help="Force destruction without confirmation")
     ] = False,
     workspace: Annotated[
-        str, cyclopts.Parameter("--workspace", "-w", help="Name for the workspace")
+        str,
+        cyclopts.Parameter(name=["--workspace", "-w"], help="Name for the workspace"),
     ] = "agent",
     all: Annotated[
         bool,

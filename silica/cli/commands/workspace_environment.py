@@ -948,7 +948,8 @@ def status(
     json_output: Annotated[
         bool,
         cyclopts.Parameter(
-            "--json", help="Output status in JSON format for programmatic consumption"
+            name="--json",
+            help="Output status in JSON format for programmatic consumption",
         ),
     ] = False,
 ):

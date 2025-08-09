@@ -16,13 +16,13 @@ console = Console()
 
 def progress(
     workspace: Annotated[
-        str, cyclopts.Parameter("--workspace", "-w", help="Name for the workspace")
+        str,
+        cyclopts.Parameter(name=["--workspace", "-w"], help="Name for the workspace"),
     ] = "agent",
     timeout: Annotated[
         int,
         cyclopts.Parameter(
-            "--timeout",
-            "-t",
+            name=["--timeout", "-t"],
             help="Timeout in seconds to wait for the status file to be created",
         ),
     ] = 10,
