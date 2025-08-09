@@ -55,3 +55,10 @@ dev = [
     "pre-commit>=4.2.0",
     "pytest>=8.3.5",
 ]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: marks tests as integration tests that may require external resources",
+    "slow: marks tests as slow running",
+    "safe: marks tests as safe to run without side effects",
+]
