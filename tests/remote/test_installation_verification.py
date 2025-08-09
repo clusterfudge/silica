@@ -5,14 +5,14 @@ from pathlib import Path
 
 def test_remote_setup_script_exists():
     """Test that the remote setup script exists in templates."""
-    script_path = Path("silica/utils/templates/setup_python.sh")
+    script_path = Path("silica/remote/utils/templates/setup_python.sh")
     assert script_path.exists(), "Remote setup script should exist"
     assert script_path.is_file(), "Remote setup script should be a file"
 
 
 def test_remote_verify_script_exists():
     """Test that the remote verification script exists in templates."""
-    script_path = Path("silica/utils/templates/verify_setup.py")
+    script_path = Path("silica/remote/utils/templates/verify_setup.py")
     assert script_path.exists(), "Remote verification script should exist"
     assert script_path.is_file(), "Remote verification script should be a file"
 
@@ -86,6 +86,6 @@ def test_template_files_exist():
     ]
 
     for filename in template_files:
-        template_path = Path(f"silica/utils/templates/{filename}")
+        template_path = Path(f"silica/remote/utils/templates/{filename}")
         assert template_path.exists(), f"Template file {filename} should exist"
         assert template_path.is_file(), f"Template file {filename} should be a file"

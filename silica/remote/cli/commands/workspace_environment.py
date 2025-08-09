@@ -19,8 +19,8 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
-from silica.utils.agent_runner import resolve_agent_executable_path
-from silica.utils.agent_yaml import load_agent_config
+from silica.remote.utils.agent_runner import resolve_agent_executable_path
+from silica.remote.utils.agent_yaml import load_agent_config
 
 console = Console()
 

@@ -5,8 +5,8 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
-from silica.config import load_config, set_config_value, get_config_value
-from silica.utils import find_env_var
+from silica.remote.config import load_config, set_config_value, get_config_value
+from silica.remote.utils import find_env_var
 
 console = Console()
 
@@ -87,7 +87,7 @@ def setup():
     from rich.panel import Panel
     from rich.layout import Layout
     import subprocess
-    from silica.utils import check_piku_installed
+    from silica.remote.utils import check_piku_installed
 
     # Create a nice layout
     Layout()

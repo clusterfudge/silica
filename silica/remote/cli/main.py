@@ -2,12 +2,9 @@
 
 import cyclopts
 
-from silica.cli.commands import (
-    create,
+from silica.remote.cli.commands import (
     config,
-    status,
     todos,
-    destroy,
     piku,
     sync,
     agent,
@@ -18,7 +15,7 @@ from silica.cli.commands import (
     msg,
     messaging,
 )
-
+from silica.remote.cli.commands import create, destroy, status
 
 app = cyclopts.App(
     help="A command line tool for creating workspaces for agents on top of piku."

@@ -6,8 +6,8 @@ import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
-from silica.utils.agent_runner import load_environment_variables
-from silica.cli.commands.workspace_environment import (
+from silica.remote.utils.agent_runner import load_environment_variables
+from silica.remote.cli.commands.workspace_environment import (
     load_environment_variables as we_load_environment_variables,
 )
 
@@ -33,9 +33,10 @@ class TestEnvironmentPropagation:
 
             # Mock Path.home() and Path.cwd()
             with patch(
-                "silica.utils.agent_runner.Path.home", return_value=Path(temp_dir)
+                "silica.remote.utils.agent_runner.Path.home",
+                return_value=Path(temp_dir),
             ), patch(
-                "silica.utils.agent_runner.Path.cwd",
+                "silica.remote.utils.agent_runner.Path.cwd",
                 return_value=Path(temp_dir) / "test-app",
             ):
                 # Clear environment variables first
@@ -79,10 +80,10 @@ class TestEnvironmentPropagation:
 
             # Mock Path.home() and Path.cwd()
             with patch(
-                "silica.cli.commands.workspace_environment.Path.home",
+                "silica.remote.cli.commands.workspace_environment.Path.home",
                 return_value=Path(temp_dir),
             ), patch(
-                "silica.cli.commands.workspace_environment.Path.cwd",
+                "silica.remote.cli.commands.workspace_environment.Path.cwd",
                 return_value=Path(temp_dir) / "test-app",
             ):
                 # Clear environment variables first
@@ -123,9 +124,10 @@ class TestEnvironmentPropagation:
 
             # Mock Path.home() and Path.cwd()
             with patch(
-                "silica.utils.agent_runner.Path.home", return_value=Path(temp_dir)
+                "silica.remote.utils.agent_runner.Path.home",
+                return_value=Path(temp_dir),
             ), patch(
-                "silica.utils.agent_runner.Path.cwd",
+                "silica.remote.utils.agent_runner.Path.cwd",
                 return_value=Path(temp_dir) / "test-app",
             ):
                 # Clear environment variables first
@@ -195,9 +197,10 @@ class TestEnvironmentPropagation:
 
             # Mock Path.home() and Path.cwd()
             with patch(
-                "silica.utils.agent_runner.Path.home", return_value=Path(temp_dir)
+                "silica.remote.utils.agent_runner.Path.home",
+                return_value=Path(temp_dir),
             ), patch(
-                "silica.utils.agent_runner.Path.cwd",
+                "silica.remote.utils.agent_runner.Path.cwd",
                 return_value=Path(temp_dir) / "test-app",
             ):
                 # Clear GH_TOKEN environment variable first

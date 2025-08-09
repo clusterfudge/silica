@@ -4,7 +4,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from silica.utils.piku import run_in_silica_dir, run_piku_in_silica
+from silica.remote.utils.piku import run_in_silica_dir, run_piku_in_silica
 
 # Mock test data
 MOCK_CURRENT_DIR = Path("/path/to/current")
@@ -16,9 +16,9 @@ MOCK_SILICA_DIR = MOCK_GIT_ROOT / ".silica"
 def mock_environment():
     """Set up mock environment for testing."""
     with patch("os.chdir") as mock_chdir, patch(
-        "silica.utils.piku.find_git_root"
+        "silica.remote.utils.piku.find_git_root"
     ) as mock_find_git_root, patch(
-        "silica.utils.piku.get_silica_dir"
+        "silica.remote.utils.piku.get_silica_dir"
     ) as mock_get_silica_dir, patch("pathlib.Path.cwd") as mock_cwd, patch(
         "pathlib.Path.exists"
     ) as mock_exists, patch("subprocess.run") as mock_run:

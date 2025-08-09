@@ -13,7 +13,11 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from silica.utils.agent_yaml import AgentConfig, install_agent, is_agent_installed
+from silica.remote.utils.agent_yaml import (
+    AgentConfig,
+    install_agent,
+    is_agent_installed,
+)
 
 
 class TestUVAgentManagement:
@@ -37,7 +41,9 @@ class TestUVAgentManagement:
 
         # Test installation with mocked subprocess
         with patch("subprocess.run") as mock_run:
-            with patch("silica.utils.agent_yaml.is_agent_installed") as mock_installed:
+            with patch(
+                "silica.remote.utils.agent_yaml.is_agent_installed"
+            ) as mock_installed:
                 # Mock not installed initially
                 mock_installed.return_value = False
                 # Mock successful uv add
@@ -100,7 +106,9 @@ class TestUVAgentManagement:
         )
 
         with patch("subprocess.run") as mock_run:
-            with patch("silica.utils.agent_yaml.is_agent_installed") as mock_installed:
+            with patch(
+                "silica.remote.utils.agent_yaml.is_agent_installed"
+            ) as mock_installed:
                 # Mock not installed initially, then installed after fallback
                 mock_installed.side_effect = [False, False, True]
 
@@ -148,7 +156,7 @@ class TestUVAgentManagement:
     def test_executable_resolution_workflow(self):
         """Test that we can resolve executable paths before changing directories."""
         # Import the function we want to test
-        from silica.utils.agent_runner import resolve_agent_executable_path
+        from silica.remote.utils.agent_runner import resolve_agent_executable_path
 
         # Create a mock agent config
         agent_config = AgentConfig(

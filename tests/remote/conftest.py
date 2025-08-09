@@ -36,7 +36,7 @@ def isolated_workspace(safe_test_environment):
     (test_workspace / ".silica").mkdir()
 
     with patch(
-        "silica.cli.commands.workspace_environment.Path.cwd",
+        "silica.remote.cli.commands.workspace_environment.Path.cwd",
         return_value=test_workspace,
     ):
         yield test_workspace

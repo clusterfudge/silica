@@ -6,7 +6,7 @@ from pathlib import Path
 import yaml
 import pytest
 
-from silica.config.multi_workspace import load_project_config, list_workspaces
+from silica.remote.config.multi_workspace import load_project_config, list_workspaces
 
 
 class TestWorkspaceCreation:
@@ -39,13 +39,13 @@ class TestWorkspaceCreation:
 
         # Mock functions to avoid actual git operations and piku calls
         monkeypatch.setattr(
-            "silica.config.find_git_root", lambda path=None: mock_git_repo
+            "silica.remote.config.find_git_root", lambda path=None: mock_git_repo
         )
         monkeypatch.setattr(
-            "silica.config.get_silica_dir", lambda path=None: silica_dir
+            "silica.remote.config.get_silica_dir", lambda path=None: silica_dir
         )
         monkeypatch.setattr(
-            "silica.cli.commands.create.find_git_root", lambda: mock_git_repo
+            "silica.remote.cli.commands.create.find_git_root", lambda: mock_git_repo
         )
         monkeypatch.setattr("subprocess.run", lambda *args, **kwargs: None)
         monkeypatch.setattr(
@@ -73,7 +73,7 @@ class TestWorkspaceCreation:
             )(),
         )
         monkeypatch.setattr(
-            "silica.utils.piku.run_piku_in_silica",
+            "silica.remote.utils.piku.run_piku_in_silica",
             lambda *args, **kwargs: type(
                 "obj", (object,), {"stdout": "", "returncode": 0}
             )(),

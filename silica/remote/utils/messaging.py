@@ -7,7 +7,7 @@ from rich.console import Console
 from typing import Dict, Tuple
 import requests
 
-from silica.utils import piku as piku_utils
+from silica.remote.utils import piku as piku_utils
 
 console = Console()
 

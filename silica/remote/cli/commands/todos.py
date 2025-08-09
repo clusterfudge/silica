@@ -6,7 +6,7 @@ import datetime
 from rich.console import Console
 from rich.table import Table
 
-from silica.config import get_silica_dir, find_git_root
+from silica.remote.config import get_silica_dir, find_git_root
 
 console = Console()
 

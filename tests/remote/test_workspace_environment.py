@@ -9,7 +9,7 @@ import tempfile
 import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
-from silica.cli.commands.workspace_environment import (
+from silica.remote.cli.commands.workspace_environment import (
     get_workspace_config,
     get_agent_config_dict,
     setup,
@@ -32,8 +32,8 @@ class TestWorkspaceEnvironmentSafety:
 
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
-    @patch("silica.cli.commands.workspace_environment.os.getcwd")
-    @patch("silica.cli.commands.workspace_environment.Path.home")
+    @patch("silica.remote.cli.commands.workspace_environment.os.getcwd")
+    @patch("silica.remote.cli.commands.workspace_environment.Path.home")
     def test_get_workspace_config_with_env_vars(self, mock_home, mock_getcwd):
         """Test workspace config retrieval with environment variables."""
         mock_getcwd.return_value = str(self.temp_path)
@@ -47,7 +47,7 @@ class TestWorkspaceEnvironmentSafety:
             assert config["agent_type"] == "hdev"
             assert "agent_config" in config
 
-    @patch("silica.cli.commands.workspace_environment.os.getcwd")
+    @patch("silica.remote.cli.commands.workspace_environment.os.getcwd")
     def test_get_workspace_config_with_json_file(self, mock_getcwd):
         """Test workspace config retrieval from JSON file."""
         mock_getcwd.return_value = str(self.temp_path)
@@ -110,12 +110,16 @@ class TestStatusCommandSafety:
 
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
-    @patch("silica.cli.commands.workspace_environment.Path.cwd")
-    @patch("silica.cli.commands.workspace_environment.load_environment_variables")
-    @patch("silica.cli.commands.workspace_environment.get_workspace_config")
-    @patch("silica.cli.commands.workspace_environment.get_agent_config_dict")
-    @patch("silica.cli.commands.workspace_environment.is_agent_installed")
-    @patch("silica.cli.commands.workspace_environment.check_environment_variables")
+    @patch("silica.remote.cli.commands.workspace_environment.Path.cwd")
+    @patch(
+        "silica.remote.cli.commands.workspace_environment.load_environment_variables"
+    )
+    @patch("silica.remote.cli.commands.workspace_environment.get_workspace_config")
+    @patch("silica.remote.cli.commands.workspace_environment.get_agent_config_dict")
+    @patch("silica.remote.cli.commands.workspace_environment.is_agent_installed")
+    @patch(
+        "silica.remote.cli.commands.workspace_environment.check_environment_variables"
+    )
     @patch("subprocess.run")
     def test_status_json_output_structure(
         self,
@@ -205,9 +209,11 @@ class TestStatusCommandSafety:
             assert component in components
             assert "status" in components[component]
 
-    @patch("silica.cli.commands.workspace_environment.Path.cwd")
-    @patch("silica.cli.commands.workspace_environment.load_environment_variables")
-    @patch("silica.cli.commands.workspace_environment.get_workspace_config")
+    @patch("silica.remote.cli.commands.workspace_environment.Path.cwd")
+    @patch(
+        "silica.remote.cli.commands.workspace_environment.load_environment_variables"
+    )
+    @patch("silica.remote.cli.commands.workspace_environment.get_workspace_config")
     def test_status_table_output(self, mock_workspace_config, mock_load_env, mock_cwd):
         """Test that status command produces table output when not using --json."""
         mock_cwd.return_value = self.temp_path
@@ -256,10 +262,12 @@ class TestCommandIntegrationSafety:
         assert callable(run)
         assert callable(status)
 
-    @patch("silica.cli.commands.workspace_environment.console.print")
-    @patch("silica.cli.commands.workspace_environment.load_environment_variables")
-    @patch("silica.cli.commands.workspace_environment.sync_dependencies")
-    @patch("silica.cli.commands.workspace_environment.get_workspace_config")
+    @patch("silica.remote.cli.commands.workspace_environment.console.print")
+    @patch(
+        "silica.remote.cli.commands.workspace_environment.load_environment_variables"
+    )
+    @patch("silica.remote.cli.commands.workspace_environment.sync_dependencies")
+    @patch("silica.remote.cli.commands.workspace_environment.get_workspace_config")
     def test_setup_command_dry_run(
         self, mock_workspace_config, mock_sync_deps, mock_load_env, mock_console_print
     ):
@@ -272,7 +280,7 @@ class TestCommandIntegrationSafety:
         }
 
         with patch(
-            "silica.cli.commands.workspace_environment.get_agent_config_dict"
+            "silica.remote.cli.commands.workspace_environment.get_agent_config_dict"
         ) as mock_agent_config:
             mock_agent_config.return_value = {
                 "name": "hdev",
@@ -282,17 +290,17 @@ class TestCommandIntegrationSafety:
             }
 
             with patch(
-                "silica.cli.commands.workspace_environment.install_agent"
+                "silica.remote.cli.commands.workspace_environment.install_agent"
             ) as mock_install:
                 mock_install.return_value = True
 
                 with patch(
-                    "silica.cli.commands.workspace_environment.check_environment_variables"
+                    "silica.remote.cli.commands.workspace_environment.check_environment_variables"
                 ) as mock_check_env:
                     mock_check_env.return_value = (True, [], [])
 
                     with patch(
-                        "silica.cli.commands.workspace_environment.setup_code_directory"
+                        "silica.remote.cli.commands.workspace_environment.setup_code_directory"
                     ):
                         # Call setup function directly
                         try:

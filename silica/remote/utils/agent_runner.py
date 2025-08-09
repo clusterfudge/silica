@@ -18,7 +18,7 @@ from typing import Dict, Any
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from .agent_yaml import generate_launch_command
-from silica.config.multi_workspace import load_project_config
+from silica.remote.config.multi_workspace import load_project_config
 from rich.console import Console
 
 console = Console()
@@ -174,7 +174,7 @@ def get_workspace_agent_config() -> tuple[str, Dict[str, Any]]:
     """
     try:
         # Try to load workspace config from current .silica directory
-        from silica.config import get_silica_dir
+        from silica.remote.config import get_silica_dir
 
         silica_dir = get_silica_dir()
         if not silica_dir or not silica_dir.exists():

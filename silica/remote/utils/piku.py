@@ -7,7 +7,7 @@ import shlex
 from typing import Optional, List, Dict, Union
 import git
 
-from silica.config import find_git_root, get_silica_dir, get_config_value
+from silica.remote.config import find_git_root, get_silica_dir, get_config_value
 
 
 def get_piku_connection_for_workspace(
@@ -86,7 +86,7 @@ def get_agent_config(
         raise ValueError("No silica environment found in this repository")
 
     # Import multi-workspace config functions
-    from silica.config.multi_workspace import (
+    from silica.remote.config.multi_workspace import (
         get_workspace_config,
         get_default_workspace,
     )
@@ -155,7 +155,7 @@ def get_workspace_name(
 
     try:
         # Import multi-workspace config functions
-        from silica.config.multi_workspace import get_default_workspace
+        from silica.remote.config.multi_workspace import get_default_workspace
 
         # Get the default workspace name
         return get_default_workspace(silica_dir)

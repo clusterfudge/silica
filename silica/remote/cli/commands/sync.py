@@ -7,8 +7,8 @@ from pathlib import Path
 from rich.console import Console
 from typing import Tuple
 
-from silica.config import find_git_root, get_silica_dir
-from silica.utils import piku as piku_utils
+from silica.remote.config import find_git_root, get_silica_dir
+from silica.remote.utils import piku as piku_utils
 
 console = Console()
 

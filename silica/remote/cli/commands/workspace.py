@@ -4,8 +4,8 @@ import cyclopts
 from rich.console import Console
 from rich.table import Table
 
-from silica.config import find_git_root, get_silica_dir
-from silica.config.multi_workspace import (
+from silica.remote.config import find_git_root, get_silica_dir
+from silica.remote.config.multi_workspace import (
     list_workspaces,
     get_default_workspace,
     set_default_workspace,

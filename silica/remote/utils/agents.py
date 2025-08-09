@@ -6,7 +6,7 @@ Simplified for tight coupling with heare-developer (hdev).
 from typing import Dict, Any, Optional
 from pathlib import Path
 
-from silica.utils.agent_yaml import load_agent_config
+from silica.remote.utils.agent_yaml import load_agent_config
 
 
 def validate_agent_type(agent_type: str) -> bool:

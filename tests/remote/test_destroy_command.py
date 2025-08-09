@@ -7,7 +7,8 @@ import yaml
 import pytest
 from unittest.mock import patch, MagicMock
 
-from silica.utils.piku import get_app_name
+from silica.remote.cli.commands.destroy import destroy
+from silica.remote.utils.piku import get_app_name
 
 
 class TestDestroyCommand:
@@ -62,8 +63,8 @@ class TestDestroyCommand:
 
         return mock_git_repo
 
-    @patch("silica.utils.piku.find_git_root")
-    @patch("silica.utils.piku.get_silica_dir")
+    @patch("silica.remote.utils.piku.find_git_root")
+    @patch("silica.remote.utils.piku.get_silica_dir")
     def test_get_app_name_uses_correct_workspace(
         self, mock_get_silica_dir, mock_find_git_root, multi_workspace_config
     ):
@@ -93,10 +94,10 @@ class TestDestroyCommand:
             app_name_second == "second-silica"
         ), "Should use specified workspace 'second'"
 
-    @patch("silica.cli.commands.destroy.piku_utils.run_piku_in_silica")
-    @patch("silica.cli.commands.destroy.Confirm.ask")
-    @patch("silica.cli.commands.destroy.find_git_root")
-    @patch("silica.cli.commands.destroy.get_silica_dir")
+    @patch("silica.remote.cli.commands.destroy.piku_utils.run_piku_in_silica")
+    @patch("silica.remote.cli.commands.destroy.Confirm.ask")
+    @patch("silica.remote.cli.commands.destroy.find_git_root")
+    @patch("silica.remote.cli.commands.destroy.get_silica_dir")
     def test_destroy_command_uses_specified_workspace(
         self,
         mock_get_silica_dir,
@@ -116,15 +117,16 @@ class TestDestroyCommand:
         mock_run_piku.return_value = MagicMock(stdout="", returncode=0)
 
         # Test destroying the 'agent' workspace specifically
-        with patch("silica.cli.commands.destroy.get_app_name") as mock_get_app_name:
+        with patch(
+            "silica.remote.cli.commands.destroy.get_app_name"
+        ) as mock_get_app_name:
             with patch(
-                "silica.cli.commands.destroy.get_piku_connection"
+                "silica.remote.cli.commands.destroy.get_piku_connection"
             ) as mock_get_piku_connection:
                 mock_get_app_name.return_value = "agent-silica"
                 mock_get_piku_connection.return_value = "piku"
 
                 # Import destroy command
-                from silica.cli.commands.destroy import destroy
 
                 # Call destroy function directly with parameters
                 destroy(workspace="agent", force=True, all=False)
@@ -135,10 +137,10 @@ class TestDestroyCommand:
                     git_root, workspace_name="agent"
                 )
 
-    @patch("silica.cli.commands.destroy.piku_utils.run_piku_in_silica")
-    @patch("silica.cli.commands.destroy.Confirm.ask")
-    @patch("silica.cli.commands.destroy.find_git_root")
-    @patch("silica.cli.commands.destroy.get_silica_dir")
+    @patch("silica.remote.cli.commands.destroy.piku_utils.run_piku_in_silica")
+    @patch("silica.remote.cli.commands.destroy.Confirm.ask")
+    @patch("silica.remote.cli.commands.destroy.find_git_root")
+    @patch("silica.remote.cli.commands.destroy.get_silica_dir")
     def test_destroy_command_default_workspace_consistency(
         self,
         mock_get_silica_dir,
@@ -158,15 +160,14 @@ class TestDestroyCommand:
         mock_run_piku.return_value = MagicMock(stdout="", returncode=0)
 
         # Test destroying without specifying workspace (should use default "agent")
-        with patch("silica.cli.commands.destroy.get_app_name") as mock_get_app_name:
+        with patch(
+            "silica.remote.cli.commands.destroy.get_app_name"
+        ) as mock_get_app_name:
             with patch(
-                "silica.cli.commands.destroy.get_piku_connection"
+                "silica.remote.cli.commands.destroy.get_piku_connection"
             ) as mock_get_piku_connection:
                 mock_get_app_name.return_value = "agent-silica"
                 mock_get_piku_connection.return_value = "piku"
-
-                # Import destroy command
-                from silica.cli.commands.destroy import destroy
 
                 # Call destroy function directly without workspace (uses default)
                 destroy(force=True, workspace="agent", all=False)

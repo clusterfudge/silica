@@ -7,19 +7,19 @@ from typing import Annotated, Optional
 from rich.console import Console
 from typing import Dict, List, Tuple
 
-from silica.config import load_config, find_git_root
-from silica.utils import piku as piku_utils
-from silica.utils.yaml_agents import (
+from silica.remote.config import load_config, find_git_root
+from silica.remote.utils import piku as piku_utils
+from silica.remote.utils.yaml_agents import (
     get_default_workspace_agent_config,
 )
 
 import git
 
 # Import sync functionality
-from silica.cli.commands.sync import sync_repo_to_remote
+from silica.remote.cli.commands.sync import sync_repo_to_remote
 
 # Import messaging functionality
-from silica.utils.messaging import (
+from silica.remote.utils.messaging import (
     check_messaging_app_exists,
     check_messaging_app_health,
     deploy_messaging_app,
@@ -76,7 +76,7 @@ def get_template_content(filename):
     try:
         # Try first to access as a package resource (when installed as a package)
         import importlib.resources as pkg_resources
-        from silica.utils import templates
+        from silica.remote.utils import templates
 
         try:
             # For Python 3.9+

@@ -4,7 +4,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from silica.utils.messaging import (
+from silica.remote.utils.messaging import (
     check_messaging_app_exists,
     check_messaging_app_health,
     setup_workspace_messaging,
@@ -34,7 +34,7 @@ def test_check_messaging_app_exists():
 
 def test_check_messaging_app_health():
     """Test messaging app health check."""
-    with patch("silica.utils.messaging.requests.get") as mock_get:
+    with patch("silica.remote.utils.messaging.requests.get") as mock_get:
         # Test healthy app
         mock_response = Mock()
         mock_response.status_code = 200
@@ -58,7 +58,7 @@ def test_check_messaging_app_health():
 
 def test_setup_workspace_messaging():
     """Test workspace messaging setup."""
-    with patch("silica.utils.piku.run_piku_in_silica") as mock_piku, patch(
+    with patch("silica.remote.utils.piku.run_piku_in_silica") as mock_piku, patch(
         "requests.post"
     ) as mock_post, patch("time.sleep"):
         # Mock successful piku config
@@ -86,7 +86,13 @@ def test_setup_workspace_messaging():
 def test_messaging_function_availability():
     """Test that the silica-msg function is properly defined."""
     # Read the messaging.sh file
-    messaging_file = Path(__file__).parent.parent / "silica" / "agent" / "messaging.sh"
+    messaging_file = (
+        Path(__file__).parent.parent.parent
+        / "silica"
+        / "remote"
+        / "agent"
+        / "messaging.sh"
+    )
     assert messaging_file.exists()
 
     content = messaging_file.read_text()
@@ -106,7 +112,12 @@ def test_messaging_function_availability():
 def test_messaging_command_availability():
     """Test that the messaging CLI command is properly implemented."""
     messaging_file = (
-        Path(__file__).parent.parent / "silica" / "cli" / "commands" / "messaging.py"
+        Path(__file__).parent.parent.parent
+        / "silica"
+        / "remote"
+        / "cli"
+        / "commands"
+        / "messaging.py"
     )
     assert messaging_file.exists()
 

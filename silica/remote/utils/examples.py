@@ -1,6 +1,6 @@
 """Example usage of Silica utility functions."""
 
-from silica.utils.piku import run_in_silica_dir, run_piku_in_silica, get_app_name
+from silica.remote.utils.piku import run_in_silica_dir, run_piku_in_silica, get_app_name
 
 
 def example_silica_commands():

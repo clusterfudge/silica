@@ -7,9 +7,9 @@ from typing import Annotated
 from rich.console import Console
 from rich.prompt import Confirm
 
-from silica.config import get_silica_dir, find_git_root
-from silica.utils import piku as piku_utils
-from silica.utils.piku import get_piku_connection, get_app_name
+from silica.remote.config import get_silica_dir, find_git_root
+from silica.remote.utils import piku as piku_utils
+from silica.remote.utils.piku import get_piku_connection, get_app_name
 
 console = Console()
 
@@ -46,7 +46,10 @@ def destroy(
 
     # Handle --all flag to destroy all workspaces
     if all:
-        from silica.config.multi_workspace import load_project_config, list_workspaces
+        from silica.remote.config.multi_workspace import (
+            load_project_config,
+            list_workspaces,
+        )
 
         # Get all workspaces
         config = load_project_config(silica_dir)
@@ -193,7 +196,7 @@ def destroy(
 
     # Only offer to clean up local files if this is the last workspace
     if confirmations["destroy_app"]:
-        from silica.config.multi_workspace import load_project_config
+        from silica.remote.config.multi_workspace import load_project_config
 
         config = load_project_config(silica_dir)
         remaining_workspaces = 0
