@@ -1,6 +1,7 @@
 """Agent command for silica."""
 
-import click
+import cyclopts
+from typing import Annotated
 from rich.console import Console
 
 from silica.config import find_git_root
@@ -10,14 +11,11 @@ from silica.utils.piku import run_piku_in_silica
 console = Console()
 
 
-@click.command()
-@click.option(
-    "-w",
-    "--workspace",
-    help="Name for the workspace (default: agent)",
-    default="agent",
-)
-def agent(workspace):
+def agent(
+    workspace: Annotated[
+        str, cyclopts.Parameter("--workspace", "-w", help="Name for the workspace")
+    ] = "agent",
+):
     """Connect to the agent tmux session.
 
     This command connects to the tmux session running the agent.

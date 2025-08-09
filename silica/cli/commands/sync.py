@@ -1,10 +1,11 @@
 """Sync command for silica."""
 
 import subprocess
-import click
+import cyclopts
+from typing import Annotated, Optional
 from pathlib import Path
 from rich.console import Console
-from typing import Optional, Tuple
+from typing import Tuple
 
 from silica.config import find_git_root, get_silica_dir
 from silica.utils import piku as piku_utils
@@ -263,29 +264,24 @@ def sync_repo_to_remote(
         return False
 
 
-@click.command()
-@click.option(
-    "-w",
-    "--workspace",
-    help="Name for the workspace (default: agent)",
-    default="agent",
-)
-@click.option(
-    "-b",
-    "--branch",
-    help="Specific branch to sync (default: current branch)",
-    default=None,
-)
-@click.option(
-    "--force", help="Force reset to remote branch contents", is_flag=True, default=False
-)
-@click.option(
-    "--clear-cache",
-    help="Clear UV cache to ensure latest dependency versions",
-    is_flag=True,
-    default=False,
-)
-def sync(workspace, branch, force, clear_cache):
+def sync(
+    workspace: Annotated[
+        str, cyclopts.Parameter("--workspace", "-w", help="Name for the workspace")
+    ] = "agent",
+    branch: Annotated[
+        Optional[str],
+        cyclopts.Parameter(
+            "--branch", "-b", help="Specific branch to sync (default: current branch)"
+        ),
+    ] = None,
+    force: Annotated[
+        bool, cyclopts.Parameter(help="Force reset to remote branch contents")
+    ] = False,
+    clear_cache: Annotated[
+        bool,
+        cyclopts.Parameter(help="Clear UV cache to ensure latest dependency versions"),
+    ] = False,
+):
     """Sync the remote repository with the latest code from GitHub.
 
     This command idempotently clones the repository if it doesn't exist,

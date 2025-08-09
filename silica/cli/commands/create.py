@@ -1,8 +1,9 @@
 """Create command for silica."""
 
 import subprocess
-import click
+import cyclopts
 from pathlib import Path
+from typing import Annotated, Optional
 from rich.console import Console
 from typing import Dict, List, Tuple
 
@@ -99,17 +100,19 @@ def get_template_content(filename):
             return ""
 
 
-@click.command()
-@click.option(
-    "-w", "--workspace", help="Name for the workspace (default: agent)", default="agent"
-)
-@click.option(
-    "-c",
-    "--connection",
-    help="Piku connection string (default: inferred from git or config)",
-    default=None,
-)
-def create(workspace, connection):
+def create(
+    workspace: Annotated[
+        str, cyclopts.Parameter("--workspace", "-w", help="Name for the workspace")
+    ] = "agent",
+    connection: Annotated[
+        Optional[str],
+        cyclopts.Parameter(
+            "--connection",
+            "-c",
+            help="Piku connection string (default: inferred from git or config)",
+        ),
+    ] = None,
+):
     """Create a new agent environment workspace."""
     # Load global configuration
     config = load_config()

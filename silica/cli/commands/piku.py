@@ -1,6 +1,7 @@
 """Commands for interacting with piku."""
 
-import click
+import cyclopts
+from typing import Annotated, Optional
 from pathlib import Path
 from rich.console import Console
 from rich.table import Table
@@ -13,12 +14,12 @@ from silica.utils.piku import get_workspace_name, get_app_name
 console = Console()
 
 
-@click.group(name="piku")
-def piku():
-    """Interact with piku for the current agent environment."""
+piku = cyclopts.App(
+    name="piku", help="Interact with piku for the current agent environment."
+)
 
 
-@piku.command(name="status")
+@piku.command
 def status():
     """Show the status of the agent environment."""
     try:
@@ -36,12 +37,16 @@ def status():
         console.print(f"[red]Error: {e.stderr if e.stderr else str(e)}[/red]")
 
 
-@piku.command(name="logs")
-@click.option(
-    "-n", "--lines", type=int, default=None, help="Number of log lines to display"
-)
-@click.option("-f", "--follow", is_flag=True, help="Follow the logs")
-def logs(lines, follow):
+@piku.command
+def logs(
+    lines: Annotated[
+        Optional[int],
+        cyclopts.Parameter("--lines", "-n", help="Number of log lines to display"),
+    ] = None,
+    follow: Annotated[
+        bool, cyclopts.Parameter("--follow", "-f", help="Follow the logs")
+    ] = False,
+):
     """Show logs from the agent environment."""
     try:
         workspace = get_workspace_name()
@@ -65,7 +70,7 @@ def logs(lines, follow):
         console.print(f"[red]Error: {e.stderr if e.stderr else str(e)}[/red]")
 
 
-@piku.command(name="restart")
+@piku.command
 def restart():
     """Restart the agent environment."""
     try:
@@ -79,7 +84,7 @@ def restart():
         console.print(f"[red]Error: {e.stderr if e.stderr else str(e)}[/red]")
 
 
-@piku.command(name="deploy")
+@piku.command
 def deploy():
     """Deploy the agent environment."""
     try:
@@ -128,7 +133,7 @@ def deploy():
         console.print(f"[red]Unexpected error: {str(e)}[/red]")
 
 
-@piku.command(name="sync")
+@piku.command
 def sync():
     """Sync the local repository to the remote code directory."""
     try:
@@ -164,7 +169,7 @@ def sync():
         console.print(f"[red]Unexpected error: {str(e)}[/red]")
 
 
-@piku.command(name="sessions")
+@piku.command
 def sessions():
     """List active sessions in the agent environment."""
     try:
@@ -210,7 +215,7 @@ def sessions():
         console.print(f"[red]Unexpected error: {str(e)}[/red]")
 
 
-@piku.command(name="config")
+@piku.command
 def config():
     """Show the configuration for the agent environment."""
     try:
@@ -258,9 +263,8 @@ def config():
         console.print(f"[red]Error: {e.stderr if e.stderr else str(e)}[/red]")
 
 
-@piku.command(name="set")
-@click.argument("key_value_pairs", nargs=-1)
-def set_config(key_value_pairs):
+@piku.command
+def set(*key_value_pairs: str):
     """Set configuration values for the agent environment.
 
     Example: silica piku set ANTHROPIC_API_KEY=abc123 DEBUG=true
@@ -310,9 +314,8 @@ def set_config(key_value_pairs):
         console.print(f"[red]Error: {e.stderr if e.stderr else str(e)}[/red]")
 
 
-@piku.command(name="shell")
-@click.argument("command", required=False)
-def shell(command):
+@piku.command
+def shell(command: Optional[str] = None):
     """Run a command in the agent environment shell.
 
     If no command is provided, starts an interactive shell session.
@@ -340,10 +343,8 @@ def shell(command):
         console.print(f"[red]Error: {e.stderr if e.stderr else str(e)}[/red]")
 
 
-@piku.command(name="upload")
-@click.argument("local_path", type=click.Path(exists=True))
-@click.argument("remote_path", required=False)
-def upload(local_path, remote_path):
+@piku.command
+def upload(local_path: str, remote_path: Optional[str] = None):
     """Upload a local file to the workspace.
 
     LOCAL_PATH is the path to the file or directory on your local machine.
@@ -383,9 +384,8 @@ def upload(local_path, remote_path):
         console.print(f"[red]Unexpected error: {str(e)}[/red]")
 
 
-@piku.command(name="tmux")
-@click.argument("tmux_args", nargs=-1, required=False)
-def tmux(tmux_args):
+@piku.command
+def tmux(*tmux_args: str):
     """Access or interact with the tmux session for the workspace.
 
     This command provides a wrapper around the piku tmux functionality,

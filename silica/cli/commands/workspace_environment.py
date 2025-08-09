@@ -13,7 +13,8 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, List, Tuple, Optional
 
-import click
+import cyclopts
+from typing import Annotated
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
@@ -436,20 +437,18 @@ def generate_launch_command(
     return " ".join(command_parts)
 
 
-@click.group()
-def workspace_environment():
-    """Manage workspace environment for deployed silica agents."""
-
-
-# Add aliases
-@click.group()
-def workspace_environment_():
-    """Manage workspace environment for deployed silica agents (alias)."""
-
-
-@click.group()
-def we():
-    """Manage workspace environment for deployed silica agents (short alias)."""
+workspace_environment = cyclopts.App(
+    name="workspace_environment",
+    help="Manage workspace environment for deployed silica agents.",
+)
+workspace_environment_ = cyclopts.App(
+    name="workspace-environment",
+    help="Manage workspace environment for deployed silica agents (alias).",
+)
+we = cyclopts.App(
+    name="we",
+    help="Manage workspace environment for deployed silica agents (short alias).",
+)
 
 
 def _setup_impl():
@@ -926,39 +925,32 @@ def _status_impl(json_output=False):
 
 
 # Register the implementation functions as commands
-@click.command()
+@workspace_environment.command
+@workspace_environment_.command
+@we.command
 def setup():
     """Set up the workspace environment idempotently."""
     return _setup_impl()
 
 
-@click.command()
+@workspace_environment.command
+@workspace_environment_.command
+@we.command
 def run():
     """Run the configured agent in the workspace environment."""
     return _run_impl()
 
 
-@click.command()
-@click.option(
-    "--json",
-    "json_output",
-    is_flag=True,
-    help="Output status in JSON format for programmatic consumption",
-)
-def status(json_output):
+@workspace_environment.command
+@workspace_environment_.command
+@we.command
+def status(
+    json_output: Annotated[
+        bool,
+        cyclopts.Parameter(
+            "--json", help="Output status in JSON format for programmatic consumption"
+        ),
+    ] = False,
+):
     """Check the status of the workspace environment."""
     return _status_impl(json_output)
-
-
-# Add commands to all groups
-workspace_environment.add_command(setup)
-workspace_environment.add_command(run)
-workspace_environment.add_command(status)
-
-workspace_environment_.add_command(setup)
-workspace_environment_.add_command(run)
-workspace_environment_.add_command(status)
-
-we.add_command(setup)
-we.add_command(run)
-we.add_command(status)

@@ -2,7 +2,8 @@
 
 import subprocess
 import shutil
-import click
+import cyclopts
+from typing import Annotated
 from rich.console import Console
 from rich.prompt import Confirm
 
@@ -13,20 +14,18 @@ from silica.utils.piku import get_piku_connection, get_app_name
 console = Console()
 
 
-@click.command()
-@click.option("--force", is_flag=True, help="Force destruction without confirmation")
-@click.option(
-    "-w",
-    "--workspace",
-    help="Name for the workspace (default: agent)",
-    default="agent",
-)
-@click.option(
-    "--all",
-    is_flag=True,
-    help="Destroy all workspaces and clean up all local files",
-)
-def destroy(force, workspace, all):
+def destroy(
+    force: Annotated[
+        bool, cyclopts.Parameter(help="Force destruction without confirmation")
+    ] = False,
+    workspace: Annotated[
+        str, cyclopts.Parameter("--workspace", "-w", help="Name for the workspace")
+    ] = "agent",
+    all: Annotated[
+        bool,
+        cyclopts.Parameter(help="Destroy all workspaces and clean up all local files"),
+    ] = False,
+):
     """Destroy the agent environment.
 
     When used with --all, destroys all workspaces and cleans up all local files.

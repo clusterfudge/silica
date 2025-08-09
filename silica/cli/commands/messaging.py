@@ -4,26 +4,26 @@ import os
 import subprocess
 from flask import Flask, request, jsonify
 
-import click
+import cyclopts
+from typing import Annotated, Optional
 from rich.console import Console
 
 console = Console()
 
 
-@click.group()
-def messaging():
-    """Messaging system commands."""
+messaging = cyclopts.App(name="messaging", help="Messaging system commands.")
 
 
-@messaging.command()
-@click.option(
-    "--port",
-    type=int,
-    default=None,
-    help="Port to listen on (default: $SILICA_RECEIVER_PORT or 8901)",
-)
-@click.option("--host", default="0.0.0.0", help="Host to bind to (default: 0.0.0.0)")
-def receiver(port, host):
+@messaging.command
+def receiver(
+    port: Annotated[
+        Optional[int],
+        cyclopts.Parameter(
+            help="Port to listen on (default: $SILICA_RECEIVER_PORT or 8901)"
+        ),
+    ] = None,
+    host: Annotated[str, cyclopts.Parameter(help="Host to bind to")] = "0.0.0.0",
+):
     """Start agent HTTP receiver for message delivery."""
 
     # Get configuration from environment
@@ -237,17 +237,16 @@ def receiver(port, host):
         app.run(host=host, port=receiver_port, debug=False)
     except Exception as e:
         console.print(f"[red]Failed to start receiver: {e}[/red]")
-        raise click.ClickException(f"Failed to start receiver: {e}")
+        raise Exception(f"Failed to start receiver: {e}")
 
 
-@messaging.command()
-@click.option(
-    "--port",
-    type=int,
-    default=None,
-    help="Port for messaging app (default: $PORT or 5000)",
-)
-def app(port):
+@messaging.command
+def app(
+    port: Annotated[
+        Optional[int],
+        cyclopts.Parameter(help="Port for messaging app (default: $PORT or 5000)"),
+    ] = None,
+):
     """Start the root messaging app (for development/testing)."""
     # Import the messaging app
     from silica.messaging.app import app as messaging_app
@@ -263,7 +262,7 @@ def app(port):
         messaging_app.run(host="0.0.0.0", port=app_port, debug=False)
     except Exception as e:
         console.print(f"[red]Failed to start messaging app: {e}[/red]")
-        raise click.ClickException(f"Failed to start messaging app: {e}")
+        raise Exception(f"Failed to start messaging app: {e}")
 
 
 if __name__ == "__main__":

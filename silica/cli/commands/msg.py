@@ -10,7 +10,8 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.request import urlopen, Request
 from urllib.error import URLError
 
-import click
+import cyclopts
+from typing import Annotated
 import requests
 from rich.console import Console
 from rich.table import Table
@@ -100,12 +101,10 @@ def make_api_request(
         return None
 
 
-@click.group()
-def msg():
-    """Messaging system commands."""
+msg = cyclopts.App(name="msg", help="Messaging system commands.")
 
 
-@msg.command()
+@msg.command
 def list():
     """List all global threads."""
     # Get threads from API
@@ -144,12 +143,25 @@ def list():
     console.print(table)
 
 
-@msg.command()
-@click.argument("message")
-@click.option("-t", "--thread", help="Thread ID (creates implicitly if doesn't exist)")
-@click.option("-s", "--sender", help="Sender identity (default: auto-detected)")
-@click.option("--title", help="Title for new threads")
-def send(message, thread, sender, title):
+@msg.command
+def send(
+    message: str,
+    thread: Annotated[
+        Optional[str],
+        cyclopts.Parameter(
+            "--thread", "-t", help="Thread ID (creates implicitly if doesn't exist)"
+        ),
+    ] = None,
+    sender: Annotated[
+        Optional[str],
+        cyclopts.Parameter(
+            "--sender", "-s", help="Sender identity (default: auto-detected)"
+        ),
+    ] = None,
+    title: Annotated[
+        Optional[str], cyclopts.Parameter(help="Title for new threads")
+    ] = None,
+):
     """Send a message to a thread (creates thread implicitly if needed)."""
     if not thread:
         console.print("[red]Thread ID is required. Use -t/--thread to specify.[/red]")
@@ -182,10 +194,8 @@ def send(message, thread, sender, title):
         console.print("[red]Failed to send message[/red]")
 
 
-@msg.command()
-@click.argument("thread_id")
-@click.argument("participant")
-def add_participant(thread_id, participant):
+@msg.command
+def add_participant(thread_id: str, participant: str):
     """Add a participant to an existing thread."""
     piku_connection = get_piku_connection()
     response = make_api_request(
@@ -201,9 +211,8 @@ def add_participant(thread_id, participant):
         console.print("[red]Failed to add participant to thread[/red]")
 
 
-@msg.command()
-@click.argument("thread_id")
-def participants(thread_id):
+@msg.command
+def participants(thread_id: str):
     """List participants in a thread."""
     piku_connection = get_piku_connection()
     response = make_api_request(
@@ -226,10 +235,13 @@ def participants(thread_id):
         console.print(f"  - {participant}")
 
 
-@msg.command()
-@click.argument("thread_id")
-@click.option("--tail", type=int, default=20, help="Number of recent messages to show")
-def history(thread_id, tail):
+@msg.command
+def history(
+    thread_id: str,
+    tail: Annotated[
+        int, cyclopts.Parameter(help="Number of recent messages to show")
+    ] = 20,
+):
     """View thread message history."""
     # Get messages via API
     piku_connection = get_piku_connection()
@@ -273,9 +285,8 @@ def history(thread_id, tail):
         console.print()
 
 
-@msg.command()
-@click.argument("thread_id")
-def follow(thread_id):
+@msg.command
+def follow(thread_id: str):
     """Follow messages in a thread in real-time."""
     console.print(f"[green]Following thread {thread_id} (Ctrl+C to stop)[/green]\n")
 
@@ -330,11 +341,12 @@ def follow(thread_id):
         console.print("\n[yellow]Stopped following thread[/yellow]")
 
 
-@msg.command()
-@click.option(
-    "--force", is_flag=True, help="Force redeploy even if messaging app exists"
-)
-def deploy(force):
+@msg.command
+def deploy(
+    force: Annotated[
+        bool, cyclopts.Parameter(help="Force redeploy even if messaging app exists")
+    ] = False,
+):
     """Deploy the root messaging app."""
     piku_connection = get_piku_connection()
 
@@ -347,7 +359,7 @@ def deploy(force):
         console.print(f"[red]{message}[/red]")
 
 
-@msg.command()
+@msg.command
 def undeploy():
     """Remove the messaging app."""
     piku_connection = get_piku_connection()
@@ -356,7 +368,9 @@ def undeploy():
         console.print("[yellow]Messaging app does not exist[/yellow]")
         return
 
-    if click.confirm(
+    from rich.prompt import Confirm
+
+    if Confirm.ask(
         "Are you sure you want to remove the messaging app? This will delete all threads and messages."
     ):
         try:
@@ -369,7 +383,7 @@ def undeploy():
             console.print(f"[red]Failed to remove messaging app: {e}[/red]")
 
 
-@msg.command()
+@msg.command
 def status():
     """Check messaging system status."""
     piku_connection = get_piku_connection()
@@ -519,10 +533,16 @@ def start_messaging_proxy(remote_base_url, local_port=None):
         return None, None
 
 
-@msg.command()
-@click.option("--no-open", is_flag=True, help="Don't automatically open browser")
-@click.option("--port", type=int, help="Local proxy port (default: auto-detect)")
-def web(no_open, port):
+@msg.command
+def web(
+    no_open: Annotated[
+        bool, cyclopts.Parameter(help="Don't automatically open browser")
+    ] = False,
+    port: Annotated[
+        Optional[int],
+        cyclopts.Parameter(help="Local proxy port (default: auto-detect)"),
+    ] = None,
+):
     """Open the web interface via local proxy."""
     piku_connection = get_piku_connection()
 
