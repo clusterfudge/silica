@@ -7,9 +7,9 @@ from rich.console import Console
 from rich.prompt import Prompt
 from rich.markdown import Markdown
 
-from silica.config import find_git_root
-from silica.utils import piku as piku_utils
-from silica.cli.commands.tell import tell
+from silica.remote.config import find_git_root
+from silica.remote.utils import piku as piku_utils
+from silica.remote.cli.commands.tell import tell
 
 console = Console()
 

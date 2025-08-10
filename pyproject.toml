@@ -20,11 +20,23 @@ dependencies = [
     "gitpython>=3.1.0",
     "flask>=3.0.0",
     "filelock>=3.13.1",
+    "dotenv>=0.9.9",
+    "anthropic>=0.62.0",
+    "pydantic>=2.11.7",
+    "aiofiles>=24.1.0",
+    "pathspec>=0.12.1",
+    "prompt-toolkit>=3.0.51",
+    "bs4>=0.0.2",
+    "markdownify>=1.2.0",
+    "brave-search-python-client>=0.4.27",
+    "google-api-python-client>=2.178.0",
+    "google-auth-oauthlib>=1.2.2",
+    "markdown>=3.8.2",
 ]
 
 [project.scripts]
-silica = "silica.cli.main:cli"
-si = "silica.cli.main:cli"
+silica = "silica.cli:main"
+si = "silica.cli:main"
 
 [build-system]
 requires = ["setuptools>=45", "setuptools_scm[toml]>=6.2"]
@@ -54,6 +66,7 @@ write_to = "silica/_version.py"
 dev = [
     "pre-commit>=4.2.0",
     "pytest>=8.3.5",
+    "pytest-asyncio>=1.1.0",
 ]
 
 [tool.pytest.ini_options]
@@ -62,3 +75,4 @@ markers = [
     "slow: marks tests as slow running",
     "safe: marks tests as safe to run without side effects",
 ]
+asyncio_mode = "auto"

@@ -8,14 +8,14 @@ from rich.table import Table
 from pathlib import Path
 from typing import List, Dict, Any
 
-from silica.config import get_silica_dir, find_git_root
-from silica.config.multi_workspace import list_workspaces, get_workspace_config
-from silica.utils.piku import (
+from silica.remote.config import get_silica_dir, find_git_root
+from silica.remote.config.multi_workspace import list_workspaces, get_workspace_config
+from silica.remote.utils.piku import (
     get_piku_connection,
     get_app_name,
     run_piku_in_silica,
 )
-from silica.utils.agent_yaml import load_agent_config, report_environment_status
+from silica.remote.utils.agent_yaml import load_agent_config, report_environment_status
 
 console = Console()
 

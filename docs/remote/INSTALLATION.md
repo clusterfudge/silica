@@ -218,7 +218,7 @@ uv pip install -e ".[dev]"
 
 ## Next Steps
 
-After installation, see the main [README.md](../README.md) for usage instructions and examples.
+After installation, see the main [README.md](../../README.md) for usage instructions and examples.
 
 ## Support
 

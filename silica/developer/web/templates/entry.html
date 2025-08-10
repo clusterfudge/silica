@@ -1,0 +1,16 @@
+<h1>{{ memory_path.split('/')[-1] }}</h1>
+
+<div class="memory-content">
+    {{ content|safe }}
+</div>
+
+{% if metadata %}
+<div class="metadata">
+    <h3>Metadata</h3>
+    <ul>
+        {% for key, value in metadata.items() %}
+            <li><strong>{{ key }}:</strong> {{ value }}</li>
+        {% endfor %}
+    </ul>
+</div>
+{% endif %}

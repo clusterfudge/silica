@@ -137,7 +137,7 @@ RUN apt-get update && apt-get install -y \
 RUN pip install uv
 
 # Copy source code
-COPY . /app
+COPY .. /app
 WORKDIR /app
 
 # Install silica in development mode

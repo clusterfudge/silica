@@ -19,7 +19,7 @@ def test_remote_verify_script_exists():
 
 def test_installation_docs_exist():
     """Test that installation documentation exists."""
-    docs_path = Path("docs/INSTALLATION.md")
+    docs_path = Path("docs/remote/INSTALLATION.md")
     assert docs_path.exists(), "Installation documentation should exist"
     assert docs_path.is_file(), "Installation documentation should be a file"
 
@@ -32,7 +32,7 @@ def test_installation_docs_exist():
 
 def test_raspberry_pi_deployment_docs_exist():
     """Test that Raspberry Pi deployment documentation exists."""
-    docs_path = Path("docs/RASPBERRY_PI_DEPLOYMENT.md")
+    docs_path = Path("docs/remote/RASPBERRY_PI_DEPLOYMENT.md")
     assert docs_path.exists(), "Raspberry Pi deployment documentation should exist"
     assert docs_path.is_file(), "Raspberry Pi deployment documentation should be a file"
 

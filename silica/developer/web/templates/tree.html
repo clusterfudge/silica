@@ -1,0 +1,71 @@
+<h1>Memory Browser</h1>
+
+<div class="memory-tree">
+    <ul>
+        {% for key, value in tree.items() recursive %}
+            <li>
+                {% if key == '...' %}
+                    <span class="more">⋯</span> {{ value }}
+                {% elif value.is_file is defined and value.is_file %}
+                    <!-- File node -->
+                    <span class="file">📄</span>
+                    <a href="/view/{{ value.path }}">{{ value.name }}</a>
+                {% elif value.children is defined %}
+                    <!-- Directory node with children -->
+                    <input type="checkbox" id="folder-{{ value.path|replace('/', '-') }}" class="folder-toggle">
+                    <label for="folder-{{ value.path|replace('/', '-') }}" class="folder-label">
+                        <span class="directory">📁</span>
+                        <a href="/browse/{{ value.path }}">{{ value.name }}</a>
+                    </label>
+                    {% if value.children|length > 0 %}
+                    <div class="folder-content">
+                        <ul>
+                            {{ loop(value.children.items()) }}
+                        </ul>
+                    </div>
+                    {% endif %}
+                {% else %}
+                    <!-- If no children are defined and it's not explicitly marked as a file, 
+                         we need to determine if it's a leaf node -->
+                    {% if value|length == 0 or (value.path is defined and not value.children) %}
+                        <span class="file">📄</span>
+                        <a href="/view/{{ value.path }}">{{ value.name }}</a>
+                    {% else %}
+                        <input type="checkbox" id="folder-{{ value.path|replace('/', '-') }}" class="folder-toggle">
+                        <label for="folder-{{ value.path|replace('/', '-') }}" class="folder-label">
+                            <span class="directory">📁</span>
+                            <a href="/browse/{{ value.path }}">{{ value.name }}</a>
+                        </label>
+                    {% endif %}
+                {% endif %}
+            </li>
+        {% endfor %}
+    </ul>
+</div>
+
+<script>
+    // Auto-expand the current path
+    document.addEventListener('DOMContentLoaded', function() {
+        // Get the current path from the URL
+        const path = window.location.pathname.replace('/browse/', '');
+        if (path) {
+            const pathParts = path.split('/');
+            let currentPath = '';
+            
+            // Expand each part of the path
+            for (let i = 0; i < pathParts.length; i++) {
+                if (currentPath) {
+                    currentPath += '-' + pathParts[i];
+                } else {
+                    currentPath = pathParts[i];
+                }
+                
+                // Find and check the checkbox for this folder
+                const checkbox = document.getElementById('folder-' + currentPath);
+                if (checkbox) {
+                    checkbox.checked = true;
+                }
+            }
+        }
+    });
+</script>

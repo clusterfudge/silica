@@ -7,9 +7,9 @@ from rich.console import Console
 from rich.table import Table
 import subprocess
 
-from silica.config import find_git_root, get_silica_dir
-from silica.utils import piku as piku_utils
-from silica.utils.piku import get_workspace_name, get_app_name
+from silica.remote.config import find_git_root, get_silica_dir
+from silica.remote.utils import piku as piku_utils
+from silica.remote.utils.piku import get_workspace_name, get_app_name
 
 console = Console()
 

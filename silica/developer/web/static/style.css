@@ -1,0 +1,183 @@
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    line-height: 1.6;
+    color: #333;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+    background-color: #f8f9fa;
+}
+.navbar {
+    background-color: #343a40;
+    padding: 10px 20px;
+    margin-bottom: 20px;
+    border-radius: 5px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.navbar a {
+    color: white;
+    text-decoration: none;
+}
+.navbar a:hover {
+    text-decoration: underline;
+}
+.search-form {
+    margin-bottom: 20px;
+}
+.search-form input {
+    padding: 8px;
+    width: 300px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+.search-form button {
+    padding: 8px 15px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+.search-form button:hover {
+    background-color: #0069d9;
+}
+.memory-content {
+    background-color: white;
+    padding: 20px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    margin-bottom: 20px;
+}
+/* Collapsible tree styles */
+.memory-tree ul {
+    list-style-type: none;
+    padding-left: 20px;
+    margin: 0;
+}
+.memory-tree li {
+    margin: 5px 0;
+    position: relative;
+}
+.memory-tree li a {
+    text-decoration: none;
+    color: #007bff;
+    display: inline-block;
+    padding: 2px 0;
+}
+.memory-tree li a:hover {
+    text-decoration: underline;
+}
+
+/* Folder toggle functionality */
+.folder-content {
+    display: none; /* Hidden by default */
+    margin-left: 15px;
+}
+.folder-label {
+    cursor: pointer;
+    user-select: none;
+    display: inline-block;
+}
+.folder-toggle {
+    display: none; /* Hide the actual checkbox */
+}
+.folder-toggle:checked + label + .folder-content {
+    display: block; /* Show when checkbox is checked */
+}
+
+/* Toggle icon styling */
+.folder-label:before {
+    content: "▶"; /* Closed folder icon */
+    display: inline-block;
+    margin-right: 5px;
+    font-size: 10px;
+    transition: transform 0.2s;
+    width: 10px;
+}
+.folder-toggle:checked + label:before {
+    content: "▼"; /* Open folder icon */
+    transform: rotate(0deg);
+}
+
+.directory {
+    font-weight: bold;
+    color: #495057;
+    margin-right: 5px;
+}
+.file {
+    color: #007bff;
+    margin-right: 5px;
+}
+.more {
+    color: #6c757d;
+    margin-right: 5px;
+}
+
+/* Indentation and connecting lines for tree structure */
+.memory-tree ul ul {
+    position: relative;
+}
+.memory-tree ul ul::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -10px;
+    border-left: 1px solid #ccc;
+    height: 100%;
+}
+.memory-tree li {
+    position: relative;
+}
+.memory-tree li::before {
+    content: "";
+    position: absolute;
+    top: 12px;
+    left: -10px;
+    width: 10px;
+    border-top: 1px solid #ccc;
+}
+.memory-tree > ul > li::before {
+    display: none;
+}
+.breadcrumbs {
+    margin-bottom: 20px;
+    padding: 10px;
+    background-color: #e9ecef;
+    border-radius: 5px;
+}
+.breadcrumbs a {
+    color: #007bff;
+    text-decoration: none;
+}
+.breadcrumbs a:hover {
+    text-decoration: underline;
+}
+.metadata {
+    font-size: 0.9em;
+    color: #6c757d;
+    margin-top: 20px;
+    padding-top: 10px;
+    border-top: 1px solid #ddd;
+}
+.metadata ul {
+    list-style-type: none;
+    padding-left: 0;
+}
+.metadata li {
+    margin-bottom: 5px;
+}
+code {
+    background-color: #f5f5f5;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-family: 'Courier New', Courier, monospace;
+}
+pre {
+    background-color: #f5f5f5;
+    padding: 10px;
+    border-radius: 5px;
+    overflow-x: auto;
+    font-family: 'Courier New', Courier, monospace;
+}

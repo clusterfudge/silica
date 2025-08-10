@@ -1,0 +1,20 @@
+<h1>Directory: {{ directory_path }}</h1>
+
+<div class="memory-tree">
+    <ul>
+        {% for item in items %}
+            <li>
+                {% if item.is_directory %}
+                    <input type="checkbox" id="folder-{{ item.path|replace('/', '-') }}" class="folder-toggle">
+                    <label for="folder-{{ item.path|replace('/', '-') }}" class="folder-label">
+                        <span class="directory">📁</span>
+                        <a href="/browse/{{ item.path | replace('//', '/') }}">{{ item.name }}</a>
+                    </label>
+                {% else %}
+                    <span class="file">📄</span>
+                    <a href="/view/{{ item.path | replace('//', '/') }}">{{ item.name }}</a>
+                {% endif %}
+            </li>
+        {% endfor %}
+    </ul>
+</div>

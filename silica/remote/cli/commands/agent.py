@@ -4,9 +4,9 @@ import cyclopts
 from typing import Annotated
 from rich.console import Console
 
-from silica.config import find_git_root
-from silica.utils import piku as piku_utils
-from silica.utils.piku import run_piku_in_silica
+from silica.remote.config import find_git_root
+from silica.remote.utils import piku as piku_utils
+from silica.remote.utils.piku import run_piku_in_silica
 
 console = Console()
 

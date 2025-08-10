@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ title }}</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="{{ url_for('static_files', filename='style.css') }}">
+    <script>
+        // Helper function to toggle folder expansion
+        function toggleFolder(id) {
+            const checkbox = document.getElementById(id);
+            if (checkbox) {
+                checkbox.checked = !checkbox.checked;
+            }
+        }
+    </script>
+</head>
+<body>
+    <div class="navbar">
+        <a href="/">Home</a>
+        <form class="search-form" action="/search" method="get">
+            <input type="text" name="query" placeholder="Search memory...">
+            <button type="submit">Search</button>
+        </form>
+    </div>
+    
+    {% if breadcrumbs %}
+    <div class="breadcrumbs">
+        {% for crumb in breadcrumbs %}
+            {% if loop.last %}
+                {{ crumb.name }}
+            {% else %}
+                <a href="{{ crumb.path }}">{{ crumb.name }}</a> /
+            {% endif %}
+        {% endfor %}
+    </div>
+    {% endif %}
+    
+    <div class="content">
+        {{ content_block|safe }}
+    </div>
+</body>
+</html>

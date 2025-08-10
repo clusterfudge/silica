@@ -250,4 +250,4 @@ After successful deployment:
 3. **Monitor Logs**: Check application logs
 4. **Set Up Monitoring**: Monitor system resources
 
-For usage examples, see the main [README.md](../README.md).
+For usage examples, see the main [README.md](../../README.md).

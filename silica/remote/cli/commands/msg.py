@@ -17,9 +17,12 @@ from rich.console import Console
 from rich.table import Table
 from rich.markdown import Markdown
 
-from silica.config import load_config
-from silica.config.multi_workspace import load_project_config, get_default_workspace
-from silica.utils.messaging import (
+from silica.remote.config import load_config
+from silica.remote.config.multi_workspace import (
+    load_project_config,
+    get_default_workspace,
+)
+from silica.remote.utils.messaging import (
     check_messaging_app_exists,
     deploy_messaging_app,
     check_messaging_app_health,

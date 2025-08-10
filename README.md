@@ -26,7 +26,7 @@ Silica automatically handles Python 3.11 installation on remote Raspberry Pi sys
 - Installs Silica and dependencies
 - Verifies the installation
 
-For detailed deployment information, see the [Raspberry Pi Deployment Guide](docs/RASPBERRY_PI_DEPLOYMENT.md).
+For detailed deployment information, see the [Raspberry Pi Deployment Guide](docs/remote/RASPBERRY_PI_DEPLOYMENT.md).
 
 **Note**: The package name is `pysilica` but the CLI command and import name is `silica`.
 
@@ -35,7 +35,7 @@ For detailed deployment information, see the [Raspberry Pi Deployment Guide](doc
 - **Python**: 3.11 or higher (required)
 - **Package Manager**: `uv` (recommended) or `pip`
 
-For complete installation instructions, see [docs/INSTALLATION.md](docs/INSTALLATION.md).
+For complete installation instructions, see [docs/INSTALLATION.md](docs/remote/INSTALLATION.md).
 
 ## What's New: Multi-Workspace Support
 
