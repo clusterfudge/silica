@@ -21,7 +21,12 @@ from silica.developer import personas
 from silica.developer.agent_loop import run
 from silica.developer.context import AgentContext
 from silica.developer.models import model_names, get_model
-from silica.developer.sandbox import SandboxMode
+from silica.developer.sandbox import SandboxMode, Sandbox
+from silica.developer.tools.sessions import (
+    print_session_list,
+    list_sessions,
+    resume_session,
+)
 from silica.developer.user_interface import UserInterface
 from silica.developer.toolbox import Toolbox
 from prompt_toolkit.completion import Completer, WordCompleter, Completion
@@ -508,6 +513,40 @@ class CustomCompleter(Completer):
             for history_item in reversed(self.history.get_strings()):
                 if history_item.startswith(word):
                     yield Completion(history_item, start_position=start_position)
+
+
+def sessions(workdir: Annotated[str, cyclopts.Parameter("workdir")]):
+    s = list_sessions(workdir=workdir)
+    print_session_list(s)
+
+
+def resume(session_id: Annotated[str, cyclopts.Parameter("session_id")]):
+    resume_session(session_id)
+
+
+def attach_tools(app):
+    console = Console()
+    sandbox = Sandbox(".", SandboxMode.ALLOW_ALL)
+    context = AgentContext.create(
+        model_spec={},
+        sandbox_mode=SandboxMode.ALLOW_ALL,
+        sandbox_contents=[],
+        user_interface=CLIUserInterface(console, sandbox.mode),
+    )
+    toolbox = Toolbox(context)
+
+    commands = set(toolbox.local.keys())
+    for command in commands:
+
+        def f(*args: list[str]):
+            tool_args = " ".join(args[2:])  # TODO(2025-03-19): do something with shlex
+            asyncio.run(
+                toolbox.invoke_cli_tool(
+                    command, arg_str=tool_args, confirm_to_add=False
+                )
+            )
+
+        app.command(f, name=command)
 
 
 def cyclopts_main(
