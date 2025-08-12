@@ -438,7 +438,7 @@ def run_memory_webapp(
     """
     if not port:
         try:
-            port = int(os.getenv("PORT"))
+            port = int(os.getenv("PORT", 8000))
         except ValueError:
             port = 5500
     memory_manager = MemoryManager(memory_dir)
