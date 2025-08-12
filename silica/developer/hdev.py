@@ -527,15 +527,18 @@ def attach_tools(app):
     commands = set(toolbox.local.keys())
     for command in commands:
 
-        def f(*args: list[str]):
-            tool_args = " ".join(args[2:])  # TODO(2025-03-19): do something with shlex
-            asyncio.run(
-                toolbox.invoke_cli_tool(
-                    command, arg_str=tool_args, confirm_to_add=False
+        def make_command_func(cmd_name: str):
+            def f(*args: str):
+                tool_args = " ".join(args)  # TODO(2025-03-19): do something with shlex
+                asyncio.run(
+                    toolbox.invoke_cli_tool(
+                        cmd_name, arg_str=tool_args, confirm_to_add=False
+                    )
                 )
-            )
 
-        app.command(f, name=command)
+            return f
+
+        app.command(make_command_func(command), name=command)
 
 
 def cyclopts_main(
