@@ -382,22 +382,11 @@ class CLIUserInterface(UserInterface):
         self.console.print(token_count)
 
     def display_welcome_message(self) -> None:
-        from rich.markdown import Markdown
-
-        welcome_md = """
-## Welcome to the silica Developer CLI
-
-Your personal coding assistant powered by AI.
-
-**Tips:**
-* For multi-line input, start with `{` on a new line, enter your content, and end with `}` on a new line
-* Markdown formatting is supported for all output
-* Code blocks will be syntax highlighted automatically
-        """
+        welcome_text = "welcome to silica. /help for commands, /tips to get started."
 
         self.console.print(
             create_clean_panel(
-                Markdown(welcome_md),
+                welcome_text,
                 style="bold cyan",
             )
         )

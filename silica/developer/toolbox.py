@@ -36,6 +36,7 @@ class Toolbox:
 
         # Register CLI tools
         self.register_cli_tool("help", self._help, "Show help", aliases=["h"])
+        self.register_cli_tool("tips", self._tips, "Show usage tips and tricks")
         self.register_cli_tool(
             "add", self._add, "Add file or directory to sandbox", aliases=["a"]
         )
@@ -334,6 +335,54 @@ class Toolbox:
         )
 
         user_interface.handle_system_message(help_text)
+
+    def _tips(self, user_interface, sandbox, user_input, *args, **kwargs):
+        """Show usage tips and tricks"""
+        tips_text = """## Usage Tips and Tricks
+
+**Multi-line Input:**
+* Start with `{` on a new line, enter your content, and end with `}` on a new line
+* Perfect for pasting code snippets or long descriptions
+
+**Output Formatting:**
+* All output supports Markdown formatting
+* Code blocks are automatically syntax highlighted
+* Use triple backticks with language for best highlighting
+
+**File Management:**
+* Use `@filename.txt` in your messages to reference files (with tab completion)
+* The AI can read, write, and edit files in your project
+* Use `/add` and `/remove` to manage which files are in the sandbox context
+
+**Command Shortcuts:**
+* Use `/exec` to run shell commands quickly
+* Use `/commit` to auto-generate git commit messages
+* Use `/model` to see or change the AI model
+* Use `/memory` to save important facts or see your memory tree
+
+**Session Management:**
+* Use `/sessions` to list previous chat sessions
+* Use `/resume <session-id>` to continue where you left off
+* Session history is automatically saved and organized by directory
+
+**Efficiency Tips:**
+* The AI can work with multiple files simultaneously
+* Ask for explanations of code, suggestions for improvements, or help debugging
+* Use natural language - describe what you want to accomplish
+* The AI understands your project context and can maintain consistency
+
+**File References:**
+* Type `@` followed by a path to get tab completion for file names
+* The AI will automatically read referenced files when needed
+* Example: "Please review the logic in @src/main.py"
+
+**Advanced Features:**
+* Use `/view-memory` to launch the web-based memory browser
+* The AI maintains long-term memory between sessions
+* Context is automatically managed - older messages are compressed when needed
+"""
+
+        user_interface.handle_system_message(tips_text)
 
     def _add(self, user_interface, sandbox, user_input, *args, **kwargs):
         """Add file or directory to sandbox"""
