@@ -36,3 +36,4 @@ ENV/
 .env
 silica/_version.py
 .agent-scratchpad/
+*.db

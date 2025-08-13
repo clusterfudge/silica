@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1><i class="fas fa-tachometer-alt me-2"></i>Dashboard</h1>
+        <p class="lead">Scheduled Execution of Agent</p>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">
+                    <i class="fas fa-file-alt me-2"></i>Prompts
+                </h5>
+                <p class="card-text">Manage your agent prompts for scheduled execution.</p>
+                <a href="/prompts" class="btn btn-primary">Manage Prompts</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">
+                    <i class="fas fa-calendar-alt me-2"></i>Scheduled Jobs
+                </h5>
+                <p class="card-text">Schedule prompts to run on cron-style schedules.</p>
+                <a href="/jobs" class="btn btn-primary">Manage Jobs</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">
+                    <i class="fas fa-chart-line me-2"></i>Execution History
+                </h5>
+                <p class="card-text">View past executions and their results.</p>
+                <a href="/jobs" class="btn btn-primary">View History</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-info-circle me-2"></i>About Silica Cron</h5>
+            </div>
+            <div class="card-body">
+                <p>Silica Cron is a web application for scheduling agent prompts to run automatically using cron-style expressions. It integrates with heare-developer to execute prompts and stores all data in a SQLite database.</p>
+                <ul>
+                    <li>Create and manage reusable prompts</li>
+                    <li>Schedule prompts with flexible cron expressions</li>
+                    <li>Track execution history and results</li>
+                    <li>Simple web interface for easy management</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

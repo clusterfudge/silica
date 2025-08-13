@@ -10,8 +10,8 @@ from silica.developer.user_interface import UserInterface
 from silica.developer.tools.shell import shell_execute
 
 
-class TestableUserInterface(UserInterface):
-    """Test user interface that can simulate keyboard input behavior."""
+class MockUserInterface(UserInterface):
+    """Mock user interface that can simulate keyboard input behavior."""
 
     def __init__(self, input_responses=None, simulate_input_delay=False):
         self.input_responses = input_responses or []
@@ -96,8 +96,8 @@ class TestCLIKeyboardInputFix:
     """Test suite for CLI keyboard input responsiveness fixes."""
 
     def create_test_context(self, input_responses=None, simulate_delay=False):
-        """Create a test context with testable UI."""
-        ui = TestableUserInterface(input_responses, simulate_delay)
+        """Create a test context with mock UI."""
+        ui = MockUserInterface(input_responses, simulate_delay)
         context = AgentContext.create(
             model_spec={},
             sandbox_mode=SandboxMode.ALLOW_ALL,
@@ -127,32 +127,79 @@ class TestCLIKeyboardInputFix:
         assert len(ui.user_input_calls) > 0, "User input should have been requested"
 
     @pytest.mark.asyncio
-    async def test_all_timeout_choices_work(self):
-        """Test that all timeout choices (C/K/B) work with responsive input."""
-
-        # Test Kill choice
+    async def test_kill_choice_works(self):
+        """Test that Kill choice (K) works with responsive input."""
         context, ui = self.create_test_context(input_responses=["K"])
         result = await shell_execute(context, "sleep 5", timeout=1)
         assert "Command was killed by user" in result
         assert ui.input_responsive
 
-        # Test Background choice
-        context, ui = self.create_test_context(input_responses=["B"])
-        result = await shell_execute(context, "sleep 5", timeout=1)
-        assert "Command backgrounded" in result
-        assert ui.input_responsive
-
-        # Test Continue choice (then kill)
+    @pytest.mark.asyncio
+    async def test_continue_then_kill_works(self):
+        """Test that Continue choice (C) then Kill works with responsive input."""
         context, ui = self.create_test_context(input_responses=["C", "K"])
         result = await shell_execute(context, "sleep 5", timeout=1)
         assert "Command was killed by user" in result  # Should eventually be killed
         assert ui.input_responsive
 
     @pytest.mark.asyncio
+    async def test_background_choice_works(self):
+        """Test that Background choice (B) works with responsive input.
+
+        Note: This test may produce a resource warning due to the inherent
+        nature of backgrounding processes, but it's cleaned up as thoroughly
+        as possible.
+        """
+        import warnings
+
+        # Filter the specific subprocess resource warning for this test
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="subprocess .* is still running",
+                category=ResourceWarning,
+            )
+            context, ui = self.create_test_context(input_responses=["B"])
+
+            # Run a command that will definitely timeout and be backgrounded
+            result = await shell_execute(context, "sleep 2", timeout=0.1)
+            assert "Command backgrounded" in result
+            assert ui.input_responsive
+
+            # Extract PID and clean up the backgrounded process aggressively
+            import re
+            import subprocess
+
+            pid_match = re.search(r"PID: (\d+)", result)
+            if pid_match:
+                pid = int(pid_match.group(1))
+                # Try multiple cleanup strategies
+                try:
+                    # First try SIGTERM
+                    subprocess.run(
+                        ["kill", "-TERM", str(pid)], check=False, capture_output=True
+                    )
+                    await asyncio.sleep(0.1)
+
+                    # Check if it's still running and use SIGKILL
+                    result = subprocess.run(
+                        ["kill", "-0", str(pid)], check=False, capture_output=True
+                    )
+                    if result.returncode == 0:  # Process still exists
+                        subprocess.run(
+                            ["kill", "-KILL", str(pid)],
+                            check=False,
+                            capture_output=True,
+                        )
+                        await asyncio.sleep(0.1)
+                except Exception:
+                    pass
+
+    @pytest.mark.asyncio
     async def test_process_completion_during_user_input(self):
         """Test that process completion is detected even during user input wait."""
 
-        class SlowInputUI(TestableUserInterface):
+        class SlowInputUI(MockUserInterface):
             """UI that simulates slow user response."""
 
             async def get_user_input(self, prompt: str = "") -> str:
@@ -186,7 +233,7 @@ class TestCLIKeyboardInputFix:
 
         # Create a process the way our fixed code does
         process = subprocess.Popen(
-            "sleep 1",
+            "sleep 0.1",  # Use shorter sleep to avoid resource warnings
             shell=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -197,9 +244,24 @@ class TestCLIKeyboardInputFix:
         # Verify stdin is properly isolated
         assert process.stdin is None, "Process should not have access to stdin"
 
-        # Clean up
-        process.terminate()
-        process.wait()
+        # Clean up properly to avoid resource warnings
+        try:
+            # Wait for process to complete naturally first
+            stdout, stderr = process.communicate(timeout=0.5)
+        except subprocess.TimeoutExpired:
+            # If it doesn't complete naturally, terminate it
+            process.terminate()
+            try:
+                stdout, stderr = process.communicate(timeout=1.0)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                stdout, stderr = process.communicate()
+
+        # Ensure all file handles are properly closed
+        if process.stdout and not process.stdout.closed:
+            process.stdout.close()
+        if process.stderr and not process.stderr.closed:
+            process.stderr.close()
 
     @pytest.mark.asyncio
     async def test_normal_commands_still_work(self):
@@ -261,7 +323,7 @@ class TestInputResponsivenessRegression:
     async def test_permission_system_still_works(self):
         """Ensure permission system integration still works."""
 
-        class DenyingUI(TestableUserInterface):
+        class DenyingUI(MockUserInterface):
             def permission_callback(
                 self,
                 action: str,

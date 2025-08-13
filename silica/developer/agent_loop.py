@@ -438,7 +438,7 @@ async def run(
             )
             ai_response = ""
             with user_interface.status(
-                "[bold green]AI is thinking...[/bold green]", spinner="dots"
+                "[bold green]thinking...[/bold green]", spinner="dots"
             ):
                 max_retries = 5
                 base_delay = 1

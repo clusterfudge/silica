@@ -32,6 +32,12 @@ dependencies = [
     "google-api-python-client>=2.178.0",
     "google-auth-oauthlib>=1.2.2",
     "markdown>=3.8.2",
+    "fastapi>=0.116.1",
+    "sqlalchemy>=2.0.43",
+    "sqlalchemy-orm>=1.2.10",
+    "uvicorn>=0.35.0",
+    "croniter>=6.0.0",
+    "python-multipart>=0.0.20",
 ]
 
 [project.scripts]

@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h1><i class="fas fa-comments me-2"></i>Session History</h1>
+            <button class="btn btn-secondary" onclick="history.back()">
+                <i class="fas fa-arrow-left me-2"></i>Back
+            </button>
+        </div>
+        
+        <!-- Session Metadata -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5><i class="fas fa-info-circle me-2"></i>Session Information</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <strong>Session ID:</strong>
+                        <code class="d-block">{{ session_id }}</code>
+                    </div>
+                    <div class="col-md-6">
+                        <strong>Model:</strong>
+                        <span class="badge bg-primary">{{ session_data.model_spec.title }}</span>
+                    </div>
+                </div>
+                <div class="row mt-2">
+                    <div class="col-md-6">
+                        <strong>Created:</strong>
+                        <span class="text-muted">{{ session_data.metadata.created_at.split('T')[0] }} {{ session_data.metadata.created_at.split('T')[1].split('.')[0] }}</span>
+                    </div>
+                    <div class="col-md-6">
+                        <strong>Context Window:</strong>
+                        <span class="text-muted">{{ "{:,}".format(session_data.model_spec.context_window) }} tokens</span>
+                    </div>
+                </div>
+                
+                <!-- Usage Summary -->
+                {% if session_data.usage %}
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <strong>Usage Summary:</strong>
+                        <div class="row mt-1">
+                            {% set total_input = 0 %}
+                            {% set total_output = 0 %}
+                            {% for usage_entry in session_data.usage %}
+                                {% set total_input = total_input + usage_entry[0].input_tokens %}
+                                {% set total_output = total_output + usage_entry[0].output_tokens %}
+                            {% endfor %}
+                            <div class="col-md-4">
+                                <small class="text-muted">Input Tokens:</small>
+                                <span class="badge bg-info">{{ "{:,}".format(total_input) }}</span>
+                            </div>
+                            <div class="col-md-4">
+                                <small class="text-muted">Output Tokens:</small>
+                                <span class="badge bg-success">{{ "{:,}".format(total_output) }}</span>
+                            </div>
+                            <div class="col-md-4">
+                                <small class="text-muted">Total:</small>
+                                <span class="badge bg-secondary">{{ "{:,}".format(total_input + total_output) }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+                
+                <!-- CLI Command -->
+                {% if session_data.metadata.cli_args %}
+                <div class="mt-3">
+                    <strong>CLI Command:</strong>
+                    <pre class="bg-light p-2 mt-1"><code>{{ ' '.join(session_data.metadata.cli_args) }}</code></pre>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- Conversation History -->
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-comments me-2"></i>Conversation</h5>
+            </div>
+            <div class="card-body">
+                <div class="chat-container" style="max-height: 70vh; overflow-y: auto;">
+                    {% for message in session_data.messages %}
+                        {% if message.role == 'user' %}
+                            <!-- User Message -->
+                            <div class="message-block mb-3">
+                                <div class="d-flex align-items-start">
+                                    <div class="avatar me-3">
+                                        <div class="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center" style="width: 32px; height: 32px;">
+                                            <i class="fas fa-user"></i>
+                                        </div>
+                                    </div>
+                                    <div class="message-content flex-grow-1">
+                                        <div class="message-header mb-1">
+                                            <strong class="text-primary">User</strong>
+                                        </div>
+                                        <div class="message-body">
+                                            {% for content in message.content %}
+                                                {% if content.type == 'text' %}
+                                                    <div class="user-message bg-primary-subtle p-3 rounded">
+                                                        <div class="markdown-content">{{ content.text }}</div>
+                                                    </div>
+                                                {% elif content.type == 'tool_result' %}
+                                                    <div class="tool-result bg-info-subtle p-3 rounded">
+                                                        <small class="text-muted">
+                                                            <i class="fas fa-cog me-1"></i>Tool Result ({{ content.tool_use_id[:8] }})
+                                                        </small>
+                                                        <pre class="mt-1 mb-0"><code>{{ content.content }}</code></pre>
+                                                    </div>
+                                                {% endif %}
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        {% elif message.role == 'assistant' %}
+                            <!-- Assistant Message -->
+                            <div class="message-block mb-3">
+                                <div class="d-flex align-items-start">
+                                    <div class="avatar me-3">
+                                        <div class="bg-success text-white rounded-circle d-flex align-items-center justify-content-center" style="width: 32px; height: 32px;">
+                                            <i class="fas fa-robot"></i>
+                                        </div>
+                                    </div>
+                                    <div class="message-content flex-grow-1">
+                                        <div class="message-header mb-1">
+                                            <strong class="text-success">Assistant</strong>
+                                        </div>
+                                        <div class="message-body">
+                                            {% for content in message.content %}
+                                                {% if content.type == 'text' %}
+                                                    <div class="assistant-message bg-success-subtle p-3 rounded mb-2">
+                                                        <div class="markdown-content">{{ content.text }}</div>
+                                                    </div>
+                                                {% elif content.type == 'tool_use' %}
+                                                    <div class="tool-use bg-warning-subtle p-3 rounded mb-2">
+                                                        <div class="tool-header mb-2">
+                                                            <small class="text-muted">
+                                                                <i class="fas fa-wrench me-1"></i>
+                                                                <strong>{{ content.name }}</strong>
+                                                                ({{ content.id[:8] }}...)
+                                                            </small>
+                                                        </div>
+                                                        {% if content.input %}
+                                                            <details class="tool-input">
+                                                                <summary class="text-muted" style="cursor: pointer;">
+                                                                    <small>Input Parameters</small>
+                                                                </summary>
+                                                                <pre class="mt-2 mb-0"><code>{{ content.input | tojson(indent=2) }}</code></pre>
+                                                            </details>
+                                                        {% endif %}
+                                                    </div>
+                                                {% endif %}
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Convert markdown content to HTML
+    const markdownElements = document.querySelectorAll('.markdown-content');
+    markdownElements.forEach(function(element) {
+        const markdownText = element.textContent;
+        element.innerHTML = marked.parse(markdownText);
+    });
+    
+    // Scroll to bottom of chat container
+    const chatContainer = document.querySelector('.chat-container');
+    if (chatContainer) {
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+});
+</script>
+{% endblock %}
