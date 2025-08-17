@@ -521,6 +521,15 @@ wheels = [
 ]
 
 [[package]]
+name = "heare-ids"
+version = "0.1.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/82/de/fe84da6a536be7bc5999ae15aaebbc86b9dd837472754daa8ec7244343f6/heare_ids-0.1.3.tar.gz", hash = "sha256:5067a9405dc851b6b46a5403a98b3c86bace751924d4a49d3e2788b045e1dfa9", size = 3584, upload-time = "2025-01-07T02:55:45.59Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/67/89/2f47b7470b3fea8bde8f9c60d57c49b55eb0672e0705234cd1702235f2c1/heare_ids-0.1.3-py3-none-any.whl", hash = "sha256:5d50d6b04115ee1f9b69cbe1b326460a8ef3a247fb0bc12f8c78aaacd739d1dc", size = 4307, upload-time = "2025-01-07T02:55:44.211Z" },
+]
+
+[[package]]
 name = "httpcore"
 version = "1.0.9"
 source = { registry = "https://pypi.org/simple" }
@@ -1076,11 +1085,13 @@ dependencies = [
     { name = "gitpython" },
     { name = "google-api-python-client" },
     { name = "google-auth-oauthlib" },
+    { name = "heare-ids" },
     { name = "markdown" },
     { name = "markdownify" },
     { name = "pathspec" },
     { name = "prompt-toolkit" },
     { name = "pydantic" },
+    { name = "pydantic-settings" },
     { name = "python-multipart" },
     { name = "pyyaml" },
     { name = "requests" },
@@ -1122,6 +1133,7 @@ requires-dist = [
     { name = "gitpython", specifier = ">=3.1.0" },
     { name = "google-api-python-client", specifier = ">=2.178.0" },
     { name = "google-auth-oauthlib", specifier = ">=1.2.2" },
+    { name = "heare-ids", specifier = ">=0.1.3" },
     { name = "isort", marker = "extra == 'dev'", specifier = ">=5.12.0" },
     { name = "markdown", specifier = ">=3.8.2" },
     { name = "markdownify", specifier = ">=1.2.0" },
@@ -1130,6 +1142,7 @@ requires-dist = [
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.2.0" },
     { name = "prompt-toolkit", specifier = ">=3.0.51" },
     { name = "pydantic", specifier = ">=2.11.7" },
+    { name = "pydantic-settings", specifier = ">=2.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
     { name = "python-multipart", specifier = ">=0.0.20" },
     { name = "pyyaml", specifier = ">=6.0" },
