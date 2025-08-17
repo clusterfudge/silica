@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="mb-0">Status</h4>
+    <div class="btn-group">
+        <button class="btn btn-outline-secondary btn-sm" onclick="loadExecutions()" title="Refresh">
+            <i class="fas fa-sync-alt"></i>
+        </button>
+        <div class="btn-group">
+            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown">
+                <i class="fas fa-filter me-1"></i>All
+            </button>
+            <ul class="dropdown-menu">
+                <li><a class="dropdown-item" href="#" onclick="filterStatus('all')">All</a></li>
+                <li><a class="dropdown-item" href="#" onclick="filterStatus('running')">Running</a></li>
+                <li><a class="dropdown-item" href="#" onclick="filterStatus('completed')">Completed</a></li>
+                <li><a class="dropdown-item" href="#" onclick="filterStatus('failed')">Failed</a></li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<div class="row mb-3">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <div class="row text-center" id="statusStats">
+                    <div class="col">
+                        <div class="spinner-border spinner-border-sm text-muted"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <div id="executionsList">
+                    <div class="text-center py-4">
+                        <i class="fas fa-spinner fa-spin"></i> Loading executions...
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentFilter = 'all';
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadExecutions();
+    loadStats();
+});
+
+function loadStats() {
+    fetch('/api/executions/stats')
+        .then(response => response.json())
+        .then(stats => {
+            document.getElementById('statusStats').innerHTML = `
+                <div class="col-3">
+                    <div class="fs-4 fw-bold text-primary">${stats.total || 0}</div>
+                    <small class="text-muted">Total</small>
+                </div>
+                <div class="col-3">
+                    <div class="fs-4 fw-bold text-warning">${stats.running || 0}</div>
+                    <small class="text-muted">Running</small>
+                </div>
+                <div class="col-3">
+                    <div class="fs-4 fw-bold text-success">${stats.completed || 0}</div>
+                    <small class="text-muted">Completed</small>
+                </div>
+                <div class="col-3">
+                    <div class="fs-4 fw-bold text-danger">${stats.failed || 0}</div>
+                    <small class="text-muted">Failed</small>
+                </div>
+            `;
+        })
+        .catch(error => {
+            document.getElementById('statusStats').innerHTML = 
+                '<div class="col text-muted">Error loading stats</div>';
+        });
+}
+
+function loadExecutions() {
+    const url = currentFilter === 'all' ? 
+        '/api/executions/recent?limit=50' : 
+        `/api/executions/recent?limit=50&status=${currentFilter}`;
+    
+    document.getElementById('executionsList').innerHTML = 
+        '<div class="text-center py-4"><i class="fas fa-spinner fa-spin"></i> Loading...</div>';
+    
+    fetch(url)
+        .then(response => response.json())
+        .then(executions => {
+            if (executions.length === 0) {
+                document.getElementById('executionsList').innerHTML = 
+                    '<div class="text-center py-4 text-muted">No executions found</div>';
+                return;
+            }
+            
+            const table = `
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Job</th>
+                                <th>Prompt</th>
+                                <th>Started</th>
+                                <th>Duration</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${executions.map(exec => {
+                                const start = new Date(exec.started_at);
+                                const startStr = start.toLocaleString();
+                                const duration = exec.completed_at ? 
+                                    Math.floor((new Date(exec.completed_at) - start) / 1000) + 's' : 
+                                    (exec.status === 'running' ? getRunningTime(start) : '-');
+                                const status = getStatusBadge(exec.status);
+                                const actions = exec.session_id ? 
+                                    `<button class="btn btn-sm btn-outline-primary" onclick="window.open('/sessions/${exec.session_id}', '_blank')" title="View Session">
+                                        <i class="fas fa-external-link-alt"></i>
+                                    </button>` : 
+                                    '<span class="text-muted">-</span>';
+                                
+                                // Add hover tooltips for duration if it's a smart display
+                                const startStrWithTZ = startStr + ' ' + getTimezoneAbbr(start);
+                                const durationWithTooltip = exec.status === 'running' && duration !== '-' ?
+                                    `<small title="Started: ${startStrWithTZ}">${duration}</small>` : 
+                                    `<small>${duration}</small>`;
+                                
+                                return `
+                                    <tr>
+                                        <td><strong>${exec.job_name || 'Manual'}</strong></td>
+                                        <td>${exec.prompt_name}</td>
+                                        <td><small title="${startStrWithTZ}">${getSmartDate(start)}</small></td>
+                                        <td>${durationWithTooltip}</td>
+                                        <td>${status}</td>
+                                        <td>${actions}</td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            
+            document.getElementById('executionsList').innerHTML = table;
+        })
+        .catch(error => {
+            document.getElementById('executionsList').innerHTML = 
+                '<div class="alert alert-danger">Error loading executions</div>';
+        });
+}
+
+function filterStatus(status) {
+    currentFilter = status;
+    
+    // Update dropdown text
+    const dropdownBtn = document.querySelector('.dropdown-toggle');
+    dropdownBtn.innerHTML = `<i class="fas fa-filter me-1"></i>${status.charAt(0).toUpperCase() + status.slice(1)}`;
+    
+    loadExecutions();
+}
+
+function getStatusBadge(status) {
+    const badges = {
+        'completed': '<span class="badge bg-success">✓ Completed</span>',
+        'failed': '<span class="badge bg-danger">✗ Failed</span>',
+        'running': '<span class="badge bg-primary"><i class="fas fa-spinner fa-spin me-1"></i>Running</span>'
+    };
+    return badges[status] || `<span class="badge bg-secondary">${status}</span>`;
+}
+
+function getRunningTime(startTime) {
+    const now = new Date();
+    const diffMs = now - startTime;
+    const diffSecs = Math.floor(diffMs / 1000);
+    
+    if (diffSecs < 60) return diffSecs + 's';
+    if (diffSecs < 3600) return Math.floor(diffSecs / 60) + 'm';
+    return Math.floor(diffSecs / 3600) + 'h';
+}
+
+function getSmartDate(date) {
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    
+    if (diffMins < 1) return 'just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays < 7) return `${diffDays}d ago`;
+    
+    // For older dates, show the actual date
+    return date.toLocaleDateString();
+}
+
+function getTimezoneAbbr(date) {
+    // Get timezone abbreviation (PST, EDT, etc.)
+    const formatter = new Intl.DateTimeFormat('en', {
+        timeZoneName: 'short'
+    });
+    const parts = formatter.formatToParts(date);
+    const timeZoneName = parts.find(part => part.type === 'timeZoneName');
+    return timeZoneName ? timeZoneName.value : '';
+}
+
+// Auto-refresh running executions every 30 seconds
+setInterval(() => {
+    if (currentFilter === 'all' || currentFilter === 'running') {
+        loadExecutions();
+        loadStats();
+    }
+}, 30000);
+</script>
+{% endblock %}

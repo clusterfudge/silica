@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 mx-auto">
+        <h4 class="mb-4">Help</h4>
+
+        <div class="card">
+            <div class="card-body">
+                <h5><i class="fas fa-info-circle me-2"></i>About Silica Cron</h5>
+                <p>Silica Cron schedules agent prompts to run automatically using cron-style expressions. It integrates with heare-developer to execute prompts and stores all data in a SQLite database.</p>
+                
+                <h6 class="mt-4">Features</h6>
+                <ul>
+                    <li>Create and manage reusable prompts</li>
+                    <li>Schedule prompts with flexible cron expressions</li>
+                    <li>Track execution history and results</li>
+                    <li>Simple web interface for easy management</li>
+                </ul>
+
+                <h6 class="mt-4">Cron Expression Examples</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Expression</th>
+                                <th>Description</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td><code>0 9 * * *</code></td><td>Daily at 9:00 AM</td></tr>
+                            <tr><td><code>*/15 * * * *</code></td><td>Every 15 minutes</td></tr>
+                            <tr><td><code>0 0 * * 1</code></td><td>Weekly on Monday at midnight</td></tr>
+                            <tr><td><code>0 8 * * 1-5</code></td><td>Weekdays at 8:00 AM</td></tr>
+                            <tr><td><code>30 14 1 * *</code></td><td>1st day of month at 2:30 PM</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="alert alert-info mt-3">
+                    <h6><i class="fas fa-clock me-2"></i>Timezone Information</h6>
+                    <ul class="mb-0">
+                        <li><strong>Scheduling:</strong> All cron expressions are evaluated in UTC</li>
+                        <li><strong>Display:</strong> Times in the interface are shown in your local timezone</li>
+                        <li><strong>Preview:</strong> When creating jobs, you'll see the next 5 scheduled runs in your timezone</li>
+                        <li><strong>Consistency:</strong> Jobs run at the same absolute time regardless of server location</li>
+                    </ul>
+                </div>
+
+                <h6 class="mt-4">Agent Models</h6>
+                <ul>
+                    <li><strong>Haiku:</strong> Fast and cost-effective for simple tasks</li>
+                    <li><strong>Sonnet:</strong> Balanced performance for most use cases</li>
+                    <li><strong>Sonnet 3.5:</strong> Advanced reasoning and analysis</li>
+                    <li><strong>Opus:</strong> Most powerful for complex tasks</li>
+                </ul>
+
+                <h6 class="mt-4">Agent Types</h6>
+                <ul>
+                    <li><strong>Basic:</strong> General-purpose agent for various tasks</li>
+                    <li><strong>Research:</strong> Deep analysis and investigation focused</li>
+                    <li><strong>Engineer:</strong> Technical development and problem-solving</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

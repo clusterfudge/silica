@@ -1,7 +1,6 @@
 """Main FastAPI application."""
 
 import logging
-import uvicorn
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, Request
 from fastapi.templating import Jinja2Templates
@@ -10,7 +9,8 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from os.path import join, dirname
 
-from .models import Base, engine, get_db
+from .models import get_db
+from .models.base import ensure_database_ready
 from .routes import prompts, jobs, dashboard
 from .scheduler import scheduler
 
@@ -18,17 +18,21 @@ from .scheduler import scheduler
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
-# Create database tables
-Base.metadata.create_all(bind=engine)
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Manage application lifecycle."""
+    """Manage application lifecycle with smart database setup."""
     # Startup
     logger.info("Starting cron application")
+
+    # Smart database initialization
+    if not ensure_database_ready():
+        logger.error("Failed to prepare cron database")
+        raise RuntimeError("Database initialization failed")
+
     scheduler.start()
     yield
+
     # Shutdown
     logger.info("Shutting down cron application")
     scheduler.stop()
@@ -68,19 +72,3 @@ async def root(request: Request, db: Session = Depends(get_db)):
 async def health():
     """Health check endpoint."""
     return {"status": "healthy", "service": "cron"}
-
-
-def entrypoint(
-    bind_host: str = "127.0.0.1",
-    bind_port: int = 8080,
-    debug: bool = False,
-    log_level: str = "info",
-):
-    """Entrypoint function."""
-    uvicorn.run(
-        app,
-        host=bind_host,
-        port=bind_port,
-        reload=debug,  # Set to True for development
-        log_level=log_level,
-    )

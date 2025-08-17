@@ -38,6 +38,7 @@ dependencies = [
     "uvicorn>=0.35.0",
     "croniter>=6.0.0",
     "python-multipart>=0.0.20",
+    "alembic>=1.13.0",
 ]
 
 [project.scripts]

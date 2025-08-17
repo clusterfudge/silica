@@ -1,0 +1,45 @@
+Cron Module Database Migrations
+===============================
+
+This directory contains Alembic migration files for the Silica cron module.
+
+## Overview
+
+The cron module uses a namespaced approach to database migrations:
+- Version table: `cron_alembic_version`
+- Configuration: `silica/cron/alembic.ini`
+- Migrations: `silica/cron/alembic/versions/`
+
+## Usage
+
+### Development
+
+Create a new migration:
+```bash
+silica cron-migrate create --message "add new field"
+```
+
+Apply migrations:
+```bash
+silica cron-migrate upgrade
+```
+
+Check status:
+```bash
+silica cron-migrate status
+```
+
+### Production
+
+The cron application automatically detects and applies pending migrations
+at startup when running in production environments.
+
+## Environment Detection
+
+- **Development**: Explicit migration control via CLI commands
+- **Production**: Automatic migration application at app startup
+
+Production is detected by:
+- Heroku/Piku/Dokku environment variables
+- PostgreSQL database URLs
+- Explicit SILICA_ENVIRONMENT=production setting
