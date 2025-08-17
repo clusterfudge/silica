@@ -10,16 +10,22 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from os.path import join, dirname
 
-from .models import Base, engine, get_db
+from .config import get_settings
+from .models import get_db
 from .routes import prompts, jobs, dashboard
 from .scheduler import scheduler
+from .scripts.litestream_manager import LitestreamManager
+
+# Get settings
+settings = get_settings()
 
 # Configure logging
-logging.basicConfig(level=logging.WARNING)
+log_level = getattr(logging, settings.log_level.upper())
+logging.basicConfig(level=log_level)
 logger = logging.getLogger(__name__)
 
-# Create database tables
-Base.metadata.create_all(bind=engine)
+# Initialize Litestream manager
+litestream_manager = LitestreamManager()
 
 
 @asynccontextmanager
@@ -27,11 +33,37 @@ async def lifespan(app: FastAPI):
     """Manage application lifecycle."""
     # Startup
     logger.info("Starting cron application")
+
+    # Initialize database tables
+    from .models import init_database
+
+    init_database()
+
+    # Start Litestream replication if enabled
+    litestream_process = None
+    if settings.litestream_enabled:
+        try:
+            logger.info("Starting Litestream replication")
+            litestream_process = litestream_manager.start_replication()
+        except Exception as e:
+            logger.error(f"Failed to start Litestream: {e}")
+            # Continue without Litestream in development
+            if settings.environment == "prod":
+                raise
+
     scheduler.start()
+
     yield
+
     # Shutdown
     logger.info("Shutting down cron application")
     scheduler.stop()
+
+    # Stop Litestream
+    if litestream_process:
+        logger.info("Stopping Litestream replication")
+        litestream_process.terminate()
+        litestream_process.wait(timeout=10)
 
 
 # Initialize FastAPI app
@@ -67,20 +99,54 @@ async def root(request: Request, db: Session = Depends(get_db)):
 @app.get("/health")
 async def health():
     """Health check endpoint."""
-    return {"status": "healthy", "service": "cron"}
+    health_status = {"status": "healthy", "service": "cron"}
+
+    # Add Litestream health if enabled
+    if settings.litestream_enabled:
+        litestream_health = litestream_manager.health_check()
+        health_status["litestream"] = litestream_health
+
+    return health_status
 
 
 def entrypoint(
-    bind_host: str = "127.0.0.1",
-    bind_port: int = 8080,
-    debug: bool = False,
-    log_level: str = "info",
+    bind_host: str = None,
+    bind_port: int = None,
+    debug: bool = None,
+    log_level: str = None,
+    enable_litestream: bool = None,
 ):
     """Entrypoint function."""
-    uvicorn.run(
-        app,
-        host=bind_host,
-        port=bind_port,
-        reload=debug,  # Set to True for development
-        log_level=log_level,
-    )
+    # Use settings defaults if not provided
+    host = bind_host or settings.host
+    port = bind_port or settings.port
+    reload = debug if debug is not None else settings.debug
+    level = log_level or settings.log_level
+
+    # Override Litestream setting if explicitly provided
+    # Use environment variable so it persists across reloads
+    if enable_litestream is not None:
+        import os
+
+        os.environ["LITESTREAM_ENABLED"] = "true" if enable_litestream else "false"
+        # Also set it directly for immediate use
+        settings.litestream_enabled = enable_litestream
+
+    if reload:
+        # Use import string for reload mode
+        uvicorn.run(
+            "silica.cron.app:app",
+            host=host,
+            port=port,
+            reload=True,
+            log_level=level,
+        )
+    else:
+        # Use app object for production
+        uvicorn.run(
+            app,
+            host=host,
+            port=port,
+            reload=False,
+            log_level=level,
+        )
