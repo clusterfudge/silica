@@ -26,8 +26,12 @@ target_metadata = Base.metadata
 
 
 def get_database_url():
-    """Get database URL, with fallback for cron-specific database."""
-    # For tests, use in-memory SQLite if no explicit URL
+    """Get database URL, with fallback for cron-specific database.
+
+    Uses file-based SQLite for development to support proper migration workflow.
+    Only tests use in-memory SQLite for isolation.
+    """
+    # For tests only, use in-memory SQLite if no explicit URL
     if os.getenv("PYTEST_CURRENT_TEST"):
         return os.getenv("DATABASE_URL", "sqlite:///:memory:")
 
@@ -41,6 +45,7 @@ def get_database_url():
         return url
 
     # Default to file-based SQLite for development
+    # This supports proper migration workflow for developers
     return "sqlite:///./silica-cron.db"
 
 

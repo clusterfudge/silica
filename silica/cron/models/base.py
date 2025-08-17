@@ -7,8 +7,12 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 
 
 def get_database_url() -> str:
-    """Get database URL with proper defaults."""
-    # For tests, use in-memory SQLite if no explicit URL
+    """Get database URL with proper defaults.
+
+    Uses file-based SQLite for development to support proper migration workflow.
+    Only tests use in-memory SQLite for isolation.
+    """
+    # For tests only, use in-memory SQLite if no explicit URL
     if os.getenv("PYTEST_CURRENT_TEST"):
         return os.getenv("DATABASE_URL", "sqlite:///:memory:")
 
@@ -22,6 +26,11 @@ def get_database_url() -> str:
         return url
 
     # Default to file-based SQLite for development
+    # This supports proper migration workflow:
+    # - Developers can rebuild: rm silica-cron.db && silica cron migrate upgrade
+    # - Schema changes are auto-detected by Alembic
+    # - Migration rollbacks work with real database state
+    # - Database can be inspected with sqlite3 CLI tools
     return "sqlite:///./silica-cron.db"
 
 

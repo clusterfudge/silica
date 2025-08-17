@@ -59,12 +59,14 @@ class CronMigrationManager:
     def get_database_url(self) -> str:
         """Get database URL with fallbacks.
 
-        Uses SQLite by default for development safety.
+        Uses file-based SQLite for development to support proper migration workflow.
+        Only tests use in-memory SQLite for isolation.
         """
-        # For tests, use in-memory SQLite if no explicit URL
+        # For tests only, use in-memory SQLite if no explicit URL
         if os.getenv("PYTEST_CURRENT_TEST"):
             return os.getenv("DATABASE_URL", "sqlite:///:memory:")
 
+        # Priority order for all other environments (dev/prod)
         url = os.getenv("DATABASE_URL")
         if url:
             return url
@@ -74,6 +76,11 @@ class CronMigrationManager:
             return url
 
         # Default to file-based SQLite for development
+        # This allows proper migration workflow:
+        # - Developers can rebuild: rm silica-cron.db && silica cron migrate upgrade
+        # - Schema changes are auto-detected by Alembic
+        # - Migration rollbacks work properly with real database state
+        # - Developers can inspect database contents with sqlite3 CLI
         return "sqlite:///./silica-cron.db"
 
     def _get_engine(self):
