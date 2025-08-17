@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     host: str = Field(default="127.0.0.1", description="Host to bind to")
     port: int = Field(default=8080, description="Port to bind to")
     log_level: str = Field(default="info", description="Log level")
+    log_to_file: bool = Field(default=True, description="Enable file logging")
+    log_dir: Path = Field(default=Path("./logs"), description="Log directory path")
 
     class Config:
         env_file = ".env"

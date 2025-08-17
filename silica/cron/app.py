@@ -1,6 +1,5 @@
 """Main FastAPI application."""
 
-import logging
 import uvicorn
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, Request
@@ -11,6 +10,7 @@ from sqlalchemy.orm import Session
 from os.path import join, dirname
 
 from .config import get_settings
+from .config.logging import setup_logging, get_logger
 from .models import get_db
 from .routes import prompts, jobs, dashboard
 from .scheduler import scheduler
@@ -20,9 +20,8 @@ from .scripts.litestream_manager import LitestreamManager
 settings = get_settings()
 
 # Configure logging
-log_level = getattr(logging, settings.log_level.upper())
-logging.basicConfig(level=log_level)
-logger = logging.getLogger(__name__)
+setup_logging()
+logger = get_logger(__name__)
 
 # Initialize Litestream manager
 litestream_manager = LitestreamManager()

@@ -12,6 +12,10 @@ from unittest.mock import MagicMock, patch
 from silica.cron.app import app
 from silica.cron.models import Base, get_db, Prompt, ScheduledJob, JobExecution
 from silica.cron.scheduler import PromptScheduler
+from silica.cron.config.logging import configure_test_logging
+
+# Configure test logging to suppress noise
+configure_test_logging()
 
 
 @pytest.fixture

@@ -4,7 +4,7 @@ from pathlib import Path
 import cyclopts
 from typing import Optional
 
-from .config import get_settings
+from .config import get_settings, setup_logging
 from .scripts.litestream_manager import LitestreamManager
 
 cron = cyclopts.App(name="cron", help="Silica Cron management commands")
@@ -18,6 +18,9 @@ def serve(
     enable_litestream: bool = False,
 ):
     """Start the cron web application."""
+    # Setup logging first
+    setup_logging()
+
     from .app import entrypoint
 
     entrypoint(
