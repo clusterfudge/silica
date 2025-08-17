@@ -1,13 +1,32 @@
 """Database configuration and base model with smart migration detection."""
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
 import os
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import declarative_base, sessionmaker
+
+
+def get_database_url() -> str:
+    """Get database URL with proper defaults."""
+    # For tests, use in-memory SQLite if no explicit URL
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return os.getenv("DATABASE_URL", "sqlite:///:memory:")
+
+    # Priority: environment variable, then config, then default
+    url = os.getenv("DATABASE_URL")
+    if url:
+        return url
+
+    url = os.getenv("CRON_DATABASE_URL")
+    if url:
+        return url
+
+    # Default to file-based SQLite for development
+    return "sqlite:///./silica-cron.db"
+
+
 # Database configuration with fallbacks
-DATABASE_URL = os.getenv(
-    "DATABASE_URL", os.getenv("CRON_DATABASE_URL", "sqlite:///./silica-cron.db")
-)
+DATABASE_URL = get_database_url()
 
 engine = create_engine(
     DATABASE_URL,
@@ -75,6 +94,6 @@ def init_database():
     """Initialize database with current schema.
 
     This creates tables if they don't exist, but doesn't handle migrations.
-    Use `silica cron-migrate upgrade` for proper migration management.
+    Use `silica cron migrate upgrade` for proper migration management.
     """
     Base.metadata.create_all(bind=engine)

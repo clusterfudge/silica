@@ -27,6 +27,10 @@ target_metadata = Base.metadata
 
 def get_database_url():
     """Get database URL, with fallback for cron-specific database."""
+    # For tests, use in-memory SQLite if no explicit URL
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return os.getenv("DATABASE_URL", "sqlite:///:memory:")
+
     # Priority: environment variable, then config, then default
     url = os.getenv("DATABASE_URL")
     if url:
@@ -36,6 +40,7 @@ def get_database_url():
     if url:
         return url
 
+    # Default to file-based SQLite for development
     return "sqlite:///./silica-cron.db"
 
 

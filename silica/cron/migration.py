@@ -21,37 +21,50 @@ class CronMigrationManager:
 
     @property
     def is_production(self) -> bool:
-        """Detect if running in production environment."""
+        """Detect if running in production environment.
+
+        Production must be explicitly indicated - we default to development for safety.
+        """
         return any(
             [
+                # Explicit production setting (most reliable)
+                os.getenv("SILICA_ENVIRONMENT") == "production",
+                # Common production platform indicators
                 os.getenv("DYNO"),  # Heroku
                 os.getenv("PIKU_APP_NAME"),  # Piku
                 os.getenv("DOKKU_APP_NAME"),  # Dokku
                 os.getenv("FLY_APP_NAME"),  # Fly.io
                 os.getenv("RAILWAY_ENVIRONMENT"),  # Railway
-                os.getenv("SILICA_ENVIRONMENT") == "production",
+                # Production database indicators (PostgreSQL = likely production)
                 os.getenv("DATABASE_URL", "").startswith(
                     ("postgres://", "postgresql://")
                 ),
-                os.path.exists("/.dockerenv"),  # Container
-                os.getenv("AWS_EXECUTION_ENV"),  # AWS Lambda/ECS
-                os.getenv("GOOGLE_CLOUD_PROJECT"),  # Google Cloud
+                # Container/cloud indicators (be conservative)
+                os.getenv("AWS_EXECUTION_ENV")
+                and not os.getenv("AWS_SAM_LOCAL"),  # AWS but not local SAM
+                os.getenv("GOOGLE_CLOUD_PROJECT")
+                and os.getenv("GAE_APPLICATION"),  # Google Cloud App Engine
             ]
         )
 
     @property
     def is_development(self) -> bool:
-        """Detect if running in development."""
-        return not self.is_production and any(
-            [
-                os.getenv("SILICA_ENVIRONMENT") == "development",
-                os.path.exists(".git"),  # In a git repo
-                "sqlite" in self.get_database_url(),
-            ]
-        )
+        """Detect if running in development environment.
+
+        Development is the default - safer to assume dev than prod.
+        """
+        # Default to development unless clearly in production
+        return not self.is_production
 
     def get_database_url(self) -> str:
-        """Get database URL with fallbacks."""
+        """Get database URL with fallbacks.
+
+        Uses SQLite by default for development safety.
+        """
+        # For tests, use in-memory SQLite if no explicit URL
+        if os.getenv("PYTEST_CURRENT_TEST"):
+            return os.getenv("DATABASE_URL", "sqlite:///:memory:")
+
         url = os.getenv("DATABASE_URL")
         if url:
             return url
@@ -60,6 +73,7 @@ class CronMigrationManager:
         if url:
             return url
 
+        # Default to file-based SQLite for development
         return "sqlite:///./silica-cron.db"
 
     def _get_engine(self):
@@ -119,7 +133,7 @@ class CronMigrationManager:
         if not self.is_production:
             if self.needs_migration():
                 print(f"ℹ️  {self.module_name} database needs migration.")
-                print("   Run: silica cron-migrate upgrade")
+                print("   Run: silica cron migrate upgrade")
                 return False  # Don't auto-migrate in development
             return True
 
