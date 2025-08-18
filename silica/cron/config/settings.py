@@ -13,7 +13,7 @@ class Settings(BaseSettings):
 
     # Environment
     environment: str = Field(default="dev", description="Environment (dev, prod, etc.)")
-    debug: bool = Field(default=True, description="Debug mode")
+    debug: bool = Field(default=False, description="Debug mode")
 
     # Database
     data_dir: Path = Field(default=Path("./data"), description="Data directory path")

@@ -254,3 +254,496 @@ FROM scheduled_jobs
 WHERE scheduled_jobs.is_active = 1
 2025-08-17 13:00:41 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [generated in 0.00022s] ()
 2025-08-17 13:00:41 - sqlalchemy.engine.Engine - INFO - _connection_rollback_impl:2705 - ROLLBACK
+2025-08-17 20:14:45 - silica.cron.scheduler - INFO - _run_scheduler:55 - Scheduler loop started
+2025-08-17 20:14:45 - silica.cron.scheduler - INFO - start:44 - Scheduler started
+2025-08-17 20:14:48 - silica.cron.app - INFO - lifespan:34 - Starting cron application
+2025-08-17 20:14:48 - silica.cron.models.base - INFO - init_database:62 - Creating database tables at data/silica-cron.db
+2025-08-17 20:14:48 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:14:48 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("prompts")
+2025-08-17 20:14:48 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:14:48 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("scheduled_jobs")
+2025-08-17 20:14:48 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:14:48 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("job_executions")
+2025-08-17 20:14:48 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:14:48 - sqlalchemy.engine.Engine - INFO - _connection_commit_impl:2708 - COMMIT
+2025-08-17 20:14:48 - silica.cron.scheduler - INFO - _run_scheduler:55 - Scheduler loop started
+2025-08-17 20:14:48 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:14:48 - silica.cron.scheduler - INFO - start:44 - Scheduler started
+2025-08-17 20:14:48 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - SELECT scheduled_jobs.id AS scheduled_jobs_id, scheduled_jobs.name AS scheduled_jobs_name, scheduled_jobs.prompt_id AS scheduled_jobs_prompt_id, scheduled_jobs.cron_expression AS scheduled_jobs_cron_expression, scheduled_jobs.is_active AS scheduled_jobs_is_active, scheduled_jobs.created_at AS scheduled_jobs_created_at, scheduled_jobs.updated_at AS scheduled_jobs_updated_at 
+FROM scheduled_jobs 
+WHERE scheduled_jobs.is_active = 1
+2025-08-17 20:14:48 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [generated in 0.00018s] ()
+2025-08-17 20:14:48 - sqlalchemy.engine.Engine - INFO - _connection_rollback_impl:2705 - ROLLBACK
+2025-08-17 20:14:50 - silica.cron.scheduler - INFO - stop:51 - Scheduler stopped
+2025-08-17 20:14:50 - silica.cron.scheduler - INFO - _call_agent:199 - Executing silica with model haiku, persona basic_agent: Test prompt...
+2025-08-17 20:14:50 - silica.cron.scheduler - INFO - _call_agent:199 - Executing silica with model haiku, persona None: Test prompt...
+2025-08-17 20:14:50 - silica.cron.scheduler - ERROR - _call_agent:272 - Error in silica execution: silica execution failed (exit code 1): Error: Something went wrong
+2025-08-17 20:14:50 - silica.cron.scheduler - INFO - _call_agent:199 - Executing silica with model haiku, persona None: Test prompt...
+2025-08-17 20:14:50 - silica.cron.scheduler - INFO - _call_agent:199 - Executing silica with model haiku, persona None: Test prompt...
+2025-08-17 20:14:50 - silica.cron.scheduler - INFO - _call_agent:199 - Executing silica with model haiku, persona None: Test prompt...
+2025-08-17 20:14:50 - silica.cron.scheduler - INFO - _execute_job:123 - Executing job 1 (Test Job)
+2025-08-17 20:14:50 - silica.cron.scheduler - INFO - _execute_job:140 - Job 1 completed successfully with session session-123
+2025-08-17 20:15:09 - silica.cron.app - INFO - lifespan:58 - Shutting down cron application
+2025-08-17 20:15:14 - silica.cron.scheduler - INFO - stop:51 - Scheduler stopped
+2025-08-17 20:15:15 - silica.cron.app - INFO - lifespan:34 - Starting cron application
+2025-08-17 20:15:15 - silica.cron.models.base - INFO - init_database:62 - Creating database tables at data/silica-cron.db
+2025-08-17 20:15:15 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:15:15 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("prompts")
+2025-08-17 20:15:15 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:15:15 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("scheduled_jobs")
+2025-08-17 20:15:15 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:15:15 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("job_executions")
+2025-08-17 20:15:15 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:15:15 - sqlalchemy.engine.Engine - INFO - _connection_commit_impl:2708 - COMMIT
+2025-08-17 20:15:15 - silica.cron.scheduler - INFO - _run_scheduler:55 - Scheduler loop started
+2025-08-17 20:15:15 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:15:15 - silica.cron.scheduler - INFO - start:44 - Scheduler started
+2025-08-17 20:15:15 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - SELECT scheduled_jobs.id AS scheduled_jobs_id, scheduled_jobs.name AS scheduled_jobs_name, scheduled_jobs.prompt_id AS scheduled_jobs_prompt_id, scheduled_jobs.cron_expression AS scheduled_jobs_cron_expression, scheduled_jobs.is_active AS scheduled_jobs_is_active, scheduled_jobs.created_at AS scheduled_jobs_created_at, scheduled_jobs.updated_at AS scheduled_jobs_updated_at 
+FROM scheduled_jobs 
+WHERE scheduled_jobs.is_active = 1
+2025-08-17 20:15:15 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [generated in 0.00017s] ()
+2025-08-17 20:15:15 - sqlalchemy.engine.Engine - INFO - _connection_rollback_impl:2705 - ROLLBACK
+2025-08-17 20:15:31 - silica.cron.app - INFO - lifespan:58 - Shutting down cron application
+2025-08-17 20:15:36 - silica.cron.scheduler - INFO - stop:51 - Scheduler stopped
+2025-08-17 20:15:37 - silica.cron.app - INFO - lifespan:34 - Starting cron application
+2025-08-17 20:15:37 - silica.cron.models.base - INFO - init_database:62 - Creating database tables at data/silica-cron.db
+2025-08-17 20:15:37 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:15:37 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("prompts")
+2025-08-17 20:15:37 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:15:37 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("scheduled_jobs")
+2025-08-17 20:15:37 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:15:37 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("job_executions")
+2025-08-17 20:15:37 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:15:37 - sqlalchemy.engine.Engine - INFO - _connection_commit_impl:2708 - COMMIT
+2025-08-17 20:15:37 - silica.cron.scheduler - INFO - _run_scheduler:55 - Scheduler loop started
+2025-08-17 20:15:37 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:15:37 - silica.cron.scheduler - INFO - start:44 - Scheduler started
+2025-08-17 20:15:37 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - SELECT scheduled_jobs.id AS scheduled_jobs_id, scheduled_jobs.name AS scheduled_jobs_name, scheduled_jobs.prompt_id AS scheduled_jobs_prompt_id, scheduled_jobs.cron_expression AS scheduled_jobs_cron_expression, scheduled_jobs.is_active AS scheduled_jobs_is_active, scheduled_jobs.created_at AS scheduled_jobs_created_at, scheduled_jobs.updated_at AS scheduled_jobs_updated_at 
+FROM scheduled_jobs 
+WHERE scheduled_jobs.is_active = 1
+2025-08-17 20:15:37 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [generated in 0.00031s] ()
+2025-08-17 20:15:37 - sqlalchemy.engine.Engine - INFO - _connection_rollback_impl:2705 - ROLLBACK
+2025-08-17 20:15:40 - silica.cron.app - INFO - lifespan:58 - Shutting down cron application
+2025-08-17 20:15:45 - silica.cron.scheduler - INFO - stop:51 - Scheduler stopped
+2025-08-17 20:15:46 - silica.cron.app - INFO - lifespan:34 - Starting cron application
+2025-08-17 20:15:46 - silica.cron.models.base - INFO - init_database:62 - Creating database tables at data/silica-cron.db
+2025-08-17 20:15:46 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:15:46 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("prompts")
+2025-08-17 20:15:46 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:15:46 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("scheduled_jobs")
+2025-08-17 20:15:46 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:15:46 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("job_executions")
+2025-08-17 20:15:46 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:15:46 - sqlalchemy.engine.Engine - INFO - _connection_commit_impl:2708 - COMMIT
+2025-08-17 20:15:46 - silica.cron.scheduler - INFO - _run_scheduler:55 - Scheduler loop started
+2025-08-17 20:15:46 - silica.cron.scheduler - INFO - start:44 - Scheduler started
+2025-08-17 20:15:46 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:15:46 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - SELECT scheduled_jobs.id AS scheduled_jobs_id, scheduled_jobs.name AS scheduled_jobs_name, scheduled_jobs.prompt_id AS scheduled_jobs_prompt_id, scheduled_jobs.cron_expression AS scheduled_jobs_cron_expression, scheduled_jobs.is_active AS scheduled_jobs_is_active, scheduled_jobs.created_at AS scheduled_jobs_created_at, scheduled_jobs.updated_at AS scheduled_jobs_updated_at 
+FROM scheduled_jobs 
+WHERE scheduled_jobs.is_active = 1
+2025-08-17 20:15:46 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [generated in 0.00015s] ()
+2025-08-17 20:15:46 - sqlalchemy.engine.Engine - INFO - _connection_rollback_impl:2705 - ROLLBACK
+2025-08-17 20:15:52 - silica.cron.app - INFO - lifespan:58 - Shutting down cron application
+2025-08-17 20:15:57 - silica.cron.scheduler - INFO - stop:51 - Scheduler stopped
+2025-08-17 20:15:58 - silica.cron.app - INFO - lifespan:34 - Starting cron application
+2025-08-17 20:15:58 - silica.cron.models.base - INFO - init_database:62 - Creating database tables at data/silica-cron.db
+2025-08-17 20:15:58 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:15:58 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("prompts")
+2025-08-17 20:15:58 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:15:58 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("scheduled_jobs")
+2025-08-17 20:15:58 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:15:58 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("job_executions")
+2025-08-17 20:15:58 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:15:58 - sqlalchemy.engine.Engine - INFO - _connection_commit_impl:2708 - COMMIT
+2025-08-17 20:15:58 - silica.cron.scheduler - INFO - _run_scheduler:55 - Scheduler loop started
+2025-08-17 20:15:58 - silica.cron.scheduler - INFO - start:44 - Scheduler started
+2025-08-17 20:15:58 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:15:58 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - SELECT scheduled_jobs.id AS scheduled_jobs_id, scheduled_jobs.name AS scheduled_jobs_name, scheduled_jobs.prompt_id AS scheduled_jobs_prompt_id, scheduled_jobs.cron_expression AS scheduled_jobs_cron_expression, scheduled_jobs.is_active AS scheduled_jobs_is_active, scheduled_jobs.created_at AS scheduled_jobs_created_at, scheduled_jobs.updated_at AS scheduled_jobs_updated_at 
+FROM scheduled_jobs 
+WHERE scheduled_jobs.is_active = 1
+2025-08-17 20:15:58 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [generated in 0.00010s] ()
+2025-08-17 20:15:58 - sqlalchemy.engine.Engine - INFO - _connection_rollback_impl:2705 - ROLLBACK
+2025-08-17 20:16:06 - silica.cron.app - INFO - lifespan:58 - Shutting down cron application
+2025-08-17 20:16:11 - silica.cron.scheduler - INFO - stop:51 - Scheduler stopped
+2025-08-17 20:16:12 - silica.cron.app - INFO - lifespan:34 - Starting cron application
+2025-08-17 20:16:12 - silica.cron.models.base - INFO - init_database:62 - Creating database tables at data/silica-cron.db
+2025-08-17 20:16:12 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:16:12 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("prompts")
+2025-08-17 20:16:12 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:16:12 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("scheduled_jobs")
+2025-08-17 20:16:12 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:16:12 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("job_executions")
+2025-08-17 20:16:12 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:16:12 - sqlalchemy.engine.Engine - INFO - _connection_commit_impl:2708 - COMMIT
+2025-08-17 20:16:12 - silica.cron.scheduler - INFO - _run_scheduler:55 - Scheduler loop started
+2025-08-17 20:16:12 - silica.cron.scheduler - INFO - start:44 - Scheduler started
+2025-08-17 20:16:12 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:16:12 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - SELECT scheduled_jobs.id AS scheduled_jobs_id, scheduled_jobs.name AS scheduled_jobs_name, scheduled_jobs.prompt_id AS scheduled_jobs_prompt_id, scheduled_jobs.cron_expression AS scheduled_jobs_cron_expression, scheduled_jobs.is_active AS scheduled_jobs_is_active, scheduled_jobs.created_at AS scheduled_jobs_created_at, scheduled_jobs.updated_at AS scheduled_jobs_updated_at 
+FROM scheduled_jobs 
+WHERE scheduled_jobs.is_active = 1
+2025-08-17 20:16:12 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [generated in 0.00308s] ()
+2025-08-17 20:16:12 - sqlalchemy.engine.Engine - INFO - _connection_rollback_impl:2705 - ROLLBACK
+2025-08-17 20:16:38 - silica.cron.app - INFO - lifespan:58 - Shutting down cron application
+2025-08-17 20:16:42 - silica.cron.scheduler - INFO - stop:51 - Scheduler stopped
+2025-08-17 20:16:43 - silica.cron.app - INFO - lifespan:34 - Starting cron application
+2025-08-17 20:16:43 - silica.cron.models.base - INFO - init_database:62 - Creating database tables at data/silica-cron.db
+2025-08-17 20:16:43 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:16:43 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("prompts")
+2025-08-17 20:16:43 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:16:43 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("scheduled_jobs")
+2025-08-17 20:16:43 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:16:43 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("job_executions")
+2025-08-17 20:16:43 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:16:43 - sqlalchemy.engine.Engine - INFO - _connection_commit_impl:2708 - COMMIT
+2025-08-17 20:16:43 - silica.cron.scheduler - INFO - _run_scheduler:55 - Scheduler loop started
+2025-08-17 20:16:43 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:16:43 - silica.cron.scheduler - INFO - start:44 - Scheduler started
+2025-08-17 20:16:43 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - SELECT scheduled_jobs.id AS scheduled_jobs_id, scheduled_jobs.name AS scheduled_jobs_name, scheduled_jobs.prompt_id AS scheduled_jobs_prompt_id, scheduled_jobs.cron_expression AS scheduled_jobs_cron_expression, scheduled_jobs.is_active AS scheduled_jobs_is_active, scheduled_jobs.created_at AS scheduled_jobs_created_at, scheduled_jobs.updated_at AS scheduled_jobs_updated_at 
+FROM scheduled_jobs 
+WHERE scheduled_jobs.is_active = 1
+2025-08-17 20:16:43 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [generated in 0.00025s] ()
+2025-08-17 20:16:43 - sqlalchemy.engine.Engine - INFO - _connection_rollback_impl:2705 - ROLLBACK
+2025-08-17 20:17:13 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:17:13 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - SELECT scheduled_jobs.id AS scheduled_jobs_id, scheduled_jobs.name AS scheduled_jobs_name, scheduled_jobs.prompt_id AS scheduled_jobs_prompt_id, scheduled_jobs.cron_expression AS scheduled_jobs_cron_expression, scheduled_jobs.is_active AS scheduled_jobs_is_active, scheduled_jobs.created_at AS scheduled_jobs_created_at, scheduled_jobs.updated_at AS scheduled_jobs_updated_at 
+FROM scheduled_jobs 
+WHERE scheduled_jobs.is_active = 1
+2025-08-17 20:17:13 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [cached since 30.01s ago] ()
+2025-08-17 20:17:13 - sqlalchemy.engine.Engine - INFO - _connection_rollback_impl:2705 - ROLLBACK
+2025-08-17 20:17:43 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:17:43 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - SELECT scheduled_jobs.id AS scheduled_jobs_id, scheduled_jobs.name AS scheduled_jobs_name, scheduled_jobs.prompt_id AS scheduled_jobs_prompt_id, scheduled_jobs.cron_expression AS scheduled_jobs_cron_expression, scheduled_jobs.is_active AS scheduled_jobs_is_active, scheduled_jobs.created_at AS scheduled_jobs_created_at, scheduled_jobs.updated_at AS scheduled_jobs_updated_at 
+FROM scheduled_jobs 
+WHERE scheduled_jobs.is_active = 1
+2025-08-17 20:17:43 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [cached since 60.01s ago] ()
+2025-08-17 20:17:43 - sqlalchemy.engine.Engine - INFO - _connection_rollback_impl:2705 - ROLLBACK
+2025-08-17 20:17:55 - silica.cron.app - INFO - lifespan:58 - Shutting down cron application
+2025-08-17 20:18:00 - silica.cron.scheduler - INFO - stop:51 - Scheduler stopped
+2025-08-17 20:18:01 - silica.cron.app - INFO - lifespan:34 - Starting cron application
+2025-08-17 20:18:01 - silica.cron.models.base - INFO - init_database:62 - Creating database tables at data/silica-cron.db
+2025-08-17 20:18:01 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:18:01 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("prompts")
+2025-08-17 20:18:01 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:18:01 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("scheduled_jobs")
+2025-08-17 20:18:01 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:18:01 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("job_executions")
+2025-08-17 20:18:01 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:18:01 - sqlalchemy.engine.Engine - INFO - _connection_commit_impl:2708 - COMMIT
+2025-08-17 20:18:01 - silica.cron.scheduler - INFO - _run_scheduler:55 - Scheduler loop started
+2025-08-17 20:18:01 - silica.cron.scheduler - INFO - start:44 - Scheduler started
+2025-08-17 20:18:01 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:18:01 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - SELECT scheduled_jobs.id AS scheduled_jobs_id, scheduled_jobs.name AS scheduled_jobs_name, scheduled_jobs.prompt_id AS scheduled_jobs_prompt_id, scheduled_jobs.cron_expression AS scheduled_jobs_cron_expression, scheduled_jobs.is_active AS scheduled_jobs_is_active, scheduled_jobs.created_at AS scheduled_jobs_created_at, scheduled_jobs.updated_at AS scheduled_jobs_updated_at 
+FROM scheduled_jobs 
+WHERE scheduled_jobs.is_active = 1
+2025-08-17 20:18:01 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [generated in 0.00011s] ()
+2025-08-17 20:18:01 - sqlalchemy.engine.Engine - INFO - _connection_rollback_impl:2705 - ROLLBACK
+2025-08-17 20:18:05 - silica.cron.app - INFO - lifespan:58 - Shutting down cron application
+2025-08-17 20:18:10 - silica.cron.scheduler - INFO - stop:51 - Scheduler stopped
+2025-08-17 20:18:11 - silica.cron.app - INFO - lifespan:34 - Starting cron application
+2025-08-17 20:18:11 - silica.cron.models.base - INFO - init_database:62 - Creating database tables at data/silica-cron.db
+2025-08-17 20:18:11 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:18:11 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("prompts")
+2025-08-17 20:18:11 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:18:11 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("scheduled_jobs")
+2025-08-17 20:18:11 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:18:11 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("job_executions")
+2025-08-17 20:18:11 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:18:11 - sqlalchemy.engine.Engine - INFO - _connection_commit_impl:2708 - COMMIT
+2025-08-17 20:18:11 - silica.cron.scheduler - INFO - _run_scheduler:55 - Scheduler loop started
+2025-08-17 20:18:11 - silica.cron.scheduler - INFO - start:44 - Scheduler started
+2025-08-17 20:18:11 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:18:11 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - SELECT scheduled_jobs.id AS scheduled_jobs_id, scheduled_jobs.name AS scheduled_jobs_name, scheduled_jobs.prompt_id AS scheduled_jobs_prompt_id, scheduled_jobs.cron_expression AS scheduled_jobs_cron_expression, scheduled_jobs.is_active AS scheduled_jobs_is_active, scheduled_jobs.created_at AS scheduled_jobs_created_at, scheduled_jobs.updated_at AS scheduled_jobs_updated_at 
+FROM scheduled_jobs 
+WHERE scheduled_jobs.is_active = 1
+2025-08-17 20:18:11 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [generated in 0.00023s] ()
+2025-08-17 20:18:11 - sqlalchemy.engine.Engine - INFO - _connection_rollback_impl:2705 - ROLLBACK
+2025-08-17 20:18:40 - silica.cron.app - INFO - lifespan:58 - Shutting down cron application
+2025-08-17 20:18:41 - silica.cron.scheduler - INFO - stop:51 - Scheduler stopped
+2025-08-17 20:18:41 - silica.cron.app - INFO - lifespan:34 - Starting cron application
+2025-08-17 20:18:41 - silica.cron.models.base - INFO - init_database:62 - Creating database tables at data/silica-cron.db
+2025-08-17 20:18:41 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:18:41 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("prompts")
+2025-08-17 20:18:41 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:18:41 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("scheduled_jobs")
+2025-08-17 20:18:41 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:18:41 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("job_executions")
+2025-08-17 20:18:41 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:18:41 - sqlalchemy.engine.Engine - INFO - _connection_commit_impl:2708 - COMMIT
+2025-08-17 20:18:41 - silica.cron.scheduler - INFO - _run_scheduler:55 - Scheduler loop started
+2025-08-17 20:18:41 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:18:41 - silica.cron.scheduler - INFO - start:44 - Scheduler started
+2025-08-17 20:18:41 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - SELECT scheduled_jobs.id AS scheduled_jobs_id, scheduled_jobs.name AS scheduled_jobs_name, scheduled_jobs.prompt_id AS scheduled_jobs_prompt_id, scheduled_jobs.cron_expression AS scheduled_jobs_cron_expression, scheduled_jobs.is_active AS scheduled_jobs_is_active, scheduled_jobs.created_at AS scheduled_jobs_created_at, scheduled_jobs.updated_at AS scheduled_jobs_updated_at 
+FROM scheduled_jobs 
+WHERE scheduled_jobs.is_active = 1
+2025-08-17 20:18:41 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [generated in 0.00017s] ()
+2025-08-17 20:18:41 - sqlalchemy.engine.Engine - INFO - _connection_rollback_impl:2705 - ROLLBACK
+2025-08-17 20:18:59 - silica.cron.app - INFO - lifespan:58 - Shutting down cron application
+2025-08-17 20:19:04 - silica.cron.scheduler - INFO - stop:51 - Scheduler stopped
+2025-08-17 20:19:04 - silica.cron.app - INFO - lifespan:34 - Starting cron application
+2025-08-17 20:19:04 - silica.cron.models.base - INFO - init_database:62 - Creating database tables at data/silica-cron.db
+2025-08-17 20:19:04 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:19:04 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("prompts")
+2025-08-17 20:19:04 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:19:04 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("scheduled_jobs")
+2025-08-17 20:19:04 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:19:04 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("job_executions")
+2025-08-17 20:19:04 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:19:04 - sqlalchemy.engine.Engine - INFO - _connection_commit_impl:2708 - COMMIT
+2025-08-17 20:19:04 - silica.cron.scheduler - INFO - _run_scheduler:55 - Scheduler loop started
+2025-08-17 20:19:04 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:19:04 - silica.cron.scheduler - INFO - start:44 - Scheduler started
+2025-08-17 20:19:04 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - SELECT scheduled_jobs.id AS scheduled_jobs_id, scheduled_jobs.name AS scheduled_jobs_name, scheduled_jobs.prompt_id AS scheduled_jobs_prompt_id, scheduled_jobs.cron_expression AS scheduled_jobs_cron_expression, scheduled_jobs.is_active AS scheduled_jobs_is_active, scheduled_jobs.created_at AS scheduled_jobs_created_at, scheduled_jobs.updated_at AS scheduled_jobs_updated_at 
+FROM scheduled_jobs 
+WHERE scheduled_jobs.is_active = 1
+2025-08-17 20:19:04 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [generated in 0.00021s] ()
+2025-08-17 20:19:04 - sqlalchemy.engine.Engine - INFO - _connection_rollback_impl:2705 - ROLLBACK
+2025-08-17 20:19:21 - silica.cron.app - INFO - lifespan:58 - Shutting down cron application
+2025-08-17 20:19:26 - silica.cron.scheduler - INFO - stop:51 - Scheduler stopped
+2025-08-17 20:19:27 - silica.cron.app - INFO - lifespan:34 - Starting cron application
+2025-08-17 20:19:27 - silica.cron.models.base - INFO - init_database:62 - Creating database tables at data/silica-cron.db
+2025-08-17 20:19:27 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:19:27 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("prompts")
+2025-08-17 20:19:27 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:19:27 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("scheduled_jobs")
+2025-08-17 20:19:27 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:19:27 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("job_executions")
+2025-08-17 20:19:27 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:19:27 - sqlalchemy.engine.Engine - INFO - _connection_commit_impl:2708 - COMMIT
+2025-08-17 20:19:27 - silica.cron.scheduler - INFO - _run_scheduler:55 - Scheduler loop started
+2025-08-17 20:19:27 - silica.cron.scheduler - INFO - start:44 - Scheduler started
+2025-08-17 20:19:27 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:19:27 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - SELECT scheduled_jobs.id AS scheduled_jobs_id, scheduled_jobs.name AS scheduled_jobs_name, scheduled_jobs.prompt_id AS scheduled_jobs_prompt_id, scheduled_jobs.cron_expression AS scheduled_jobs_cron_expression, scheduled_jobs.is_active AS scheduled_jobs_is_active, scheduled_jobs.created_at AS scheduled_jobs_created_at, scheduled_jobs.updated_at AS scheduled_jobs_updated_at 
+FROM scheduled_jobs 
+WHERE scheduled_jobs.is_active = 1
+2025-08-17 20:19:27 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [generated in 0.00009s] ()
+2025-08-17 20:19:27 - sqlalchemy.engine.Engine - INFO - _connection_rollback_impl:2705 - ROLLBACK
+2025-08-17 20:19:29 - silica.cron.app - INFO - lifespan:58 - Shutting down cron application
+2025-08-17 20:19:34 - silica.cron.scheduler - INFO - stop:51 - Scheduler stopped
+2025-08-17 20:19:34 - silica.cron.app - INFO - lifespan:34 - Starting cron application
+2025-08-17 20:19:34 - silica.cron.models.base - INFO - init_database:62 - Creating database tables at data/silica-cron.db
+2025-08-17 20:19:34 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:19:34 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("prompts")
+2025-08-17 20:19:34 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:19:34 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("scheduled_jobs")
+2025-08-17 20:19:34 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:19:34 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("job_executions")
+2025-08-17 20:19:34 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:19:34 - sqlalchemy.engine.Engine - INFO - _connection_commit_impl:2708 - COMMIT
+2025-08-17 20:19:34 - silica.cron.scheduler - INFO - _run_scheduler:55 - Scheduler loop started
+2025-08-17 20:19:34 - silica.cron.scheduler - INFO - start:44 - Scheduler started
+2025-08-17 20:19:34 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:19:34 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - SELECT scheduled_jobs.id AS scheduled_jobs_id, scheduled_jobs.name AS scheduled_jobs_name, scheduled_jobs.prompt_id AS scheduled_jobs_prompt_id, scheduled_jobs.cron_expression AS scheduled_jobs_cron_expression, scheduled_jobs.is_active AS scheduled_jobs_is_active, scheduled_jobs.created_at AS scheduled_jobs_created_at, scheduled_jobs.updated_at AS scheduled_jobs_updated_at 
+FROM scheduled_jobs 
+WHERE scheduled_jobs.is_active = 1
+2025-08-17 20:19:34 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [generated in 0.00013s] ()
+2025-08-17 20:19:34 - sqlalchemy.engine.Engine - INFO - _connection_rollback_impl:2705 - ROLLBACK
+2025-08-17 20:19:36 - silica.cron.app - INFO - lifespan:58 - Shutting down cron application
+2025-08-17 20:19:41 - silica.cron.scheduler - INFO - stop:51 - Scheduler stopped
+2025-08-17 20:19:42 - silica.cron.app - INFO - lifespan:34 - Starting cron application
+2025-08-17 20:19:42 - silica.cron.models.base - INFO - init_database:62 - Creating database tables at data/silica-cron.db
+2025-08-17 20:19:42 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:19:42 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("prompts")
+2025-08-17 20:19:42 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:19:42 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("scheduled_jobs")
+2025-08-17 20:19:42 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:19:42 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("job_executions")
+2025-08-17 20:19:42 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:19:42 - sqlalchemy.engine.Engine - INFO - _connection_commit_impl:2708 - COMMIT
+2025-08-17 20:19:42 - silica.cron.scheduler - INFO - _run_scheduler:55 - Scheduler loop started
+2025-08-17 20:19:42 - silica.cron.scheduler - INFO - start:44 - Scheduler started
+2025-08-17 20:19:42 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:19:42 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - SELECT scheduled_jobs.id AS scheduled_jobs_id, scheduled_jobs.name AS scheduled_jobs_name, scheduled_jobs.prompt_id AS scheduled_jobs_prompt_id, scheduled_jobs.cron_expression AS scheduled_jobs_cron_expression, scheduled_jobs.is_active AS scheduled_jobs_is_active, scheduled_jobs.created_at AS scheduled_jobs_created_at, scheduled_jobs.updated_at AS scheduled_jobs_updated_at 
+FROM scheduled_jobs 
+WHERE scheduled_jobs.is_active = 1
+2025-08-17 20:19:42 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [generated in 0.00020s] ()
+2025-08-17 20:19:42 - sqlalchemy.engine.Engine - INFO - _connection_rollback_impl:2705 - ROLLBACK
+2025-08-17 20:19:42 - silica.cron.app - INFO - lifespan:58 - Shutting down cron application
+2025-08-17 20:19:47 - silica.cron.scheduler - INFO - stop:51 - Scheduler stopped
+2025-08-17 20:19:48 - silica.cron.app - INFO - lifespan:34 - Starting cron application
+2025-08-17 20:19:48 - silica.cron.models.base - INFO - init_database:62 - Creating database tables at data/silica-cron.db
+2025-08-17 20:19:48 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:19:48 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("prompts")
+2025-08-17 20:19:48 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:19:48 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("scheduled_jobs")
+2025-08-17 20:19:48 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:19:48 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("job_executions")
+2025-08-17 20:19:48 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:19:48 - sqlalchemy.engine.Engine - INFO - _connection_commit_impl:2708 - COMMIT
+2025-08-17 20:19:48 - silica.cron.scheduler - INFO - _run_scheduler:55 - Scheduler loop started
+2025-08-17 20:19:48 - silica.cron.scheduler - INFO - start:44 - Scheduler started
+2025-08-17 20:19:48 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:19:48 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - SELECT scheduled_jobs.id AS scheduled_jobs_id, scheduled_jobs.name AS scheduled_jobs_name, scheduled_jobs.prompt_id AS scheduled_jobs_prompt_id, scheduled_jobs.cron_expression AS scheduled_jobs_cron_expression, scheduled_jobs.is_active AS scheduled_jobs_is_active, scheduled_jobs.created_at AS scheduled_jobs_created_at, scheduled_jobs.updated_at AS scheduled_jobs_updated_at 
+FROM scheduled_jobs 
+WHERE scheduled_jobs.is_active = 1
+2025-08-17 20:19:48 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [generated in 0.00013s] ()
+2025-08-17 20:19:48 - sqlalchemy.engine.Engine - INFO - _connection_rollback_impl:2705 - ROLLBACK
+2025-08-17 20:19:49 - silica.cron.app - INFO - lifespan:58 - Shutting down cron application
+2025-08-17 20:19:54 - silica.cron.scheduler - INFO - stop:51 - Scheduler stopped
+2025-08-17 20:19:55 - silica.cron.app - INFO - lifespan:34 - Starting cron application
+2025-08-17 20:19:55 - silica.cron.models.base - INFO - init_database:62 - Creating database tables at data/silica-cron.db
+2025-08-17 20:19:55 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:19:55 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("prompts")
+2025-08-17 20:19:55 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:19:55 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("scheduled_jobs")
+2025-08-17 20:19:55 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:19:55 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("job_executions")
+2025-08-17 20:19:55 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:19:55 - sqlalchemy.engine.Engine - INFO - _connection_commit_impl:2708 - COMMIT
+2025-08-17 20:19:55 - silica.cron.scheduler - INFO - _run_scheduler:55 - Scheduler loop started
+2025-08-17 20:19:55 - silica.cron.scheduler - INFO - start:44 - Scheduler started
+2025-08-17 20:19:55 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:19:55 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - SELECT scheduled_jobs.id AS scheduled_jobs_id, scheduled_jobs.name AS scheduled_jobs_name, scheduled_jobs.prompt_id AS scheduled_jobs_prompt_id, scheduled_jobs.cron_expression AS scheduled_jobs_cron_expression, scheduled_jobs.is_active AS scheduled_jobs_is_active, scheduled_jobs.created_at AS scheduled_jobs_created_at, scheduled_jobs.updated_at AS scheduled_jobs_updated_at 
+FROM scheduled_jobs 
+WHERE scheduled_jobs.is_active = 1
+2025-08-17 20:19:55 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [generated in 0.00014s] ()
+2025-08-17 20:19:55 - sqlalchemy.engine.Engine - INFO - _connection_rollback_impl:2705 - ROLLBACK
+2025-08-17 20:19:56 - silica.cron.app - INFO - lifespan:58 - Shutting down cron application
+2025-08-17 20:20:01 - silica.cron.scheduler - INFO - stop:51 - Scheduler stopped
+2025-08-17 20:20:02 - silica.cron.app - INFO - lifespan:34 - Starting cron application
+2025-08-17 20:20:02 - silica.cron.models.base - INFO - init_database:62 - Creating database tables at data/silica-cron.db
+2025-08-17 20:20:02 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:20:02 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("prompts")
+2025-08-17 20:20:02 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:20:02 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("scheduled_jobs")
+2025-08-17 20:20:02 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:20:02 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("job_executions")
+2025-08-17 20:20:02 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:20:02 - sqlalchemy.engine.Engine - INFO - _connection_commit_impl:2708 - COMMIT
+2025-08-17 20:20:02 - silica.cron.scheduler - INFO - _run_scheduler:55 - Scheduler loop started
+2025-08-17 20:20:02 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:20:02 - silica.cron.scheduler - INFO - start:44 - Scheduler started
+2025-08-17 20:20:02 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - SELECT scheduled_jobs.id AS scheduled_jobs_id, scheduled_jobs.name AS scheduled_jobs_name, scheduled_jobs.prompt_id AS scheduled_jobs_prompt_id, scheduled_jobs.cron_expression AS scheduled_jobs_cron_expression, scheduled_jobs.is_active AS scheduled_jobs_is_active, scheduled_jobs.created_at AS scheduled_jobs_created_at, scheduled_jobs.updated_at AS scheduled_jobs_updated_at 
+FROM scheduled_jobs 
+WHERE scheduled_jobs.is_active = 1
+2025-08-17 20:20:02 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [generated in 0.00025s] ()
+2025-08-17 20:20:02 - sqlalchemy.engine.Engine - INFO - _connection_rollback_impl:2705 - ROLLBACK
+2025-08-17 20:20:03 - silica.cron.app - INFO - lifespan:58 - Shutting down cron application
+2025-08-17 20:20:08 - silica.cron.scheduler - INFO - stop:51 - Scheduler stopped
+2025-08-17 20:20:09 - silica.cron.app - INFO - lifespan:34 - Starting cron application
+2025-08-17 20:20:09 - silica.cron.models.base - INFO - init_database:62 - Creating database tables at data/silica-cron.db
+2025-08-17 20:20:09 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:20:09 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("prompts")
+2025-08-17 20:20:09 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:20:09 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("scheduled_jobs")
+2025-08-17 20:20:09 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:20:09 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("job_executions")
+2025-08-17 20:20:09 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:20:09 - sqlalchemy.engine.Engine - INFO - _connection_commit_impl:2708 - COMMIT
+2025-08-17 20:20:09 - silica.cron.scheduler - INFO - _run_scheduler:55 - Scheduler loop started
+2025-08-17 20:20:09 - silica.cron.scheduler - INFO - start:44 - Scheduler started
+2025-08-17 20:20:09 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:20:09 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - SELECT scheduled_jobs.id AS scheduled_jobs_id, scheduled_jobs.name AS scheduled_jobs_name, scheduled_jobs.prompt_id AS scheduled_jobs_prompt_id, scheduled_jobs.cron_expression AS scheduled_jobs_cron_expression, scheduled_jobs.is_active AS scheduled_jobs_is_active, scheduled_jobs.created_at AS scheduled_jobs_created_at, scheduled_jobs.updated_at AS scheduled_jobs_updated_at 
+FROM scheduled_jobs 
+WHERE scheduled_jobs.is_active = 1
+2025-08-17 20:20:09 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [generated in 0.00011s] ()
+2025-08-17 20:20:09 - sqlalchemy.engine.Engine - INFO - _connection_rollback_impl:2705 - ROLLBACK
+2025-08-17 20:20:39 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:20:39 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - SELECT scheduled_jobs.id AS scheduled_jobs_id, scheduled_jobs.name AS scheduled_jobs_name, scheduled_jobs.prompt_id AS scheduled_jobs_prompt_id, scheduled_jobs.cron_expression AS scheduled_jobs_cron_expression, scheduled_jobs.is_active AS scheduled_jobs_is_active, scheduled_jobs.created_at AS scheduled_jobs_created_at, scheduled_jobs.updated_at AS scheduled_jobs_updated_at 
+FROM scheduled_jobs 
+WHERE scheduled_jobs.is_active = 1
+2025-08-17 20:20:39 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [cached since 30.01s ago] ()
+2025-08-17 20:20:39 - sqlalchemy.engine.Engine - INFO - _connection_rollback_impl:2705 - ROLLBACK
+2025-08-17 20:20:43 - silica.cron.app - INFO - lifespan:58 - Shutting down cron application
+2025-08-17 20:20:48 - silica.cron.scheduler - INFO - stop:51 - Scheduler stopped
+2025-08-17 20:20:49 - silica.cron.app - INFO - lifespan:34 - Starting cron application
+2025-08-17 20:20:49 - silica.cron.models.base - INFO - init_database:62 - Creating database tables at data/silica-cron.db
+2025-08-17 20:20:49 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:20:49 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("prompts")
+2025-08-17 20:20:49 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:20:49 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("scheduled_jobs")
+2025-08-17 20:20:49 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:20:49 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("job_executions")
+2025-08-17 20:20:49 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:20:49 - sqlalchemy.engine.Engine - INFO - _connection_commit_impl:2708 - COMMIT
+2025-08-17 20:20:49 - silica.cron.scheduler - INFO - _run_scheduler:55 - Scheduler loop started
+2025-08-17 20:20:49 - silica.cron.scheduler - INFO - start:44 - Scheduler started
+2025-08-17 20:20:49 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:20:49 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - SELECT scheduled_jobs.id AS scheduled_jobs_id, scheduled_jobs.name AS scheduled_jobs_name, scheduled_jobs.prompt_id AS scheduled_jobs_prompt_id, scheduled_jobs.cron_expression AS scheduled_jobs_cron_expression, scheduled_jobs.is_active AS scheduled_jobs_is_active, scheduled_jobs.created_at AS scheduled_jobs_created_at, scheduled_jobs.updated_at AS scheduled_jobs_updated_at 
+FROM scheduled_jobs 
+WHERE scheduled_jobs.is_active = 1
+2025-08-17 20:20:49 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [generated in 0.00011s] ()
+2025-08-17 20:20:49 - sqlalchemy.engine.Engine - INFO - _connection_rollback_impl:2705 - ROLLBACK
+2025-08-17 20:20:49 - silica.cron.app - INFO - lifespan:58 - Shutting down cron application
+2025-08-17 20:20:54 - silica.cron.scheduler - INFO - stop:51 - Scheduler stopped
+2025-08-17 20:20:55 - silica.cron.app - INFO - lifespan:34 - Starting cron application
+2025-08-17 20:20:55 - silica.cron.models.base - INFO - init_database:62 - Creating database tables at data/silica-cron.db
+2025-08-17 20:20:55 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:20:55 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("prompts")
+2025-08-17 20:20:55 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:20:55 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("scheduled_jobs")
+2025-08-17 20:20:55 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:20:55 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("job_executions")
+2025-08-17 20:20:55 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:20:55 - sqlalchemy.engine.Engine - INFO - _connection_commit_impl:2708 - COMMIT
+2025-08-17 20:20:55 - silica.cron.scheduler - INFO - _run_scheduler:55 - Scheduler loop started
+2025-08-17 20:20:55 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:20:55 - silica.cron.scheduler - INFO - start:44 - Scheduler started
+2025-08-17 20:20:55 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - SELECT scheduled_jobs.id AS scheduled_jobs_id, scheduled_jobs.name AS scheduled_jobs_name, scheduled_jobs.prompt_id AS scheduled_jobs_prompt_id, scheduled_jobs.cron_expression AS scheduled_jobs_cron_expression, scheduled_jobs.is_active AS scheduled_jobs_is_active, scheduled_jobs.created_at AS scheduled_jobs_created_at, scheduled_jobs.updated_at AS scheduled_jobs_updated_at 
+FROM scheduled_jobs 
+WHERE scheduled_jobs.is_active = 1
+2025-08-17 20:20:55 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [generated in 0.00018s] ()
+2025-08-17 20:20:55 - sqlalchemy.engine.Engine - INFO - _connection_rollback_impl:2705 - ROLLBACK
+2025-08-17 20:20:56 - silica.cron.app - INFO - lifespan:58 - Shutting down cron application
+2025-08-17 20:21:01 - silica.cron.scheduler - INFO - stop:51 - Scheduler stopped
+2025-08-17 20:21:02 - silica.cron.app - INFO - lifespan:34 - Starting cron application
+2025-08-17 20:21:02 - silica.cron.models.base - INFO - init_database:62 - Creating database tables at data/silica-cron.db
+2025-08-17 20:21:02 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:21:02 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("prompts")
+2025-08-17 20:21:02 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:21:02 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("scheduled_jobs")
+2025-08-17 20:21:02 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:21:02 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("job_executions")
+2025-08-17 20:21:02 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:21:02 - sqlalchemy.engine.Engine - INFO - _connection_commit_impl:2708 - COMMIT
+2025-08-17 20:21:02 - silica.cron.scheduler - INFO - _run_scheduler:55 - Scheduler loop started
+2025-08-17 20:21:02 - silica.cron.scheduler - INFO - start:44 - Scheduler started
+2025-08-17 20:21:02 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:21:02 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - SELECT scheduled_jobs.id AS scheduled_jobs_id, scheduled_jobs.name AS scheduled_jobs_name, scheduled_jobs.prompt_id AS scheduled_jobs_prompt_id, scheduled_jobs.cron_expression AS scheduled_jobs_cron_expression, scheduled_jobs.is_active AS scheduled_jobs_is_active, scheduled_jobs.created_at AS scheduled_jobs_created_at, scheduled_jobs.updated_at AS scheduled_jobs_updated_at 
+FROM scheduled_jobs 
+WHERE scheduled_jobs.is_active = 1
+2025-08-17 20:21:02 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [generated in 0.00025s] ()
+2025-08-17 20:21:02 - sqlalchemy.engine.Engine - INFO - _connection_rollback_impl:2705 - ROLLBACK
+2025-08-17 20:21:02 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:21:02 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - SELECT job_executions.id AS job_executions_id, job_executions.scheduled_job_id AS job_executions_scheduled_job_id, job_executions.session_id AS job_executions_session_id, job_executions.started_at AS job_executions_started_at, job_executions.completed_at AS job_executions_completed_at, job_executions.status AS job_executions_status, job_executions.output AS job_executions_output, job_executions.error_message AS job_executions_error_message 
+FROM job_executions 
+WHERE job_executions.id = ?
+ LIMIT ? OFFSET ?
+2025-08-17 20:21:02 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [generated in 0.00009s] ('exec_0001unqQghs5fauQ4CY', 1, 0)
+2025-08-17 20:21:02 - silica.cron.scheduler - INFO - _call_agent:199 - Executing silica with model haiku, persona basic_agent: Hello, this is a test prompt...
+2025-08-17 20:21:02 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:21:02 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - SELECT job_executions.id AS job_executions_id, job_executions.scheduled_job_id AS job_executions_scheduled_job_id, job_executions.session_id AS job_executions_session_id, job_executions.started_at AS job_executions_started_at, job_executions.completed_at AS job_executions_completed_at, job_executions.status AS job_executions_status, job_executions.output AS job_executions_output, job_executions.error_message AS job_executions_error_message 
+FROM job_executions 
+WHERE job_executions.id = ?
+ LIMIT ? OFFSET ?
+2025-08-17 20:21:02 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [cached since 0.01821s ago] ('exec_0001unqQgGBeg718zxo', 1, 0)
+2025-08-17 20:21:02 - sqlalchemy.engine.Engine - INFO - _connection_rollback_impl:2705 - ROLLBACK
+2025-08-17 20:21:03 - silica.cron.scheduler - INFO - _run_scheduler:55 - Scheduler loop started
+2025-08-17 20:21:03 - silica.cron.scheduler - INFO - start:44 - Scheduler started
+2025-08-17 20:21:07 - sqlalchemy.engine.Engine - INFO - _connection_rollback_impl:2705 - ROLLBACK
+2025-08-17 20:21:08 - silica.cron.scheduler - INFO - stop:51 - Scheduler stopped
+2025-08-17 20:21:08 - silica.cron.scheduler - INFO - _call_agent:199 - Executing silica with model haiku, persona basic_agent: Test prompt...
+2025-08-17 20:21:08 - silica.cron.scheduler - INFO - _call_agent:199 - Executing silica with model haiku, persona None: Test prompt...
+2025-08-17 20:21:08 - silica.cron.scheduler - ERROR - _call_agent:272 - Error in silica execution: silica execution failed (exit code 1): Error: Something went wrong
+2025-08-17 20:21:08 - silica.cron.scheduler - INFO - _call_agent:199 - Executing silica with model haiku, persona None: Test prompt...
+2025-08-17 20:21:08 - silica.cron.scheduler - INFO - _call_agent:199 - Executing silica with model haiku, persona None: Test prompt...
+2025-08-17 20:21:08 - silica.cron.scheduler - INFO - _call_agent:199 - Executing silica with model haiku, persona None: Test prompt...
+2025-08-17 20:21:08 - silica.cron.scheduler - INFO - _execute_job:123 - Executing job 1 (Test Job)
+2025-08-17 20:21:08 - silica.cron.scheduler - INFO - _execute_job:140 - Job 1 completed successfully with session session-123
+2025-08-17 20:21:24 - silica.cron.app - INFO - lifespan:58 - Shutting down cron application
+2025-08-17 20:21:29 - silica.cron.scheduler - INFO - stop:51 - Scheduler stopped
+2025-08-17 20:21:30 - silica.cron.app - INFO - lifespan:34 - Starting cron application
+2025-08-17 20:21:30 - silica.cron.models.base - INFO - init_database:62 - Creating database tables at data/silica-cron.db
+2025-08-17 20:21:30 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:21:30 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("prompts")
+2025-08-17 20:21:30 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:21:30 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("scheduled_jobs")
+2025-08-17 20:21:30 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:21:30 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("job_executions")
+2025-08-17 20:21:30 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 20:21:30 - sqlalchemy.engine.Engine - INFO - _connection_commit_impl:2708 - COMMIT
+2025-08-17 20:21:30 - silica.cron.scheduler - INFO - _run_scheduler:55 - Scheduler loop started
+2025-08-17 20:21:30 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 20:21:30 - silica.cron.scheduler - INFO - start:44 - Scheduler started
+2025-08-17 20:21:30 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - SELECT scheduled_jobs.id AS scheduled_jobs_id, scheduled_jobs.name AS scheduled_jobs_name, scheduled_jobs.prompt_id AS scheduled_jobs_prompt_id, scheduled_jobs.cron_expression AS scheduled_jobs_cron_expression, scheduled_jobs.is_active AS scheduled_jobs_is_active, scheduled_jobs.created_at AS scheduled_jobs_created_at, scheduled_jobs.updated_at AS scheduled_jobs_updated_at 
+FROM scheduled_jobs 
+WHERE scheduled_jobs.is_active = 1
+2025-08-17 20:21:30 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [generated in 0.00021s] ()
+2025-08-17 20:21:30 - sqlalchemy.engine.Engine - INFO - _connection_rollback_impl:2705 - ROLLBACK

@@ -14,16 +14,16 @@ router = APIRouter()
 
 class ScheduledJobCreate(BaseModel):
     name: str
-    prompt_id: int
+    prompt_id: str
     cron_expression: str
 
 
 class ScheduledJobResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: str
     name: str
-    prompt_id: int
+    prompt_id: str
     prompt_name: str
     cron_expression: str
     is_active: bool
@@ -33,8 +33,8 @@ class ScheduledJobResponse(BaseModel):
 class JobExecutionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
-    scheduled_job_id: Optional[int]
+    id: str
+    scheduled_job_id: Optional[str]
     session_id: Optional[str] = None
     started_at: datetime
     completed_at: Optional[datetime] = None
@@ -96,7 +96,7 @@ async def create_scheduled_job(job: ScheduledJobCreate, db: Session = Depends(ge
 
 
 @router.put("/{job_id}/toggle")
-async def toggle_job_status(job_id: int, db: Session = Depends(get_db)):
+async def toggle_job_status(job_id: str, db: Session = Depends(get_db)):
     """Toggle job active status."""
     job = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
     if not job:
@@ -108,7 +108,7 @@ async def toggle_job_status(job_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/{job_id}")
-async def delete_scheduled_job(job_id: int, db: Session = Depends(get_db)):
+async def delete_scheduled_job(job_id: str, db: Session = Depends(get_db)):
     """Delete a scheduled job."""
     job = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
     if not job:
@@ -121,7 +121,7 @@ async def delete_scheduled_job(job_id: int, db: Session = Depends(get_db)):
 
 @router.get("/{job_id}/executions", response_model=List[JobExecutionResponse])
 async def get_job_executions(
-    job_id: int, limit: int = 50, db: Session = Depends(get_db)
+    job_id: str, limit: int = 50, db: Session = Depends(get_db)
 ):
     """Get execution history for a job."""
     executions = (

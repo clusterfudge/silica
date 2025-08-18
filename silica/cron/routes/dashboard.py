@@ -60,7 +60,7 @@ async def create_prompt_form(
 @router.post("/jobs/create")
 async def create_job_form(
     name: str = Form(...),
-    prompt_id: int = Form(...),
+    prompt_id: str = Form(...),
     cron_expression: str = Form(...),
     db: Session = Depends(get_db),
 ):

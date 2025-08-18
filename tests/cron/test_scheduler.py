@@ -320,10 +320,10 @@ Second response content
         mock_session.query.return_value.filter.return_value.first.return_value = None
 
         with patch("silica.cron.scheduler.logger") as mock_logger:
-            scheduler._execute_job(999)
-            mock_logger.error.assert_called_with("Job 999 not found")
+            scheduler._execute_job("job_nonexistent999")
+            mock_logger.error.assert_called_with("Job job_nonexistent999 not found")
 
-        assert 999 not in scheduler.running_jobs
+        assert "job_nonexistent999" not in scheduler.running_jobs
 
     @patch("silica.cron.scheduler.SessionLocal")
     def test_execute_job_agent_failure(self, mock_session_local):

@@ -26,7 +26,7 @@ class PromptCreate(BaseModel):
 class PromptResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: str
     name: str
     description: str
     prompt_text: str
@@ -37,7 +37,7 @@ class PromptResponse(BaseModel):
 
 
 class ExecutionResponse(BaseModel):
-    execution_id: int
+    execution_id: str
     status: str
     message: str
 
@@ -66,7 +66,7 @@ async def create_prompt(prompt: PromptCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/{prompt_id}", response_model=PromptResponse)
-async def get_prompt(prompt_id: int, db: Session = Depends(get_db)):
+async def get_prompt(prompt_id: str, db: Session = Depends(get_db)):
     """Get a specific prompt."""
     prompt = db.query(Prompt).filter(Prompt.id == prompt_id).first()
     if not prompt:
@@ -76,7 +76,7 @@ async def get_prompt(prompt_id: int, db: Session = Depends(get_db)):
 
 @router.put("/{prompt_id}", response_model=PromptResponse)
 async def update_prompt(
-    prompt_id: int, prompt: PromptCreate, db: Session = Depends(get_db)
+    prompt_id: str, prompt: PromptCreate, db: Session = Depends(get_db)
 ):
     """Update a prompt."""
     db_prompt = db.query(Prompt).filter(Prompt.id == prompt_id).first()
@@ -94,7 +94,7 @@ async def update_prompt(
 
 
 @router.delete("/{prompt_id}")
-async def delete_prompt(prompt_id: int, db: Session = Depends(get_db)):
+async def delete_prompt(prompt_id: str, db: Session = Depends(get_db)):
     """Delete a prompt."""
     db_prompt = db.query(Prompt).filter(Prompt.id == prompt_id).first()
     if not db_prompt:
@@ -107,7 +107,7 @@ async def delete_prompt(prompt_id: int, db: Session = Depends(get_db)):
 
 @router.post("/{prompt_id}/execute", response_model=ExecutionResponse)
 async def execute_prompt_manually(
-    prompt_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)
+    prompt_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)
 ):
     """Execute a prompt manually without scheduling."""
     # Get the prompt
@@ -179,7 +179,7 @@ async def execute_prompt_manually(
 
 @router.get("/{prompt_id}/executions/{execution_id}")
 async def get_execution_status(
-    prompt_id: int, execution_id: int, db: Session = Depends(get_db)
+    prompt_id: str, execution_id: str, db: Session = Depends(get_db)
 ):
     """Get the status of a manual execution."""
     execution = db.query(JobExecution).filter(JobExecution.id == execution_id).first()
