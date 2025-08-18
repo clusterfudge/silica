@@ -236,3 +236,21 @@ WHERE scheduled_jobs.is_active = 1
 2025-08-17 13:00:21 - sqlalchemy.engine.Engine - INFO - _connection_rollback_impl:2705 - ROLLBACK
 2025-08-17 13:00:35 - silica.cron.app - INFO - lifespan:59 - Shutting down cron application
 2025-08-17 13:00:40 - silica.cron.scheduler - INFO - stop:51 - Scheduler stopped
+2025-08-17 13:00:41 - silica.cron.app - INFO - lifespan:34 - Starting cron application
+2025-08-17 13:00:41 - silica.cron.models.base - INFO - init_database:62 - Creating database tables at data/silica-cron.db
+2025-08-17 13:00:41 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 13:00:41 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("prompts")
+2025-08-17 13:00:41 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 13:00:41 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("scheduled_jobs")
+2025-08-17 13:00:41 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 13:00:41 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - PRAGMA main.table_info("job_executions")
+2025-08-17 13:00:41 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [raw sql] ()
+2025-08-17 13:00:41 - sqlalchemy.engine.Engine - INFO - _connection_commit_impl:2708 - COMMIT
+2025-08-17 13:00:41 - silica.cron.scheduler - INFO - _run_scheduler:55 - Scheduler loop started
+2025-08-17 13:00:41 - sqlalchemy.engine.Engine - INFO - _connection_begin_impl:2702 - BEGIN (implicit)
+2025-08-17 13:00:41 - silica.cron.scheduler - INFO - start:44 - Scheduler started
+2025-08-17 13:00:41 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - SELECT scheduled_jobs.id AS scheduled_jobs_id, scheduled_jobs.name AS scheduled_jobs_name, scheduled_jobs.prompt_id AS scheduled_jobs_prompt_id, scheduled_jobs.cron_expression AS scheduled_jobs_cron_expression, scheduled_jobs.is_active AS scheduled_jobs_is_active, scheduled_jobs.created_at AS scheduled_jobs_created_at, scheduled_jobs.updated_at AS scheduled_jobs_updated_at 
+FROM scheduled_jobs 
+WHERE scheduled_jobs.is_active = 1
+2025-08-17 13:00:41 - sqlalchemy.engine.Engine - INFO - _execute_context:1846 - [generated in 0.00022s] ()
+2025-08-17 13:00:41 - sqlalchemy.engine.Engine - INFO - _connection_rollback_impl:2705 - ROLLBACK
