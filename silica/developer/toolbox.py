@@ -204,9 +204,10 @@ class Toolbox:
         try:
             # Execute parallel tools concurrently if any exist
             if parallel_tools:
-                self.context.user_interface.handle_system_message(
-                    f"Executing {len(parallel_tools)} tools in parallel..."
-                )
+                if len(parallel_tools) > 1:
+                    self.context.user_interface.handle_system_message(
+                        f"Executing {len(parallel_tools)} tools in parallel..."
+                    )
 
                 # Create coroutines for parallel execution
                 parallel_coroutines = [
