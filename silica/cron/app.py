@@ -13,6 +13,7 @@ from .config import get_settings
 from .config.logging import setup_logging, get_logger
 from .models import get_db
 from .routes import prompts, jobs, dashboard
+from .routes.jobs import get_recent_executions
 from .scheduler import scheduler
 from .scripts.litestream_manager import LitestreamManager
 
@@ -85,6 +86,11 @@ templates = Jinja2Templates(directory=join(dirname(__file__), "templates"))
 app.include_router(prompts.router, prefix="/api/prompts", tags=["prompts"])
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(dashboard.router, prefix="", tags=["dashboard"])
+
+
+app.add_api_route(
+    "/api/recent-executions", get_recent_executions, methods=["GET"], tags=["dashboard"]
+)
 
 
 @app.get("/", response_class=HTMLResponse)

@@ -38,3 +38,4 @@ silica/_version.py
 .agent-scratchpad/
 *.db
 logs/
+data/

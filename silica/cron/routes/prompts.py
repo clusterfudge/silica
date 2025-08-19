@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 import threading
 
-from ..models import get_db, Prompt, JobExecution, SessionLocal
+from ..models import get_db, Prompt, JobExecution, SessionLocal, ScheduledJob
 from ..scheduler import scheduler
 
 router = APIRouter()
@@ -195,3 +195,69 @@ async def get_execution_status(
         "output": execution.output,
         "error_message": execution.error_message,
     }
+
+
+class PromptExecutionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    job_name: str = None
+    scheduled_job_id: str = None
+    session_id: str = None
+    started_at: datetime
+    completed_at: datetime = None
+    status: str
+    output: str = None
+    error_message: str = None
+
+
+@router.get("/{prompt_id}/executions", response_model=List[PromptExecutionResponse])
+async def get_prompt_executions(
+    prompt_id: str, limit: int = 50, db: Session = Depends(get_db)
+):
+    """Get execution history for a specific prompt."""
+    # Verify prompt exists
+    prompt = db.query(Prompt).filter(Prompt.id == prompt_id).first()
+    if not prompt:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+
+    # Get executions through scheduled jobs that use this prompt, plus manual executions
+    scheduled_job_ids = (
+        db.query(ScheduledJob.id).filter(ScheduledJob.prompt_id == prompt_id).subquery()
+    )
+
+    executions = (
+        db.query(JobExecution)
+        .outerjoin(ScheduledJob, JobExecution.scheduled_job_id == ScheduledJob.id)
+        .filter(
+            (JobExecution.scheduled_job_id.in_(scheduled_job_ids))
+            | (JobExecution.scheduled_job_id.is_(None))  # Include manual executions
+        )
+        .order_by(JobExecution.started_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    result = []
+    for execution in executions:
+        job_name = (
+            execution.scheduled_job.name
+            if execution.scheduled_job
+            else "Manual Execution"
+        )
+
+        result.append(
+            {
+                "id": execution.id,
+                "job_name": job_name,
+                "scheduled_job_id": execution.scheduled_job_id,
+                "session_id": execution.session_id,
+                "started_at": execution.started_at,
+                "completed_at": execution.completed_at,
+                "status": execution.status,
+                "output": execution.output,
+                "error_message": execution.error_message,
+            }
+        )
+
+    return result

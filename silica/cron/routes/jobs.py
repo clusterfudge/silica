@@ -132,3 +132,57 @@ async def get_job_executions(
         .all()
     )
     return executions
+
+
+class RecentExecutionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    job_name: Optional[str] = None
+    prompt_name: Optional[str] = None
+    scheduled_job_id: Optional[str]
+    session_id: Optional[str] = None
+    started_at: datetime
+    completed_at: Optional[datetime] = None
+    status: str
+    output: Optional[str] = None
+    error_message: Optional[str] = None
+
+
+@router.get("/recent-executions", response_model=List[RecentExecutionResponse])
+async def get_recent_executions(limit: int = 50, db: Session = Depends(get_db)):
+    """Get recent execution history across all jobs."""
+    executions = (
+        db.query(JobExecution)
+        .outerjoin(ScheduledJob, JobExecution.scheduled_job_id == ScheduledJob.id)
+        .outerjoin(Prompt, ScheduledJob.prompt_id == Prompt.id)
+        .order_by(JobExecution.started_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    result = []
+    for execution in executions:
+        job_name = execution.scheduled_job.name if execution.scheduled_job else None
+        prompt_name = (
+            execution.scheduled_job.prompt.name
+            if execution.scheduled_job and execution.scheduled_job.prompt
+            else None
+        )
+
+        result.append(
+            {
+                "id": execution.id,
+                "job_name": job_name,
+                "prompt_name": prompt_name,
+                "scheduled_job_id": execution.scheduled_job_id,
+                "session_id": execution.session_id,
+                "started_at": execution.started_at,
+                "completed_at": execution.completed_at,
+                "status": execution.status,
+                "output": execution.output,
+                "error_message": execution.error_message,
+            }
+        )
+
+    return result

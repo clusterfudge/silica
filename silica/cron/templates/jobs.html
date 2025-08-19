@@ -1,61 +1,73 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="row">
-    <div class="col-12">
-        <h1><i class="fas fa-calendar-alt me-2"></i>Scheduled Jobs</h1>
-        <p class="text-muted">Schedule prompts to run automatically with cron expressions</p>
-    </div>
-</div>
 
-<div class="row">
-    <div class="col-md-4">
+
+<!-- Create Form (hidden by default) -->
+<div class="row mb-4" id="createForm" style="display: none;">
+    <div class="col-12">
         <div class="card">
             <div class="card-header">
                 <h5><i class="fas fa-plus me-2"></i>Create Scheduled Job</h5>
             </div>
             <div class="card-body">
                 <form method="POST" action="/jobs/create">
-                    <div class="mb-3">
-                        <label for="name" class="form-label">Job Name</label>
-                        <input type="text" class="form-control" id="name" name="name" required>
-                    </div>
-                    <div class="mb-3">
-                        <label for="prompt_id" class="form-label">Prompt</label>
-                        <select class="form-control" id="prompt_id" name="prompt_id" required>
-                            <option value="">Select a prompt...</option>
-                            {% for prompt in prompts %}
-                            <option value="{{ prompt.id }}">{{ prompt.name }}</option>
-                            {% endfor %}
-                        </select>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="name" class="form-label">Job Name</label>
+                                <input type="text" class="form-control" id="name" name="name" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="prompt_id" class="form-label">Prompt</label>
+                                <select class="form-control" id="prompt_id" name="prompt_id" required>
+                                    <option value="">Select a prompt...</option>
+                                    {% for prompt in prompts %}
+                                    <option value="{{ prompt.id }}">{{ prompt.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
                     </div>
                     <div class="mb-3">
                         <label for="cron_expression" class="form-label">Cron Expression</label>
-                        <input type="text" class="form-control" id="cron_expression" name="cron_expression" required>
+                        <input type="text" class="form-control" id="cron_expression" name="cron_expression" required placeholder="e.g., 0 9 * * * (daily at 9 AM)">
                         <div class="form-text">
-                            Examples:<br>
-                            <code>0 9 * * *</code> - Daily at 9 AM<br>
-                            <code>*/15 * * * *</code> - Every 15 minutes<br>
-                            <code>0 0 * * 1</code> - Weekly on Monday
+                            Examples: <code>0 9 * * *</code> (Daily at 9 AM), <code>*/15 * * * *</code> (Every 15 minutes), <code>0 0 * * 1</code> (Weekly on Monday)
                         </div>
                     </div>
-                    <button type="submit" class="btn btn-success">
-                        <i class="fas fa-save me-2"></i>Create Job
-                    </button>
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-success">
+                            <i class="fas fa-save me-2"></i>Create Job
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="hideCreateForm()">
+                            <i class="fas fa-times me-2"></i>Cancel
+                        </button>
+                    </div>
                 </form>
             </div>
         </div>
     </div>
-    
-    <div class="col-md-8">
+</div>
+
+<!-- Jobs List -->
+<div class="row">
+    <div class="col-12">
         <div class="card">
             <div class="card-header">
-                <h5><i class="fas fa-list me-2"></i>Scheduled Jobs</h5>
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fas fa-list me-2"></i>Jobs</h5>
+                    <button class="btn btn-primary btn-sm" id="showCreateFormBtn" onclick="showCreateForm()">
+                        <i class="fas fa-plus me-2"></i>New
+                    </button>
+                </div>
             </div>
             <div class="card-body">
                 {% if jobs %}
                     <div class="table-responsive">
-                        <table class="table table-striped">
+                        <table class="table table-striped table-hover">
                             <thead>
                                 <tr>
                                     <th>Name</th>
@@ -68,7 +80,7 @@
                             </thead>
                             <tbody>
                                 {% for job in jobs %}
-                                <tr>
+                                <tr id="job-{{ job.id }}">
                                     <td><strong>{{ job.name }}</strong></td>
                                     <td>{{ job.prompt.name }}</td>
                                     <td><code>{{ job.cron_expression }}</code></td>
@@ -81,19 +93,21 @@
                                     </td>
                                     <td>{{ job.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
                                     <td>
-                                        <button class="btn btn-sm btn-outline-primary" onclick="toggleJob({{ job.id }})">
-                                            {% if job.is_active %}
-                                                <i class="fas fa-pause"></i>
-                                            {% else %}
-                                                <i class="fas fa-play"></i>
-                                            {% endif %}
-                                        </button>
-                                        <button class="btn btn-sm btn-outline-info" onclick="viewExecutions({{ job.id }}, '{{ job.name }}')" title="View History">
-                                            <i class="fas fa-history"></i>
-                                        </button>
-                                        <button class="btn btn-sm btn-outline-danger" onclick="deleteJob({{ job.id }})">
-                                            <i class="fas fa-trash"></i>
-                                        </button>
+                                        <div class="btn-group" role="group">
+                                            <button class="btn btn-sm btn-outline-primary" onclick="toggleJob('{{ job.id }}')" title="{% if job.is_active %}Pause{% else %}Resume{% endif %}">
+                                                {% if job.is_active %}
+                                                    <i class="fas fa-pause"></i>
+                                                {% else %}
+                                                    <i class="fas fa-play"></i>
+                                                {% endif %}
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-info" onclick="viewExecutions('{{ job.id }}', '{{ job.name }}')" title="View History">
+                                                <i class="fas fa-history"></i>
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-danger" onclick="deleteJob('{{ job.id }}')" title="Delete">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                                 {% endfor %}
@@ -101,7 +115,10 @@
                         </table>
                     </div>
                 {% else %}
-                    <p class="text-muted">No scheduled jobs created yet. Use the form on the left to create your first job.</p>
+                    <div class="text-center text-muted py-4">
+                        <i class="fas fa-inbox me-2"></i>No scheduled jobs created yet. 
+                        <button class="btn btn-link p-0" onclick="showCreateForm()">Create your first job</button>.
+                    </div>
                 {% endif %}
             </div>
         </div>
@@ -193,12 +210,8 @@
                 </div>
             </div>
             <div class="modal-footer">
-            <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                 <button type="button" class="btn btn-primary" id="viewSessionButton" onclick="viewSession()" style="display: none;">
-                    <i class="fas fa-comments me-2"></i>View Session
-                </button>
-            </div>                <button type="button" class="btn btn-primary" id="viewSessionButton" onclick="viewSession()" style="display: none;">
                     <i class="fas fa-comments me-2"></i>View Session
                 </button>
             </div>
@@ -209,6 +222,25 @@
 
 {% block scripts %}
 <script>
+// Handle create form visibility
+function showCreateForm() {
+    document.getElementById('createForm').style.display = 'block';
+    document.getElementById('showCreateFormBtn').style.display = 'none';
+    document.getElementById('name').focus();
+}
+
+function hideCreateForm() {
+    document.getElementById('createForm').style.display = 'none';
+    document.getElementById('showCreateFormBtn').style.display = 'inline-block';
+}
+
+// Check if we should show create form on load
+document.addEventListener('DOMContentLoaded', function() {
+    if (window.location.hash === '#create') {
+        showCreateForm();
+    }
+});
+
 function toggleJob(id) {
     fetch(`/api/jobs/${id}/toggle`, { method: 'PUT' })
         .then(() => location.reload())
@@ -227,6 +259,7 @@ function deleteJob(id) {
 let currentViewingJobId = null;
 let currentExecutions = null;
 let currentSessionId = null;
+
 function viewExecutions(jobId, jobName) {
     currentViewingJobId = jobId;
     
