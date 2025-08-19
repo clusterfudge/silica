@@ -12,8 +12,6 @@ from silica.remote.cli.commands import (
     progress,
     workspace,
     workspace_environment,
-    msg,
-    messaging,
 )
 from silica.remote.cli.commands import create, destroy, status
 
@@ -36,8 +34,6 @@ app.command(config.config)
 app.command(todos.todos)
 app.command(piku.piku)
 app.command(workspace.workspace)
-app.command(msg.msg)
-app.command(messaging.messaging)
 
 # Register workspace environment commands with aliases
 app.command(workspace_environment.workspace_environment)

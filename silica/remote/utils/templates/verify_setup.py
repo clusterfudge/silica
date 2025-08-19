@@ -159,41 +159,16 @@ def check_raspberry_pi():
     return is_pi
 
 
-def check_messaging_setup():
-    """Check if messaging components are properly configured."""
-    print("\n💬 Checking messaging setup...")
+def check_workspace_configuration():
+    """Check if workspace is properly configured."""
+    print("\n⚙️ Checking workspace configuration...")
 
     # Check Procfile
     if Path("Procfile").exists():
-        with open("Procfile", "r") as f:
-            procfile_content = f.read()
-            if "silica messaging receiver" in procfile_content:
-                print("   ✅ Procfile configured for messaging")
-            else:
-                print("   ❌ Procfile not configured for messaging")
-                return False
+        print("   ✅ Procfile exists")
+        return True
     else:
         print("   ❌ Procfile missing")
-        return False
-
-    # Check if silica messaging command works
-    try:
-        result = subprocess.run(
-            [sys.executable, "-m", "silica.cli.main", "messaging", "--help"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-
-        if result.returncode == 0:
-            print("   ✅ Silica messaging command available")
-            return True
-        else:
-            print("   ❌ Silica messaging command failed")
-            return False
-
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        print("   ❌ Silica messaging command not available")
         return False
 
 
@@ -211,7 +186,7 @@ def main():
         check_virtual_environment(),
         check_silica_import(),
         check_workspace_files(),
-        check_messaging_setup(),
+        check_workspace_configuration(),
     ]
 
     # Optional checks (don't fail if these don't pass)
@@ -231,9 +206,9 @@ def main():
             print("⚠️  Some optional components may not be available")
 
         print("\n🚀 Agent workspace is ready!")
-        print("To start the messaging receiver:")
+        print("To start the agent:")
         print("  source .venv/bin/activate")
-        print("  python -m silica.cli.main messaging receiver --port $PORT")
+        print("  uv run silica we run")
 
         return 0
     else:
