@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
-from pydantic import Field
+from pydantic import ConfigDict, Field
 from pydantic_settings import BaseSettings
 
 
@@ -49,10 +49,11 @@ class Settings(BaseSettings):
     log_to_file: bool = Field(default=True, description="Enable file logging")
     log_dir: Path = Field(default=Path("./logs"), description="Log directory path")
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        extra = "ignore"
+    model_config = ConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     @property
     def database_path(self) -> Path:
