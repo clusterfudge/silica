@@ -1,0 +1,20 @@
+# Litestream configuration for silica-cron
+# Environment variables will be substituted at runtime
+
+dbs:
+  # Main application database
+  - path: ${DATABASE_PATH}
+    replicas:
+      - type: s3
+        bucket: ${S3_BUCKET}
+        path: ${S3_REPLICA_PATH}
+        region: ${AWS_REGION}
+        # Retention policy
+        retention: 168h  # 7 days
+        # Snapshot frequency  
+        snapshot-interval: 1h
+        # Validate snapshots
+        validate-interval: 6h
+
+# Global settings
+addr: ":9090"  # Prometheus metrics endpoint

@@ -207,8 +207,15 @@ class TestAppEntrypoint:
     """Test the application entrypoint function."""
 
     @patch("silica.cron.app.uvicorn.run")
-    def test_entrypoint_defaults(self, mock_run):
+    @patch("silica.cron.app.settings")
+    def test_entrypoint_defaults(self, mock_settings, mock_run):
         """Test entrypoint with default parameters."""
+        # Mock settings to return production defaults
+        mock_settings.host = "127.0.0.1"
+        mock_settings.port = 8080
+        mock_settings.debug = False
+        mock_settings.log_level = "info"
+
         from silica.cron.app import entrypoint
 
         entrypoint()
@@ -218,14 +225,25 @@ class TestAppEntrypoint:
         )
 
     @patch("silica.cron.app.uvicorn.run")
-    def test_entrypoint_custom_params(self, mock_run):
+    @patch("silica.cron.app.settings")
+    def test_entrypoint_custom_params(self, mock_settings, mock_run):
         """Test entrypoint with custom parameters."""
+        # Mock settings (won't be used since explicit params provided)
+        mock_settings.host = "127.0.0.1"
+        mock_settings.port = 8080
+        mock_settings.debug = False
+        mock_settings.log_level = "info"
+
         from silica.cron.app import entrypoint
 
         entrypoint(bind_host="0.0.0.0", bind_port=9000, debug=True, log_level="debug")
 
         mock_run.assert_called_once_with(
-            app, host="0.0.0.0", port=9000, reload=True, log_level="debug"
+            "silica.cron.app:app",
+            host="0.0.0.0",
+            port=9000,
+            reload=True,
+            log_level="debug",
         )
 
 

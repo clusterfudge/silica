@@ -62,7 +62,7 @@ class TestJobsAPI:
         """Test creating a scheduled job with non-existent prompt."""
         job_data = {
             "name": "Job with Missing Prompt",
-            "prompt_id": 999,
+            "prompt_id": "prompt_nonexistent123",
             "cron_expression": "0 9 * * *",
         }
 
@@ -120,7 +120,7 @@ class TestJobsAPI:
 
     def test_toggle_job_status_not_found(self, client):
         """Test toggling status of non-existent job."""
-        response = client.put("/api/jobs/999/toggle")
+        response = client.put("/api/jobs/job_nonexistent999/toggle")
 
         assert response.status_code == 404
         assert "Job not found" in response.json()["detail"]
@@ -138,7 +138,7 @@ class TestJobsAPI:
 
     def test_delete_scheduled_job_not_found(self, client):
         """Test deleting a non-existent job."""
-        response = client.delete("/api/jobs/999")
+        response = client.delete("/api/jobs/job_nonexistent999")
 
         assert response.status_code == 404
         assert "Job not found" in response.json()["detail"]

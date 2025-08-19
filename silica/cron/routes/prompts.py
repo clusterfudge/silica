@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 import threading
 
-from ..models import get_db, Prompt, JobExecution, SessionLocal
+from ..models import get_db, Prompt, JobExecution, SessionLocal, ScheduledJob
 from ..scheduler import scheduler
 
 router = APIRouter()
@@ -26,7 +26,7 @@ class PromptCreate(BaseModel):
 class PromptResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: str
     name: str
     description: str
     prompt_text: str
@@ -37,7 +37,7 @@ class PromptResponse(BaseModel):
 
 
 class ExecutionResponse(BaseModel):
-    execution_id: int
+    execution_id: str
     status: str
     message: str
 
@@ -66,7 +66,7 @@ async def create_prompt(prompt: PromptCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/{prompt_id}", response_model=PromptResponse)
-async def get_prompt(prompt_id: int, db: Session = Depends(get_db)):
+async def get_prompt(prompt_id: str, db: Session = Depends(get_db)):
     """Get a specific prompt."""
     prompt = db.query(Prompt).filter(Prompt.id == prompt_id).first()
     if not prompt:
@@ -76,7 +76,7 @@ async def get_prompt(prompt_id: int, db: Session = Depends(get_db)):
 
 @router.put("/{prompt_id}", response_model=PromptResponse)
 async def update_prompt(
-    prompt_id: int, prompt: PromptCreate, db: Session = Depends(get_db)
+    prompt_id: str, prompt: PromptCreate, db: Session = Depends(get_db)
 ):
     """Update a prompt."""
     db_prompt = db.query(Prompt).filter(Prompt.id == prompt_id).first()
@@ -94,7 +94,7 @@ async def update_prompt(
 
 
 @router.delete("/{prompt_id}")
-async def delete_prompt(prompt_id: int, db: Session = Depends(get_db)):
+async def delete_prompt(prompt_id: str, db: Session = Depends(get_db)):
     """Delete a prompt."""
     db_prompt = db.query(Prompt).filter(Prompt.id == prompt_id).first()
     if not db_prompt:
@@ -107,7 +107,7 @@ async def delete_prompt(prompt_id: int, db: Session = Depends(get_db)):
 
 @router.post("/{prompt_id}/execute", response_model=ExecutionResponse)
 async def execute_prompt_manually(
-    prompt_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)
+    prompt_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)
 ):
     """Execute a prompt manually without scheduling."""
     # Get the prompt
@@ -179,7 +179,7 @@ async def execute_prompt_manually(
 
 @router.get("/{prompt_id}/executions/{execution_id}")
 async def get_execution_status(
-    prompt_id: int, execution_id: int, db: Session = Depends(get_db)
+    prompt_id: str, execution_id: str, db: Session = Depends(get_db)
 ):
     """Get the status of a manual execution."""
     execution = db.query(JobExecution).filter(JobExecution.id == execution_id).first()
@@ -195,3 +195,69 @@ async def get_execution_status(
         "output": execution.output,
         "error_message": execution.error_message,
     }
+
+
+class PromptExecutionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    job_name: str = None
+    scheduled_job_id: str = None
+    session_id: str = None
+    started_at: datetime
+    completed_at: datetime = None
+    status: str
+    output: str = None
+    error_message: str = None
+
+
+@router.get("/{prompt_id}/executions", response_model=List[PromptExecutionResponse])
+async def get_prompt_executions(
+    prompt_id: str, limit: int = 50, db: Session = Depends(get_db)
+):
+    """Get execution history for a specific prompt."""
+    # Verify prompt exists
+    prompt = db.query(Prompt).filter(Prompt.id == prompt_id).first()
+    if not prompt:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+
+    # Get executions through scheduled jobs that use this prompt, plus manual executions
+    scheduled_job_ids = (
+        db.query(ScheduledJob.id).filter(ScheduledJob.prompt_id == prompt_id).subquery()
+    )
+
+    executions = (
+        db.query(JobExecution)
+        .outerjoin(ScheduledJob, JobExecution.scheduled_job_id == ScheduledJob.id)
+        .filter(
+            (JobExecution.scheduled_job_id.in_(scheduled_job_ids))
+            | (JobExecution.scheduled_job_id.is_(None))  # Include manual executions
+        )
+        .order_by(JobExecution.started_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    result = []
+    for execution in executions:
+        job_name = (
+            execution.scheduled_job.name
+            if execution.scheduled_job
+            else "Manual Execution"
+        )
+
+        result.append(
+            {
+                "id": execution.id,
+                "job_name": job_name,
+                "scheduled_job_id": execution.scheduled_job_id,
+                "session_id": execution.session_id,
+                "started_at": execution.started_at,
+                "completed_at": execution.completed_at,
+                "status": execution.status,
+                "output": execution.output,
+                "error_message": execution.error_message,
+            }
+        )
+
+    return result

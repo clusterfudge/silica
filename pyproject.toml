@@ -38,6 +38,8 @@ dependencies = [
     "uvicorn>=0.35.0",
     "croniter>=6.0.0",
     "python-multipart>=0.0.20",
+    "pydantic-settings>=2.0.0",
+    "heare-ids>=0.1.3",
 ]
 
 [project.scripts]
@@ -51,10 +53,16 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 include-package-data = true
 
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["silica*"]
+exclude = ["data*", "config*"]
+
 [tool.setuptools.package-data]
 "silica.utils" = ["templates/*"]
-"silica.agents" = ["*.yaml"]
+"silica.agents" = ["*.yaml"]  
 "silica.messaging" = ["static/*"]
+"silica.cron" = ["templates/*", "static/*"]
 
 [project.optional-dependencies]
 dev = [

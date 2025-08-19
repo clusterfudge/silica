@@ -1,65 +1,274 @@
 {% extends "base.html" %}
 
 {% block content %}
+
+
 <div class="row">
-    <div class="col-12">
-        <h1><i class="fas fa-tachometer-alt me-2"></i>Dashboard</h1>
-        <p class="lead">Scheduled Execution of Agent</p>
-    </div>
-</div>
-
-<div class="row mt-4">
-    <div class="col-md-4">
-        <div class="card">
-            <div class="card-body">
-                <h5 class="card-title">
-                    <i class="fas fa-file-alt me-2"></i>Prompts
-                </h5>
-                <p class="card-text">Manage your agent prompts for scheduled execution.</p>
-                <a href="/prompts" class="btn btn-primary">Manage Prompts</a>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-4">
-        <div class="card">
-            <div class="card-body">
-                <h5 class="card-title">
-                    <i class="fas fa-calendar-alt me-2"></i>Scheduled Jobs
-                </h5>
-                <p class="card-text">Schedule prompts to run on cron-style schedules.</p>
-                <a href="/jobs" class="btn btn-primary">Manage Jobs</a>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-4">
-        <div class="card">
-            <div class="card-body">
-                <h5 class="card-title">
-                    <i class="fas fa-chart-line me-2"></i>Execution History
-                </h5>
-                <p class="card-text">View past executions and their results.</p>
-                <a href="/jobs" class="btn btn-primary">View History</a>
-            </div>
-        </div>
-    </div>
-</div>
-
-<div class="row mt-4">
     <div class="col-12">
         <div class="card">
             <div class="card-header">
-                <h5><i class="fas fa-info-circle me-2"></i>About Silica Cron</h5>
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fas fa-history me-2"></i>Recent Executions</h5>
+                </div>
             </div>
             <div class="card-body">
-                <p>Silica Cron is a web application for scheduling agent prompts to run automatically using cron-style expressions. It integrates with heare-developer to execute prompts and stores all data in a SQLite database.</p>
-                <ul>
-                    <li>Create and manage reusable prompts</li>
-                    <li>Schedule prompts with flexible cron expressions</li>
-                    <li>Track execution history and results</li>
-                    <li>Simple web interface for easy management</li>
-                </ul>
+                <div id="loadingSpinner" class="text-center py-4">
+                    <i class="fas fa-spinner fa-spin me-2"></i>Loading recent executions...
+                </div>
+                <div id="executionsTable" style="display: none;">
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Started</th>
+                                    <th>Job</th>
+                                    <th>Prompt</th>
+                                    <th>Duration</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="executionsTableBody">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div id="noExecutions" class="text-center text-muted py-4" style="display: none;">
+                    <i class="fas fa-inbox me-2"></i>No executions found. Start by <a href="/jobs#create">creating a scheduled job</a>.
+                </div>
+                <div id="errorMessage" class="alert alert-danger" style="display: none;">
+                    <i class="fas fa-exclamation-triangle me-2"></i>Error loading executions. Please refresh the page.
+                </div>
             </div>
         </div>
     </div>
 </div>
+
+<!-- Modal for viewing execution details -->
+<div class="modal fade" id="executionDetailModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="executionDetailTitle">Execution Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <strong>Job:</strong>
+                        <span id="executionDetailJobName"></span>
+                    </div>
+                    <div class="col-md-6">
+                        <strong>Prompt:</strong>
+                        <span id="executionDetailPromptName"></span>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <strong>Started:</strong>
+                        <span id="executionDetailStarted"></span>
+                    </div>
+                    <div class="col-md-6">
+                        <strong>Completed:</strong>
+                        <span id="executionDetailCompleted"></span>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <strong>Status:</strong>
+                        <span id="executionDetailStatus"></span>
+                    </div>
+                    <div class="col-md-6">
+                        <strong>Duration:</strong>
+                        <span id="executionDetailDuration"></span>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-12">
+                        <strong>Session ID:</strong>
+                        <code id="executionDetailSessionId" class="text-muted"></code>
+                    </div>
+                </div>
+                <div id="executionDetailOutput" style="display: none;">
+                    <strong>Output:</strong>
+                    <pre id="executionDetailOutputContent" class="bg-light p-3 mt-2"></pre>
+                </div>
+                <div id="executionDetailError" style="display: none;">
+                    <strong>Error:</strong>
+                    <pre id="executionDetailErrorContent" class="bg-danger-subtle p-3 mt-2 text-danger"></pre>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="viewSessionButton" onclick="viewSession()" style="display: none;">
+                    <i class="fas fa-comments me-2"></i>View Session
+                </button>
+                <button type="button" class="btn btn-outline-primary" id="viewJobButton" onclick="viewJob()" style="display: none;">
+                    <i class="fas fa-calendar-alt me-2"></i>View Job
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentSessionId = null;
+let currentJobId = null;
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadRecentExecutions();
+});
+
+function loadRecentExecutions() {
+    fetch('/api/recent-executions')
+        .then(response => response.json())
+        .then(executions => {
+            document.getElementById('loadingSpinner').style.display = 'none';
+            
+            if (executions.length === 0) {
+                document.getElementById('noExecutions').style.display = 'block';
+                return;
+            }
+            
+            const tbody = document.getElementById('executionsTableBody');
+            tbody.innerHTML = '';
+            
+            executions.forEach(execution => {
+                const row = document.createElement('tr');
+                
+                // Format timestamps
+                const startedAt = new Date(execution.started_at).toLocaleString();
+                
+                // Calculate duration
+                let duration = '-';
+                if (execution.completed_at) {
+                    const start = new Date(execution.started_at);
+                    const end = new Date(execution.completed_at);
+                    const diffSeconds = Math.floor((end - start) / 1000);
+                    if (diffSeconds < 60) {
+                        duration = `${diffSeconds}s`;
+                    } else {
+                        duration = `${Math.floor(diffSeconds / 60)}m ${diffSeconds % 60}s`;
+                    }
+                } else if (execution.status === 'running') {
+                    duration = 'Running...';
+                }
+                
+                // Status badge
+                let statusBadge = '';
+                if (execution.status === 'completed') {
+                    statusBadge = '<span class="badge bg-success">Completed</span>';
+                } else if (execution.status === 'failed') {
+                    statusBadge = '<span class="badge bg-danger">Failed</span>';
+                } else if (execution.status === 'running') {
+                    statusBadge = '<span class="badge bg-primary">Running</span>';
+                } else {
+                    statusBadge = `<span class="badge bg-secondary">${execution.status}</span>`;
+                }
+                
+                // Actions
+                const actions = `
+                    <button class="btn btn-sm btn-outline-primary" onclick="showExecutionDetails('${execution.id}', '${execution.job_name || 'N/A'}', '${execution.prompt_name || 'N/A'}', '${execution.started_at}', '${execution.completed_at || ''}', '${execution.status}', '${execution.session_id || ''}', '${execution.scheduled_job_id || ''}', \`${(execution.output || '').replace(/`/g, '\\`')}\`, \`${(execution.error_message || '').replace(/`/g, '\\`')}\`)" title="View Details">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                `;
+                
+                row.innerHTML = `
+                    <td>${startedAt}</td>
+                    <td>${execution.job_name || '<em class="text-muted">Manual</em>'}</td>
+                    <td>${execution.prompt_name || '<em class="text-muted">Unknown</em>'}</td>
+                    <td>${duration}</td>
+                    <td>${statusBadge}</td>
+                    <td>${actions}</td>
+                `;
+                
+                tbody.appendChild(row);
+            });
+            
+            document.getElementById('executionsTable').style.display = 'block';
+        })
+        .catch(error => {
+            console.error('Error loading executions:', error);
+            document.getElementById('loadingSpinner').style.display = 'none';
+            document.getElementById('errorMessage').style.display = 'block';
+        });
+}
+
+function showExecutionDetails(executionId, jobName, promptName, startedAt, completedAt, status, sessionId, jobId, output, errorMessage) {
+    // Populate the detail modal
+    document.getElementById('executionDetailTitle').textContent = `Execution #${executionId.substring(0, 8)}...`;
+    document.getElementById('executionDetailJobName').textContent = jobName || 'N/A';
+    document.getElementById('executionDetailPromptName').textContent = promptName || 'N/A';
+    document.getElementById('executionDetailStarted').textContent = new Date(startedAt).toLocaleString();
+    document.getElementById('executionDetailCompleted').textContent = completedAt ? new Date(completedAt).toLocaleString() : 'Not completed';
+    
+    // Status with color
+    const statusElement = document.getElementById('executionDetailStatus');
+    statusElement.innerHTML = status === 'completed' ? 
+        '<span class="badge bg-success">Completed</span>' :
+        status === 'failed' ?
+        '<span class="badge bg-danger">Failed</span>' :
+        status === 'running' ?
+        '<span class="badge bg-primary">Running</span>' :
+        `<span class="badge bg-secondary">${status}</span>`;
+    
+    // Duration
+    let duration = 'Not calculated';
+    if (completedAt) {
+        const start = new Date(startedAt);
+        const end = new Date(completedAt);
+        const diffSeconds = Math.floor((end - start) / 1000);
+        duration = diffSeconds < 60 ? `${diffSeconds} seconds` : 
+                  `${Math.floor(diffSeconds / 60)} minutes ${diffSeconds % 60} seconds`;
+    }
+    document.getElementById('executionDetailDuration').textContent = duration;
+    
+    // Session ID
+    document.getElementById('executionDetailSessionId').textContent = sessionId || 'Not available';
+    
+    // Store IDs and show/hide buttons
+    currentSessionId = sessionId;
+    currentJobId = jobId;
+    
+    const sessionButton = document.getElementById('viewSessionButton');
+    const jobButton = document.getElementById('viewJobButton');
+    
+    sessionButton.style.display = sessionId ? 'inline-block' : 'none';
+    jobButton.style.display = jobId ? 'inline-block' : 'none';
+    
+    // Output or error
+    const outputDiv = document.getElementById('executionDetailOutput');
+    const errorDiv = document.getElementById('executionDetailError');
+    
+    if (output && output !== 'undefined') {
+        document.getElementById('executionDetailOutputContent').textContent = output;
+        outputDiv.style.display = 'block';
+        errorDiv.style.display = 'none';
+    } else if (errorMessage && errorMessage !== 'undefined') {
+        document.getElementById('executionDetailErrorContent').textContent = errorMessage;
+        errorDiv.style.display = 'block';
+        outputDiv.style.display = 'none';
+    } else {
+        outputDiv.style.display = 'none';
+        errorDiv.style.display = 'none';
+    }
+    
+    // Show the detail modal
+    new bootstrap.Modal(document.getElementById('executionDetailModal')).show();
+}
+
+function viewSession() {
+    if (currentSessionId) {
+        window.open(`/sessions/${currentSessionId}`, '_blank');
+    }
+}
+
+function viewJob() {
+    if (currentJobId) {
+        window.location.href = `/jobs#job-${currentJobId}`;
+    }
+}
+</script>
 {% endblock %}

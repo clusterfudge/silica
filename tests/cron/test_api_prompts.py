@@ -99,7 +99,7 @@ class TestPromptsAPI:
 
     def test_get_prompt_not_found(self, client):
         """Test getting a non-existent prompt."""
-        response = client.get("/api/prompts/999")
+        response = client.get("/api/prompts/prompt_nonexistent999")
 
         assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()
@@ -128,7 +128,7 @@ class TestPromptsAPI:
         """Test updating a non-existent prompt."""
         update_data = {"name": "Updated Prompt", "prompt_text": "Updated text"}
 
-        response = client.put("/api/prompts/999", json=update_data)
+        response = client.put("/api/prompts/prompt_nonexistent999", json=update_data)
 
         assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()
@@ -146,7 +146,7 @@ class TestPromptsAPI:
 
     def test_delete_prompt_not_found(self, client):
         """Test deleting a non-existent prompt."""
-        response = client.delete("/api/prompts/999")
+        response = client.delete("/api/prompts/prompt_nonexistent999")
 
         assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()
@@ -166,7 +166,7 @@ class TestPromptsAPI:
 
     def test_execute_prompt_not_found(self, client):
         """Test executing a non-existent prompt."""
-        response = client.post("/api/prompts/999/execute")
+        response = client.post("/api/prompts/prompt_nonexistent999/execute")
 
         assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()
@@ -206,7 +206,9 @@ class TestPromptsAPI:
 
     def test_get_execution_status_not_found(self, client, sample_prompt):
         """Test getting status for non-existent execution."""
-        response = client.get(f"/api/prompts/{sample_prompt.id}/executions/999")
+        response = client.get(
+            f"/api/prompts/{sample_prompt.id}/executions/exec_nonexistent123"
+        )
 
         assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()
@@ -226,7 +228,7 @@ class TestPromptExecutionBackgroundTask:
         mock_session_local.return_value = mock_bg_session
 
         mock_execution = MagicMock()
-        mock_execution.id = 1
+        mock_execution.id = "exec_test123"
         mock_bg_session.query.return_value.filter.return_value.first.return_value = (
             mock_execution
         )
@@ -263,7 +265,7 @@ class TestPromptExecutionBackgroundTask:
         mock_session_local.return_value = mock_bg_session
 
         mock_execution = MagicMock()
-        mock_execution.id = 1
+        mock_execution.id = "exec_test456"
         mock_bg_session.query.return_value.filter.return_value.first.return_value = (
             mock_execution
         )
