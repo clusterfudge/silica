@@ -18,14 +18,7 @@ import git
 # Import sync functionality
 from silica.remote.cli.commands.sync import sync_repo_to_remote
 
-# Import messaging functionality
-from silica.remote.utils.messaging import (
-    check_messaging_app_exists,
-    check_messaging_app_health,
-    deploy_messaging_app,
-    setup_workspace_messaging,
-    add_messaging_to_workspace_environment,
-)
+# Messaging functionality removed - legacy system
 
 console = Console()
 
@@ -438,52 +431,7 @@ def create(
         console.print(f"Branch: [cyan]{initial_branch}[/cyan]")
         console.print(f"Agent type: [cyan]{agent_type}[/cyan]")
 
-        # Set up messaging system
-        console.print("Setting up messaging system...")
-
-        # Check if messaging app exists and is healthy, deploy if not
-        app_exists = check_messaging_app_exists(connection)
-        app_healthy = check_messaging_app_health(connection) if app_exists else False
-
-        if not app_exists:
-            console.print("Messaging app not found. Deploying silica-messaging...")
-            success, message = deploy_messaging_app(connection)
-            if success:
-                console.print(f"[green]{message}[/green]")
-            else:
-                console.print(f"[red]Failed to deploy messaging app: {message}[/red]")
-                console.print("[yellow]Continuing without messaging system...[/yellow]")
-        elif not app_healthy:
-            console.print("Messaging app exists but is not healthy. Redeploying...")
-            success, message = deploy_messaging_app(connection, force=True)
-            if success:
-                console.print(f"[green]{message}[/green]")
-            else:
-                console.print(f"[red]Failed to redeploy messaging app: {message}[/red]")
-                console.print("[yellow]Continuing without messaging system...[/yellow]")
-        else:
-            console.print("[green]Messaging app already exists and is healthy[/green]")
-
-        # Set up workspace for messaging
-        console.print("Configuring workspace for messaging...")
-        success, message = setup_workspace_messaging(workspace, repo_name, connection)
-        if success:
-            console.print(f"[green]{message}[/green]")
-        else:
-            console.print(f"[yellow]Warning: {message}[/yellow]")
-
-        # Add messaging functions to workspace environment
-        success, message = add_messaging_to_workspace_environment(workspace, connection)
-        if success:
-            console.print(f"[green]{message}[/green]")
-        else:
-            console.print(f"[yellow]Warning: {message}[/yellow]")
-
-        # Note: Agent receiver will be started automatically by Procfile
-        # (web: uv run silica messaging receiver --port $PORT)
-        console.print(
-            "[green]Agent receiver will start automatically via Procfile[/green]"
-        )
+        # Legacy messaging system removed - workspace creation simplified
 
         # Run workspace environment setup first
         console.print("Setting up workspace and launching agent...")

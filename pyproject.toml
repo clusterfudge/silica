@@ -61,7 +61,6 @@ exclude = ["data*", "config*"]
 [tool.setuptools.package-data]
 "silica.utils" = ["templates/*"]
 "silica.agents" = ["*.yaml"]  
-"silica.messaging" = ["static/*"]
 "silica.cron" = ["templates/*", "static/*"]
 
 [project.optional-dependencies]
