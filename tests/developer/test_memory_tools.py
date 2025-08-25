@@ -105,11 +105,11 @@ def test_get_memory_tree(mock_context):
     assert len(tree["project1"]) == 0
 
 
-def test_write_and_read_memory_entry(mock_context):
+async def test_write_and_read_memory_entry(mock_context):
     """Test writing and reading memory entries."""
     # Test writing a new entry
-    result = write_memory_entry(
-        mock_context, "notes/important", "This is an important note"
+    result = await write_memory_entry(
+        mock_context, "This is an important note", path="notes/important"
     )
     assert "successfully" in result.lower()
 
@@ -124,7 +124,9 @@ def test_write_and_read_memory_entry(mock_context):
     assert "This is an important note" in result
 
     # Test overwriting an existing entry
-    result = write_memory_entry(mock_context, "notes/important", "Updated note content")
+    result = await write_memory_entry(
+        mock_context, "Updated note content", path="notes/important"
+    )
     assert "successfully" in result.lower()
 
     # Verify content was updated
@@ -181,3 +183,98 @@ async def test_critique_memory(mock_agent, mock_context):
     prompt = mock_agent.call_args[1]["prompt"]
     assert "memory organization tree" in prompt
     assert "memory entry paths" in prompt
+
+
+@patch("silica.developer.tools.subagent.agent")
+async def test_agentic_write_memory_entry_create_new(mock_agent, mock_context):
+    """Test agentic memory placement creating a new entry."""
+    # Configure the mock to return a decision to create a new entry
+    mock_agent.return_value = """I'll analyze this React components content.
+
+DECISION: CREATE
+PATH: projects/frontend/react_library
+REASONING: This content describes a React component library which fits well under projects/frontend for web development organization."""
+
+    # Test content to place
+    test_content = (
+        "# React Component Library\n\nA collection of reusable React components."
+    )
+
+    # Test agentic placement
+    result = await write_memory_entry(mock_context, test_content)
+
+    # Verify the mock was called
+    mock_agent.assert_called_once()
+    assert (
+        mock_agent.call_args[1]["tool_names"]
+        == "get_memory_tree,read_memory_entry,search_memory"
+    )
+    assert mock_agent.call_args[1]["model"] == "smart"
+
+    # Check the prompt contains the content
+    prompt = mock_agent.call_args[1]["prompt"]
+    assert "React Component Library" in prompt
+    assert "Current memory tree structure:" in prompt
+
+    # Verify the result includes placement information
+    assert (
+        "Memory entry created successfully at `projects/frontend/react_library`"
+        in result
+    )
+    assert "Placement Reasoning:" in result
+    assert "React component library which fits well under projects/frontend" in result
+
+
+@patch("silica.developer.tools.subagent.agent")
+async def test_agentic_write_memory_entry_update_existing(mock_agent, mock_context):
+    """Test agentic memory placement updating an existing entry."""
+    # Configure the mock to return a decision to update an existing entry
+    mock_agent.return_value = """I found similar content that should be updated.
+
+DECISION: UPDATE
+PATH: projects/project1
+REASONING: This content is very similar to the existing project1 entry and should be merged rather than creating a duplicate."""
+
+    # Test content to place
+    test_content = (
+        "# Updated Project Information\n\nThis is additional information for project1."
+    )
+
+    # Test agentic placement
+    result = await write_memory_entry(mock_context, test_content)
+
+    # Verify the mock was called
+    mock_agent.assert_called_once()
+
+    # Verify the result includes update information
+    assert "Memory entry updated successfully at `projects/project1`" in result
+    assert "Placement Reasoning:" in result
+    assert "should be merged rather than creating a duplicate" in result
+
+
+async def test_write_memory_entry_backward_compatibility(mock_context):
+    """Test that write_memory_entry maintains backward compatibility when path is provided."""
+    # Test with explicit path (should not use agent)
+    result = await write_memory_entry(
+        mock_context, "Test content", path="explicit/path"
+    )
+
+    # Should work exactly like the old version
+    assert "successfully" in result.lower()
+
+
+@patch("silica.developer.tools.subagent.agent")
+async def test_agentic_placement_error_handling(mock_agent, mock_context):
+    """Test that agentic placement handles errors gracefully."""
+    # Configure the mock to raise an exception
+    mock_agent.side_effect = Exception("API Error")
+
+    # Test content to place
+    test_content = "# Test Content\n\nSome test content."
+
+    # Test agentic placement
+    result = await write_memory_entry(mock_context, test_content)
+
+    # Should fallback gracefully
+    assert "Memory entry created successfully at `misc/auto_placed`" in result
+    assert "Error during agent analysis: API Error" in result

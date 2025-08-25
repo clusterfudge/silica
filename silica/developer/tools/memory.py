@@ -170,16 +170,142 @@ def _format_write_result_as_markdown(result: Dict[str, Any]) -> str:
     return result["message"]
 
 
-@tool
-def write_memory_entry(context: "AgentContext", path: str, content: str) -> str:
-    """Write a memory entry.
+async def _determine_memory_path(context: "AgentContext", content: str) -> dict:
+    """Use an agent to determine the best path for storing memory content.
 
     Args:
-        path: Path to the memory entry
-        content: Content to write
+        context: Agent context
+        content: Content to be stored
+
+    Returns:
+        Dictionary with 'path', 'action' ('create' or 'update'), and 'reasoning'
     """
-    result = context.memory_manager.write_entry(path, content)
-    return _format_write_result_as_markdown(result)
+    # Get current memory tree structure
+    tree_result = context.memory_manager.get_tree(prefix=None, depth=-1)
+    if not tree_result["success"]:
+        # Fallback if we can't get the tree
+        return {
+            "path": "misc/auto_placed",
+            "action": "create",
+            "reasoning": f"Could not analyze memory tree: {tree_result['error']}",
+        }
+
+    user_prompt = f"""Please analyze this content and determine the best memory placement:
+
+=== CONTENT TO PLACE ===
+{content}
+=== END CONTENT ===
+
+Current memory tree structure:
+{json.dumps(tree_result["items"], indent=2)}
+
+You are an expert memory organizer. Your task is to determine the optimal placement for new content in a hierarchical memory system.
+
+You have access to these tools:
+- get_memory_tree: Get the current memory structure
+- read_memory_entry: Read existing memory entries to check for similarity
+- search_memory: Search for related content
+
+Your goal is to analyze the provided content and determine:
+1. Whether this content should UPDATE an existing memory entry or CREATE a new one
+2. If creating new, what is the best hierarchical path for organization
+
+Consider:
+- Semantic similarity to existing content
+- Logical hierarchical organization
+- Consistency with existing naming patterns
+- Whether content is better as an update vs. separate entry
+
+Return your decision in this exact format:
+```
+DECISION: [CREATE|UPDATE]
+PATH: [the/memory/path]  
+REASONING: [brief explanation of your decision]
+```
+
+Analyze the content, search for similar entries if needed, and provide your placement decision.
+"""
+
+    try:
+        from silica.developer.tools.subagent import agent
+
+        result = await agent(
+            context=context,
+            prompt=user_prompt,
+            tool_names="get_memory_tree,read_memory_entry,search_memory",
+            model="smart",
+        )
+
+        # Parse the agent's response
+        lines = result.strip().split("\n")
+        decision_info = {
+            "action": "create",
+            "path": "misc/auto_placed",
+            "reasoning": "Could not parse agent response",
+        }
+
+        for line in lines:
+            line = line.strip()
+            if line.startswith("DECISION:"):
+                action = line.replace("DECISION:", "").strip().lower()
+                decision_info["action"] = "update" if action == "update" else "create"
+            elif line.startswith("PATH:"):
+                path = line.replace("PATH:", "").strip()
+                decision_info["path"] = path
+            elif line.startswith("REASONING:"):
+                reasoning = line.replace("REASONING:", "").strip()
+                decision_info["reasoning"] = reasoning
+
+        return decision_info
+
+    except Exception as e:
+        return {
+            "path": "misc/auto_placed",
+            "action": "create",
+            "reasoning": f"Error during agent analysis: {str(e)}",
+        }
+
+
+@tool
+async def write_memory_entry(
+    context: "AgentContext", content: str, path: str = None
+) -> str:
+    """Write a memory entry with intelligent placement.
+
+    This tool can operate in two modes:
+    1. Manual placement: When path is provided, content is written to that exact location (backward compatible)
+    2. Agentic placement: When path is omitted, an AI agent analyzes the content and existing memory
+       structure to determine the optimal placement, considering semantic similarity and organization
+
+    Args:
+        content: Content to write to memory
+        path: Optional path to the memory entry. If not provided, an agent will determine the best
+              placement by analyzing the content and existing memory structure.
+
+    Returns:
+        Status message including placement reasoning when using agentic placement
+    """
+    if path is None:
+        # Use agent to determine the best path
+        placement_info = await _determine_memory_path(context, content)
+        path = placement_info["path"]
+
+        # Write the entry
+        result = context.memory_manager.write_entry(path, content)
+
+        # Include placement reasoning in the response
+        if result["success"]:
+            return (
+                f"Memory entry {placement_info['action']}d successfully at `{path}`\n\n"
+                f"**Placement Reasoning:** {placement_info['reasoning']}\n\n"
+                f"{result['message']}"
+            )
+        else:
+            return _format_write_result_as_markdown(result)
+    else:
+        # Use the provided path (backward compatibility)
+        result = context.memory_manager.write_entry(path, content)
+        return _format_write_result_as_markdown(result)
 
 
 @tool
