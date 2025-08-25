@@ -265,7 +265,7 @@ async def test_write_memory_entry_backward_compatibility(mock_context):
 
 @patch("silica.developer.tools.subagent.agent")
 async def test_agentic_placement_error_handling(mock_agent, mock_context):
-    """Test that agentic placement handles errors gracefully."""
+    """Test that agentic placement surfaces errors properly."""
     # Configure the mock to raise an exception
     mock_agent.side_effect = Exception("API Error")
 
@@ -275,6 +275,26 @@ async def test_agentic_placement_error_handling(mock_agent, mock_context):
     # Test agentic placement
     result = await write_memory_entry(mock_context, test_content)
 
-    # Should fallback gracefully
-    assert "Memory entry created successfully at `misc/auto_placed`" in result
-    assert "Error during agent analysis: API Error" in result
+    # Should surface the error instead of falling back
+    assert "Error: Could not determine memory placement:" in result
+    assert "API Error" in result
+
+
+@patch("silica.developer.tools.subagent.agent")
+async def test_agentic_placement_invalid_response(mock_agent, mock_context):
+    """Test that agentic placement handles invalid agent responses properly."""
+    # Configure the mock to return an invalid response (missing PATH)
+    mock_agent.return_value = """I'll analyze this content.
+
+DECISION: CREATE
+REASONING: This seems like good content but I forgot to specify a path."""
+
+    # Test content to place
+    test_content = "# Test Content\n\nSome test content."
+
+    # Test agentic placement
+    result = await write_memory_entry(mock_context, test_content)
+
+    # Should surface the error about invalid response
+    assert "Error: Could not determine memory placement:" in result
+    assert "Agent did not provide a valid path" in result

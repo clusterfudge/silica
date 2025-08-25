@@ -178,17 +178,16 @@ async def _determine_memory_path(context: "AgentContext", content: str) -> dict:
         content: Content to be stored
 
     Returns:
-        Dictionary with 'path', 'action' ('create' or 'update'), and 'reasoning'
+        Dictionary with 'path', 'action' ('create' or 'update'), 'reasoning', and 'success' (bool)
+
+    Raises:
+        Exception: When unable to determine a suitable path due to system errors
     """
     # Get current memory tree structure
     tree_result = context.memory_manager.get_tree(prefix=None, depth=-1)
     if not tree_result["success"]:
-        # Fallback if we can't get the tree
-        return {
-            "path": "misc/auto_placed",
-            "action": "create",
-            "reasoning": f"Could not analyze memory tree: {tree_result['error']}",
-        }
+        # Surface the error instead of using fallback
+        raise Exception(f"Could not analyze memory tree: {tree_result['error']}")
 
     user_prompt = f"""Please analyze this content and determine the best memory placement:
 
@@ -240,8 +239,9 @@ Analyze the content, search for similar entries if needed, and provide your plac
         lines = result.strip().split("\n")
         decision_info = {
             "action": "create",
-            "path": "misc/auto_placed",
-            "reasoning": "Could not parse agent response",
+            "path": None,
+            "reasoning": None,
+            "success": False,
         }
 
         for line in lines:
@@ -256,14 +256,16 @@ Analyze the content, search for similar entries if needed, and provide your plac
                 reasoning = line.replace("REASONING:", "").strip()
                 decision_info["reasoning"] = reasoning
 
+        # Validate that we got the required information
+        if decision_info["path"] is None:
+            raise Exception(f"Agent did not provide a valid path. Response: {result}")
+
+        decision_info["success"] = True
         return decision_info
 
     except Exception as e:
-        return {
-            "path": "misc/auto_placed",
-            "action": "create",
-            "reasoning": f"Error during agent analysis: {str(e)}",
-        }
+        # Re-raise the exception instead of falling back
+        raise Exception(f"Error during agent analysis: {str(e)}")
 
 
 @tool
@@ -287,21 +289,25 @@ async def write_memory_entry(
     """
     if path is None:
         # Use agent to determine the best path
-        placement_info = await _determine_memory_path(context, content)
-        path = placement_info["path"]
+        try:
+            placement_info = await _determine_memory_path(context, content)
+            path = placement_info["path"]
 
-        # Write the entry
-        result = context.memory_manager.write_entry(path, content)
+            # Write the entry
+            result = context.memory_manager.write_entry(path, content)
 
-        # Include placement reasoning in the response
-        if result["success"]:
-            return (
-                f"Memory entry {placement_info['action']}d successfully at `{path}`\n\n"
-                f"**Placement Reasoning:** {placement_info['reasoning']}\n\n"
-                f"{result['message']}"
-            )
-        else:
-            return _format_write_result_as_markdown(result)
+            # Include placement reasoning in the response
+            if result["success"]:
+                return (
+                    f"Memory entry {placement_info['action']}d successfully at `{path}`\n\n"
+                    f"**Placement Reasoning:** {placement_info['reasoning']}\n\n"
+                    f"{result['message']}"
+                )
+            else:
+                return _format_write_result_as_markdown(result)
+
+        except Exception as e:
+            return f"Error: Could not determine memory placement: {str(e)}"
     else:
         # Use the provided path (backward compatibility)
         result = context.memory_manager.write_entry(path, content)

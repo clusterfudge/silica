@@ -68,9 +68,12 @@ REASONING: [brief explanation of the decision]
 ## Error Handling
 
 If the AI agent encounters any issues:
-- Content is automatically placed at `misc/auto_placed`
-- Error details are included in the reasoning
-- The operation continues gracefully
+- **Error Surfacing**: Errors are returned to the caller rather than using fallback placement
+- **No Silent Failures**: The system will not automatically place content in a default location
+- **Explicit Error Messages**: Clear error descriptions help diagnose placement issues
+- **Collision Prevention**: By avoiding automatic fallback placement, multiple failed attempts won't collide
+
+This approach prevents potential data loss or confusion from silent fallbacks to generic locations.
 
 ## Benefits
 
