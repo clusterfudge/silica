@@ -5,7 +5,6 @@ import pytest
 
 from silica.developer.context import AgentContext
 from silica.developer.tools.memory import (
-    read_memory_entry,
     write_memory_entry,
     search_memory,
 )
@@ -73,6 +72,14 @@ def mock_context(test_memory_manager):
     context.report_usage = MagicMock()
     context.memory_manager = test_memory_manager
     context.user_interface = MagicMock()
+
+    # Mock the write_entry method to track calls
+    context.memory_manager.write_entry = MagicMock()
+    context.memory_manager.write_entry.return_value = {
+        "success": True,
+        "message": "Memory entry written successfully",
+    }
+
     return context
 
 
@@ -105,37 +112,51 @@ def test_get_memory_tree(mock_context):
     assert len(tree["project1"]) == 0
 
 
-async def test_write_and_read_memory_entry(mock_context):
-    """Test writing and reading memory entries."""
-    # Test writing a new entry
+@patch("silica.developer.tools.subagent.agent")
+async def test_write_memory_entry_with_summary_integration(mock_agent, mock_context):
+    """Test that write_memory_entry generates and includes summaries properly."""
+    # Configure the mock to return a summary
+    mock_agent.return_value = "An important note for testing purposes."
+
+    # Test writing a new entry with explicit path
     result = await write_memory_entry(
         mock_context, "This is an important note", path="notes/important"
     )
+
+    # Should include summary in response
     assert "successfully" in result.lower()
+    assert "Content Summary:" in result
+    assert "important note for testing" in result
 
-    # Verify the files were created
-    assert (mock_context.memory_manager.base_dir / "notes" / "important.md").exists()
-    assert (
-        mock_context.memory_manager.base_dir / "notes" / "important.metadata.json"
-    ).exists()
+    # Verify the summary was passed to write_entry in metadata
+    write_calls = mock_context.memory_manager.write_entry.call_args_list
+    assert len(write_calls) == 1
+    path, content, metadata = write_calls[0][0]
+    assert path == "notes/important"
+    assert content == "This is an important note"
+    assert "summary" in metadata
+    assert "important note for testing" in metadata["summary"]
 
-    # Test reading the entry
-    result = read_memory_entry(mock_context, "notes/important")
-    assert "This is an important note" in result
+    # Reset the mock for second test
+    mock_context.memory_manager.write_entry.reset_mock()
+    mock_agent.return_value = "Updated note content for testing."
 
     # Test overwriting an existing entry
     result = await write_memory_entry(
         mock_context, "Updated note content", path="notes/important"
     )
     assert "successfully" in result.lower()
+    assert "Content Summary:" in result
+    assert "Updated note content for testing" in result
 
-    # Verify content was updated
-    result = read_memory_entry(mock_context, "notes/important")
-    assert "Updated note content" in result
-
-    # Test reading non-existent entry
-    result = read_memory_entry(mock_context, "nonexistent/entry")
-    assert "Error" in result
+    # Verify the updated summary was passed
+    write_calls = mock_context.memory_manager.write_entry.call_args_list
+    assert len(write_calls) == 1
+    path, content, metadata = write_calls[0][0]
+    assert path == "notes/important"
+    assert content == "Updated note content"
+    assert "summary" in metadata
+    assert "Updated note content for testing" in metadata["summary"]
 
 
 @patch("silica.developer.tools.subagent.agent")
@@ -187,12 +208,13 @@ async def test_critique_memory(mock_agent, mock_context):
 
 @patch("silica.developer.tools.subagent.agent")
 async def test_agentic_write_memory_entry_create_new(mock_agent, mock_context):
-    """Test agentic memory placement creating a new entry."""
-    # Configure the mock to return a decision to create a new entry
+    """Test agentic memory placement creating a new entry with summary."""
+    # Configure the mock to return a decision with summary
     mock_agent.return_value = """I'll analyze this React components content.
 
 DECISION: CREATE
 PATH: projects/frontend/react_library
+SUMMARY: A collection of reusable React components for web applications including buttons, modals, and form inputs.
 REASONING: This content describes a React component library which fits well under projects/frontend for web development organization."""
 
     # Test content to place
@@ -211,28 +233,40 @@ REASONING: This content describes a React component library which fits well unde
     )
     assert mock_agent.call_args[1]["model"] == "smart"
 
-    # Check the prompt contains the content
+    # Check the prompt contains the content and asks for summary
     prompt = mock_agent.call_args[1]["prompt"]
     assert "React Component Library" in prompt
     assert "Current memory tree structure:" in prompt
+    assert "SUMMARY:" in prompt
 
-    # Verify the result includes placement information
+    # Verify the result includes placement information and summary
     assert (
         "Memory entry created successfully at `projects/frontend/react_library`"
         in result
     )
+    assert "Content Summary:" in result
+    assert "reusable React components for web applications" in result
     assert "Placement Reasoning:" in result
     assert "React component library which fits well under projects/frontend" in result
+
+    # Verify the summary was passed to write_entry in metadata
+    write_calls = mock_context.memory_manager.write_entry.call_args_list
+    assert len(write_calls) == 1
+    path, content, metadata = write_calls[0][0]
+    assert path == "projects/frontend/react_library"
+    assert "summary" in metadata
+    assert "reusable React components" in metadata["summary"]
 
 
 @patch("silica.developer.tools.subagent.agent")
 async def test_agentic_write_memory_entry_update_existing(mock_agent, mock_context):
-    """Test agentic memory placement updating an existing entry."""
-    # Configure the mock to return a decision to update an existing entry
+    """Test agentic memory placement updating an existing entry with summary."""
+    # Configure the mock to return a decision to update with summary
     mock_agent.return_value = """I found similar content that should be updated.
 
 DECISION: UPDATE
 PATH: projects/project1
+SUMMARY: Updated project information with additional details and context.
 REASONING: This content is very similar to the existing project1 entry and should be merged rather than creating a duplicate."""
 
     # Test content to place
@@ -246,21 +280,51 @@ REASONING: This content is very similar to the existing project1 entry and shoul
     # Verify the mock was called
     mock_agent.assert_called_once()
 
-    # Verify the result includes update information
+    # Verify the result includes update information and summary
     assert "Memory entry updated successfully at `projects/project1`" in result
+    assert "Content Summary:" in result
+    assert "Updated project information with additional details" in result
     assert "Placement Reasoning:" in result
     assert "should be merged rather than creating a duplicate" in result
 
+    # Verify the summary was passed to write_entry in metadata
+    write_calls = mock_context.memory_manager.write_entry.call_args_list
+    assert len(write_calls) == 1
+    path, content, metadata = write_calls[0][0]
+    assert path == "projects/project1"
+    assert "summary" in metadata
+    assert "Updated project information" in metadata["summary"]
 
-async def test_write_memory_entry_backward_compatibility(mock_context):
-    """Test that write_memory_entry maintains backward compatibility when path is provided."""
-    # Test with explicit path (should not use agent)
+
+@patch("silica.developer.tools.subagent.agent")
+async def test_write_memory_entry_explicit_path_with_summary(mock_agent, mock_context):
+    """Test that write_memory_entry generates summary when path is explicitly provided."""
+    # Configure the mock to return a summary
+    mock_agent.return_value = "A simple test content entry for verification purposes."
+
+    # Test with explicit path (should generate summary)
     result = await write_memory_entry(
-        mock_context, "Test content", path="explicit/path"
+        mock_context, "Test content for memory", path="explicit/path"
     )
 
-    # Should work exactly like the old version
+    # Verify the agent was called for summary generation
+    mock_agent.assert_called_once()
+    prompt = mock_agent.call_args[1]["prompt"]
+    assert "Test content for memory" in prompt
+    assert "concise summary" in prompt
+
+    # Should work and include summary
     assert "successfully" in result.lower()
+    assert "Content Summary:" in result
+    assert "simple test content entry" in result
+
+    # Verify the summary was passed to write_entry in metadata
+    write_calls = mock_context.memory_manager.write_entry.call_args_list
+    assert len(write_calls) == 1
+    path, content, metadata = write_calls[0][0]
+    assert path == "explicit/path"
+    assert "summary" in metadata
+    assert "simple test content entry" in metadata["summary"]
 
 
 @patch("silica.developer.tools.subagent.agent")
@@ -298,3 +362,78 @@ REASONING: This seems like good content but I forgot to specify a path."""
     # Should surface the error about invalid response
     assert "Error: Could not determine memory placement:" in result
     assert "Agent did not provide a valid path" in result
+
+
+@patch("silica.developer.tools.subagent.agent")
+async def test_agentic_placement_invalid_response_missing_path(
+    mock_agent, mock_context
+):
+    """Test that agentic placement handles invalid agent responses missing PATH."""
+    # Configure the mock to return an invalid response (missing PATH)
+    mock_agent.return_value = """I'll analyze this content.
+
+DECISION: CREATE
+SUMMARY: Test content for demonstration purposes.
+REASONING: This seems like good content but I forgot to specify a path."""
+
+    # Test content to place
+    test_content = "# Test Content\n\nSome test content."
+
+    # Test agentic placement
+    result = await write_memory_entry(mock_context, test_content)
+
+    # Should surface the error about invalid response
+    assert "Error: Could not determine memory placement:" in result
+    assert "Agent did not provide a valid path" in result
+
+
+@patch("silica.developer.tools.subagent.agent")
+async def test_agentic_placement_invalid_response_missing_summary(
+    mock_agent, mock_context
+):
+    """Test that agentic placement handles invalid agent responses missing SUMMARY."""
+    # Configure the mock to return an invalid response (missing SUMMARY)
+    mock_agent.return_value = """I'll analyze this content.
+
+DECISION: CREATE
+PATH: test/path
+REASONING: This seems like good content but I forgot to provide a summary."""
+
+    # Test content to place
+    test_content = "# Test Content\n\nSome test content."
+
+    # Test agentic placement
+    result = await write_memory_entry(mock_context, test_content)
+
+    # Should surface the error about invalid response
+    assert "Error: Could not determine memory placement:" in result
+    assert "Agent did not provide a valid summary" in result
+
+
+@patch("silica.developer.tools.subagent.agent")
+async def test_explicit_path_summary_generation_error(mock_agent, mock_context):
+    """Test explicit path handling when summary generation fails."""
+    # Configure the mock to raise an exception for summary generation
+    mock_agent.side_effect = Exception("Summary generation failed")
+
+    # Test content to place
+    test_content = "# Test Content\n\nSome test content."
+
+    # Test explicit path with summary generation failure
+    result = await write_memory_entry(mock_context, test_content, path="test/path")
+
+    # Should fall back gracefully and still write the entry
+    assert "successfully" in result.lower()
+    assert "Note:" in result
+    assert "Could not generate summary" in result
+    assert "Summary generation failed" in result
+
+    # Verify entry was still written without summary in metadata
+    write_calls = mock_context.memory_manager.write_entry.call_args_list
+    assert len(write_calls) == 1
+    # When summary generation fails, write_entry is called with just path and content
+    args = write_calls[0][0]
+    assert len(args) == 2  # Only path and content, no metadata
+    path, content = args
+    assert path == "test/path"
+    assert content == "# Test Content\n\nSome test content."

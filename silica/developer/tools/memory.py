@@ -170,15 +170,17 @@ def _format_write_result_as_markdown(result: Dict[str, Any]) -> str:
     return result["message"]
 
 
-async def _determine_memory_path(context: "AgentContext", content: str) -> dict:
-    """Use an agent to determine the best path for storing memory content.
+async def _determine_memory_path_and_summary(
+    context: "AgentContext", content: str
+) -> dict:
+    """Use an agent to determine the best path for storing memory content and generate a summary.
 
     Args:
         context: Agent context
         content: Content to be stored
 
     Returns:
-        Dictionary with 'path', 'action' ('create' or 'update'), 'reasoning', and 'success' (bool)
+        Dictionary with 'path', 'action' ('create' or 'update'), 'reasoning', 'summary', and 'success' (bool)
 
     Raises:
         Exception: When unable to determine a suitable path due to system errors
@@ -208,6 +210,7 @@ You have access to these tools:
 Your goal is to analyze the provided content and determine:
 1. Whether this content should UPDATE an existing memory entry or CREATE a new one
 2. If creating new, what is the best hierarchical path for organization
+3. Create a concise summary of the content for metadata storage
 
 Consider:
 - Semantic similarity to existing content
@@ -218,11 +221,12 @@ Consider:
 Return your decision in this exact format:
 ```
 DECISION: [CREATE|UPDATE]
-PATH: [the/memory/path]  
+PATH: [the/memory/path]
+SUMMARY: [concise 1-2 sentence summary of the content]
 REASONING: [brief explanation of your decision]
 ```
 
-Analyze the content, search for similar entries if needed, and provide your placement decision.
+Analyze the content, search for similar entries if needed, and provide your placement decision and summary.
 """
 
     try:
@@ -240,6 +244,7 @@ Analyze the content, search for similar entries if needed, and provide your plac
         decision_info = {
             "action": "create",
             "path": None,
+            "summary": None,
             "reasoning": None,
             "success": False,
         }
@@ -252,6 +257,9 @@ Analyze the content, search for similar entries if needed, and provide your plac
             elif line.startswith("PATH:"):
                 path = line.replace("PATH:", "").strip()
                 decision_info["path"] = path
+            elif line.startswith("SUMMARY:"):
+                summary = line.replace("SUMMARY:", "").strip()
+                decision_info["summary"] = summary
             elif line.startswith("REASONING:"):
                 reasoning = line.replace("REASONING:", "").strip()
                 decision_info["reasoning"] = reasoning
@@ -259,6 +267,10 @@ Analyze the content, search for similar entries if needed, and provide your plac
         # Validate that we got the required information
         if decision_info["path"] is None:
             raise Exception(f"Agent did not provide a valid path. Response: {result}")
+        if decision_info["summary"] is None:
+            raise Exception(
+                f"Agent did not provide a valid summary. Response: {result}"
+            )
 
         decision_info["success"] = True
         return decision_info
@@ -266,6 +278,50 @@ Analyze the content, search for similar entries if needed, and provide your plac
     except Exception as e:
         # Re-raise the exception instead of falling back
         raise Exception(f"Error during agent analysis: {str(e)}")
+
+
+async def _generate_content_summary(context: "AgentContext", content: str) -> str:
+    """Generate a concise summary of memory content.
+
+    Args:
+        context: Agent context
+        content: Content to summarize
+
+    Returns:
+        A concise 1-2 sentence summary of the content
+
+    Raises:
+        Exception: When unable to generate summary
+    """
+    user_prompt = f"""Please create a concise summary of this content:
+
+=== CONTENT TO SUMMARIZE ===
+{content}
+=== END CONTENT ===
+
+Create a clear, concise 1-2 sentence summary that captures the main topic and key points of this content. 
+The summary will be stored as metadata alongside the content for quick reference.
+
+Return only the summary, nothing else."""
+
+    try:
+        from silica.developer.tools.subagent import agent
+
+        result = await agent(
+            context=context,
+            prompt=user_prompt,
+            model="smart",
+        )
+
+        # Clean up the result in case agent added extra formatting
+        summary = result.strip().strip('"').strip("'")
+        if not summary:
+            raise Exception("Agent returned empty summary")
+
+        return summary
+
+    except Exception as e:
+        raise Exception(f"Error generating content summary: {str(e)}")
 
 
 @tool
@@ -288,18 +344,20 @@ async def write_memory_entry(
         Status message including placement reasoning when using agentic placement
     """
     if path is None:
-        # Use agent to determine the best path
+        # Use agent to determine the best path and generate summary
         try:
-            placement_info = await _determine_memory_path(context, content)
+            placement_info = await _determine_memory_path_and_summary(context, content)
             path = placement_info["path"]
 
-            # Write the entry
-            result = context.memory_manager.write_entry(path, content)
+            # Include the summary in metadata
+            metadata = {"summary": placement_info["summary"]}
+            result = context.memory_manager.write_entry(path, content, metadata)
 
-            # Include placement reasoning in the response
+            # Include placement reasoning and summary in the response
             if result["success"]:
                 return (
                     f"Memory entry {placement_info['action']}d successfully at `{path}`\n\n"
+                    f"**Content Summary:** {placement_info['summary']}\n\n"
                     f"**Placement Reasoning:** {placement_info['reasoning']}\n\n"
                     f"{result['message']}"
                 )
@@ -309,9 +367,27 @@ async def write_memory_entry(
         except Exception as e:
             return f"Error: Could not determine memory placement: {str(e)}"
     else:
-        # Use the provided path (backward compatibility)
-        result = context.memory_manager.write_entry(path, content)
-        return _format_write_result_as_markdown(result)
+        # Use the provided path and generate summary for explicit updates
+        try:
+            # Generate summary for the content
+            summary = await _generate_content_summary(context, content)
+            metadata = {"summary": summary}
+
+            # Write the entry with summary in metadata
+            result = context.memory_manager.write_entry(path, content, metadata)
+
+            if result["success"]:
+                return f"{result['message']}\n\n" f"**Content Summary:** {summary}"
+            else:
+                return _format_write_result_as_markdown(result)
+
+        except Exception as e:
+            # Fall back to writing without summary if summarization fails
+            result = context.memory_manager.write_entry(path, content)
+            if result["success"]:
+                return f"{result['message']}\n\n**Note:** Could not generate summary: {str(e)}"
+            else:
+                return _format_write_result_as_markdown(result)
 
 
 @tool
