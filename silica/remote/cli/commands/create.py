@@ -383,7 +383,7 @@ def create(
             )
 
         # Create or update workspace-specific configuration
-        from silica.config.multi_workspace import (
+        from silica.remote.config.multi_workspace import (
             load_project_config,
         )
 

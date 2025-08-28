@@ -285,7 +285,7 @@ def destroy(
 
     # Update configuration file to remove the workspace
     try:
-        from silica.config.multi_workspace import load_project_config
+        from silica.remote.config.multi_workspace import load_project_config
 
         if (silica_dir / "config.yaml").exists():
             # Load existing config

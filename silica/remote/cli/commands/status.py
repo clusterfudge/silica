@@ -100,7 +100,7 @@ def get_workspace_status(workspace_name: str, git_root: Path) -> Dict[str, Any]:
         # Try to get agent sessions
         try:
             # Get agent type to use correct sessions command
-            from silica.config import get_config_value
+            from silica.remote.config import get_config_value
 
             default_agent = get_config_value("default_agent", "hdev")
             result = run_piku_in_silica(
@@ -166,7 +166,7 @@ def print_single_workspace_status(status: Dict[str, Any], detailed: bool = False
         silica_dir = get_silica_dir()
         if git_root and silica_dir:
             workspace_config = get_workspace_config(silica_dir, status["workspace"])
-            from silica.config import get_config_value
+            from silica.remote.config import get_config_value
 
             default_agent = get_config_value("default_agent", "hdev")
             agent_type = workspace_config.get("agent_type", default_agent)
@@ -280,7 +280,7 @@ def print_all_workspaces_summary(statuses: List[Dict[str, Any]]):
 
     for status in statuses:
         # Get agent type for this workspace
-        from silica.config import get_config_value
+        from silica.remote.config import get_config_value
 
         default_agent = get_config_value("default_agent", "hdev")
         agent_type = default_agent  # default
