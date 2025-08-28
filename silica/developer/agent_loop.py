@@ -593,9 +593,10 @@ async def run(
                 tool_uses = [
                     part for part in final_message.content if part.type == "tool_use"
                 ]
-                agent_context.user_interface.handle_system_message(
-                    f"Found {len(tool_uses)} tools"
-                )
+                if len(tool_uses) > 1:
+                    agent_context.user_interface.handle_system_message(
+                        f"Found {len(tool_uses)} tools"
+                    )
 
                 # Process all tool uses, potentially in parallel
                 try:
