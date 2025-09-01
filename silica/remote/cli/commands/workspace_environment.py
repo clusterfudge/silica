@@ -19,7 +19,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
-# Agent configuration hardcoded for silica developer
+# Built-in silica developer agent
 
 console = Console()
 
@@ -199,93 +199,28 @@ def is_agent_installed(agent_config: Dict[str, Any]) -> bool:
         return False
 
 
-def install_agent(agent_config: Dict[str, Any]) -> bool:
-    """Install agent if needed.
+def verify_silica_available() -> bool:
+    """Verify that silica developer is available (it comes built-in with silica).
 
-    Since silica developer is now part of the workspace dependencies in pyproject.toml,
-    it should be installed via uv sync. This function mainly verifies availability.
+    No installation needed - silica developer is part of silica itself.
     """
-    agent_name = agent_config["name"]
-
-    if is_agent_installed(agent_config):
-        console.print(f"[green]✓ {agent_name} is already available[/green]")
-        return True
-
-    console.print(
-        f"[yellow]{agent_name} not found. Attempting installation via dependencies...[/yellow]"
-    )
-
-    # Since silica developer should be installed via uv sync, try running that first
-    if not sync_dependencies(clear_cache=False):
-        console.print(
-            "[yellow]uv sync failed, falling back to direct installation methods[/yellow]"
+    try:
+        # Simple check - if we can run silica --help, the developer command is available
+        result = subprocess.run(
+            ["silica", "--help"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env=os.environ.copy(),
         )
-
-        # Fall back to original installation method if uv sync doesn't work
-        install_data = agent_config.get("install", {})
-
-        # Try main install commands
-        for command in install_data.get("commands", []):
-            try:
-                console.print(f"[dim]Running: {command}[/dim]")
-                result = subprocess.run(
-                    command,
-                    shell=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=300,
-                    env=os.environ.copy(),  # Pass current environment
-                )
-
-                if result.returncode == 0:
-                    console.print(
-                        f"[green]✓ Successfully installed {agent_name}[/green]"
-                    )
-                    return True
-                else:
-                    console.print(f"[yellow]Command failed: {result.stderr}[/yellow]")
-
-            except Exception as e:
-                console.print(f"[yellow]Command error: {e}[/yellow]")
-
-        # Try fallback commands
-        for command in install_data.get("fallback_commands", []):
-            try:
-                console.print(f"[dim]Running fallback: {command}[/dim]")
-                result = subprocess.run(
-                    command,
-                    shell=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=300,
-                    env=os.environ.copy(),  # Pass current environment
-                )
-
-                if result.returncode == 0:
-                    console.print(
-                        f"[green]✓ Successfully installed {agent_name} with fallback[/green]"
-                    )
-                    return True
-
-            except Exception as e:
-                console.print(f"[yellow]Fallback error: {e}[/yellow]")
-
-        console.print(f"[red]✗ Failed to install {agent_name}[/red]")
-        return False
-
-    # Check if it's available now after uv sync
-    if is_agent_installed(agent_config):
-        console.print(
-            f"[green]✓ {agent_name} is now available after dependency sync[/green]"
-        )
-        return True
-    else:
-        console.print(
-            f"[yellow]⚠ {agent_name} still not available after uv sync[/yellow]"
-        )
-        console.print(
-            "[yellow]This may indicate an issue with the workspace dependencies[/yellow]"
-        )
+        if result.returncode == 0:
+            console.print("[green]✓ Silica developer is available[/green]")
+            return True
+        else:
+            console.print("[yellow]⚠ Silica command not available[/yellow]")
+            return False
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        console.print("[red]✗ Silica not found[/red]")
         return False
 
 
@@ -333,14 +268,8 @@ def get_workspace_config() -> Optional[Dict[str, Any]]:
     # In the deployed environment, we need to determine workspace config
     # This could come from environment variables set by piku, or from a config file
 
-    # Try to get from environment variables first (set during deployment)
-    os.getenv("SILICA_WORKSPACE_NAME", "agent")
-    # Always use silica developer as the agent type
-    agent_type = "silica_developer"
-
-    # Build a basic workspace config
+    # Simple workspace config - no agent type needed, only one agent
     workspace_config = {
-        "agent_type": agent_type,
         "agent_config": {"flags": [], "args": {}},
     }
 
@@ -351,8 +280,7 @@ def get_workspace_config() -> Optional[Dict[str, Any]]:
             with open(config_file, "r") as f:
                 file_config = json.load(f)
                 workspace_config.update(file_config)
-                # Always ensure agent_type is silica_developer regardless of what's in the config file
-                workspace_config["agent_type"] = "silica_developer"
+                # No need to force agent_type - only one agent available
         except Exception as e:
             console.print(
                 f"[yellow]Warning: Could not load workspace config: {e}[/yellow]"
@@ -376,62 +304,37 @@ def setup_code_directory() -> bool:
         return False
 
 
-def get_agent_config_dict(agent_type: str = "silica_developer") -> Dict[str, Any]:
-    """Get hardcoded silica developer agent configuration.
-
-    Note: agent_type parameter is kept for compatibility but always returns silica developer config.
-    """
-    # Hardcoded silica developer configuration
-    return {
-        "name": "silica_developer",
-        "description": "Silica Developer - autonomous coding agent",
-        "install": {
-            "commands": ["uv add silica"],
-            "fallback_commands": ["pip install silica"],
-            "check_command": "silica --help",
+def get_required_env_vars() -> List[Dict[str, str]]:
+    """Get required environment variables for silica developer."""
+    return [
+        {
+            "name": "ANTHROPIC_API_KEY",
+            "description": "Anthropic API key for Claude access",
         },
-        "launch": {
-            "command": "uv run silica developer",
-            "default_args": ["--dwr", "--persona", "autonomous_engineer"],
+        {
+            "name": "BRAVE_SEARCH_API_KEY",
+            "description": "Brave Search API key for web search functionality (optional)",
         },
-        "environment": {
-            "required": [
-                {
-                    "name": "ANTHROPIC_API_KEY",
-                    "description": "Anthropic API key for Claude access",
-                },
-                {
-                    "name": "BRAVE_SEARCH_API_KEY",
-                    "description": "Brave Search API key for web search functionality",
-                },
-                {
-                    "name": "GH_TOKEN",
-                    "description": "GitHub token for repository access",
-                },
-            ],
-            "recommended": [
-                {
-                    "name": "OPENAI_API_KEY",
-                    "description": "OpenAI API key for additional model access (optional)",
-                },
-            ],
+        {
+            "name": "GH_TOKEN",
+            "description": "GitHub token for repository access",
         },
-    }
+    ]
 
 
-def generate_launch_command(
-    agent_config: Dict[str, Any], workspace_config: Dict[str, Any]
-) -> str:
-    """Generate launch command for the silica developer agent."""
-    launch_data = agent_config.get("launch", {})
+def get_silica_developer_command(workspace_config: Dict[str, Any]) -> str:
+    """Get the command to run silica developer with default args."""
+    command_parts = [
+        "uv",
+        "run",
+        "silica",
+        "developer",
+        "--dwr",
+        "--persona",
+        "autonomous_engineer",
+    ]
 
-    # Hardcoded command for silica developer
-    command_parts = ["uv", "run", "silica", "developer"]
-
-    # Add default args
-    command_parts.extend(launch_data.get("default_args", []))
-
-    # Add workspace-specific args
+    # Add workspace-specific args if any
     agent_settings = workspace_config.get("agent_config", {})
     command_parts.extend(agent_settings.get("flags", []))
 
@@ -488,24 +391,25 @@ def _setup_impl():
         console.print("[red]✗ Could not determine workspace configuration[/red]")
         sys.exit(1)
 
-    console.print("[cyan]Agent type: silica developer[/cyan]")
+    console.print("[cyan]Built-in silica developer agent[/cyan]")
 
-    # Get silica developer agent configuration
-    try:
-        agent_config = get_agent_config_dict("silica_developer")
-    except Exception as e:
-        console.print(
-            f"[red]✗ Could not load silica_developer agent configuration: {e}[/red]"
-        )
-        sys.exit(1)
-
-    # Install agent
-    if not install_agent(agent_config):
-        console.print("[red]✗ Failed to install agent[/red]")
+    # Verify silica is available
+    if not verify_silica_available():
+        console.print("[red]✗ Silica developer not available[/red]")
         sys.exit(1)
 
     # Check environment variables
-    env_ok, missing_req, missing_rec = check_environment_variables(agent_config)
+    missing_req = []
+    missing_rec = []
+
+    for env_var in get_required_env_vars():
+        if not os.getenv(env_var["name"]):
+            if env_var["name"] == "BRAVE_SEARCH_API_KEY":
+                missing_rec.append((env_var["name"], env_var["description"]))
+            else:
+                missing_req.append((env_var["name"], env_var["description"]))
+
+    env_ok = len(missing_req) == 0
     if not env_ok:
         console.print("[red]✗ Required environment variables are missing:[/red]")
         for env_name, description in missing_req:
@@ -545,26 +449,13 @@ def _run_impl():
         console.print("[red]✗ Could not determine workspace configuration[/red]")
         sys.exit(1)
 
-    # Get silica_developer agent configuration
-    try:
-        agent_config = get_agent_config_dict("silica_developer")
-    except Exception as e:
-        console.print(
-            f"[red]✗ Could not load silica_developer agent configuration: {e}[/red]"
-        )
+    # Verify silica is available (no installation needed)
+    if not verify_silica_available():
+        console.print("[red]✗ Silica developer not available[/red]")
         sys.exit(1)
 
-    # Ensure agent is installed
-    if not is_agent_installed(agent_config):
-        console.print(
-            f"[yellow]Agent {agent_config['name']} not installed, installing now...[/yellow]"
-        )
-        if not install_agent(agent_config):
-            console.print("[red]✗ Failed to install agent[/red]")
-            sys.exit(1)
-
-    # Generate and run launch command
-    launch_command = generate_launch_command(agent_config, workspace_config)
+    # Generate launch command
+    launch_command = get_silica_developer_command(workspace_config)
 
     # Change to code directory if it exists
     code_dir = Path.cwd() / "code"
@@ -578,7 +469,7 @@ def _run_impl():
 
     console.print(f"[cyan]Launch command: {launch_command}[/cyan]")
     console.print(
-        f"[green]Starting {agent_config['name']} agent from {os.getcwd()} at {datetime.now()}[/green]"
+        f"[green]Starting silica developer from {os.getcwd()} at {datetime.now()}[/green]"
     )
 
     try:
@@ -701,41 +592,45 @@ def _status_impl(json_output=False):
                 "Agent type: silica developer (silica_developer)",
             )
 
-        # Check silica_developer agent config
         try:
-            agent_config = get_agent_config_dict("silica_developer")
+            # Built-in silica developer - always valid
             status_data["agent_config"] = {
                 "status": "ok",
                 "valid": True,
-                "name": agent_config["name"],
-                "description": agent_config["description"],
+                "name": "silica_developer",
+                "description": "Built-in Silica Developer",
             }
             if not json_output:
-                table.add_row(
-                    "Agent Config", "✓ Valid", "silica developer (silica_developer)"
-                )
+                table.add_row("Agent Config", "✓ Built-in", "Silica Developer")
 
-            # Check if agent is installed
-            agent_installed = is_agent_installed(agent_config)
+            # Check if silica is available (built-in)
+            agent_available = verify_silica_available()
             status_data["agent_installation"] = {
-                "status": "ok" if agent_installed else "error",
-                "installed": agent_installed,
-                "agent_name": agent_config["name"],
+                "status": "ok" if agent_available else "error",
+                "installed": agent_available,
+                "agent_name": "silica_developer",
             }
             if not json_output:
-                if agent_installed:
-                    table.add_row(
-                        "Agent Installation", "✓ Installed", agent_config["name"]
-                    )
+                if agent_available:
+                    table.add_row("Agent Availability", "✓ Available", "Built-in")
                 else:
                     table.add_row(
-                        "Agent Installation", "✗ Not Installed", "Run setup to install"
+                        "Agent Availability",
+                        "✗ Not Available",
+                        "Check silica installation",
                     )
 
             # Check environment variables
-            env_ok, missing_req, missing_rec = check_environment_variables(
-                agent_config, silent=json_output
-            )
+            missing_req = []
+            missing_rec = []
+            for env_var in get_required_env_vars():
+                if not os.getenv(env_var["name"]):
+                    if env_var["name"] == "BRAVE_SEARCH_API_KEY":
+                        missing_rec.append((env_var["name"], env_var["description"]))
+                    else:
+                        missing_req.append((env_var["name"], env_var["description"]))
+
+            env_ok = len(missing_req) == 0
             status_data["agent_environment"] = {
                 "status": "ok" if env_ok else "error",
                 "complete": env_ok and not missing_rec,
@@ -916,22 +811,20 @@ def _status_impl(json_output=False):
 
         workspace_config = get_workspace_config()
         if workspace_config:
-            try:
-                agent_config = get_agent_config_dict("silica_developer")
-                if not is_agent_installed(agent_config):
-                    console.print(
-                        "• Run [cyan]silica we setup[/cyan] to install the agent"
-                    )
+            if not verify_silica_available():
+                console.print("• Check silica installation")
 
-                env_ok, missing_req, missing_rec = check_environment_variables(
-                    agent_config
-                )
-                if not env_ok:
-                    console.print(
-                        "• Configure required environment variables through piku"
-                    )
-            except Exception:
-                console.print("• Fix agent configuration issues")
+            # Check environment variables
+            missing_req = []
+            for env_var in get_required_env_vars():
+                if (
+                    not os.getenv(env_var["name"])
+                    and env_var["name"] != "BRAVE_SEARCH_API_KEY"
+                ):
+                    missing_req.append((env_var["name"], env_var["description"]))
+
+            if missing_req:
+                console.print("• Configure required environment variables through piku")
 
         if not (code_dir.exists() and code_dir.is_dir()):
             console.print("• Sync code directory using [cyan]silica sync[/cyan]")

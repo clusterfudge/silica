@@ -8,23 +8,10 @@ from typing import Dict, Any, Optional
 from pathlib import Path
 
 
-def validate_agent_type(agent_type: str) -> bool:
-    """Validate that an agent type is supported.
-
-    Args:
-        agent_type: Type of agent (ignored, always returns True for backward compatibility)
-
-    Returns:
-        Always True since we only support the hardcoded silica developer
-    """
-    return True
-
-
-def generate_agent_command(agent_type: str, workspace_config: Dict[str, Any]) -> str:
+def generate_agent_command(workspace_config: Dict[str, Any]) -> str:
     """Generate the command to run silica developer agent.
 
     Args:
-        agent_type: Type of agent (ignored, always uses silica developer)
         workspace_config: Workspace-specific configuration
 
     Returns:
@@ -39,11 +26,10 @@ def generate_agent_command(agent_type: str, workspace_config: Dict[str, Any]) ->
         "run",
         "silica",
         "developer",
+        "--dwr",
+        "--persona",
+        "autonomous_engineer",
     ]
-
-    # Add default arguments for silica developer
-    default_args = ["--dwr", "--persona", "autonomous_engineer"]
-    command_parts.extend(default_args)
 
     # Add custom flags from workspace config
     custom_flags = agent_settings.get("flags", [])
@@ -60,43 +46,35 @@ def generate_agent_command(agent_type: str, workspace_config: Dict[str, Any]) ->
     return " ".join(command_parts)
 
 
-def get_default_workspace_agent_config(
-    agent_type: str = "silica_developer",
-) -> Dict[str, Any]:
+def get_default_workspace_agent_config() -> Dict[str, Any]:
     """Get default agent configuration for a workspace.
-
-    Args:
-        agent_type: Type of agent (ignored, always returns silica developer config)
 
     Returns:
         Default silica developer configuration dictionary
     """
-    return {"agent_type": "silica_developer", "agent_config": {"flags": [], "args": {}}}
+    return {"agent_config": {"flags": [], "args": {}}}
 
 
 def update_workspace_with_agent(
     workspace_config: Dict[str, Any],
-    agent_type: str = "silica_developer",
     agent_config: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Update workspace configuration with agent settings.
 
     Args:
         workspace_config: Existing workspace configuration
-        agent_type: Type of agent (ignored, always uses silica developer)
         agent_config: Optional agent-specific configuration
 
     Returns:
         Updated workspace configuration with silica developer settings
     """
     updated_config = workspace_config.copy()
-    updated_config["agent_type"] = "silica_developer"  # Always silica developer
 
     if agent_config:
         updated_config["agent_config"] = agent_config
     elif "agent_config" not in updated_config:
         # Set default silica developer config if none exists
-        default_config = get_default_workspace_agent_config("silica_developer")
+        default_config = get_default_workspace_agent_config()
         updated_config["agent_config"] = default_config["agent_config"]
 
     return updated_config
@@ -112,7 +90,7 @@ def generate_agent_script(workspace_config: Dict[str, Any]) -> str:
         Generated AGENT.sh script content for silica developer
     """
     # Generate the silica developer command
-    agent_command = generate_agent_command("silica_developer", workspace_config)
+    agent_command = generate_agent_command(workspace_config)
 
     # Load the template
     try:

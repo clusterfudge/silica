@@ -110,9 +110,7 @@ def create(
     # Load global configuration
     config = load_config()
 
-    # Always use silica developer as the agent type
-    agent_type = "silica_developer"
-    console.print("[dim]Using silica developer agent[/dim]")
+    # Always use silica developer (no need to reference agent_type)
 
     if connection is None:
         # Check if there's a git remote named "piku" in the project repo
@@ -185,7 +183,7 @@ def create(
         ]
 
         # Create workspace config for the deployed environment
-        workspace_config = get_default_workspace_agent_config(agent_type)
+        workspace_config = get_default_workspace_agent_config()
 
         # Create initial files
         for filename in initial_files:
@@ -296,7 +294,7 @@ def create(
 
         # Add workspace configuration environment variables
         env_config["SILICA_WORKSPACE_NAME"] = workspace
-        env_config["SILICA_AGENT_TYPE"] = agent_type
+        # No need to set SILICA_AGENT_TYPE - there's only one agent
         env_config["NGINX_SERVER_NAME"] = app_name  # Enable hostname routing
 
         # Set all configuration values at once if we have any
@@ -400,7 +398,7 @@ def create(
             project_config = {"default_workspace": workspace, "workspaces": {}}
 
         # Set this workspace's configuration including agent settings
-        agent_config = get_default_workspace_agent_config(agent_type)
+        agent_config = get_default_workspace_agent_config()
         workspace_config = {
             "piku_connection": connection,
             "app_name": app_name,
@@ -429,7 +427,7 @@ def create(
         console.print(f"Piku connection: [cyan]{connection}[/cyan]")
         console.print(f"Application name: [cyan]{app_name}[/cyan]")
         console.print(f"Branch: [cyan]{initial_branch}[/cyan]")
-        console.print(f"Agent type: [cyan]{agent_type}[/cyan]")
+        console.print("[cyan]Using built-in silica developer[/cyan]")
 
         # Legacy messaging system removed - workspace creation simplified
 
