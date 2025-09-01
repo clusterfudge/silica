@@ -272,7 +272,8 @@ def _check_and_apply_compaction(
             user_interface.handle_system_message(
                 f"[bold green]Conversation compacted: "
                 f"{transition.summary.original_message_count} messages → "
-                f"new session {transition.new_session_id[:8]}[/bold green]"
+                f"new session {transition.new_session_id[:8]}[/bold green]",
+                markdown=False,
             )
 
             # Save both sessions: original (already saved) and new compacted one
@@ -282,7 +283,8 @@ def _check_and_apply_compaction(
     except Exception as e:
         # Log compaction errors but continue normally
         user_interface.handle_system_message(
-            f"[yellow]Compaction check failed: {e}[/yellow]"
+            f"[yellow]Compaction check failed: {e}[/yellow]",
+            markdown=False,
         )
 
     return agent_context, False
@@ -328,7 +330,8 @@ async def run(
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
         user_interface.handle_system_message(
-            "[bold red]Error: ANTHROPIC_API_KEY environment variable not set[/bold red]"
+            "[bold red]Error: ANTHROPIC_API_KEY environment variable not set[/bold red]",
+            markdown=False,
         )
         return []
 
@@ -383,8 +386,9 @@ async def run(
                         agent_context.session_id = str(uuid4())
                         # Ensure we flush the cleared context to disk before continuing
                         agent_context.flush(agent_context.chat_history, compact=False)
-                        user_interface.handle_assistant_message(
-                            "[bold green]Chat history cleared and new session started.[/bold green]"
+                        user_interface.handle_system_message(
+                            "[bold green]Chat history cleared and new session started.[/bold green]",
+                            markdown=False,
                         )
                     elif command_name in toolbox.local:
                         tool = toolbox.local.get(command_name)
@@ -399,8 +403,9 @@ async def run(
                                     {"type": "text", "text": result}
                                 )
                     else:
-                        user_interface.handle_assistant_message(
-                            f"[bold red]Unknown command: {user_input}[/bold red]"
+                        user_interface.handle_system_message(
+                            f"[bold red]Unknown command: {user_input}[/bold red]",
+                            markdown=False,
                         )
                     continue
 
@@ -527,12 +532,14 @@ async def run(
                         backoff_time = rate_limiter.handle_rate_limit_error(e)
                         if attempt == max_retries - 1:
                             user_interface.handle_system_message(
-                                "[bold red]Rate limit exceeded. Max retries reached. Please try again later.[/bold red]"
+                                "[bold red]Rate limit exceeded. Max retries reached. Please try again later.[/bold red]",
+                                markdown=False,
                             )
                             raise
 
                         user_interface.handle_system_message(
-                            f"[bold yellow]Rate limit exceeded. Retrying in {backoff_time:.2f} seconds... (Attempt {attempt+1}/{max_retries})[/bold yellow]"
+                            f"[bold yellow]Rate limit exceeded. Retrying in {backoff_time:.2f} seconds... (Attempt {attempt+1}/{max_retries})[/bold yellow]",
+                            markdown=False,
                         )
                         # Wait time is already set in handle_rate_limit_error
                         continue
@@ -547,7 +554,8 @@ async def run(
                                 max_delay,
                             )
                             user_interface.handle_system_message(
-                                f"API overloaded. Retrying in {delay:.2f} seconds..."
+                                f"API overloaded. Retrying in {delay:.2f} seconds...",
+                                markdown=False,
                             )
                             time.sleep(delay)
                         else:
@@ -610,7 +618,8 @@ async def run(
                 except KeyboardInterrupt:
                     # Handle Ctrl+C during tool execution
                     user_interface.handle_system_message(
-                        "[bold yellow]Tool execution interrupted by user (Ctrl+C)[/bold yellow]"
+                        "[bold yellow]Tool execution interrupted by user (Ctrl+C)[/bold yellow]",
+                        markdown=False,
                     )
 
                     # Create cancelled results for all tool uses - these MUST be added to chat history
@@ -641,7 +650,8 @@ async def run(
 
                     # Show a message that control is returning to user
                     user_interface.handle_system_message(
-                        "[bold green]Control returned to user. You can now enter a new command.[/bold green]"
+                        "[bold green]Control returned to user. You can now enter a new command.[/bold green]",
+                        markdown=False,
                     )
 
                     # Set flag to force return to user input on next iteration
@@ -660,7 +670,8 @@ async def run(
 
                     # 2. Get user's alternate prompt
                     user_interface.handle_system_message(
-                        "You selected 'do something else'. Please enter what you'd like to do instead:"
+                        "You selected 'do something else'. Please enter what you'd like to do instead:",
+                        markdown=False,
                     )
                     alternate_prompt = await user_interface.get_user_input()
 
@@ -696,7 +707,7 @@ async def run(
                     # Handle any other exceptions during tool batch invocation
                     error_message = f"Error invoking tools: {str(e)}"
                     user_interface.handle_system_message(
-                        f"[bold red]{error_message}[/bold red]"
+                        f"[bold red]{error_message}[/bold red]", markdown=False
                     )
                     # Add error results for all tools
                     for tool_use in tool_uses:
@@ -754,7 +765,8 @@ async def run(
 
             if interrupt_count >= 2:
                 user_interface.handle_system_message(
-                    "[bold red]Double interrupt detected. Exiting...[/bold red]"
+                    "[bold red]Double interrupt detected. Exiting...[/bold red]",
+                    markdown=False,
                 )
                 break
             else:
