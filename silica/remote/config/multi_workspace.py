@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 
 from silica.remote.config import DEFAULT_CONFIG
-from silica.remote.utils.yaml_agents import get_default_workspace_agent_config
+from silica.remote.utils.agents import get_default_workspace_agent_config
 
 
 def load_project_config(silica_dir: Path) -> Dict[str, Any]:

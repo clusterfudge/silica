@@ -11,7 +11,8 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 from silica.remote.cli.commands.workspace_environment import (
     get_workspace_config,
-    get_agent_config_dict,
+    get_required_env_vars,
+    verify_silica_available,
     setup,
     run,
     status,
@@ -41,11 +42,13 @@ class TestWorkspaceEnvironmentSafety:
 
         with patch.dict(
             "os.environ",
-            {"SILICA_WORKSPACE_NAME": "test-workspace", "SILICA_AGENT_TYPE": "hdev"},
+            {
+                "SILICA_WORKSPACE_NAME": "test-workspace",
+            },
         ):
             config = get_workspace_config()
-            assert config["agent_type"] == "hdev"
             assert "agent_config" in config
+            # No agent_type field anymore - only one agent
 
     @patch("silica.remote.cli.commands.workspace_environment.os.getcwd")
     def test_get_workspace_config_with_json_file(self, mock_getcwd):
@@ -54,7 +57,6 @@ class TestWorkspaceEnvironmentSafety:
 
         # Create a test workspace config file
         config_data = {
-            "agent_type": "cline",  # This will be overridden to "hdev"
             "agent_config": {"flags": ["--test"], "args": {"port": 8080}},
         }
         config_file = self.temp_path / "workspace_config.json"
@@ -62,38 +64,40 @@ class TestWorkspaceEnvironmentSafety:
             json.dump(config_data, f)
 
         config = get_workspace_config()
-        # Agent type is now always "hdev" regardless of config file content
-        assert config["agent_type"] == "hdev"
+        # Config should be loaded from file
         assert config["agent_config"]["flags"] == ["--test"]
         assert config["agent_config"]["args"]["port"] == 8080
 
-    def test_get_agent_config_dict_valid_agent(self):
-        """Test agent config retrieval for valid agent."""
-        try:
-            config = get_agent_config_dict("hdev")
-            assert "name" in config
-            assert "description" in config
-            assert "install" in config
-            assert "launch" in config
-            assert "environment" in config
-        except Exception as e:
-            # If agent config fails, it's okay for test purposes
-            pytest.skip(f"Agent config not available: {e}")
+    def test_get_required_env_vars(self):
+        """Test getting required environment variables."""
+        env_vars = get_required_env_vars()
+        assert isinstance(env_vars, list)
+        assert len(env_vars) > 0
 
-    def test_get_agent_config_dict_invalid_agent(self):
-        """Test agent config retrieval for invalid agent.
+        # Check that required vars have name and description
+        for env_var in env_vars:
+            assert "name" in env_var
+            assert "description" in env_var
 
-        Note: Since tight coupling with hdev, this now always returns hdev config
-        regardless of the agent_type parameter.
-        """
-        # This should now return hdev config regardless of input
-        try:
-            config = get_agent_config_dict("nonexistent-agent")
-            assert "name" in config
-            assert config["name"] == "hdev"  # Should always be hdev now
-        except Exception as e:
-            # If hdev config itself fails, it's okay for test purposes
-            pytest.skip(f"Hdev config not available: {e}")
+        # Check that expected vars are present
+        var_names = [var["name"] for var in env_vars]
+        assert "ANTHROPIC_API_KEY" in var_names
+        assert "GH_TOKEN" in var_names
+
+    def test_verify_silica_available(self):
+        """Test silica availability check."""
+        from unittest.mock import MagicMock
+
+        with patch("subprocess.run") as mock_run:
+            # Test successful case
+            mock_run.return_value = MagicMock(returncode=0)
+            result = verify_silica_available()
+            assert result is True
+
+            # Test failed case
+            mock_run.return_value = MagicMock(returncode=1)
+            result = verify_silica_available()
+            assert result is False
 
 
 class TestStatusCommandSafety:
@@ -115,18 +119,14 @@ class TestStatusCommandSafety:
         "silica.remote.cli.commands.workspace_environment.load_environment_variables"
     )
     @patch("silica.remote.cli.commands.workspace_environment.get_workspace_config")
-    @patch("silica.remote.cli.commands.workspace_environment.get_agent_config_dict")
-    @patch("silica.remote.cli.commands.workspace_environment.is_agent_installed")
-    @patch(
-        "silica.remote.cli.commands.workspace_environment.check_environment_variables"
-    )
+    @patch("silica.remote.cli.commands.workspace_environment.verify_silica_available")
+    @patch("silica.remote.cli.commands.workspace_environment.get_required_env_vars")
     @patch("subprocess.run")
     def test_status_json_output_structure(
         self,
         mock_subprocess,
-        mock_check_env_vars,
-        mock_is_installed,
-        mock_agent_config,
+        mock_env_vars,
+        mock_silica_available,
         mock_workspace_config,
         mock_load_env,
         mock_cwd,
@@ -136,18 +136,13 @@ class TestStatusCommandSafety:
         mock_cwd.return_value = self.temp_path
         mock_load_env.return_value = True
         mock_workspace_config.return_value = {
-            "agent_type": "hdev",
             "agent_config": {"flags": [], "args": {}},
         }
-        mock_agent_config.return_value = {
-            "name": "hdev",
-            "description": "Test agent",
-            "install": {"check_command": "echo test"},
-            "launch": {"command": "echo run"},
-            "environment": {"required": [], "recommended": []},
-        }
-        mock_is_installed.return_value = True
-        mock_check_env_vars.return_value = (True, [], [])
+        mock_silica_available.return_value = True
+        mock_env_vars.return_value = [
+            {"name": "ANTHROPIC_API_KEY", "description": "API key"},
+            {"name": "GH_TOKEN", "description": "GitHub token"},
+        ]
 
         # Mock uv --version command
         mock_subprocess.return_value = MagicMock(returncode=0, stdout="uv 0.6.14")
@@ -275,46 +270,54 @@ class TestCommandIntegrationSafety:
         mock_load_env.return_value = True
         mock_sync_deps.return_value = True
         mock_workspace_config.return_value = {
-            "agent_type": "hdev",
             "agent_config": {"flags": [], "args": {}},
         }
 
         with patch(
-            "silica.remote.cli.commands.workspace_environment.get_agent_config_dict"
-        ) as mock_agent_config:
-            mock_agent_config.return_value = {
-                "name": "hdev",
-                "description": "Test agent",
-                "install": {"check_command": "echo test"},
-                "environment": {"required": [], "recommended": []},
-            }
-
+            "silica.remote.cli.commands.workspace_environment.verify_silica_available"
+        ) as mock_silica_available:
+            mock_silica_available.return_value = True
             with patch(
-                "silica.remote.cli.commands.workspace_environment.install_agent"
-            ) as mock_install:
-                mock_install.return_value = True
+                "silica.remote.cli.commands.workspace_environment.setup_code_directory"
+            ):
+                with patch("os.getenv") as mock_getenv:
+                    # Mock environment variables to be set
+                    def mock_env(key):
+                        env_vars = {
+                            "ANTHROPIC_API_KEY": "test-key",
+                            "GH_TOKEN": "test-token",
+                            "BRAVE_SEARCH_API_KEY": "test-search-key",
+                        }
+                        return env_vars.get(key)
 
-                with patch(
-                    "silica.remote.cli.commands.workspace_environment.check_environment_variables"
-                ) as mock_check_env:
-                    mock_check_env.return_value = (True, [], [])
+                    mock_getenv.side_effect = mock_env
 
-                    with patch(
-                        "silica.remote.cli.commands.workspace_environment.setup_code_directory"
-                    ):
-                        # Call setup function directly
-                        try:
-                            setup()
-                            # If we get here without exception, setup worked
-                            success = True
-                        except SystemExit as e:
-                            # setup() may call sys.exit, which is okay for this test
-                            success = e.code == 0
+                    # Call setup function directly
+                    try:
+                        setup()
+                        # If we get here without exception, setup worked
+                        success = True
+                    except SystemExit as e:
+                        # setup() may call sys.exit, which is okay for this test
+                        success = e.code == 0
 
-                        # Should complete successfully
-                        assert success
+                    # Should complete successfully
+                    assert success
 
 
 if __name__ == "__main__":
     # Allow running tests directly
     pytest.main([__file__, "-v"])
+
+    def test_verify_silica_available(self):
+        """Test silica availability check."""
+        with patch("subprocess.run") as mock_run:
+            # Test successful case
+            mock_run.return_value = MagicMock(returncode=0)
+            result = verify_silica_available()
+            assert result is True
+
+            # Test failed case
+            mock_run.return_value = MagicMock(returncode=1)
+            result = verify_silica_available()
+            assert result is False

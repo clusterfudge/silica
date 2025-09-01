@@ -9,13 +9,13 @@ from pathlib import Path
 from typing import List, Dict, Any
 
 from silica.remote.config import get_silica_dir, find_git_root
-from silica.remote.config.multi_workspace import list_workspaces, get_workspace_config
+from silica.remote.config.multi_workspace import list_workspaces
 from silica.remote.utils.piku import (
     get_piku_connection,
     get_app_name,
     run_piku_in_silica,
 )
-from silica.remote.utils.agent_yaml import load_agent_config, report_environment_status
+# Agent configuration removed - hardcoded silica developer
 
 console = Console()
 
@@ -100,11 +100,10 @@ def get_workspace_status(workspace_name: str, git_root: Path) -> Dict[str, Any]:
         # Try to get agent sessions
         try:
             # Get agent type to use correct sessions command
-            from silica.remote.config import get_config_value
+            pass
 
-            default_agent = get_config_value("default_agent", "hdev")
             result = run_piku_in_silica(
-                f"{default_agent} sessions",
+                "silica developer sessions",
                 use_shell_pipe=True,
                 workspace_name=workspace_name,
                 capture_output=True,
@@ -161,43 +160,12 @@ def print_single_workspace_status(status: Dict[str, Any], detailed: bool = False
     )
 
     # Add agent configuration information
-    try:
-        git_root = find_git_root()
-        silica_dir = get_silica_dir()
-        if git_root and silica_dir:
-            workspace_config = get_workspace_config(silica_dir, status["workspace"])
-            from silica.remote.config import get_config_value
+    # Built-in silica developer - no configuration needed
+    console.print("[bold]Agent:[/bold] [cyan]Built-in Silica Developer[/cyan]")
 
-            default_agent = get_config_value("default_agent", "hdev")
-            agent_type = workspace_config.get("agent_type", default_agent)
-
-            console.print(
-                f"[bold]Agent Configuration:[/bold] [cyan]{agent_type}[/cyan]"
-            )
-
-            # Show agent details if detailed view
-            if detailed:
-                agent_details = load_agent_config(agent_type)
-                if agent_details:
-                    console.print(
-                        f"Description: [white]{agent_details.description}[/white]"
-                    )
-                    console.print(
-                        f"Command: [green]{agent_details.launch_command}[/green]"
-                    )
-
-                    if agent_details.default_args:
-                        console.print(
-                            f"Default args: [blue]{' '.join(agent_details.default_args)}[/blue]"
-                        )
-
-                    # Show environment variable status
-                    console.print("\n[bold]Environment Variables:[/bold]")
-                    report_environment_status(agent_details)
-    except Exception as e:
-        # If we can't get agent info, show helpful error and continue with regular status
+    if detailed:
         console.print(
-            f"[yellow]Warning: Could not load agent configuration: {e}[/yellow]"
+            "[green]Command: uv run silica developer --dwr --persona autonomous_engineer[/green]"
         )
 
     # Print process status
@@ -280,18 +248,9 @@ def print_all_workspaces_summary(statuses: List[Dict[str, Any]]):
 
     for status in statuses:
         # Get agent type for this workspace
-        from silica.remote.config import get_config_value
+        pass
 
-        default_agent = get_config_value("default_agent", "hdev")
-        agent_type = default_agent  # default
-        try:
-            git_root = find_git_root()
-            silica_dir = get_silica_dir()
-            if git_root and silica_dir:
-                workspace_config = get_workspace_config(silica_dir, status["workspace"])
-                agent_type = workspace_config.get("agent_type", default_agent)
-        except Exception:
-            pass
+        agent_type = "silica_developer"  # only one agent type
 
         # Determine status indicators
         process_count = len(

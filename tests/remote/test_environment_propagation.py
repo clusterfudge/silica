@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
-from silica.remote.utils.agent_runner import load_environment_variables
+# agent_runner module removed - load_environment_variables only in workspace_environment now
 from silica.remote.cli.commands.workspace_environment import (
     load_environment_variables as we_load_environment_variables,
 )
@@ -15,8 +15,8 @@ from silica.remote.cli.commands.workspace_environment import (
 class TestEnvironmentPropagation:
     """Test that environment variables are properly loaded and passed to subprocesses."""
 
-    def test_agent_runner_loads_env_and_live_env(self):
-        """Test that agent runner loads both ENV and LIVE_ENV files."""
+    def test_workspace_environment_loads_env_and_live_env_as_agent_runner(self):
+        """Test that workspace environment loads both ENV and LIVE_ENV files (replaces agent_runner test)."""
         with tempfile.TemporaryDirectory() as temp_dir:
             # Mock the environment file paths
             env_content = "TEST_VAR1=value1\nTEST_VAR2=value2\n"
@@ -33,10 +33,10 @@ class TestEnvironmentPropagation:
 
             # Mock Path.home() and Path.cwd()
             with patch(
-                "silica.remote.utils.agent_runner.Path.home",
+                "silica.remote.cli.commands.workspace_environment.Path.home",
                 return_value=Path(temp_dir),
             ), patch(
-                "silica.remote.utils.agent_runner.Path.cwd",
+                "silica.remote.cli.commands.workspace_environment.Path.cwd",
                 return_value=Path(temp_dir) / "test-app",
             ):
                 # Clear environment variables first
@@ -45,7 +45,7 @@ class TestEnvironmentPropagation:
                     original_env[var] = os.environ.pop(var, None)
 
                 try:
-                    load_environment_variables()
+                    we_load_environment_variables(silent=True)
 
                     # Verify environment variables are loaded
                     assert os.environ.get("TEST_VAR1") == "value1"
@@ -124,10 +124,10 @@ class TestEnvironmentPropagation:
 
             # Mock Path.home() and Path.cwd()
             with patch(
-                "silica.remote.utils.agent_runner.Path.home",
+                "silica.remote.cli.commands.workspace_environment.Path.home",
                 return_value=Path(temp_dir),
             ), patch(
-                "silica.remote.utils.agent_runner.Path.cwd",
+                "silica.remote.cli.commands.workspace_environment.Path.cwd",
                 return_value=Path(temp_dir) / "test-app",
             ):
                 # Clear environment variables first
@@ -136,7 +136,7 @@ class TestEnvironmentPropagation:
                     original_env[var] = os.environ.pop(var, None)
 
                 try:
-                    load_environment_variables()
+                    we_load_environment_variables(silent=True)
 
                     # Verify environment variables are loaded with quotes stripped
                     assert os.environ.get("QUOTED_VAR1") == "value with spaces"
@@ -197,17 +197,17 @@ class TestEnvironmentPropagation:
 
             # Mock Path.home() and Path.cwd()
             with patch(
-                "silica.remote.utils.agent_runner.Path.home",
+                "silica.remote.cli.commands.workspace_environment.Path.home",
                 return_value=Path(temp_dir),
             ), patch(
-                "silica.remote.utils.agent_runner.Path.cwd",
+                "silica.remote.cli.commands.workspace_environment.Path.cwd",
                 return_value=Path(temp_dir) / "test-app",
             ):
                 # Clear GH_TOKEN environment variable first
                 original_gh_token = os.environ.pop("GH_TOKEN", None)
 
                 try:
-                    load_environment_variables()
+                    we_load_environment_variables(silent=True)
 
                     # Verify GH_TOKEN is loaded
                     assert os.environ.get("GH_TOKEN") == "test_gh_token_value"
