@@ -19,8 +19,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
-from silica.remote.utils.agent_runner import resolve_agent_executable_path
-from silica.remote.utils.agent_yaml import load_agent_config
+# Agent configuration hardcoded for silica developer
 
 console = Console()
 
@@ -203,7 +202,7 @@ def is_agent_installed(agent_config: Dict[str, Any]) -> bool:
 def install_agent(agent_config: Dict[str, Any]) -> bool:
     """Install agent if needed.
 
-    Since hdev is now part of the workspace dependencies in pyproject.toml,
+    Since silica developer is now part of the workspace dependencies in pyproject.toml,
     it should be installed via uv sync. This function mainly verifies availability.
     """
     agent_name = agent_config["name"]
@@ -216,7 +215,7 @@ def install_agent(agent_config: Dict[str, Any]) -> bool:
         f"[yellow]{agent_name} not found. Attempting installation via dependencies...[/yellow]"
     )
 
-    # Since hdev should be installed via uv sync, try running that first
+    # Since silica developer should be installed via uv sync, try running that first
     if not sync_dependencies(clear_cache=False):
         console.print(
             "[yellow]uv sync failed, falling back to direct installation methods[/yellow]"
@@ -336,8 +335,8 @@ def get_workspace_config() -> Optional[Dict[str, Any]]:
 
     # Try to get from environment variables first (set during deployment)
     os.getenv("SILICA_WORKSPACE_NAME", "agent")
-    # Always use hdev as the agent type
-    agent_type = "hdev"
+    # Always use silica developer as the agent type
+    agent_type = "silica_developer"
 
     # Build a basic workspace config
     workspace_config = {
@@ -352,8 +351,8 @@ def get_workspace_config() -> Optional[Dict[str, Any]]:
             with open(config_file, "r") as f:
                 file_config = json.load(f)
                 workspace_config.update(file_config)
-                # Always ensure agent_type is hdev regardless of what's in the config file
-                workspace_config["agent_type"] = "hdev"
+                # Always ensure agent_type is silica_developer regardless of what's in the config file
+                workspace_config["agent_type"] = "silica_developer"
         except Exception as e:
             console.print(
                 f"[yellow]Warning: Could not load workspace config: {e}[/yellow]"
@@ -377,37 +376,44 @@ def setup_code_directory() -> bool:
         return False
 
 
-def get_agent_config_dict(agent_type: str = "hdev") -> Dict[str, Any]:
-    """Load agent config and convert to dict format.
+def get_agent_config_dict(agent_type: str = "silica_developer") -> Dict[str, Any]:
+    """Get hardcoded silica developer agent configuration.
 
-    Note: agent_type parameter is kept for compatibility but always loads hdev.
+    Note: agent_type parameter is kept for compatibility but always returns silica developer config.
     """
-    # Always load hdev configuration regardless of agent_type parameter
-    agent_config_obj = load_agent_config("hdev")
-    if not agent_config_obj:
-        raise ValueError("Could not load hdev agent configuration")
-
-    # Convert to dict format for our functions
+    # Hardcoded silica developer configuration
     return {
-        "name": agent_config_obj.name,
-        "description": agent_config_obj.description,
+        "name": "silica_developer",
+        "description": "Silica Developer - autonomous coding agent",
         "install": {
-            "commands": agent_config_obj.install_commands,
-            "fallback_commands": agent_config_obj.fallback_install_commands,
-            "check_command": agent_config_obj.check_command,
+            "commands": ["uv add silica"],
+            "fallback_commands": ["pip install silica"],
+            "check_command": "silica --help",
         },
         "launch": {
-            "command": agent_config_obj.launch_command,
-            "default_args": agent_config_obj.default_args,
+            "command": "uv run silica developer",
+            "default_args": ["--dwr", "--persona", "autonomous_engineer"],
         },
         "environment": {
             "required": [
-                {"name": var.name, "description": var.description}
-                for var in agent_config_obj.required_env_vars
+                {
+                    "name": "ANTHROPIC_API_KEY",
+                    "description": "Anthropic API key for Claude access",
+                },
+                {
+                    "name": "BRAVE_SEARCH_API_KEY",
+                    "description": "Brave Search API key for web search functionality",
+                },
+                {
+                    "name": "GH_TOKEN",
+                    "description": "GitHub token for repository access",
+                },
             ],
             "recommended": [
-                {"name": var.name, "description": var.description}
-                for var in agent_config_obj.recommended_env_vars
+                {
+                    "name": "OPENAI_API_KEY",
+                    "description": "OpenAI API key for additional model access (optional)",
+                },
             ],
         },
     }
@@ -416,10 +422,11 @@ def get_agent_config_dict(agent_type: str = "hdev") -> Dict[str, Any]:
 def generate_launch_command(
     agent_config: Dict[str, Any], workspace_config: Dict[str, Any]
 ) -> str:
-    """Generate launch command for the agent."""
+    """Generate launch command for the silica developer agent."""
     launch_data = agent_config.get("launch", {})
-    resolved_command = resolve_agent_executable_path(agent_config, workspace_config)
-    command_parts = resolved_command.split()
+
+    # Hardcoded command for silica developer
+    command_parts = ["uv", "run", "silica", "developer"]
 
     # Add default args
     command_parts.extend(launch_data.get("default_args", []))
@@ -475,19 +482,21 @@ def _setup_impl():
         console.print("[red]✗ Failed to sync dependencies[/red]")
         sys.exit(1)
 
-    # Get workspace configuration (always hdev now)
+    # Get workspace configuration (always silica_developer now)
     workspace_config = get_workspace_config()
     if not workspace_config:
         console.print("[red]✗ Could not determine workspace configuration[/red]")
         sys.exit(1)
 
-    console.print("[cyan]Agent type: heare-developer (hdev)[/cyan]")
+    console.print("[cyan]Agent type: silica developer[/cyan]")
 
-    # Get hdev agent configuration
+    # Get silica developer agent configuration
     try:
-        agent_config = get_agent_config_dict("hdev")
+        agent_config = get_agent_config_dict("silica_developer")
     except Exception as e:
-        console.print(f"[red]✗ Could not load hdev agent configuration: {e}[/red]")
+        console.print(
+            f"[red]✗ Could not load silica_developer agent configuration: {e}[/red]"
+        )
         sys.exit(1)
 
     # Install agent
@@ -530,17 +539,19 @@ def _run_impl():
     # Load environment
     load_environment_variables()
 
-    # Get workspace configuration (always hdev now)
+    # Get workspace configuration (always silica_developer now)
     workspace_config = get_workspace_config()
     if not workspace_config:
         console.print("[red]✗ Could not determine workspace configuration[/red]")
         sys.exit(1)
 
-    # Get hdev agent configuration
+    # Get silica_developer agent configuration
     try:
-        agent_config = get_agent_config_dict("hdev")
+        agent_config = get_agent_config_dict("silica_developer")
     except Exception as e:
-        console.print(f"[red]✗ Could not load hdev agent configuration: {e}[/red]")
+        console.print(
+            f"[red]✗ Could not load silica_developer agent configuration: {e}[/red]"
+        )
         sys.exit(1)
 
     # Ensure agent is installed
@@ -680,17 +691,19 @@ def _status_impl(json_output=False):
         status_data["workspace_config"] = {
             "status": "ok",
             "found": True,
-            "agent_type": "hdev",
+            "agent_type": "silica_developer",
             "config": workspace_config,
         }
         if not json_output:
             table.add_row(
-                "Workspace Config", "✓ Found", "Agent type: heare-developer (hdev)"
+                "Workspace Config",
+                "✓ Found",
+                "Agent type: silica developer (silica_developer)",
             )
 
-        # Check hdev agent config
+        # Check silica_developer agent config
         try:
-            agent_config = get_agent_config_dict("hdev")
+            agent_config = get_agent_config_dict("silica_developer")
             status_data["agent_config"] = {
                 "status": "ok",
                 "valid": True,
@@ -698,7 +711,9 @@ def _status_impl(json_output=False):
                 "description": agent_config["description"],
             }
             if not json_output:
-                table.add_row("Agent Config", "✓ Valid", "heare-developer (hdev)")
+                table.add_row(
+                    "Agent Config", "✓ Valid", "silica developer (silica_developer)"
+                )
 
             # Check if agent is installed
             agent_installed = is_agent_installed(agent_config)
@@ -902,7 +917,7 @@ def _status_impl(json_output=False):
         workspace_config = get_workspace_config()
         if workspace_config:
             try:
-                agent_config = get_agent_config_dict("hdev")
+                agent_config = get_agent_config_dict("silica_developer")
                 if not is_agent_installed(agent_config):
                     console.print(
                         "• Run [cyan]silica we setup[/cyan] to install the agent"

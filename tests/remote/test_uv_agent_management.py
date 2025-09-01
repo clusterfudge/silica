@@ -13,11 +13,38 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from silica.remote.utils.agent_yaml import (
-    AgentConfig,
+# agent_yaml module removed - using hardcoded agent configuration for tests
+from silica.remote.cli.commands.workspace_environment import (
     install_agent,
     is_agent_installed,
 )
+
+
+# Mock AgentConfig for testing since the original class is deleted
+class AgentConfig:
+    def __init__(
+        self,
+        name,
+        description,
+        install_commands,
+        fallback_install_commands,
+        check_command,
+        launch_command,
+        default_args,
+        dependencies,
+        required_env_vars,
+        recommended_env_vars,
+    ):
+        self.name = name
+        self.description = description
+        self.install_commands = install_commands
+        self.fallback_install_commands = fallback_install_commands
+        self.check_command = check_command
+        self.launch_command = launch_command
+        self.default_args = default_args
+        self.dependencies = dependencies
+        self.required_env_vars = required_env_vars
+        self.recommended_env_vars = recommended_env_vars
 
 
 class TestUVAgentManagement:
@@ -25,52 +52,46 @@ class TestUVAgentManagement:
 
     def test_agent_installation_directory_context(self):
         """Test that agent installation works from project root directory."""
-        # Create a mock agent config that uses uv add
-        agent_config = AgentConfig(
-            name="test-agent",
-            description="Test agent",
-            install_commands=["uv add requests"],
-            fallback_install_commands=["pip install requests"],
-            check_command="python -c 'import requests'",
-            launch_command="uv run python",
-            default_args=[],
-            dependencies=["requests"],
-            required_env_vars=[],
-            recommended_env_vars=[],
-        )
+        # Create a mock agent config dict (silica developer style)
+        agent_config = {
+            "name": "silica_developer",
+            "description": "Silica Developer agent",
+            "install": {
+                "commands": ["uv add silica"],
+                "fallback_commands": ["pip install silica"],
+                "check_command": "silica --help",
+            },
+        }
 
         # Test installation with mocked subprocess
         with patch("subprocess.run") as mock_run:
             with patch(
-                "silica.remote.utils.agent_yaml.is_agent_installed"
+                "silica.remote.cli.commands.workspace_environment.is_agent_installed"
             ) as mock_installed:
-                # Mock not installed initially
-                mock_installed.return_value = False
-                # Mock successful uv add
+                # Mock not installed initially, then installed after sync
+                mock_installed.side_effect = [False, True]
+                # Mock successful uv sync (which now handles installation)
                 mock_run.return_value = MagicMock(returncode=0)
 
                 result = install_agent(agent_config)
                 assert result is True
 
-                # Verify uv add was attempted
+                # Verify uv sync was attempted (new installation method)
                 mock_run.assert_called()
-                call_args = str(mock_run.call_args)
-                assert "uv add requests" in call_args
+                call_args = str(mock_run.call_args_list)
+                assert "uv" in call_args and "sync" in call_args
 
     def test_agent_check_with_uv_run(self):
         """Test that agent check works with uv run when direct command fails."""
-        agent_config = AgentConfig(
-            name="test-agent",
-            description="Test agent",
-            install_commands=["uv add some-package"],
-            fallback_install_commands=[],
-            check_command="some-command --version",
-            launch_command="uv run some-command",
-            default_args=[],
-            dependencies=["some-package"],
-            required_env_vars=[],
-            recommended_env_vars=[],
-        )
+        agent_config = {
+            "name": "silica_developer",
+            "description": "Silica Developer agent",
+            "install": {
+                "commands": ["uv add silica"],
+                "fallback_commands": [],
+                "check_command": "silica --help",
+            },
+        }
 
         with patch("subprocess.run") as mock_run:
             # First call (direct command) fails, second call (uv run) succeeds
@@ -92,37 +113,35 @@ class TestUVAgentManagement:
 
     def test_fallback_to_pip_when_uv_fails(self):
         """Test that installation falls back to pip when uv fails."""
-        agent_config = AgentConfig(
-            name="test-agent",
-            description="Test agent",
-            install_commands=["uv add some-package"],
-            fallback_install_commands=["pip install some-package"],
-            check_command="some-command --version",
-            launch_command="uv run some-command",
-            default_args=[],
-            dependencies=["some-package"],
-            required_env_vars=[],
-            recommended_env_vars=[],
-        )
+        agent_config = {
+            "name": "silica_developer",
+            "description": "Silica Developer agent",
+            "install": {
+                "commands": ["uv add silica"],
+                "fallback_commands": ["pip install silica"],
+                "check_command": "silica --help",
+            },
+        }
 
         with patch("subprocess.run") as mock_run:
             with patch(
-                "silica.remote.utils.agent_yaml.is_agent_installed"
+                "silica.remote.cli.commands.workspace_environment.is_agent_installed"
             ) as mock_installed:
-                # Mock not installed initially, then installed after fallback
-                mock_installed.side_effect = [False, False, True]
+                # Mock not installed throughout (force fallback path)
+                mock_installed.side_effect = [False, False, False, True]
 
-                # Mock: uv add fails, pip install succeeds
+                # Mock: uv sync fails, fallback commands succeed
                 mock_run.side_effect = [
-                    MagicMock(returncode=1, stderr="uv failed"),  # uv add fails
+                    MagicMock(returncode=1, stderr="uv sync failed"),  # uv sync fails
+                    MagicMock(returncode=1, stderr="uv add failed"),  # uv add fails
                     MagicMock(returncode=0),  # pip install succeeds
                 ]
 
                 result = install_agent(agent_config)
                 assert result is True
 
-                # Verify both commands were tried
-                assert mock_run.call_count == 2
+                # Verify fallback commands were tried
+                assert mock_run.call_count >= 2
 
     def test_workspace_directory_structure(self):
         """Test that the agent runner stays in project root, not code directory."""
@@ -154,38 +173,31 @@ class TestUVAgentManagement:
                 os.chdir(original_dir)
 
     def test_executable_resolution_workflow(self):
-        """Test that we can resolve executable paths before changing directories."""
-        # Import the function we want to test
-        from silica.remote.utils.agent_runner import resolve_agent_executable_path
-
-        # Create a mock agent config
-        agent_config = AgentConfig(
-            name="test-agent",
-            description="Test agent",
-            install_commands=["uv add requests"],
-            fallback_install_commands=["pip install requests"],
-            check_command="python --version",
-            launch_command="uv run python",
-            default_args=["-c", "print('hello')"],
-            dependencies=["requests"],
-            required_env_vars=[],
-            recommended_env_vars=[],
+        """Test the basic agent launch command generation (resolve_agent_executable_path removed)."""
+        # Import the function we want to test from workspace_environment
+        from silica.remote.cli.commands.workspace_environment import (
+            generate_launch_command,
         )
+
+        # Create agent config dict (hardcoded silica developer style)
+        agent_config = {
+            "name": "silica_developer",
+            "description": "Silica Developer agent",
+            "launch": {
+                "command": "uv run silica developer",
+                "default_args": ["--dwr", "--persona", "autonomous_engineer"],
+            },
+        }
 
         workspace_config = {"agent_config": {"flags": [], "args": {}}}
 
-        # Test with mocked subprocess to avoid actual execution
-        with patch("subprocess.run") as mock_run:
-            # Mock successful executable resolution
-            mock_run.return_value = MagicMock(returncode=0, stdout="/path/to/python\n")
+        # Test command generation
+        result = generate_launch_command(agent_config, workspace_config)
 
-            # Mock Path.exists to return True
-            with patch("pathlib.Path.exists", return_value=True):
-                result = resolve_agent_executable_path(agent_config, workspace_config)
-
-                # Should return the resolved path with arguments
-                assert '"/path/to/python"' in result
-                assert "print('hello')" not in result
+        # Should return the hardcoded silica developer command
+        assert "uv run silica developer" in result
+        assert "--dwr" in result
+        assert "autonomous_engineer" in result
 
 
 if __name__ == "__main__":

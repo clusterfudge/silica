@@ -9,7 +9,7 @@ from typing import Dict, List, Tuple
 
 from silica.remote.config import load_config, find_git_root
 from silica.remote.utils import piku as piku_utils
-from silica.remote.utils.yaml_agents import (
+from silica.remote.utils.agents import (
     get_default_workspace_agent_config,
 )
 
@@ -110,9 +110,9 @@ def create(
     # Load global configuration
     config = load_config()
 
-    # Always use hdev as the agent type
-    agent_type = "hdev"
-    console.print("[dim]Using heare-developer (hdev) agent[/dim]")
+    # Always use silica developer as the agent type
+    agent_type = "silica_developer"
+    console.print("[dim]Using silica developer agent[/dim]")
 
     if connection is None:
         # Check if there's a git remote named "piku" in the project repo

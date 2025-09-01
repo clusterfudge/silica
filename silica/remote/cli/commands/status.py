@@ -15,7 +15,7 @@ from silica.remote.utils.piku import (
     get_app_name,
     run_piku_in_silica,
 )
-from silica.remote.utils.agent_yaml import load_agent_config, report_environment_status
+# Agent configuration removed - hardcoded silica developer
 
 console = Console()
 
@@ -102,7 +102,7 @@ def get_workspace_status(workspace_name: str, git_root: Path) -> Dict[str, Any]:
             # Get agent type to use correct sessions command
             from silica.remote.config import get_config_value
 
-            default_agent = get_config_value("default_agent", "hdev")
+            default_agent = get_config_value("default_agent", "silica_developer")
             result = run_piku_in_silica(
                 f"{default_agent} sessions",
                 use_shell_pipe=True,
@@ -168,7 +168,7 @@ def print_single_workspace_status(status: Dict[str, Any], detailed: bool = False
             workspace_config = get_workspace_config(silica_dir, status["workspace"])
             from silica.remote.config import get_config_value
 
-            default_agent = get_config_value("default_agent", "hdev")
+            default_agent = get_config_value("default_agent", "silica_developer")
             agent_type = workspace_config.get("agent_type", default_agent)
 
             console.print(
@@ -177,23 +177,14 @@ def print_single_workspace_status(status: Dict[str, Any], detailed: bool = False
 
             # Show agent details if detailed view
             if detailed:
-                agent_details = load_agent_config(agent_type)
-                if agent_details:
-                    console.print(
-                        f"Description: [white]{agent_details.description}[/white]"
-                    )
-                    console.print(
-                        f"Command: [green]{agent_details.launch_command}[/green]"
-                    )
-
-                    if agent_details.default_args:
-                        console.print(
-                            f"Default args: [blue]{' '.join(agent_details.default_args)}[/blue]"
-                        )
-
-                    # Show environment variable status
-                    console.print("\n[bold]Environment Variables:[/bold]")
-                    report_environment_status(agent_details)
+                # Hardcoded details for silica developer
+                console.print(
+                    "Description: [white]Silica Developer - autonomous coding agent[/white]"
+                )
+                console.print("Command: [green]uv run silica developer[/green]")
+                console.print(
+                    "Default args: [blue]--dwr --persona autonomous_engineer[/blue]"
+                )
     except Exception as e:
         # If we can't get agent info, show helpful error and continue with regular status
         console.print(
@@ -282,7 +273,7 @@ def print_all_workspaces_summary(statuses: List[Dict[str, Any]]):
         # Get agent type for this workspace
         from silica.remote.config import get_config_value
 
-        default_agent = get_config_value("default_agent", "hdev")
+        default_agent = get_config_value("default_agent", "silica_developer")
         agent_type = default_agent  # default
         try:
             git_root = find_git_root()

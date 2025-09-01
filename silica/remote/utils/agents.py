@@ -1,50 +1,49 @@
 """Agent configuration and command generation for silica.
 
-Simplified for tight coupling with heare-developer (hdev).
+Simplified to hardcode the silica developer agent. This module now directly
+implements the silica developer configuration without external YAML files.
 """
 
 from typing import Dict, Any, Optional
 from pathlib import Path
 
-from silica.remote.utils.agent_yaml import load_agent_config
-
 
 def validate_agent_type(agent_type: str) -> bool:
     """Validate that an agent type is supported.
 
-    Note: Now only supports hdev, but kept for backward compatibility.
+    Args:
+        agent_type: Type of agent (ignored, always returns True for backward compatibility)
+
+    Returns:
+        Always True since we only support the hardcoded silica developer
     """
-    return agent_type == "hdev"
+    return True
 
 
 def generate_agent_command(agent_type: str, workspace_config: Dict[str, Any]) -> str:
-    """Generate the command to run hdev agent.
+    """Generate the command to run silica developer agent.
 
     Args:
-        agent_type: Type of agent (ignored, always uses hdev)
+        agent_type: Type of agent (ignored, always uses silica developer)
         workspace_config: Workspace-specific configuration
 
     Returns:
-        Command string to execute hdev
+        Command string to execute silica developer
     """
-    # Always load hdev configuration regardless of agent_type parameter
-    agent_config = load_agent_config("hdev")
-    if not agent_config:
-        raise ValueError("Could not load hdev agent configuration")
-
     # Get agent-specific configuration from workspace config
     agent_settings = workspace_config.get("agent_config", {})
 
-    # Build command - always use hdev
+    # Build command - hardcoded silica developer
     command_parts = [
         "uv",
         "run",
-        "hdev",
+        "silica",
+        "developer",
     ]
 
-    # Add default arguments from YAML configuration
-    if agent_config.default_args:
-        command_parts.extend(agent_config.default_args)
+    # Add default arguments for silica developer
+    default_args = ["--dwr", "--persona", "autonomous_engineer"]
+    command_parts.extend(default_args)
 
     # Add custom flags from workspace config
     custom_flags = agent_settings.get("flags", [])
@@ -61,57 +60,59 @@ def generate_agent_command(agent_type: str, workspace_config: Dict[str, Any]) ->
     return " ".join(command_parts)
 
 
-def get_default_workspace_agent_config(agent_type: str = "hdev") -> Dict[str, Any]:
+def get_default_workspace_agent_config(
+    agent_type: str = "silica_developer",
+) -> Dict[str, Any]:
     """Get default agent configuration for a workspace.
 
     Args:
-        agent_type: Type of agent (ignored, always returns hdev config)
+        agent_type: Type of agent (ignored, always returns silica developer config)
 
     Returns:
-        Default hdev configuration dictionary
+        Default silica developer configuration dictionary
     """
-    return {"agent_type": "hdev", "agent_config": {"flags": [], "args": {}}}
+    return {"agent_type": "silica_developer", "agent_config": {"flags": [], "args": {}}}
 
 
 def update_workspace_with_agent(
     workspace_config: Dict[str, Any],
-    agent_type: str = "hdev",
+    agent_type: str = "silica_developer",
     agent_config: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Update workspace configuration with agent settings.
 
     Args:
         workspace_config: Existing workspace configuration
-        agent_type: Type of agent (ignored, always uses hdev)
+        agent_type: Type of agent (ignored, always uses silica developer)
         agent_config: Optional agent-specific configuration
 
     Returns:
-        Updated workspace configuration with hdev settings
+        Updated workspace configuration with silica developer settings
     """
     updated_config = workspace_config.copy()
-    updated_config["agent_type"] = "hdev"  # Always hdev
+    updated_config["agent_type"] = "silica_developer"  # Always silica developer
 
     if agent_config:
         updated_config["agent_config"] = agent_config
     elif "agent_config" not in updated_config:
-        # Set default hdev config if none exists
-        default_config = get_default_workspace_agent_config("hdev")
+        # Set default silica developer config if none exists
+        default_config = get_default_workspace_agent_config("silica_developer")
         updated_config["agent_config"] = default_config["agent_config"]
 
     return updated_config
 
 
 def generate_agent_script(workspace_config: Dict[str, Any]) -> str:
-    """Generate the AGENT.sh script content for hdev agent.
+    """Generate the AGENT.sh script content for silica developer agent.
 
     Args:
         workspace_config: Workspace configuration containing agent settings
 
     Returns:
-        Generated AGENT.sh script content for hdev
+        Generated AGENT.sh script content for silica developer
     """
-    # Generate the hdev command
-    agent_command = generate_agent_command("hdev", workspace_config)
+    # Generate the silica developer command
+    agent_command = generate_agent_command("silica_developer", workspace_config)
 
     # Load the template
     try:
@@ -134,16 +135,16 @@ source $HOME/.piku/envs/${{APP_NAME}}/ENV  # could be LIVE_ENV?
 cd "${{TOP}}"
 uv sync
 
-# Change to the code directory and start heare-developer
+# Change to the code directory and start silica developer
 cd "${{TOP}}/code"
-echo "Starting heare-developer (hdev) from $(pwd) at $(date)"
+echo "Starting silica developer from $(pwd) at $(date)"
 {agent_command} || echo "Agent exited with status $? at $(date)"
 
 # If the agent exits, keep the shell open for debugging in tmux
 echo "Agent process has ended. Keeping tmux session alive."
 """
 
-    # Format the template with hdev command
+    # Format the template with silica developer command
     script_content = template.format(agent_command=agent_command)
 
     return script_content

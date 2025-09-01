@@ -41,10 +41,13 @@ class TestWorkspaceEnvironmentSafety:
 
         with patch.dict(
             "os.environ",
-            {"SILICA_WORKSPACE_NAME": "test-workspace", "SILICA_AGENT_TYPE": "hdev"},
+            {
+                "SILICA_WORKSPACE_NAME": "test-workspace",
+                "SILICA_AGENT_TYPE": "silica_developer",
+            },
         ):
             config = get_workspace_config()
-            assert config["agent_type"] == "hdev"
+            assert config["agent_type"] == "silica_developer"
             assert "agent_config" in config
 
     @patch("silica.remote.cli.commands.workspace_environment.os.getcwd")
@@ -54,7 +57,7 @@ class TestWorkspaceEnvironmentSafety:
 
         # Create a test workspace config file
         config_data = {
-            "agent_type": "cline",  # This will be overridden to "hdev"
+            "agent_type": "cline",  # This will be overridden to "silica_developer"
             "agent_config": {"flags": ["--test"], "args": {"port": 8080}},
         }
         config_file = self.temp_path / "workspace_config.json"
@@ -62,15 +65,15 @@ class TestWorkspaceEnvironmentSafety:
             json.dump(config_data, f)
 
         config = get_workspace_config()
-        # Agent type is now always "hdev" regardless of config file content
-        assert config["agent_type"] == "hdev"
+        # Agent type is now always "silica_developer" regardless of config file content
+        assert config["agent_type"] == "silica_developer"
         assert config["agent_config"]["flags"] == ["--test"]
         assert config["agent_config"]["args"]["port"] == 8080
 
     def test_get_agent_config_dict_valid_agent(self):
         """Test agent config retrieval for valid agent."""
         try:
-            config = get_agent_config_dict("hdev")
+            config = get_agent_config_dict("silica_developer")
             assert "name" in config
             assert "description" in config
             assert "install" in config
@@ -83,17 +86,19 @@ class TestWorkspaceEnvironmentSafety:
     def test_get_agent_config_dict_invalid_agent(self):
         """Test agent config retrieval for invalid agent.
 
-        Note: Since tight coupling with hdev, this now always returns hdev config
+        Note: Since tight coupling with silica developer, this now always returns silica developer config
         regardless of the agent_type parameter.
         """
-        # This should now return hdev config regardless of input
+        # This should now return silica developer config regardless of input
         try:
             config = get_agent_config_dict("nonexistent-agent")
             assert "name" in config
-            assert config["name"] == "hdev"  # Should always be hdev now
+            assert (
+                config["name"] == "silica_developer"
+            )  # Should always be silica_developer now
         except Exception as e:
-            # If hdev config itself fails, it's okay for test purposes
-            pytest.skip(f"Hdev config not available: {e}")
+            # If silica developer config itself fails, it's okay for test purposes
+            pytest.skip(f"Silica developer config not available: {e}")
 
 
 class TestStatusCommandSafety:
@@ -136,11 +141,11 @@ class TestStatusCommandSafety:
         mock_cwd.return_value = self.temp_path
         mock_load_env.return_value = True
         mock_workspace_config.return_value = {
-            "agent_type": "hdev",
+            "agent_type": "silica_developer",
             "agent_config": {"flags": [], "args": {}},
         }
         mock_agent_config.return_value = {
-            "name": "hdev",
+            "name": "silica_developer",
             "description": "Test agent",
             "install": {"check_command": "echo test"},
             "launch": {"command": "echo run"},
@@ -275,7 +280,7 @@ class TestCommandIntegrationSafety:
         mock_load_env.return_value = True
         mock_sync_deps.return_value = True
         mock_workspace_config.return_value = {
-            "agent_type": "hdev",
+            "agent_type": "silica_developer",
             "agent_config": {"flags": [], "args": {}},
         }
 
@@ -283,7 +288,7 @@ class TestCommandIntegrationSafety:
             "silica.remote.cli.commands.workspace_environment.get_agent_config_dict"
         ) as mock_agent_config:
             mock_agent_config.return_value = {
-                "name": "hdev",
+                "name": "silica_developer",
                 "description": "Test agent",
                 "install": {"check_command": "echo test"},
                 "environment": {"required": [], "recommended": []},
