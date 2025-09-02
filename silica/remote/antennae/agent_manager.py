@@ -78,28 +78,21 @@ class AgentManager:
         return None
 
     def start_tmux_session(self) -> bool:
-        """Start a new tmux session with the silica developer agent.
+        """Start a tmux session with the silica developer agent.
 
         This method is idempotent:
-        - If session exists and agent is running, returns True
-        - If session exists but agent died, kills session and starts new one
-        - If no session exists, creates a new one
+        - If session exists, preserves it and returns True (avoids killing active agents)
+        - If no session exists, creates a new one with the agent
 
         Returns:
-            True if session started successfully, False otherwise
+            True if session started successfully or already exists, False otherwise
         """
-        session_name = self.config.get_tmux_session_name()
-
-        # If session exists, check if we should restart it
+        # If session already exists, use it (don't kill active agent sessions)
         if self.is_tmux_session_running():
-            # For idempotent behavior, we could check if agent is actually running
-            # For now, assume if tmux session exists, we're good
             return True
 
-        # Kill any existing session first (cleanup)
-        self.stop_tmux_session()
-
         try:
+            session_name = self.config.get_tmux_session_name()
             agent_command = self.config.get_agent_command()
 
             # Create tmux session in detached mode, starting in code directory

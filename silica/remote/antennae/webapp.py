@@ -93,8 +93,8 @@ async def initialize_workspace(request: InitializeRequest):
 
     This method is idempotent - it can be called multiple times safely:
     - If repository already exists, it will be cleaned and re-cloned
-    - If environment setup fails, initialization continues with warning
-    - If tmux session exists but agent died, a new agent will be started
+    - If environment setup fails, initialization fails with error
+    - If tmux session exists, it will be preserved (avoids killing active agents)
 
     Args:
         request: Initialization parameters
@@ -123,7 +123,7 @@ async def initialize_workspace(request: InitializeRequest):
             )
         logger.info("Environment setup completed")
 
-        # Step 3: Start tmux session with agent (idempotent - will restart if needed)
+        # Step 3: Start tmux session with agent (idempotent - preserves existing sessions)
         logger.info("Starting tmux session with silica developer")
         if not agent_manager.start_tmux_session():
             raise HTTPException(
