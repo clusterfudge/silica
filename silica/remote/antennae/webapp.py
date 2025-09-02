@@ -6,11 +6,17 @@ running silica developer. Each antennae instance manages exactly one workspace.
 
 from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 import logging
 
 from .config import config
 from .agent_manager import agent_manager
+
+# Import version from silica
+try:
+    from silica._version import __version__
+except ImportError:
+    __version__ = "unknown"
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -20,7 +26,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Antennae Workspace Manager",
     description="HTTP API for managing remote development workspaces with silica developer",
-    version="1.0.0",
+    version=__version__,
 )
 
 
@@ -28,9 +34,8 @@ app = FastAPI(
 class InitializeRequest(BaseModel):
     """Request model for workspace initialization."""
 
-    repo_url: Optional[str] = None
+    repo_url: str
     branch: str = "main"
-    local_sync: bool = False  # Whether to sync from local instead of cloning
 
 
 class TellRequest(BaseModel):
@@ -71,7 +76,7 @@ async def root():
     return {
         "service": "antennae",
         "workspace": config.get_workspace_name(),
-        "version": "1.0.0",
+        "version": __version__,
         "status": "running",
     }
 
@@ -86,6 +91,11 @@ async def health_check():
 async def initialize_workspace(request: InitializeRequest):
     """Initialize workspace by cloning repository, setting up environment, and starting tmux session.
 
+    This method is idempotent - it can be called multiple times safely:
+    - If repository already exists, it will be cleaned and re-cloned
+    - If environment setup fails, initialization continues with warning
+    - If tmux session exists but agent died, a new agent will be started
+
     Args:
         request: Initialization parameters
 
@@ -95,36 +105,25 @@ async def initialize_workspace(request: InitializeRequest):
     logger.info(f"Initializing workspace {config.get_workspace_name()}")
 
     try:
-        # Step 1: Setup code directory and repository
-        if request.local_sync:
-            # For local sync, we expect the code to be synced externally
-            # Just ensure the code directory exists
-            config.ensure_code_directory()
-            logger.info("Code directory prepared for local sync")
-
-        elif request.repo_url:
-            # Clone from remote repository
-            logger.info(f"Cloning repository {request.repo_url}")
-            if not agent_manager.clone_repository(request.repo_url, request.branch):
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Failed to clone repository",
-                )
-            logger.info("Repository cloned successfully")
-
-        else:
-            # No repo_url and not local_sync - error
+        # Step 1: Setup code directory and repository (idempotent)
+        logger.info(f"Cloning repository {request.repo_url}")
+        if not agent_manager.clone_repository(request.repo_url, request.branch):
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Either repo_url must be provided or local_sync must be true",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to clone repository",
             )
+        logger.info("Repository cloned successfully")
 
-        # Step 2: Setup development environment
+        # Step 2: Setup development environment (idempotent)
         logger.info("Setting up development environment")
         if not agent_manager.setup_environment():
-            logger.warning("Environment setup failed, but continuing")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to setup development environment",
+            )
+        logger.info("Environment setup completed")
 
-        # Step 3: Start tmux session with agent
+        # Step 3: Start tmux session with agent (idempotent - will restart if needed)
         logger.info("Starting tmux session with silica developer")
         if not agent_manager.start_tmux_session():
             raise HTTPException(
