@@ -48,13 +48,11 @@ class AgentManager:
             return None
 
         try:
-            # Get session info in parseable format
+            # Get all sessions and filter for our session
             result = subprocess.run(
                 [
                     "tmux",
                     "list-sessions",
-                    "-t",
-                    self.config.get_tmux_session_name(),
                     "-F",
                     "#{session_name} #{session_windows} #{session_created} #{?session_attached,attached,detached}",
                 ],
@@ -63,15 +61,17 @@ class AgentManager:
                 check=True,
             )
 
-            line = result.stdout.strip()
-            if line:
-                parts = line.split()
-                return {
-                    "session_name": parts[0],
-                    "windows": parts[1] if len(parts) > 1 else "1",
-                    "created": parts[2] if len(parts) > 2 else "unknown",
-                    "status": parts[3] if len(parts) > 3 else "unknown",
-                }
+            # Find our session in the output
+            session_name = self.config.get_tmux_session_name()
+            for line in result.stdout.strip().split("\n"):
+                if line.startswith(session_name + " "):
+                    parts = line.split()
+                    return {
+                        "session_name": parts[0],
+                        "windows": parts[1] if len(parts) > 1 else "1",
+                        "created": parts[2] if len(parts) > 2 else "unknown",
+                        "status": parts[3] if len(parts) > 3 else "unknown",
+                    }
         except (subprocess.CalledProcessError, FileNotFoundError):
             pass
 
