@@ -1,7 +1,7 @@
 """Workspace detection and URL routing utilities.
 
-This module provides functionality to detect whether a workspace is configured
-for local or remote mode and route requests to the appropriate antennae URL.
+This module provides functionality to get workspace URLs and check accessibility.
+All workspace configuration is stored at creation time - we only read it here.
 
 TODO: The HTTP client functionality in this module should be moved to an
 `antennae.client` module that handles constructing HTTP requests correctly
@@ -12,73 +12,30 @@ from pathlib import Path
 from typing import Optional
 import requests
 
-from silica.remote.config.multi_workspace import (
-    get_workspace_config,
-    is_local_workspace,
-    get_workspace_port,
-)
+from silica.remote.config.multi_workspace import get_workspace_config
 
 
-def get_antennae_url_for_workspace(
-    silica_dir: Path,
-    workspace_name: Optional[str] = None,
-    default_remote_url: Optional[str] = None,
-) -> str:
-    """Get the antennae URL for a workspace based on its configuration.
-
-    This function determines whether a workspace is configured for local or remote
-    mode and returns the appropriate URL for accessing the antennae webapp.
+def get_workspace_url(silica_dir: Path, workspace_name: Optional[str] = None) -> str:
+    """Get the URL for a workspace from its configuration.
 
     Args:
         silica_dir: Path to the .silica directory
         workspace_name: Name of the workspace to get URL for.
                        If None, the default workspace will be used.
-        default_remote_url: Default URL template for remote workspaces.
-                           Should contain {workspace} placeholder if needed.
-                           If None, will be constructed from workspace config.
 
     Returns:
         URL string for accessing the antennae webapp for this workspace
 
     Raises:
-        ValueError: If workspace is local but no port is configured
-        RuntimeError: If workspace is remote but cannot construct URL
+        ValueError: If workspace has no URL configured
     """
-    # Check if this is a local workspace
-    if is_local_workspace(silica_dir, workspace_name):
-        # Get port for local workspace
-        port = get_workspace_port(silica_dir, workspace_name)
-        if port is None:
-            raise ValueError(
-                f"Local workspace '{workspace_name}' has no port configured"
-            )
-
-        return f"http://localhost:{port}"
-
-    # Remote workspace - need to construct remote URL
     workspace_config = get_workspace_config(silica_dir, workspace_name)
+    url = workspace_config.get("url")
 
-    # If a default remote URL template is provided, use it
-    if default_remote_url:
-        # Replace {workspace} placeholder if present
-        if "{workspace}" in default_remote_url:
-            actual_workspace_name = workspace_name or workspace_config.get(
-                "workspace_name", "agent"
-            )
-            return default_remote_url.format(workspace=actual_workspace_name)
-        else:
-            return default_remote_url
+    if not url:
+        raise ValueError(f"Workspace '{workspace_name}' has no URL configured")
 
-    # Try to construct URL from workspace configuration
-    app_name = workspace_config.get("app_name")
-    if app_name:
-        # Remote workspace URL matches the piku app name
-        return f"http://{app_name}"
-
-    raise RuntimeError(
-        f"Cannot determine remote URL for workspace '{workspace_name}'. "
-        "Either configure app_name in workspace config or provide default_remote_url."
-    )
+    return url
 
 
 def is_workspace_accessible(
@@ -101,11 +58,11 @@ def is_workspace_accessible(
         - reason_or_url: If accessible, the URL; if not, the reason why not
     """
     try:
-        url = get_antennae_url_for_workspace(silica_dir, workspace_name)
-
-        # Always set the host header to app_name (set at creation time)
+        url = get_workspace_url(silica_dir, workspace_name)
         workspace_config = get_workspace_config(silica_dir, workspace_name)
         app_name = workspace_config.get("app_name", "unknown")
+
+        # Always set host header to app_name for proper routing and observability
         headers = {"Host": app_name}
 
         # Make request to /status endpoint with short timeout

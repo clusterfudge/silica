@@ -187,8 +187,10 @@ def list_workspaces(silica_dir: Path) -> List[Dict[str, Any]]:
     return workspaces
 
 
-def is_local_workspace(silica_dir: Path, workspace_name: Optional[str] = None) -> bool:
-    """Check if a workspace is configured for local mode.
+def is_local_workspace_for_cleanup(
+    silica_dir: Path, workspace_name: Optional[str] = None
+) -> bool:
+    """Check if a workspace is local (for cleanup purposes only).
 
     Args:
         silica_dir: Path to the .silica directory
@@ -196,60 +198,35 @@ def is_local_workspace(silica_dir: Path, workspace_name: Optional[str] = None) -
                        If None, the default workspace will be used.
 
     Returns:
-        True if the workspace is configured for local mode, False otherwise
+        True if the workspace is local and needs local cleanup, False otherwise
     """
     workspace_config = get_workspace_config(silica_dir, workspace_name)
-    return workspace_config.get("mode", "remote") == "local"
+    return workspace_config.get("is_local", False)
 
 
-def get_workspace_port(
-    silica_dir: Path, workspace_name: Optional[str] = None
-) -> Optional[int]:
-    """Get the port number for a local workspace.
-
-    Args:
-        silica_dir: Path to the .silica directory
-        workspace_name: Name of the workspace to get port for.
-                       If None, the default workspace will be used.
-
-    Returns:
-        Port number for local workspaces, None for remote workspaces
-    """
-    workspace_config = get_workspace_config(silica_dir, workspace_name)
-    return workspace_config.get("port")
-
-
-def set_workspace_mode_and_port(
-    silica_dir: Path, workspace_name: str, mode: str, port: Optional[int] = None
+def create_workspace_config(
+    silica_dir: Path, workspace_name: str, url: str, is_local: bool = False
 ) -> None:
-    """Set the mode and port for a workspace.
+    """Create a workspace configuration with the antennae URL.
 
     Args:
         silica_dir: Path to the .silica directory
         workspace_name: Name of the workspace to configure
-        mode: Either "local" or "remote"
-        port: Port number for local workspaces (required if mode is "local")
-
-    Raises:
-        ValueError: If mode is "local" but no port is provided
+        url: URL where the antennae webapp will be accessible
+        is_local: Whether this is a local workspace (for cleanup purposes)
     """
-    if mode == "local" and port is None:
-        raise ValueError("Port is required for local workspaces")
-
     # Get current workspace config
     workspace_config = get_workspace_config(silica_dir, workspace_name)
 
-    # Always ensure app_name is set - no difference between local and remote
-    if "app_name" not in workspace_config:
-        workspace_config["app_name"] = workspace_name
+    # Set app_name and URL - these are the only things we need
+    workspace_config["app_name"] = workspace_name
+    workspace_config["url"] = url
 
-    # Update mode and port
-    workspace_config["mode"] = mode
-    if mode == "local":
-        workspace_config["port"] = port
-    elif "port" in workspace_config:
-        # Remove port for remote workspaces
-        del workspace_config["port"]
+    # Only store is_local flag for cleanup purposes
+    if is_local:
+        workspace_config["is_local"] = True
+    elif "is_local" in workspace_config:
+        del workspace_config["is_local"]
 
     # Save updated config
     set_workspace_config(silica_dir, workspace_name, workspace_config)
