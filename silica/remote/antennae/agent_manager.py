@@ -166,30 +166,71 @@ class AgentManager:
     def clone_repository(self, repo_url: str, branch: str = "main") -> bool:
         """Clone a repository to the code directory.
 
-        This method is idempotent - always cleans and re-clones to ensure fresh state.
+        This method preserves local changes:
+        - If no repo exists, clones fresh
+        - If repo exists and is clean, leaves it alone
+        - If repo exists but has different remote/branch, reports status but doesn't destroy
 
         Args:
             repo_url: URL of the repository to clone
             branch: Branch to checkout (default: main)
 
         Returns:
-            True if cloned successfully, False otherwise
+            True if repository is ready, False otherwise
         """
+        code_dir = self.config.get_code_directory()
+
         try:
-            # Always clean and re-clone for idempotent behavior
-            if self.config.get_code_directory().exists():
-                shutil.rmtree(self.config.get_code_directory())
+            # If code directory doesn't exist, clone fresh
+            if not code_dir.exists():
+                self.config.ensure_code_directory()
+                git.Repo.clone_from(repo_url, code_dir, branch=branch)
+                return True
 
-            self.config.ensure_code_directory()
+            # If code directory exists but no .git, clone fresh
+            if not (code_dir / ".git").exists():
+                shutil.rmtree(code_dir)
+                self.config.ensure_code_directory()
+                git.Repo.clone_from(repo_url, code_dir, branch=branch)
+                return True
 
-            # Clone the repository
-            git.Repo.clone_from(
-                repo_url, self.config.get_code_directory(), branch=branch
-            )
+            # Repository already exists - check its state
+            repo = git.Repo(code_dir)
 
+            # Check if the repository matches what we want
+            current_remote_urls = [
+                remote.url for remote in repo.remotes if remote.name == "origin"
+            ]
+            if not current_remote_urls or current_remote_urls[0] != repo_url:
+                # Different remote URL - don't destroy, just report it exists
+                import logging
+
+                logger = logging.getLogger(__name__)
+                logger.info(
+                    f"Repository exists with different remote: {current_remote_urls[0] if current_remote_urls else 'none'} vs {repo_url}"
+                )
+                return True  # Still usable, just different remote
+
+            # Check if we're on the right branch
+            try:
+                current_branch = repo.active_branch.name
+                if current_branch != branch:
+                    logger.info(
+                        f"Repository on different branch: {current_branch} vs {branch}"
+                    )
+                    # Could checkout the branch here, but safer to leave it alone
+            except Exception:
+                # Detached HEAD or other state - that's okay
+                pass
+
+            # Repository exists and looks compatible
             return True
 
-        except (GitCommandError, Exception):
+        except (GitCommandError, Exception) as e:
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.error(f"Repository setup error: {e}")
             return False
 
     def setup_environment(self) -> bool:
@@ -257,20 +298,109 @@ class AgentManager:
         """Get comprehensive status of the workspace.
 
         Returns:
-            Dictionary with workspace status information
+            Dictionary with workspace status information including repository state
         """
         tmux_info = self.get_tmux_session_info()
+        repo_info = self._get_repository_info()
 
         return {
             "workspace_name": self.config.get_workspace_name(),
             "code_directory": str(self.config.get_code_directory()),
             "code_directory_exists": self.config.get_code_directory().exists(),
+            "repository": repo_info,
             "tmux_session": {
                 "running": self.is_tmux_session_running(),
                 "info": tmux_info,
             },
             "agent_command": self.config.get_agent_command(),
         }
+
+    def _get_repository_info(self) -> Dict[str, Any]:
+        """Get detailed repository information including branch and dirty state.
+
+        Returns:
+            Dictionary with repository status information
+        """
+        code_dir = self.config.get_code_directory()
+
+        repo_info = {
+            "exists": False,
+            "is_git_repo": False,
+            "branch": None,
+            "is_dirty": False,
+            "remote_url": None,
+            "ahead_behind": {"ahead": 0, "behind": 0},
+            "status": "unknown",
+        }
+
+        if not code_dir.exists():
+            repo_info["status"] = "no_code_directory"
+            return repo_info
+
+        repo_info["exists"] = True
+
+        if not (code_dir / ".git").exists():
+            repo_info["status"] = "not_git_repo"
+            return repo_info
+
+        repo_info["is_git_repo"] = True
+
+        try:
+            repo = git.Repo(code_dir)
+
+            # Get current branch
+            try:
+                repo_info["branch"] = repo.active_branch.name
+            except Exception:
+                # Detached HEAD or other state
+                try:
+                    repo_info["branch"] = repo.head.commit.hexsha[:8]
+                except Exception:
+                    repo_info["branch"] = "unknown"
+
+            # Check if repository is dirty (has uncommitted changes or untracked files)
+            repo_info["is_dirty"] = repo.is_dirty(untracked_files=True)
+
+            # Get remote URL
+            try:
+                origin = repo.remote("origin")
+                repo_info["remote_url"] = origin.url
+            except Exception:
+                repo_info["remote_url"] = None
+
+            # Get ahead/behind status relative to remote
+            try:
+                if repo_info["remote_url"] and not repo.is_dirty():
+                    # Only check ahead/behind if we have a clean repo
+                    tracking_branch = repo.active_branch.tracking_branch()
+                    if tracking_branch:
+                        ahead, behind = repo.git.rev_list(
+                            "--count",
+                            "--left-right",
+                            f"{tracking_branch}...{repo.active_branch}",
+                        ).split("\t")
+                        repo_info["ahead_behind"] = {
+                            "ahead": int(behind),  # Note: rev-list returns behind first
+                            "behind": int(ahead),  # and ahead second with --left-right
+                        }
+            except Exception:
+                # If we can't determine ahead/behind, leave as 0,0
+                pass
+
+            # Determine overall status
+            if repo_info["is_dirty"]:
+                repo_info["status"] = "dirty"
+            elif repo_info["ahead_behind"]["ahead"] > 0:
+                repo_info["status"] = "ahead"
+            elif repo_info["ahead_behind"]["behind"] > 0:
+                repo_info["status"] = "behind"
+            else:
+                repo_info["status"] = "clean"
+
+        except Exception:
+            repo_info["status"] = "error"
+
+        return repo_info
 
     def get_connection_info(self) -> Dict[str, Any]:
         """Get connection information for direct tmux access.

@@ -361,6 +361,7 @@ class TestWebAppSafety:
             workspace_name="test",
             code_directory="/test",
             code_directory_exists=True,
+            repository={"status": "clean", "is_dirty": False},
             tmux_session={"running": True, "info": None},
             agent_command="test cmd",
         )
@@ -377,6 +378,7 @@ class TestWebAppSafety:
             "workspace_name": "test-workspace",
             "code_directory": "/test/code",
             "code_directory_exists": False,
+            "repository": {"status": "no_code_directory", "is_dirty": False},
             "tmux_session": {"running": False, "info": None},
             "agent_command": "test command",
         }
@@ -402,3 +404,5 @@ class TestWebAppSafety:
             # Test connect endpoint
             response = client.get("/connect")
             assert response.status_code == 200
+
+        # Test response models

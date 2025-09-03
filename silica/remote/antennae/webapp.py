@@ -50,6 +50,7 @@ class StatusResponse(BaseModel):
     workspace_name: str
     code_directory: str
     code_directory_exists: bool
+    repository: Dict[str, Any]
     tmux_session: Dict[str, Any]
     agent_command: str
 
@@ -189,6 +190,7 @@ async def get_workspace_status():
         workspace_name=status_info["workspace_name"],
         code_directory=status_info["code_directory"],
         code_directory_exists=status_info["code_directory_exists"],
+        repository=status_info["repository"],
         tmux_session=status_info["tmux_session"],
         agent_command=status_info["agent_command"],
     )
