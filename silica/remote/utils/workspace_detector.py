@@ -6,6 +6,7 @@ for local or remote mode and route requests to the appropriate antennae URL.
 
 from pathlib import Path
 from typing import Optional
+import requests
 
 from silica.remote.config.multi_workspace import (
     get_workspace_config,
@@ -67,10 +68,8 @@ def get_antennae_url_for_workspace(
     # Try to construct URL from workspace configuration
     app_name = workspace_config.get("app_name")
     if app_name:
-        # If we have an app_name, assume it's deployed and accessible
-        # This is a placeholder - in a real deployment you'd have a domain pattern
-        # For now, just return a placeholder that indicates remote deployment
-        return f"https://{app_name}.example.com"  # Placeholder - should be configurable
+        # Remote workspace URL matches the piku app name
+        return f"http://{app_name}"
 
     raise RuntimeError(
         f"Cannot determine remote URL for workspace '{workspace_name}'. "
@@ -79,35 +78,51 @@ def get_antennae_url_for_workspace(
 
 
 def is_workspace_accessible(
-    silica_dir: Path, workspace_name: Optional[str] = None
+    silica_dir: Path, workspace_name: Optional[str] = None, timeout: float = 0.5
 ) -> tuple[bool, str]:
     """Check if a workspace's antennae webapp is accessible.
 
-    This function attempts to determine if the antennae webapp for a workspace
-    is accessible by checking the configuration and (for local workspaces)
-    whether the expected port is available.
+    This function makes an actual HTTP request to the workspace's /status endpoint
+    to determine if the antennae webapp is running and accessible.
 
     Args:
         silica_dir: Path to the .silica directory
         workspace_name: Name of the workspace to check.
                        If None, the default workspace will be used.
+        timeout: Timeout in seconds for the HTTP request (default: 0.5)
 
     Returns:
         Tuple of (is_accessible, reason_or_url)
-        - is_accessible: True if the workspace appears to be accessible
+        - is_accessible: True if the workspace is accessible via HTTP
         - reason_or_url: If accessible, the URL; if not, the reason why not
     """
     try:
         url = get_antennae_url_for_workspace(silica_dir, workspace_name)
 
-        if is_local_workspace(silica_dir, workspace_name):
-            # For local workspaces, we can only check if config is valid
-            # Actual accessibility would require a network check
+        # Make actual HTTP request to /status endpoint
+
+        # For remote workspaces, set the host header to the app name
+        headers = {}
+        if not is_local_workspace(silica_dir, workspace_name):
+            workspace_config = get_workspace_config(silica_dir, workspace_name)
+            app_name = workspace_config.get("app_name")
+            if app_name:
+                headers["Host"] = app_name
+
+        # Make request to /status endpoint with short timeout
+        response = requests.get(f"{url}/status", headers=headers, timeout=timeout)
+
+        if response.status_code == 200:
             return True, url
         else:
-            # For remote workspaces, assume accessible if we can construct URL
-            return True, url
+            return False, f"HTTP {response.status_code} from {url}/status"
 
+    except requests.exceptions.Timeout:
+        return False, f"Timeout connecting to {url}"
+    except requests.exceptions.ConnectionError:
+        return False, f"Connection failed to {url}"
+    except requests.exceptions.RequestException as e:
+        return False, f"HTTP error: {str(e)}"
     except (ValueError, RuntimeError) as e:
         return False, str(e)
 
