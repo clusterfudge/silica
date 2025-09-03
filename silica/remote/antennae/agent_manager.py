@@ -13,6 +13,10 @@ from git.exc import GitCommandError
 
 from .config import config
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class AgentManager:
     """Manages tmux sessions and silica developer agent for a workspace."""
@@ -203,9 +207,6 @@ class AgentManager:
             ]
             if not current_remote_urls or current_remote_urls[0] != repo_url:
                 # Different remote URL - don't destroy, just report it exists
-                import logging
-
-                logger = logging.getLogger(__name__)
                 logger.info(
                     f"Repository exists with different remote: {current_remote_urls[0] if current_remote_urls else 'none'} vs {repo_url}"
                 )
@@ -227,9 +228,6 @@ class AgentManager:
             return True
 
         except (GitCommandError, Exception) as e:
-            import logging
-
-            logger = logging.getLogger(__name__)
             logger.error(f"Repository setup error: {e}")
             return False
 
@@ -256,9 +254,6 @@ class AgentManager:
 
         except subprocess.CalledProcessError as e:
             # Log the specific error for debugging
-            import logging
-
-            logger = logging.getLogger(__name__)
             logger.error(
                 f"Environment setup failed: {e.stderr if e.stderr else str(e)}"
             )
