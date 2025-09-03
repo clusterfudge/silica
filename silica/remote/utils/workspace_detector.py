@@ -103,17 +103,9 @@ def is_workspace_accessible(
     try:
         url = get_antennae_url_for_workspace(silica_dir, workspace_name)
 
-        # Always set the host header to app_name for logging/observability
+        # Always set the host header to app_name (set at creation time)
         workspace_config = get_workspace_config(silica_dir, workspace_name)
-        app_name = workspace_config.get("app_name")
-
-        # For local workspaces, generate app_name from workspace name if not set
-        if not app_name:
-            from silica.remote.config.multi_workspace import get_default_workspace
-
-            actual_workspace_name = workspace_name or get_default_workspace(silica_dir)
-            app_name = f"local-{actual_workspace_name}"
-
+        app_name = workspace_config.get("app_name", "unknown")
         headers = {"Host": app_name}
 
         # Make request to /status endpoint with short timeout

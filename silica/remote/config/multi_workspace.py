@@ -239,6 +239,10 @@ def set_workspace_mode_and_port(
     # Get current workspace config
     workspace_config = get_workspace_config(silica_dir, workspace_name)
 
+    # Always ensure app_name is set - no difference between local and remote
+    if "app_name" not in workspace_config:
+        workspace_config["app_name"] = workspace_name
+
     # Update mode and port
     workspace_config["mode"] = mode
     if mode == "local":
