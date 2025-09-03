@@ -188,3 +188,67 @@ def list_workspaces(silica_dir: Path) -> List[Dict[str, Any]]:
             )
 
     return workspaces
+
+
+def is_local_workspace(silica_dir: Path, workspace_name: Optional[str] = None) -> bool:
+    """Check if a workspace is configured for local mode.
+
+    Args:
+        silica_dir: Path to the .silica directory
+        workspace_name: Name of the workspace to check.
+                       If None, the default workspace will be used.
+
+    Returns:
+        True if the workspace is configured for local mode, False otherwise
+    """
+    workspace_config = get_workspace_config(silica_dir, workspace_name)
+    return workspace_config.get("mode", "remote") == "local"
+
+
+def get_workspace_port(
+    silica_dir: Path, workspace_name: Optional[str] = None
+) -> Optional[int]:
+    """Get the port number for a local workspace.
+
+    Args:
+        silica_dir: Path to the .silica directory
+        workspace_name: Name of the workspace to get port for.
+                       If None, the default workspace will be used.
+
+    Returns:
+        Port number for local workspaces, None for remote workspaces
+    """
+    workspace_config = get_workspace_config(silica_dir, workspace_name)
+    return workspace_config.get("port")
+
+
+def set_workspace_mode_and_port(
+    silica_dir: Path, workspace_name: str, mode: str, port: Optional[int] = None
+) -> None:
+    """Set the mode and port for a workspace.
+
+    Args:
+        silica_dir: Path to the .silica directory
+        workspace_name: Name of the workspace to configure
+        mode: Either "local" or "remote"
+        port: Port number for local workspaces (required if mode is "local")
+
+    Raises:
+        ValueError: If mode is "local" but no port is provided
+    """
+    if mode == "local" and port is None:
+        raise ValueError("Port is required for local workspaces")
+
+    # Get current workspace config
+    workspace_config = get_workspace_config(silica_dir, workspace_name)
+
+    # Update mode and port
+    workspace_config["mode"] = mode
+    if mode == "local":
+        workspace_config["port"] = port
+    elif "port" in workspace_config:
+        # Remove port for remote workspaces
+        del workspace_config["port"]
+
+    # Save updated config
+    set_workspace_config(silica_dir, workspace_name, workspace_config)
