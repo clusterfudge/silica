@@ -1,69 +1,118 @@
-"""Test configuration for silica workspace environment tests.
+"""Test configuration and fixtures for remote tests."""
 
-This file ensures all tests run safely without affecting the current workspace.
-"""
-
+import subprocess
 import pytest
 import tempfile
 import os
 from pathlib import Path
-from unittest.mock import patch
 
 
-@pytest.fixture(scope="session")
-def safe_test_environment():
-    """Create a completely isolated test environment."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        temp_path = Path(temp_dir)
-
-        # Create fake directory structure
-        fake_home = temp_path / "fake_home"
-        fake_cwd = temp_path / "fake_cwd"
-        fake_home.mkdir()
-        fake_cwd.mkdir()
-
-        with patch.dict(os.environ, {"HOME": str(fake_home), "SILICA_TEST_MODE": "1"}):
-            yield {"temp_dir": temp_path, "fake_home": fake_home, "fake_cwd": fake_cwd}
-
-
-@pytest.fixture
-def isolated_workspace(safe_test_environment):
-    """Provide an isolated workspace for each test."""
-    test_workspace = safe_test_environment["temp_dir"] / "test_workspace"
-    test_workspace.mkdir()
-
-    # Create basic workspace structure
-    (test_workspace / ".silica").mkdir()
-
-    with patch(
-        "silica.remote.cli.commands.workspace_environment.Path.cwd",
-        return_value=test_workspace,
-    ):
-        yield test_workspace
-
-
-@pytest.fixture
-def mock_piku_environment():
-    """Mock piku environment without touching real piku setup."""
-    with patch("silica.utils.piku.run_piku_in_silica") as mock_piku:
-        mock_piku.return_value.returncode = 0
-        mock_piku.return_value.stdout = ""
-        yield mock_piku
-
-
-# Ensure we never accidentally touch the real workspace
 def pytest_configure(config):
-    """Configure pytest to run safely."""
-    # Set test mode environment variable
-    os.environ["SILICA_TEST_MODE"] = "1"
+    """Configure pytest with custom markers."""
+    config.addinivalue_line("markers", "tmux: marks tests that use tmux sessions")
+    config.addinivalue_line("markers", "cleanup: marks tests that need cleanup")
 
 
-def pytest_collection_modifyitems(config, items):
-    """Modify test collection to add safety markers."""
-    for item in items:
-        # Add slow marker to integration tests
-        if "integration" in item.nodeid:
-            item.add_marker(pytest.mark.slow)
+@pytest.fixture(scope="session", autouse=True)
+def cleanup_test_tmux_sessions():
+    """Clean up any test tmux sessions at start and end of test session."""
 
-        # Add safety marker to all tests
-        item.add_marker(pytest.mark.safe)
+    def cleanup_sessions():
+        """Clean up any tmux sessions starting with 'test-'."""
+        try:
+            # List all sessions
+            result = subprocess.run(
+                ["tmux", "list-sessions", "-F", "#{session_name}"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            if result.returncode == 0 and result.stdout.strip():
+                sessions = result.stdout.strip().split("\n")
+
+                # Kill any test sessions
+                for session in sessions:
+                    if session.startswith("test-"):
+                        subprocess.run(
+                            ["tmux", "kill-session", "-t", session],
+                            capture_output=True,
+                            check=False,
+                        )
+                        print(f"Cleaned up test tmux session: {session}")
+
+        except FileNotFoundError:
+            # tmux not available, nothing to clean
+            pass
+
+    # Clean up at start
+    cleanup_sessions()
+
+    yield
+
+    # Clean up at end
+    cleanup_sessions()
+
+
+@pytest.fixture
+def isolated_workspace():
+    """Create an isolated workspace for testing."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        original_cwd = os.getcwd()
+        original_env = dict(os.environ)
+
+        try:
+            # Change to temp directory
+            os.chdir(temp_dir)
+
+            # Set test environment
+            os.environ["WORKSPACE_NAME"] = "test-isolated"
+
+            yield Path(temp_dir)
+
+        finally:
+            # Restore original state
+            os.chdir(original_cwd)
+            os.environ.clear()
+            os.environ.update(original_env)
+
+
+@pytest.fixture
+def tmux_available():
+    """Check if tmux is available for testing."""
+    try:
+        subprocess.run(["tmux", "-V"], capture_output=True, check=True)
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pytest.skip("tmux not available")
+
+
+@pytest.fixture
+def test_session_name():
+    """Generate a unique test session name."""
+    import uuid
+
+    return f"test-{uuid.uuid4().hex[:8]}"
+
+
+@pytest.fixture
+def cleanup_test_session():
+    """Fixture that ensures a specific test session is cleaned up."""
+    session_name = None
+
+    def set_session_name(name):
+        nonlocal session_name
+        session_name = name
+
+    yield set_session_name
+
+    # Cleanup after test
+    if session_name:
+        try:
+            subprocess.run(
+                ["tmux", "kill-session", "-t", session_name],
+                capture_output=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            pass
