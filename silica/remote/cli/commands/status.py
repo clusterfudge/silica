@@ -15,12 +15,65 @@ from silica.remote.utils.piku import (
     get_app_name,
     run_piku_in_silica,
 )
+from silica.remote.utils.antennae_client import get_antennae_client
+from silica.remote.config.multi_workspace import is_local_workspace_for_cleanup
 # Agent configuration removed - hardcoded silica developer
 
 console = Console()
 
 
-def get_workspace_status(workspace_name: str, git_root: Path) -> Dict[str, Any]:
+def get_workspace_status(
+    workspace_name: str, git_root: Path, silica_dir: Path
+) -> Dict[str, Any]:
+    """Get status information for a workspace via HTTP API.
+
+    Args:
+        workspace_name: Name of the workspace to check
+        git_root: Git root path
+        silica_dir: .silica directory path
+
+    Returns:
+        Dictionary with status information
+    """
+    status = {
+        "workspace": workspace_name,
+        "accessible": False,
+        "status_info": None,
+        "connection_info": None,
+        "error": None,
+    }
+
+    try:
+        # Check if workspace is local (for cleanup purposes - we still use HTTP)
+        is_local = is_local_workspace_for_cleanup(silica_dir, workspace_name)
+
+        # Get HTTP client for this workspace
+        client = get_antennae_client(silica_dir, workspace_name)
+
+        # Try to get status via HTTP
+        success, response = client.get_status()
+
+        if success:
+            status["accessible"] = True
+            status["status_info"] = response
+        else:
+            status["error"] = response.get("error", "Failed to get status")
+
+        # Also try to get connection info
+        conn_success, conn_response = client.get_connection_info()
+        if conn_success:
+            status["connection_info"] = conn_response
+
+        # Mark as local if needed
+        status["is_local"] = is_local
+
+    except Exception as e:
+        status["error"] = f"Unexpected error: {str(e)}"
+
+    return status
+
+
+def get_workspace_status_legacy(workspace_name: str, git_root: Path) -> Dict[str, Any]:
     """Get status information for a single workspace.
 
     Args:
@@ -152,79 +205,77 @@ def print_single_workspace_status(status: Dict[str, Any], detailed: bool = False
         status: Status dictionary for a workspace
         detailed: Whether to show detailed information
     """
-    console.print(
-        f"[bold]Status for workspace '[cyan]{status['workspace']}[/cyan]'[/bold]"
-    )
-    console.print(
-        f"[dim]App name: {status['app_name']}, Connection: {status['piku_connection']}[/dim]"
-    )
+    workspace_name = status["workspace"]
+    console.print(f"[bold]Status for workspace '[cyan]{workspace_name}[/cyan]'[/bold]")
 
-    # Add agent configuration information
-    # Built-in silica developer - no configuration needed
-    console.print("[bold]Agent:[/bold] [cyan]Built-in Silica Developer[/cyan]")
+    # Check if workspace is accessible
+    if not status["accessible"]:
+        console.print("[red]❌ Antennae webapp is not accessible[/red]")
+        if status["error"]:
+            console.print(f"[red]Error: {status['error']}[/red]")
 
-    if detailed:
-        console.print(
-            "[green]Command: uv run silica developer --dwr --persona autonomous_engineer[/green]"
-        )
-
-    # Print process status
-    console.print("[green]Application status:[/green]")
-    if not status["process_status"]:
-        console.print("  [yellow]No processes found[/yellow]")
-    else:
-        for line in status["process_status"]:
-            console.print(f"  {line}")
-
-    # Print tmux session status
-    console.print("\n[bold]Agent Session Status:[/bold]")
-    if not status["tmux_status"]:
-        console.print("[yellow]  Agent session is not running[/yellow]")
-        console.print(
-            f"[cyan]  Start the agent session with: [bold]si agent -w {status['workspace']}[/bold][/cyan]"
-        )
-    else:
-        # Create a table for the agent sessions
-        tmux_table = Table()
-        tmux_table.add_column("Session", style="cyan")
-        tmux_table.add_column("Windows", style="green")
-        tmux_table.add_column("Created", style="blue")
-        tmux_table.add_column("Status", style="yellow")
-
-        for session in status["tmux_status"]:
-            # Format status with color
-            formatted_status = (
-                "[green]attached[/green]"
-                if session["status"] == "attached"
-                else "[yellow]detached[/yellow]"
+        # Show help for starting the workspace
+        if status.get("is_local", False):
+            console.print(
+                f"[cyan]Start local workspace with: [bold]silica remote antennae --workspace {workspace_name}[/bold][/cyan]"
             )
-
-            tmux_table.add_row(
-                f"[bold cyan]{session['name']}[/bold cyan]",
-                session["windows"],
-                session["created"],
-                formatted_status,
+        else:
+            console.print(
+                "[yellow]Remote workspace may be stopped or unreachable[/yellow]"
             )
+        return
 
-        console.print(tmux_table)
+    console.print("[green]✅ Antennae webapp is accessible[/green]")
+
+    # Get status info from HTTP response
+    status_info = status.get("status_info", {})
+    connection_info = status.get("connection_info", {})
+
+    if status_info:
         console.print(
-            f"[cyan]To connect to the agent session, run: [bold]si agent -w {status['workspace']}[/bold][/cyan]"
+            f"[dim]Code directory: {status_info.get('code_directory', 'Unknown')}[/dim]"
         )
 
-    # Print agent sessions
-    console.print("\n[bold]Known Agent Sessions:[/bold]")
-    if not status["agent_sessions"]:
-        console.print("[yellow]  No agent sessions found[/yellow]")
-    else:
-        table = Table()
-        table.add_column("ID", style="cyan")
-        table.add_column("Started", style="green")
-        table.add_column("Working Directory", style="blue")
+        # Built-in silica developer - no configuration needed
+        console.print("[bold]Agent:[/bold] [cyan]Built-in Silica Developer[/cyan]")
 
-        for session in status["agent_sessions"]:
-            table.add_row(session["id"], session["started"], session["workdir"])
+        if detailed:
+            agent_command = status_info.get(
+                "agent_command",
+                "uv run silica developer --dwr --persona autonomous_engineer",
+            )
+            console.print(f"[green]Command: {agent_command}[/green]")
 
-        console.print(table)
+        # Print repository status
+        repo_info = status_info.get("repository", {})
+        if repo_info:
+            console.print("\n[bold]Repository:[/bold]")
+            if repo_info.get("exists", False):
+                console.print("  [green]✅ Repository exists[/green]")
+                if repo_info.get("url"):
+                    console.print(f"  [dim]URL: {repo_info['url']}[/dim]")
+                if repo_info.get("branch"):
+                    console.print(f"  [dim]Branch: {repo_info['branch']}[/dim]")
+            else:
+                console.print("  [yellow]⚠ No repository found[/yellow]")
+
+        # Print tmux session status
+        tmux_info = status_info.get("tmux_session", {})
+        console.print("\n[bold]Agent Session Status:[/bold]")
+        if tmux_info.get("running", False):
+            console.print(
+                f"  [green]✅ Session '{tmux_info.get('name', 'unknown')}' is running[/green]"
+            )
+            if connection_info:
+                console.print(
+                    f"  [dim]Working directory: {connection_info.get('working_directory', 'Unknown')}[/dim]"
+                )
+        else:
+            console.print("  [yellow]⚠ Agent session is not running[/yellow]")
+
+        console.print(
+            f"[cyan]To connect to the agent session, run: [bold]silica remote agent -w {workspace_name}[/bold][/cyan]"
+        )
 
     if status["error"]:
         console.print(f"\n[red]{status['error']}[/red]")
@@ -240,55 +291,59 @@ def print_all_workspaces_summary(statuses: List[Dict[str, Any]]):
 
     table = Table(title="Workspace Status")
     table.add_column("Workspace", style="cyan")
-    table.add_column("Agent Type", style="magenta")
-    table.add_column("App Name", style="blue")
-    table.add_column("Processes", style="green")
+    table.add_column("Type", style="magenta")
+    table.add_column("Accessible", style="green")
+    table.add_column("Repository", style="blue")
     table.add_column("Agent Session", style="yellow")
     table.add_column("Status", style="red")
 
     for status in statuses:
-        # Get agent type for this workspace
-        pass
+        workspace_name = status["workspace"]
 
-        agent_type = "silica_developer"  # only one agent type
+        # Determine workspace type
+        workspace_type = "Local" if status.get("is_local", False) else "Remote"
 
-        # Determine status indicators
-        process_count = len(
-            [p for p in status["process_status"] if p.strip() and "COMMAND" not in p]
-        )
-        process_status = (
-            f"[green]{process_count} running[/green]"
-            if process_count > 0
-            else "[yellow]None[/yellow]"
-        )
+        # Check accessibility
+        accessible = "[green]✅[/green]" if status["accessible"] else "[red]❌[/red]"
 
-        tmux_status = "[yellow]Not running[/yellow]"
-        if status["tmux_status"]:
-            attached = any(s["status"] == "attached" for s in status["tmux_status"])
-            tmux_status = (
-                "[green]Attached[/green]" if attached else "[blue]Detached[/blue]"
-            )
+        # Check repository status
+        repo_status = "[yellow]Unknown[/yellow]"
+        session_status = "[yellow]Unknown[/yellow]"
 
-        str(len(status["agent_sessions"])) if status["agent_sessions"] else "0"
+        if status["accessible"] and status["status_info"]:
+            status_info = status["status_info"]
+            repo_info = status_info.get("repository", {})
+            tmux_info = status_info.get("tmux_session", {})
 
+            if repo_info.get("exists", False):
+                repo_status = "[green]✅[/green]"
+            else:
+                repo_status = "[yellow]⚠[/yellow]"
+
+            if tmux_info.get("running", False):
+                session_status = "[green]Running[/green]"
+            else:
+                session_status = "[yellow]Stopped[/yellow]"
+
+        # Overall status
         overall_status = "[green]OK[/green]"
         if status["error"]:
             overall_status = "[red]Error[/red]"
-        elif not process_count:
-            overall_status = "[yellow]Inactive[/yellow]"
+        elif not status["accessible"]:
+            overall_status = "[yellow]Offline[/yellow]"
 
         table.add_row(
-            status["workspace"],
-            agent_type,
-            status["app_name"],
-            process_status,
-            tmux_status,
+            workspace_name,
+            workspace_type,
+            accessible,
+            repo_status,
+            session_status,
             overall_status,
         )
 
     console.print(table)
     console.print(
-        "\n[cyan]For detailed status, run: [bold]si status -w <workspace>[/bold][/cyan]"
+        "\n[cyan]For detailed status, run: [bold]silica remote status -w <workspace>[/bold][/cyan]"
     )
 
 
@@ -340,7 +395,7 @@ def status(
         all_statuses = []
         for workspace_info in workspaces_info:
             workspace_name = workspace_info["name"]
-            status = get_workspace_status(workspace_name, git_root)
+            status = get_workspace_status(workspace_name, git_root, silica_dir)
             all_statuses.append(status)
 
         # Print summary of all workspaces
@@ -358,7 +413,7 @@ def status(
 
         for i, workspace_info in enumerate(workspaces_info):
             workspace_name = workspace_info["name"]
-            status = get_workspace_status(workspace_name, git_root)
+            status = get_workspace_status(workspace_name, git_root, silica_dir)
 
             # Add a separator between workspaces
             if i > 0:
@@ -368,5 +423,5 @@ def status(
 
     else:
         # Show detailed status for a specific workspace
-        status = get_workspace_status(workspace, git_root)
+        status = get_workspace_status(workspace, git_root, silica_dir)
         print_single_workspace_status(status, detailed=True)

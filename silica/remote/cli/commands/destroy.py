@@ -9,7 +9,8 @@ from rich.prompt import Confirm
 
 from silica.remote.config import get_silica_dir, find_git_root
 from silica.remote.utils import piku as piku_utils
-from silica.remote.utils.piku import get_piku_connection, get_app_name
+from silica.remote.utils.antennae_client import get_antennae_client
+from silica.remote.config.multi_workspace import is_local_workspace_for_cleanup
 
 console = Console()
 
@@ -76,52 +77,42 @@ def destroy(
             for ws in all_workspaces:
                 ws_name = ws["name"]
                 try:
-                    # Get app name for this workspace
-                    current_app_name = get_app_name(git_root, workspace_name=ws_name)
+                    console.print(f"[bold]Destroying workspace '{ws_name}'...[/bold]")
 
-                    console.print(f"[bold]Destroying {current_app_name}...[/bold]")
-
-                    # Check for tmux session
-                    has_tmux_session = False
+                    # Try to destroy via HTTP first
                     try:
-                        check_cmd = f"tmux has-session -t {current_app_name} 2>/dev/null || echo 'no_session'"
-                        check_result = piku_utils.run_piku_in_silica(
-                            check_cmd,
-                            workspace_name=ws_name,
-                            use_shell_pipe=True,
-                            capture_output=True,
-                        )
-                        has_tmux_session = "no_session" not in check_result.stdout
-                    except Exception:
-                        has_tmux_session = False
+                        client = get_antennae_client(silica_dir, ws_name)
+                        success, response = client.destroy()
 
-                    # Terminate tmux if exists
-                    if has_tmux_session:
+                        if success:
+                            console.print(
+                                f"[green]Destroyed workspace '{ws_name}' via HTTP[/green]"
+                            )
+                        else:
+                            console.print(
+                                f"[yellow]HTTP destroy failed for '{ws_name}': {response.get('error', 'Unknown error')}[/yellow]"
+                            )
+
+                    except Exception as e:
                         console.print(
-                            f"[bold]Terminating tmux session for {current_app_name}...[/bold]"
+                            f"[yellow]Could not destroy via HTTP for '{ws_name}': {e}[/yellow]"
                         )
+
+                    # For remote workspaces, also destroy the piku application
+                    if not is_local_workspace_for_cleanup(silica_dir, ws_name):
                         try:
-                            kill_cmd = f"tmux kill-session -t {current_app_name}"
+                            force_flag = "--force" if force else ""
                             piku_utils.run_piku_in_silica(
-                                kill_cmd, workspace_name=ws_name, use_shell_pipe=True
+                                f"destroy {force_flag}", workspace_name=ws_name
                             )
                             console.print(
-                                f"[green]Terminated tmux session for {current_app_name}.[/green]"
+                                f"[green]Destroyed piku app for '{ws_name}'[/green]"
                             )
                         except Exception as e:
                             console.print(
-                                f"[yellow]Warning: Could not terminate tmux session for {ws_name}: {e}[/yellow]"
+                                f"[yellow]Warning: Could not destroy piku app for '{ws_name}': {e}[/yellow]"
                             )
 
-                    # Destroy the piku application
-                    force_flag = "--force" if force else ""
-                    piku_utils.run_piku_in_silica(
-                        f"destroy {force_flag}", workspace_name=ws_name
-                    )
-
-                    console.print(
-                        f"[green]Successfully destroyed {current_app_name}![/green]"
-                    )
                     success_count += 1
 
                 except Exception as e:
@@ -153,49 +144,26 @@ def destroy(
             return
 
     # Regular single workspace destruction
-    # Use the specified workspace (defaults to "agent") for both app name and operations
-    app_name = get_app_name(git_root, workspace_name=workspace)
-    piku_connection = get_piku_connection(git_root, workspace_name=workspace)
-
-    if not workspace or not piku_connection or not app_name:
-        console.print("[red]Error: Invalid configuration.[/red]")
-        return
+    console.print(f"[bold]Destroying workspace '{workspace}'...[/bold]")
 
     # Gather ALL confirmations upfront before taking any destructive actions
     confirmations = {}
 
-    # Check if there's a tmux session for this app
-    has_tmux_session = False
-    try:
-        check_cmd = f"tmux has-session -t {app_name} 2>/dev/null || echo 'no_session'"
-        check_result = piku_utils.run_piku_in_silica(
-            check_cmd,
-            workspace_name=workspace,
-            use_shell_pipe=True,
-            capture_output=True,
-        )
-        has_tmux_session = "no_session" not in check_result.stdout
-    except Exception:
-        has_tmux_session = False  # Assume no session on error
-
-    # Main confirmation for app destruction
+    # Main confirmation for workspace destruction
     if force:
-        confirmations["destroy_app"] = True
+        confirmations["destroy_workspace"] = True
     else:
-        confirmation_message = f"Are you sure you want to destroy {app_name}?"
-        if has_tmux_session:
-            confirmation_message += (
-                f"\nThis will also terminate the tmux session for {app_name}."
-            )
+        confirmation_message = (
+            f"Are you sure you want to destroy workspace '{workspace}'?"
+        )
+        confirmations["destroy_workspace"] = Confirm.ask(confirmation_message)
 
-        confirmations["destroy_app"] = Confirm.ask(confirmation_message)
-
-    if not confirmations["destroy_app"]:
+    if not confirmations["destroy_workspace"]:
         console.print("[yellow]Aborted.[/yellow]")
         return
 
     # Only offer to clean up local files if this is the last workspace
-    if confirmations["destroy_app"]:
+    if confirmations["destroy_workspace"]:
         from silica.remote.config.multi_workspace import load_project_config
 
         config = load_project_config(silica_dir)
@@ -219,26 +187,41 @@ def destroy(
             confirmations["remove_local_files"] = False
 
     # Now that we have all confirmations, proceed with destruction actions
-    console.print(f"[bold]Destroying {app_name}...[/bold]")
-
     try:
-        # First terminate tmux sessions if they exist and user confirmed
-        if has_tmux_session and confirmations["destroy_app"]:
-            console.print(f"[bold]Terminating tmux session for {app_name}...[/bold]")
-            try:
-                kill_cmd = f"tmux kill-session -t {app_name}"
-                piku_utils.run_piku_in_silica(
-                    kill_cmd, workspace_name=workspace, use_shell_pipe=True
+        # Try to destroy via HTTP first
+        console.print("[bold]Destroying workspace via antennae...[/bold]")
+
+        try:
+            client = get_antennae_client(silica_dir, workspace)
+            success, response = client.destroy()
+
+            if success:
+                console.print(
+                    f"[green]Workspace '{workspace}' destroyed successfully via HTTP[/green]"
                 )
-                console.print(f"[green]Terminated tmux session for {app_name}.[/green]")
+            else:
+                console.print(
+                    f"[yellow]HTTP destroy failed: {response.get('error', 'Unknown error')}[/yellow]"
+                )
+                console.print("[yellow]Continuing with cleanup...[/yellow]")
+
+        except Exception as e:
+            console.print(f"[yellow]Could not destroy via HTTP: {e}[/yellow]")
+            console.print("[yellow]Continuing with cleanup...[/yellow]")
+
+        # For remote workspaces, also destroy the piku application
+        if not is_local_workspace_for_cleanup(silica_dir, workspace):
+            try:
+                console.print("[bold]Destroying piku application...[/bold]")
+                force_flag = "--force" if force else ""
+                piku_utils.run_piku_in_silica(
+                    f"destroy {force_flag}", workspace_name=workspace
+                )
+                console.print("[green]Piku application destroyed successfully[/green]")
             except Exception as e:
                 console.print(
-                    f"[yellow]Warning: Could not terminate tmux session: {e}[/yellow]"
+                    f"[yellow]Warning: Could not destroy piku application: {e}[/yellow]"
                 )
-
-        # Now destroy the piku application
-        force_flag = "--force" if force else ""
-        piku_utils.run_piku_in_silica(f"destroy {force_flag}", workspace_name=workspace)
 
         # Remove local .silica directory contents if confirmed (only if this is the last workspace)
         if confirmations["remove_local_files"]:
@@ -275,11 +258,13 @@ def destroy(
                     f"[yellow]Warning: Could not remove git remote: {e}[/yellow]"
                 )
 
-        console.print(f"[green bold]Successfully destroyed {app_name}![/green bold]")
+        console.print(
+            f"[green bold]Successfully destroyed workspace '{workspace}'![/green bold]"
+        )
 
     except subprocess.CalledProcessError as e:
         error_output = e.stderr.decode() if e.stderr else str(e)
-        console.print(f"[red]Error destroying environment: {error_output}[/red]")
+        console.print(f"[red]Error destroying workspace: {error_output}[/red]")
     except Exception as e:
         console.print(f"[red]Unexpected error: {e}[/red]")
 

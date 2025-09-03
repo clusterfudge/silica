@@ -9,14 +9,10 @@ from typing import Dict, List, Tuple
 
 from silica.remote.config import load_config, find_git_root
 from silica.remote.utils import piku as piku_utils
-from silica.remote.utils.agents import (
-    get_default_workspace_agent_config,
-)
 
 import git
 
 # Import sync functionality
-from silica.remote.cli.commands.sync import sync_repo_to_remote
 
 # Messaging functionality removed - legacy system
 
@@ -105,34 +101,17 @@ def create(
             help="Piku connection string (default: inferred from git or config)",
         ),
     ] = None,
+    local: Annotated[
+        Optional[int],
+        cyclopts.Parameter(
+            name=["--local"],
+            help="Create local workspace on specified port (default: 8000 if --local used without port)",
+        ),
+    ] = None,
 ):
     """Create a new agent environment workspace."""
-    # Load global configuration
-    config = load_config()
 
-    # Always use silica developer (no need to reference agent_type)
-
-    if connection is None:
-        # Check if there's a git remote named "piku" in the project repo
-        git_root = find_git_root()
-        if git_root:
-            try:
-                repo = git.Repo(git_root)
-                for remote in repo.remotes:
-                    if remote.name == "piku":
-                        remote_url = next(remote.urls, None)
-                        if remote_url and ":" in remote_url:
-                            # Extract the connection part (e.g., "piku@host" from "piku@host:repo")
-                            connection = remote_url.split(":", 1)[0]
-                            break
-            except (git.exc.InvalidGitRepositoryError, Exception):
-                pass
-
-        # If still None, use the global config default
-        if connection is None:
-            connection = config.get("piku_connection", "piku")
-
-    # Find git root
+    # Find git root first
     git_root = find_git_root()
     if not git_root:
         console.print("[red]Error: Not in a git repository.[/red]")
@@ -159,8 +138,111 @@ def create(
                 f.write(".silica/\n")
             console.print("[green]Successfully added .silica/ to .gitignore[/green]")
 
-    # Initialize a git repository in .silica
-    console.print(f"Initializing agent environment in {silica_dir}...")
+    # Determine if this is a local or remote workspace
+    if local is not None:
+        # Local workspace creation
+        port = (
+            local if local != 0 else 8000
+        )  # Default to 8000 if --local used without port
+        return create_local_workspace(workspace, port, git_root, silica_dir)
+    else:
+        # Remote workspace creation (existing logic)
+        return create_remote_workspace(workspace, connection, git_root, silica_dir)
+
+
+def create_local_workspace(
+    workspace_name: str, port: int, git_root: Path, silica_dir: Path
+):
+    """Create a local workspace using antennae HTTP endpoints.
+
+    Args:
+        workspace_name: Name of the workspace
+        port: Port where antennae webapp will run
+        git_root: Path to git repository root
+        silica_dir: Path to .silica directory
+    """
+    console.print(
+        f"[bold]Creating local workspace '{workspace_name}' on port {port}[/bold]"
+    )
+
+    # Construct the local URL
+    url = f"http://localhost:{port}"
+
+    # Save workspace configuration with local mode and URL
+    from silica.remote.config.multi_workspace import create_workspace_config
+
+    create_workspace_config(silica_dir, workspace_name, url, is_local=True)
+
+    console.print("[green]Local workspace configuration saved[/green]")
+    console.print(f"Workspace URL: [cyan]{url}[/cyan]")
+    console.print(
+        f"Start the antennae webapp with: [bold]silica remote antennae --port {port} --workspace {workspace_name}[/bold]"
+    )
+    console.print(
+        f'Then initialize with the repository using: [bold]silica remote tell -w {workspace_name} "setup"[/bold]'
+    )
+
+    # Get current git repository URL for reference
+    try:
+        import git
+
+        repo = git.Repo(git_root)
+        repo_url = None
+
+        # Try to get the origin URL
+        if "origin" in [r.name for r in repo.remotes]:
+            repo_url = next(repo.remote("origin").urls, None)
+
+        if repo_url:
+            console.print(f"[dim]Repository URL: {repo_url}[/dim]")
+            console.print(
+                f"[dim]Current branch: {repo.active_branch.name if repo.active_branch else 'main'}[/dim]"
+            )
+
+    except Exception as e:
+        console.print(
+            f"[yellow]Warning: Could not determine repository details: {e}[/yellow]"
+        )
+
+    console.print("[green bold]Local workspace created successfully![/green bold]")
+
+
+def create_remote_workspace(
+    workspace_name: str, connection: Optional[str], git_root: Path, silica_dir: Path
+):
+    """Create a remote workspace using piku deployment and HTTP initialization.
+
+    Args:
+        workspace_name: Name of the workspace
+        connection: Piku connection string
+        git_root: Path to git repository root
+        silica_dir: Path to .silica directory
+    """
+    # Load global configuration
+    config = load_config()
+
+    if connection is None:
+        # Check if there's a git remote named "piku" in the project repo
+        try:
+            repo = git.Repo(git_root)
+            for remote in repo.remotes:
+                if remote.name == "piku":
+                    remote_url = next(remote.urls, None)
+                    if remote_url and ":" in remote_url:
+                        # Extract the connection part (e.g., "piku@host" from "piku@host:repo")
+                        connection = remote_url.split(":", 1)[0]
+                        break
+        except (git.exc.InvalidGitRepositoryError, Exception):
+            pass
+
+        # If still None, use the global config default
+        if connection is None:
+            connection = config.get("piku_connection", "piku")
+
+    console.print(f"[bold]Creating remote workspace '{workspace_name}'[/bold]")
+
+    # Initialize a git repository in .silica for deployment
+    console.print(f"Initializing antennae environment in {silica_dir}...")
 
     try:
         # Create the agent repository
@@ -182,9 +264,6 @@ def create(
             "verify_setup.py",
         ]
 
-        # Create workspace config for the deployed environment
-        workspace_config = get_default_workspace_agent_config()
-
         # Create initial files
         for filename in initial_files:
             content = get_template_content(filename)
@@ -192,64 +271,52 @@ def create(
             with open(file_path, "w") as f:
                 f.write(content)
 
-        # Create workspace configuration file for the remote environment
-        workspace_config_file = repo_path / "workspace_config.json"
-        with open(workspace_config_file, "w") as f:
-            import json
-
-            json.dump(workspace_config, f, indent=2)
-
-        # Add workspace_config.json to initial files for git tracking
-        initial_files.append("workspace_config.json")
-
         # Add and commit files
         repo = git.Repo(repo_path)
         for filename in initial_files:
             repo.git.add(filename)
 
         if repo.is_dirty():
-            repo.git.commit("-m", "Initial silica agent environment")
-            console.print("[green]Committed initial agent environment files.[/green]")
+            repo.git.commit("-m", "Initial silica antennae environment")
+            console.print(
+                "[green]Committed initial antennae environment files.[/green]"
+            )
 
         # Get the repository name from the git root
         repo_name = git_root.name
-
-        # The app name will be {workspace}-{repo_name}
-        app_name = f"{workspace}-{repo_name}"
+        app_name = f"{workspace_name}-{repo_name}"
 
         # Check if the workspace remote exists
         remotes = [r.name for r in repo.remotes]
 
-        if workspace not in remotes:
-            # We assume piku is already set up and the remote can be added
-            console.print(f"Adding {workspace} remote to the agent repository...")
-            # The remote URL format is: {connection}:{app_name}
+        if workspace_name not in remotes:
+            # Add piku remote
+            console.print(
+                f"Adding {workspace_name} remote to the antennae repository..."
+            )
             remote_url = f"{connection}:{app_name}"
-            repo.create_remote(workspace, remote_url)
+            repo.create_remote(workspace_name, remote_url)
             console.print(f"Remote URL: {remote_url}")
 
-        # Determine the current branch (could be main or master)
-        # First check if any branch exists
+        # Determine the current branch
         if not repo.heads:
-            # No branches yet, create one
-            console.print("Creating initial branch...")
-            initial_branch = "main"  # Use main as the default for new repos
+            initial_branch = "main"
             repo.git.checkout("-b", initial_branch)
         else:
-            # Use the current active branch
             initial_branch = repo.active_branch.name
 
         # Push to the workspace remote
-        console.print(f"Pushing to {workspace} remote using branch {initial_branch}...")
-        repo.git.push(workspace, initial_branch)
-        console.print("[green]Successfully pushed agent environment to piku.[/green]")
-
-        # The application name is workspace-{repo_name}
-        app_name = f"{workspace}-{repo_name}"
+        console.print(
+            f"Pushing to {workspace_name} remote using branch {initial_branch}..."
+        )
+        repo.git.push(workspace_name, initial_branch)
+        console.print(
+            "[green]Successfully pushed antennae environment to piku.[/green]"
+        )
 
         # Check for required dependencies on the remote workspace
         console.print("Checking for required dependencies on the remote workspace...")
-        all_installed, missing_tools = check_remote_dependencies(workspace)
+        all_installed, missing_tools = check_remote_dependencies(workspace_name)
 
         if not all_installed:
             console.print(
@@ -265,21 +332,6 @@ def create(
 
             return
 
-        # Create code directory in remote
-        console.print("Setting up code directory in remote environment...")
-        try:
-            # Always pass workspace_name as required parameter
-            piku_utils.run_piku_in_silica(
-                "mkdir -p code", workspace_name=workspace, use_shell_pipe=True
-            )
-        except subprocess.CalledProcessError as e:
-            console.print(
-                f"[yellow]Warning: Could not create code directory: {e}[/yellow]"
-            )
-            console.print(
-                "[yellow]Continuing anyway, as the directory might be created automatically.[/yellow]"
-            )
-
         # Set up environment variables
         console.print("Setting up environment variables...")
 
@@ -293,8 +345,7 @@ def create(
                 env_config[key] = value
 
         # Add workspace configuration environment variables
-        env_config["SILICA_WORKSPACE_NAME"] = workspace
-        # No need to set SILICA_AGENT_TYPE - there's only one agent
+        env_config["WORKSPACE_NAME"] = workspace_name
         env_config["NGINX_SERVER_NAME"] = app_name  # Enable hostname routing
 
         # Set all configuration values at once if we have any
@@ -302,164 +353,93 @@ def create(
             # Convert dictionary to KEY=VALUE format for piku config:set command
             config_args = [f"{k}={v}" for k, v in env_config.items()]
             config_cmd = f"config:set {' '.join(config_args)}"
-            # Always pass workspace_name as required parameter
-            piku_utils.run_piku_in_silica(config_cmd, workspace_name=workspace)
+            piku_utils.run_piku_in_silica(config_cmd, workspace_name=workspace_name)
 
-        # Sync the current repository to the remote code directory
+        # Construct the remote URL - assume HTTPS and standard piku routing
+        # Extract hostname from piku connection
+        if "@" in connection:
+            hostname = connection.split("@")[1]
+        else:
+            hostname = connection
 
-        # Don't restart the app yet as we may have more setup to do
-        console.print("Syncing repository to remote code directory...")
-        sync_result = sync_repo_to_remote(
-            workspace=workspace, branch=initial_branch, git_root=git_root
-        )
+        remote_url = f"https://{app_name}.{hostname}"
 
-        if not sync_result:
+        # Save workspace configuration
+        from silica.remote.config.multi_workspace import create_workspace_config
+
+        create_workspace_config(silica_dir, workspace_name, remote_url, is_local=False)
+
+        # Get current git repository details
+        try:
+            project_repo = git.Repo(git_root)
+            repo_url = None
+            current_branch = "main"
+
+            # Try to get the origin URL
+            if "origin" in [r.name for r in project_repo.remotes]:
+                repo_url = next(project_repo.remote("origin").urls, None)
+
+            if project_repo.active_branch:
+                current_branch = project_repo.active_branch.name
+
+        except Exception as e:
             console.print(
-                "[yellow]Warning: Failed to sync repository to remote.[/yellow]"
+                f"[yellow]Warning: Could not determine repository details: {e}[/yellow]"
             )
+            # We'll need the user to provide repo URL manually
             console.print(
-                "[yellow]You may need to manually set up the code directory in the remote environment.[/yellow]"
+                "[yellow]You'll need to initialize manually with the repository URL[/yellow]"
             )
+            repo_url = None
+            current_branch = "main"
 
-        # Set up GitHub authentication if a GitHub token is available
-        gh_token = env_config.get("GH_TOKEN")
+        console.print("[green bold]Remote workspace created successfully![/green bold]")
+        console.print(f"Workspace name: [cyan]{workspace_name}[/cyan]")
+        console.print(f"Piku connection: [cyan]{connection}[/cyan]")
+        console.print(f"Application name: [cyan]{app_name}[/cyan]")
+        console.print(f"Remote URL: [cyan]{remote_url}[/cyan]")
 
-        if gh_token:
-            console.print("Setting up GitHub authentication in the code directory...")
+        # Initialize the workspace with the repository if we have the URL
+        if repo_url:
+            console.print(f"Initializing workspace with repository: {repo_url}")
+
+            # Import the HTTP client
+            from silica.remote.utils.antennae_client import get_antennae_client
+
             try:
-                # Check if gh CLI is installed
-                gh_check = piku_utils.run_piku_in_silica(
-                    "command -v gh",
-                    workspace_name=workspace,
-                    use_shell_pipe=True,
-                    capture_output=True,
-                    check=False,
-                )
+                client = get_antennae_client(silica_dir, workspace_name)
+                success, response = client.initialize(repo_url, current_branch)
 
-                if gh_check.returncode == 0:
-                    # Run gh auth setup-git in the code directory
-                    piku_utils.run_piku_in_silica(
-                        "cd code && gh auth setup-git",
-                        workspace_name=workspace,
-                        use_shell_pipe=True,
-                        check=True,
-                    )
+                if success:
                     console.print(
-                        "[green]Successfully set up GitHub authentication.[/green]"
+                        "[green]Workspace initialized successfully with repository![/green]"
                     )
                 else:
                     console.print(
-                        "[yellow]Warning: GitHub CLI (gh) is not installed on the remote workspace.[/yellow]"
+                        f"[yellow]Warning: Could not initialize workspace automatically: {response.get('error', 'Unknown error')}[/yellow]"
                     )
                     console.print(
-                        "[yellow]GitHub authentication for Git was not set up.[/yellow]"
+                        f'[yellow]Initialize manually with: silica remote tell -w {workspace_name} "setup with {repo_url}"[/yellow]'
                     )
-            except subprocess.CalledProcessError as e:
+
+            except Exception as e:
                 console.print(
-                    f"[yellow]Warning: Failed to set up GitHub authentication: {e}[/yellow]"
+                    f"[yellow]Warning: Could not initialize workspace automatically: {e}[/yellow]"
                 )
                 console.print(
-                    "[yellow]You may need to manually set up GitHub authentication in the remote environment.[/yellow]"
+                    f'[yellow]Initialize manually with: silica remote tell -w {workspace_name} "setup with {repo_url}"[/yellow]'
                 )
 
-        # Initialize the environment by clearing cache and running uv sync
-        console.print("Initializing silica environment with latest versions...")
-        try:
-            # Use new cache-clearing sync function
-            piku_utils.sync_dependencies_with_cache_clear(
-                workspace_name=workspace, clear_cache=True, git_root=git_root
-            )
-            console.print(
-                "[green]Successfully initialized silica environment with latest versions.[/green]"
-            )
-        except subprocess.CalledProcessError as e:
-            console.print(
-                f"[yellow]Warning: Failed to initialize silica environment: {e}[/yellow]"
-            )
-            console.print(
-                "[yellow]You may need to manually run uv sync in the remote workspace root.[/yellow]"
-            )
-
-        # Create or update workspace-specific configuration
-        from silica.remote.config.multi_workspace import (
-            load_project_config,
-        )
-
-        # Check if a config file already exists
-        config_file = silica_dir / "config.yaml"
-        config_exists = config_file.exists()
-
-        if config_exists:
-            # Load existing config to preserve other workspaces
-            project_config = load_project_config(silica_dir)
         else:
-            # Creating a new config from scratch, don't create default "agent" workspace
-            # if user has specified a different workspace name
-            project_config = {"default_workspace": workspace, "workspaces": {}}
-
-        # Set this workspace's configuration including agent settings
-        agent_config = get_default_workspace_agent_config()
-        workspace_config = {
-            "piku_connection": connection,
-            "app_name": app_name,
-            "branch": initial_branch,
-            **agent_config,
-        }
-
-        # Ensure workspaces key exists
-        if "workspaces" not in project_config:
-            project_config["workspaces"] = {}
-
-        # Add/update this workspace's config
-        project_config["workspaces"][workspace] = workspace_config
-
-        # Set as default workspace
-        project_config["default_workspace"] = workspace
-
-        # Save the updated config
-        import yaml
-
-        with open(silica_dir / "config.yaml", "w") as f:
-            yaml.dump(project_config, f, default_flow_style=False)
-
-        console.print("[green bold]Agent workspace created successfully![/green bold]")
-        console.print(f"Workspace name: [cyan]{workspace}[/cyan]")
-        console.print(f"Piku connection: [cyan]{connection}[/cyan]")
-        console.print(f"Application name: [cyan]{app_name}[/cyan]")
-        console.print(f"Branch: [cyan]{initial_branch}[/cyan]")
-        console.print("[cyan]Using built-in silica developer[/cyan]")
-
-        # Legacy messaging system removed - workspace creation simplified
-
-        # Run workspace environment setup first
-        console.print("Setting up workspace and launching agent...")
-        try:
-            # Create a tmux session named after the app_name and start in detached mode
-            # The session will start the agent and remain alive after disconnection
-            tmux_cmd = (
-                f"tmux new-session -d -s {app_name} 'bash ./launch_agent.sh; exec bash'"
-            )
-            piku_utils.run_piku_in_silica(
-                tmux_cmd, workspace_name=workspace, use_shell_pipe=True, check=True
+            console.print(
+                "[yellow]Initialize the workspace manually with your repository URL:[/yellow]"
             )
             console.print(
-                f"[green]Agent successfully started in tmux session: [bold]{app_name}[/bold][/green]"
-            )
-            console.print(
-                "[cyan]To connect to the session later, use: [bold]silica agent[/bold][/cyan]"
-            )
-        except subprocess.CalledProcessError as e:
-            console.print(
-                f"[yellow]Warning: Failed to start agent in tmux session: {e}[/yellow]"
-            )
-            console.print(
-                "[yellow]You can manually start the agent by running: piku shell, then tmux new-session -d -s "
-                + app_name
-                + " 'uv run silica we run'[/yellow]"
+                f'[bold]silica remote tell -w {workspace_name} "initialize with <repo_url>"[/bold]'
             )
 
     except subprocess.CalledProcessError as e:
-        console.print(f"[red]Error creating agent environment: {e}[/red]")
+        console.print(f"[red]Error creating remote environment: {e}[/red]")
     except git.GitCommandError as e:
         console.print(f"[red]Git error: {e}[/red]")
     except Exception as e:
