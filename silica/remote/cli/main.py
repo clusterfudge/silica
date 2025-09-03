@@ -12,6 +12,7 @@ from silica.remote.cli.commands import (
     progress,
     workspace,
     workspace_environment,
+    antennae,
 )
 from silica.remote.cli.commands import create, destroy, status
 
@@ -28,6 +29,7 @@ app.command(sync.sync)
 app.command(agent.agent)
 app.command(tell.tell)
 app.command(progress.progress)
+app.command(antennae.antennae)
 
 # Register group commands (sub-apps)
 app.command(config.config)

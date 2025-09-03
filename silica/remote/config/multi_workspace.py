@@ -96,11 +96,8 @@ def get_workspace_config(
         # or if it's the default workspace name and no workspaces exist
         if workspace_name is not None or len(config["workspaces"]) == 0:
             # Create default workspace configuration with agent settings
-            # Get the global default agent instead of hardcoding hdev
-            from silica.remote.config import get_config_value
-
-            default_agent = get_config_value("default_agent", "hdev")
-            default_agent_config = get_default_workspace_agent_config(default_agent)
+            # Use the default silica developer agent configuration
+            default_agent_config = get_default_workspace_agent_config()
             config["workspaces"][workspace_name] = {
                 "piku_connection": DEFAULT_CONFIG["piku_connection"],
                 "branch": "main",
@@ -188,3 +185,48 @@ def list_workspaces(silica_dir: Path) -> List[Dict[str, Any]]:
             )
 
     return workspaces
+
+
+def is_local_workspace_for_cleanup(
+    silica_dir: Path, workspace_name: Optional[str] = None
+) -> bool:
+    """Check if a workspace is local (for cleanup purposes only).
+
+    Args:
+        silica_dir: Path to the .silica directory
+        workspace_name: Name of the workspace to check.
+                       If None, the default workspace will be used.
+
+    Returns:
+        True if the workspace is local and needs local cleanup, False otherwise
+    """
+    workspace_config = get_workspace_config(silica_dir, workspace_name)
+    return workspace_config.get("is_local", False)
+
+
+def create_workspace_config(
+    silica_dir: Path, workspace_name: str, url: str, is_local: bool = False
+) -> None:
+    """Create a workspace configuration with the antennae URL.
+
+    Args:
+        silica_dir: Path to the .silica directory
+        workspace_name: Name of the workspace to configure
+        url: URL where the antennae webapp will be accessible
+        is_local: Whether this is a local workspace (for cleanup purposes)
+    """
+    # Get current workspace config
+    workspace_config = get_workspace_config(silica_dir, workspace_name)
+
+    # Set app_name and URL - these are the only things we need
+    workspace_config["app_name"] = workspace_name
+    workspace_config["url"] = url
+
+    # Only store is_local flag for cleanup purposes
+    if is_local:
+        workspace_config["is_local"] = True
+    elif "is_local" in workspace_config:
+        del workspace_config["is_local"]
+
+    # Save updated config
+    set_workspace_config(silica_dir, workspace_name, workspace_config)

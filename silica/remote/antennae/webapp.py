@@ -93,7 +93,8 @@ async def initialize_workspace(request: InitializeRequest):
     """Initialize workspace by cloning repository, setting up environment, and starting tmux session.
 
     This method is idempotent - it can be called multiple times safely:
-    - If repository already exists, it will be cleaned and re-cloned
+    - If repository already exists, it will be preserved (no destructive re-cloning)
+    - If no repository exists, it will be cloned fresh
     - If environment setup fails, initialization fails with error
     - If tmux session exists, it will be preserved (avoids killing active agents)
 
@@ -107,13 +108,13 @@ async def initialize_workspace(request: InitializeRequest):
 
     try:
         # Step 1: Setup code directory and repository (idempotent)
-        logger.info(f"Cloning repository {request.repo_url}")
+        logger.info(f"Setting up repository {request.repo_url}")
         if not agent_manager.clone_repository(request.repo_url, request.branch):
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to clone repository",
+                detail="Failed to setup repository",
             )
-        logger.info("Repository cloned successfully")
+        logger.info("Repository setup completed")
 
         # Step 2: Setup development environment (idempotent)
         logger.info("Setting up development environment")
