@@ -2,6 +2,10 @@
 
 This module provides functionality to detect whether a workspace is configured
 for local or remote mode and route requests to the appropriate antennae URL.
+
+TODO: The HTTP client functionality in this module should be moved to an
+`antennae.client` module that handles constructing HTTP requests correctly
+given a workspace config.
 """
 
 from pathlib import Path
@@ -99,15 +103,14 @@ def is_workspace_accessible(
     try:
         url = get_antennae_url_for_workspace(silica_dir, workspace_name)
 
-        # Make actual HTTP request to /status endpoint
-
-        # For remote workspaces, set the host header to the app name
-        headers = {}
-        if not is_local_workspace(silica_dir, workspace_name):
-            workspace_config = get_workspace_config(silica_dir, workspace_name)
-            app_name = workspace_config.get("app_name")
-            if app_name:
-                headers["Host"] = app_name
+        # Always set the host header for proper routing
+        # For local workspaces, use localhost; for remote, use app_name
+        workspace_config = get_workspace_config(silica_dir, workspace_name)
+        if is_local_workspace(silica_dir, workspace_name):
+            headers = {"Host": "localhost"}
+        else:
+            app_name = workspace_config.get("app_name", "unknown")
+            headers = {"Host": app_name}
 
         # Make request to /status endpoint with short timeout
         response = requests.get(f"{url}/status", headers=headers, timeout=timeout)
@@ -125,51 +128,3 @@ def is_workspace_accessible(
         return False, f"HTTP error: {str(e)}"
     except (ValueError, RuntimeError) as e:
         return False, str(e)
-
-
-def get_workspace_type_info(
-    silica_dir: Path, workspace_name: Optional[str] = None
-) -> dict:
-    """Get detailed information about a workspace's type and configuration.
-
-    Args:
-        silica_dir: Path to the .silica directory
-        workspace_name: Name of the workspace to get info for.
-                       If None, the default workspace will be used.
-
-    Returns:
-        Dictionary with workspace type information:
-        - name: Workspace name
-        - mode: "local" or "remote"
-        - port: Port number (for local workspaces only)
-        - url: Antennae URL (if determinable)
-        - accessible: Whether workspace appears accessible
-        - error: Error message (if not accessible)
-    """
-    from silica.remote.config.multi_workspace import get_default_workspace
-
-    # Get actual workspace name
-    actual_name = workspace_name or get_default_workspace(silica_dir)
-
-    # Get basic info
-    mode = "local" if is_local_workspace(silica_dir, workspace_name) else "remote"
-    port = get_workspace_port(silica_dir, workspace_name) if mode == "local" else None
-
-    # Check accessibility
-    accessible, url_or_reason = is_workspace_accessible(silica_dir, workspace_name)
-
-    info = {
-        "name": actual_name,
-        "mode": mode,
-        "accessible": accessible,
-    }
-
-    if port is not None:
-        info["port"] = port
-
-    if accessible:
-        info["url"] = url_or_reason
-    else:
-        info["error"] = url_or_reason
-
-    return info
