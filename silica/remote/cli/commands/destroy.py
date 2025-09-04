@@ -79,7 +79,47 @@ def destroy(
                 try:
                     console.print(f"[bold]Destroying workspace '{ws_name}'...[/bold]")
 
-                    # Try to destroy via HTTP first
+                    # Check if this is a local workspace
+                    is_local = is_local_workspace_for_cleanup(silica_dir, ws_name)
+
+                    # For local workspaces, kill the antennae tmux session first
+                    if is_local:
+                        try:
+                            from silica.remote.config.multi_workspace import (
+                                get_workspace_config,
+                            )
+
+                            workspace_config = get_workspace_config(silica_dir, ws_name)
+                            app_name = workspace_config.get("app_name", ws_name)
+
+                            console.print(
+                                f"[bold]Stopping antennae server for '{ws_name}' (session '{app_name}')...[/bold]"
+                            )
+
+                            check_result = subprocess.run(
+                                ["tmux", "has-session", "-t", app_name],
+                                capture_output=True,
+                                check=False,
+                            )
+
+                            if check_result.returncode == 0:
+                                kill_result = subprocess.run(
+                                    ["tmux", "kill-session", "-t", app_name],
+                                    capture_output=True,
+                                    check=False,
+                                )
+
+                                if kill_result.returncode == 0:
+                                    console.print(
+                                        f"[green]Stopped antennae server for '{ws_name}'[/green]"
+                                    )
+
+                        except Exception as e:
+                            console.print(
+                                f"[yellow]Warning: Could not stop antennae server for '{ws_name}': {e}[/yellow]"
+                            )
+
+                    # Try to destroy via HTTP
                     try:
                         client = get_antennae_client(silica_dir, ws_name)
                         success, response = client.destroy()
@@ -99,7 +139,7 @@ def destroy(
                         )
 
                     # For remote workspaces, also destroy the piku application
-                    if not is_local_workspace_for_cleanup(silica_dir, ws_name):
+                    if not is_local:
                         try:
                             force_flag = "--force" if force else ""
                             piku_utils.run_piku_in_silica(
@@ -188,7 +228,56 @@ def destroy(
 
     # Now that we have all confirmations, proceed with destruction actions
     try:
-        # Try to destroy via HTTP first
+        # Check if this is a local workspace
+        is_local = is_local_workspace_for_cleanup(silica_dir, workspace)
+
+        # For local workspaces, kill the antennae tmux session first
+        if is_local:
+            try:
+                # Get app name for tmux session name
+                from silica.remote.config.multi_workspace import get_workspace_config
+
+                workspace_config = get_workspace_config(silica_dir, workspace)
+                app_name = workspace_config.get("app_name", workspace)
+
+                console.print(
+                    f"[bold]Stopping local antennae server (tmux session '{app_name}')...[/bold]"
+                )
+
+                # Check if tmux session exists
+                check_result = subprocess.run(
+                    ["tmux", "has-session", "-t", app_name],
+                    capture_output=True,
+                    check=False,
+                )
+
+                if check_result.returncode == 0:
+                    # Kill the tmux session
+                    kill_result = subprocess.run(
+                        ["tmux", "kill-session", "-t", app_name],
+                        capture_output=True,
+                        check=False,
+                    )
+
+                    if kill_result.returncode == 0:
+                        console.print(
+                            f"[green]Stopped antennae server session '{app_name}'[/green]"
+                        )
+                    else:
+                        console.print(
+                            f"[yellow]Warning: Could not stop tmux session '{app_name}'[/yellow]"
+                        )
+                else:
+                    console.print(
+                        f"[yellow]Tmux session '{app_name}' not found (may already be stopped)[/yellow]"
+                    )
+
+            except Exception as e:
+                console.print(
+                    f"[yellow]Warning: Could not stop antennae server: {e}[/yellow]"
+                )
+
+        # Try to destroy via HTTP (for both local and remote)
         console.print("[bold]Destroying workspace via antennae...[/bold]")
 
         try:
@@ -210,7 +299,7 @@ def destroy(
             console.print("[yellow]Continuing with cleanup...[/yellow]")
 
         # For remote workspaces, also destroy the piku application
-        if not is_local_workspace_for_cleanup(silica_dir, workspace):
+        if not is_local:
             try:
                 console.print("[bold]Destroying piku application...[/bold]")
                 force_flag = "--force" if force else ""

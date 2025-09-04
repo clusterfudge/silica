@@ -407,16 +407,30 @@ def create_local_workspace(
     # Construct the local URL
     url = f"http://localhost:{port}"
 
-    # Save workspace configuration with local mode and URL
+    # Generate app name using same format as remote workspaces
+    repo_name = git_root.name
+    app_name = f"{workspace_name}-{repo_name}"
+
+    # Save workspace configuration with local mode, URL, and app name
     from silica.remote.config.multi_workspace import create_workspace_config
 
     create_workspace_config(silica_dir, workspace_name, url, is_local=True)
 
+    # Also save the app_name in the workspace config for consistency
+    from silica.remote.config.multi_workspace import (
+        get_workspace_config,
+        set_workspace_config,
+    )
+
+    workspace_config = get_workspace_config(silica_dir, workspace_name)
+    workspace_config["app_name"] = app_name
+    set_workspace_config(silica_dir, workspace_name, workspace_config)
+
     console.print("[green]Local workspace configuration saved[/green]")
     console.print(f"Workspace URL: [cyan]{url}[/cyan]")
 
-    # Start antennae server in tmux session (idempotently)
-    tmux_session_name = f"antennae-{workspace_name}"
+    # Use app name as tmux session name to match remote workspace naming
+    tmux_session_name = app_name
     console.print(
         f"[bold]Starting antennae server in tmux session '{tmux_session_name}'...[/bold]"
     )
