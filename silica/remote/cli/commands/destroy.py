@@ -3,6 +3,7 @@
 import subprocess
 import shutil
 import cyclopts
+from pathlib import Path
 from typing import Annotated
 from rich.console import Console
 from rich.prompt import Confirm
@@ -410,3 +411,68 @@ def destroy(
         console.print(
             f"[yellow]Warning: Could not update local configuration file: {e}[/yellow]"
         )
+
+        # For local workspaces, kill the antennae tmux session first
+        if is_local:
+            try:
+                # Get app name and workspace directory for cleanup
+                from silica.remote.config.multi_workspace import get_workspace_config
+
+                workspace_config = get_workspace_config(silica_dir, workspace)
+                app_name = workspace_config.get("app_name", workspace)
+                workspace_dir = workspace_config.get("workspace_dir")
+
+                console.print(
+                    f"[bold]Stopping local antennae server (tmux session '{app_name}')...[/bold]"
+                )
+
+                # Check if tmux session exists
+                check_result = subprocess.run(
+                    ["tmux", "has-session", "-t", app_name],
+                    capture_output=True,
+                    check=False,
+                )
+
+                if check_result.returncode == 0:
+                    # Kill the tmux session
+                    kill_result = subprocess.run(
+                        ["tmux", "kill-session", "-t", app_name],
+                        capture_output=True,
+                        check=False,
+                    )
+
+                    if kill_result.returncode == 0:
+                        console.print(
+                            f"[green]Stopped antennae server session '{app_name}'[/green]"
+                        )
+                    else:
+                        console.print(
+                            f"[yellow]Warning: Could not stop tmux session '{app_name}'[/yellow]"
+                        )
+                else:
+                    console.print(
+                        f"[yellow]Tmux session '{app_name}' not found (may already be stopped)[/yellow]"
+                    )
+
+                # Clean up workspace directory if it exists
+                if workspace_dir:
+                    try:
+                        workspace_path = Path(workspace_dir)
+                        if workspace_path.exists():
+                            shutil.rmtree(workspace_path)
+                            console.print(
+                                f"[green]Cleaned up workspace directory: {workspace_dir}[/green]"
+                            )
+                        else:
+                            console.print(
+                                f"[yellow]Workspace directory not found: {workspace_dir}[/yellow]"
+                            )
+                    except Exception as e:
+                        console.print(
+                            f"[yellow]Warning: Could not clean up workspace directory: {e}[/yellow]"
+                        )
+
+            except Exception as e:
+                console.print(
+                    f"[yellow]Warning: Could not stop antennae server: {e}[/yellow]"
+                )

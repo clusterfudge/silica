@@ -411,12 +411,37 @@ def create_local_workspace(
     repo_name = git_root.name
     app_name = f"{workspace_name}-{repo_name}"
 
+    # Create .agent-scratchpad/workspaces/{workspace} directory structure
+    # This follows the convention from silica.developer module
+    scratchpad_dir = git_root / ".agent-scratchpad"
+    workspace_dir = scratchpad_dir / "workspaces" / workspace_name
+
+    console.print(f"[bold]Creating workspace directory: {workspace_dir}[/bold]")
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+
+    # Ensure .agent-scratchpad is in .gitignore
+    gitignore_path = git_root / ".gitignore"
+    if gitignore_path.exists():
+        with open(gitignore_path, "r") as f:
+            gitignore_content = f.read()
+
+        if ".agent-scratchpad" not in gitignore_content:
+            console.print("Adding .agent-scratchpad to .gitignore...")
+            with open(gitignore_path, "a") as f:
+                if gitignore_content and not gitignore_content.endswith("\n"):
+                    f.write("\n")
+                f.write(".agent-scratchpad\n")
+    else:
+        # Create .gitignore if it doesn't exist
+        with open(gitignore_path, "w") as f:
+            f.write(".agent-scratchpad\n")
+
     # Save workspace configuration with local mode, URL, and app name
     from silica.remote.config.multi_workspace import create_workspace_config
 
     create_workspace_config(silica_dir, workspace_name, url, is_local=True)
 
-    # Also save the app_name in the workspace config for consistency
+    # Also save the app_name and workspace directory in the workspace config
     from silica.remote.config.multi_workspace import (
         get_workspace_config,
         set_workspace_config,
@@ -424,10 +449,12 @@ def create_local_workspace(
 
     workspace_config = get_workspace_config(silica_dir, workspace_name)
     workspace_config["app_name"] = app_name
+    workspace_config["workspace_dir"] = str(workspace_dir)
     set_workspace_config(silica_dir, workspace_name, workspace_config)
 
     console.print("[green]Local workspace configuration saved[/green]")
     console.print(f"Workspace URL: [cyan]{url}[/cyan]")
+    console.print(f"Workspace directory: [cyan]{workspace_dir}[/cyan]")
 
     # Use app name as tmux session name to match remote workspace naming
     tmux_session_name = app_name
@@ -485,7 +512,7 @@ def create_local_workspace(
                 )
                 return
 
-            # Create the tmux session with a command that keeps it alive
+            # Create the tmux session with antennae server running from workspace directory
             subprocess.run(
                 [
                     "tmux",
@@ -494,10 +521,10 @@ def create_local_workspace(
                     "-s",
                     tmux_session_name,
                     "-c",
-                    str(git_root),
+                    str(workspace_dir),  # Use workspace directory as working directory
                     "bash",
                     "-c",
-                    f"echo 'Starting antennae server...'; uv run silica remote antennae --port {port} --workspace {workspace_name} || (echo 'Antennae failed to start'; read -p 'Press enter to close session')",
+                    f"echo 'Starting antennae server from {workspace_dir}...'; uv run silica remote antennae --port {port} --workspace {workspace_name} || (echo 'Antennae failed to start'; read -p 'Press enter to close session')",
                 ],
                 check=True,
             )
