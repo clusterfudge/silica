@@ -37,10 +37,10 @@ class TestAntennaeConfig:
         assert str(code_dir).endswith("/code")
 
     def test_tmux_session_name_matches_workspace(self):
-        """Test that tmux session name matches workspace name."""
+        """Test that tmux session name includes workspace name with agent suffix."""
         with patch.dict(os.environ, {"WORKSPACE_NAME": "my-workspace"}):
             config = AntennaeConfig()
-            assert config.get_tmux_session_name() == "my-workspace"
+            assert config.get_tmux_session_name() == "my-workspace-agent"
 
 
 class TestAgentManagerSafe:
@@ -77,7 +77,7 @@ class TestAgentManagerSafe:
         """Test connection info generation."""
         conn_info = agent_manager.get_connection_info()
 
-        assert conn_info["session_name"] == "test-workspace"
+        assert conn_info["session_name"] == "test-workspace-agent"
         assert conn_info["tmux_running"] is False
         assert "working_directory" in conn_info
         assert "code_directory" in conn_info
@@ -230,7 +230,7 @@ class TestTmuxSessionManagement:
                     # Get session info
                     session_info = agent_manager.get_tmux_session_info()
                     assert session_info is not None
-                    assert session_info["session_name"] == "test-tmux-lifecycle"
+                    assert session_info["session_name"] == "test-tmux-lifecycle-agent"
 
                     # Starting again should be idempotent (preserve existing session)
                     result = agent_manager.start_tmux_session()

@@ -1,1 +1,1 @@
-web: source .venv/bin/activate && uv run silica messaging receiver --port $PORT
+web: uv run silica remote antennae --port $PORT --workspace ${WORKSPACE_NAME:-agent}

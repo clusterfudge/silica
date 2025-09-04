@@ -95,6 +95,8 @@ class TestDestroyCommand:
         ), "Should use specified workspace 'second'"
 
     @patch("silica.remote.cli.commands.destroy.piku_utils.run_piku_in_silica")
+    @patch("silica.remote.cli.commands.destroy.get_antennae_client")
+    @patch("silica.remote.cli.commands.destroy.is_local_workspace_for_cleanup")
     @patch("silica.remote.cli.commands.destroy.Confirm.ask")
     @patch("silica.remote.cli.commands.destroy.find_git_root")
     @patch("silica.remote.cli.commands.destroy.get_silica_dir")
@@ -103,10 +105,12 @@ class TestDestroyCommand:
         mock_get_silica_dir,
         mock_find_git_root,
         mock_confirm,
+        mock_is_local,
+        mock_get_client,
         mock_run_piku,
         multi_workspace_config,
     ):
-        """Test that destroy command uses the specified workspace parameter consistently."""
+        """Test that destroy command uses HTTP client for the specified workspace."""
         # Setup mocks
         git_root = multi_workspace_config
         silica_dir = git_root / ".silica"
@@ -114,30 +118,32 @@ class TestDestroyCommand:
         mock_find_git_root.return_value = git_root
         mock_get_silica_dir.return_value = silica_dir
         mock_confirm.return_value = True  # User confirms destruction
+        mock_is_local.return_value = False  # Remote workspace
         mock_run_piku.return_value = MagicMock(stdout="", returncode=0)
 
-        # Test destroying the 'agent' workspace specifically
-        with patch(
-            "silica.remote.cli.commands.destroy.get_app_name"
-        ) as mock_get_app_name:
-            with patch(
-                "silica.remote.cli.commands.destroy.get_piku_connection"
-            ) as mock_get_piku_connection:
-                mock_get_app_name.return_value = "agent-silica"
-                mock_get_piku_connection.return_value = "piku"
+        # Mock HTTP client
+        mock_client = MagicMock()
+        mock_client.destroy.return_value = (
+            True,
+            {"success": True, "message": "Destroyed"},
+        )
+        mock_get_client.return_value = mock_client
 
-                # Import destroy command
+        # Call destroy function directly with parameters
+        destroy(workspace="agent", force=True, all=False)
 
-                # Call destroy function directly with parameters
-                destroy(workspace="agent", force=True, all=False)
+        # Verify that get_antennae_client was called with the correct workspace
+        mock_get_client.assert_called_with(silica_dir, "agent")
 
-                # Verify that get_app_name was called with the correct workspace
-                mock_get_app_name.assert_called_with(git_root, workspace_name="agent")
-                mock_get_piku_connection.assert_called_with(
-                    git_root, workspace_name="agent"
-                )
+        # Verify that HTTP destroy was called
+        mock_client.destroy.assert_called_once()
+
+        # Verify workspace type check was called
+        mock_is_local.assert_called_with(silica_dir, "agent")
 
     @patch("silica.remote.cli.commands.destroy.piku_utils.run_piku_in_silica")
+    @patch("silica.remote.cli.commands.destroy.get_antennae_client")
+    @patch("silica.remote.cli.commands.destroy.is_local_workspace_for_cleanup")
     @patch("silica.remote.cli.commands.destroy.Confirm.ask")
     @patch("silica.remote.cli.commands.destroy.find_git_root")
     @patch("silica.remote.cli.commands.destroy.get_silica_dir")
@@ -146,10 +152,12 @@ class TestDestroyCommand:
         mock_get_silica_dir,
         mock_find_git_root,
         mock_confirm,
+        mock_is_local,
+        mock_get_client,
         mock_run_piku,
         multi_workspace_config,
     ):
-        """Test that destroy command without workspace parameter uses default consistently."""
+        """Test that destroy command uses HTTP client for default workspace."""
         # Setup mocks
         git_root = multi_workspace_config
         silica_dir = git_root / ".silica"
@@ -157,23 +165,25 @@ class TestDestroyCommand:
         mock_find_git_root.return_value = git_root
         mock_get_silica_dir.return_value = silica_dir
         mock_confirm.return_value = True  # User confirms destruction
+        mock_is_local.return_value = True  # Local workspace
         mock_run_piku.return_value = MagicMock(stdout="", returncode=0)
 
-        # Test destroying without specifying workspace (should use default "agent")
-        with patch(
-            "silica.remote.cli.commands.destroy.get_app_name"
-        ) as mock_get_app_name:
-            with patch(
-                "silica.remote.cli.commands.destroy.get_piku_connection"
-            ) as mock_get_piku_connection:
-                mock_get_app_name.return_value = "agent-silica"
-                mock_get_piku_connection.return_value = "piku"
+        # Mock HTTP client
+        mock_client = MagicMock()
+        mock_client.destroy.return_value = (
+            True,
+            {"success": True, "message": "Destroyed"},
+        )
+        mock_get_client.return_value = mock_client
 
-                # Call destroy function directly without workspace (uses default)
-                destroy(force=True, workspace="agent", all=False)
+        # Call destroy function with default workspace "agent"
+        destroy(force=True, workspace="agent", all=False)
 
-                # Verify that get_app_name was called with workspace_name='agent' (the default)
-                mock_get_app_name.assert_called_with(git_root, workspace_name="agent")
-                mock_get_piku_connection.assert_called_with(
-                    git_root, workspace_name="agent"
-                )
+        # Verify that get_antennae_client was called with the default workspace
+        mock_get_client.assert_called_with(silica_dir, "agent")
+
+        # Verify that HTTP destroy was called
+        mock_client.destroy.assert_called_once()
+
+        # Verify local workspace check was called
+        mock_is_local.assert_called_with(silica_dir, "agent")

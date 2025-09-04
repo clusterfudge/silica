@@ -284,7 +284,7 @@ main() {
     echo "  source .venv/bin/activate"
     echo
     echo "To run the agent:"
-    echo "  source .venv/bin/activate && python -m silica.cli.main messaging receiver --port \$PORT"
+    echo "  uv run silica remote antennae --port \$PORT"
 }
 
 # Run main function

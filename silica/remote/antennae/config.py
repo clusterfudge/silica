@@ -17,8 +17,7 @@ class AntennaeConfig:
         """Initialize configuration from environment."""
         self.working_directory = Path.cwd()
 
-    @property
-    def workspace_name(self) -> str:
+    def get_workspace_name_from_env(self) -> str:
         """Get workspace name from environment (dynamic)."""
         return os.environ.get("WORKSPACE_NAME", "agent")
 
@@ -29,7 +28,7 @@ class AntennaeConfig:
 
     def get_workspace_name(self) -> str:
         """Get the workspace name for this antennae instance."""
-        return self.workspace_name
+        return self.get_workspace_name_from_env()
 
     def get_code_directory(self) -> Path:
         """Get the code directory path."""
@@ -41,8 +40,8 @@ class AntennaeConfig:
 
     def get_tmux_session_name(self) -> str:
         """Get the tmux session name for this workspace."""
-        # Use workspace name as session name for consistency
-        return self.workspace_name
+        # Use workspace name with -agent suffix to avoid collision with antennae server session
+        return f"{self.get_workspace_name_from_env()}-agent"
 
     def get_agent_command(
         self, workspace_config: Optional[Dict[str, Any]] = None
