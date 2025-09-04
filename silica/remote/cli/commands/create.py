@@ -25,6 +25,155 @@ REQUIRED_TOOLS: Dict[str, str] = {
 }
 
 
+def kill_server_on_port(port: int) -> Optional[str]:
+    """Find and kill the tmux session running an antennae server on the specified port.
+
+    Args:
+        port: Port number to check
+
+    Returns:
+        Name of the killed session, or None if no session was found/killed
+    """
+    try:
+        import psutil
+
+        # Find the process using the port
+        for proc in psutil.process_iter(["pid", "name", "cmdline", "connections"]):
+            try:
+                connections = proc.info["connections"]
+                if not connections:
+                    continue
+
+                # Check if this process is listening on our port
+                for conn in connections:
+                    if (
+                        conn.laddr
+                        and conn.laddr.port == port
+                        and conn.status == psutil.CONN_LISTEN
+                    ):
+                        # Found process using the port - check if it's uvicorn/antennae
+                        cmdline = proc.info["cmdline"]
+                        if cmdline and any("antennae" in arg for arg in cmdline):
+                            pid = proc.info["pid"]
+
+                            # Find the tmux session containing this process
+                            tmux_session = find_tmux_session_for_pid(pid)
+                            if tmux_session:
+                                # Kill the tmux session
+                                kill_result = subprocess.run(
+                                    ["tmux", "kill-session", "-t", tmux_session],
+                                    capture_output=True,
+                                    text=True,
+                                )
+
+                                if kill_result.returncode == 0:
+                                    return tmux_session
+
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+
+    except ImportError:
+        # psutil not available - try alternative approach
+        console.print(
+            "[yellow]Warning: psutil not available for advanced process detection[/yellow]"
+        )
+
+    except Exception as e:
+        console.print(f"[yellow]Error finding process on port {port}: {e}[/yellow]")
+
+    return None
+
+
+def find_tmux_session_for_pid(pid: int) -> Optional[str]:
+    """Find the tmux session containing a specific process ID.
+
+    Args:
+        pid: Process ID to find
+
+    Returns:
+        Name of tmux session, or None if not found
+    """
+    try:
+        # Get list of all tmux sessions
+        sessions_result = subprocess.run(
+            ["tmux", "list-sessions", "-F", "#{session_name}"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        if sessions_result.returncode != 0:
+            return None
+
+        sessions = sessions_result.stdout.strip().split("\n")
+
+        # For each session, get the processes running in it
+        for session in sessions:
+            if not session.strip():
+                continue
+
+            panes_result = subprocess.run(
+                ["tmux", "list-panes", "-t", session, "-F", "#{pane_pid}"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            if panes_result.returncode == 0:
+                pane_pids = panes_result.stdout.strip().split("\n")
+
+                # Check if our target PID or its children are in this session
+                for pane_pid_str in pane_pids:
+                    try:
+                        pane_pid = int(pane_pid_str.strip())
+                        if is_pid_descendant(pid, pane_pid):
+                            return session
+                    except ValueError:
+                        continue
+
+    except Exception as e:
+        console.print(f"[yellow]Error finding tmux session for PID {pid}: {e}[/yellow]")
+
+    return None
+
+
+def is_pid_descendant(target_pid: int, parent_pid: int) -> bool:
+    """Check if target_pid is a descendant of parent_pid.
+
+    Args:
+        target_pid: PID to check
+        parent_pid: Potential ancestor PID
+
+    Returns:
+        True if target_pid is a descendant of parent_pid
+    """
+    try:
+        import psutil
+
+        current_pid = target_pid
+
+        # Walk up the process tree
+        for _ in range(50):  # Limit depth to avoid infinite loops
+            if current_pid == parent_pid:
+                return True
+
+            try:
+                parent = psutil.Process(current_pid).parent()
+                if not parent:
+                    break
+                current_pid = parent.pid
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                break
+
+    except ImportError:
+        # If psutil not available, just check direct equality
+        return target_pid == parent_pid
+    except Exception:
+        pass
+
+    return False
+
+
 def check_remote_dependencies(workspace_name: str) -> Tuple[bool, List[str]]:
     """
     Check if all required tools are installed on the remote workspace.
@@ -361,18 +510,21 @@ def create_remote_workspace(
             try:
                 client = get_antennae_client(silica_dir, workspace_name)
 
-                # Use the tell endpoint with setup command
-                setup_message = f"setup with {repo_url}"
-                success, response = client.tell(setup_message)
+                # Use the proper initialize endpoint instead of tell
+                success, response = client.initialize(repo_url)
 
                 if success:
                     console.print(
                         "[green]Workspace initialized successfully with repository![/green]"
                     )
                 else:
+                    error_msg = response.get("error", "Unknown error")
+                    detail = response.get("detail", "")
                     console.print(
-                        f"[yellow]Warning: Could not initialize workspace automatically: {response.get('error', 'Unknown error')}[/yellow]"
+                        f"[yellow]Warning: Could not initialize workspace automatically: {error_msg}[/yellow]"
                     )
+                    if detail:
+                        console.print(f"[yellow]Details: {detail}[/yellow]")
                     console.print(
                         f'[yellow]Initialize manually with: silica remote tell -w {workspace_name} "setup with {repo_url}"[/yellow]'
                     )
@@ -450,8 +602,8 @@ def create_local_workspace(
     console.print(f"Workspace URL: [cyan]{url}[/cyan]")
     console.print(f"Workspace directory: [cyan]{workspace_dir}[/cyan]")
 
-    # Use app name as tmux session name to match remote workspace naming
-    tmux_session_name = app_name
+    # Use prefixed app name for antennae tmux session to avoid collision with agent session
+    tmux_session_name = f"antennae-{app_name}"
     console.print(
         f"[bold]Starting antennae server in tmux session '{tmux_session_name}'...[/bold]"
     )
@@ -483,6 +635,85 @@ def create_local_workspace(
                 f"[yellow]Tmux session '{tmux_session_name}' already exists - checking if antennae is running[/yellow]"
             )
         else:
+            # Check if the port is already in use before creating session
+            console.print(f"[bold]Checking if port {port} is available...[/bold]")
+
+            try:
+                import socket
+
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    result = s.connect_ex(("localhost", port))
+                    port_in_use = result == 0
+            except Exception as e:
+                console.print(
+                    f"[yellow]Warning: Could not check port {port}: {e}[/yellow]"
+                )
+                port_in_use = False
+
+            if port_in_use:
+                console.print(f"[yellow]Port {port} is already in use![/yellow]")
+
+                # Try to identify what's running on the port
+                try:
+                    import requests
+
+                    response = requests.get(
+                        f"http://localhost:{port}/health", timeout=2
+                    )
+                    if response.status_code == 200:
+                        health_data = response.json()
+                        running_workspace = health_data.get("workspace", "unknown")
+                        console.print(
+                            f"[yellow]Found antennae server for workspace '{running_workspace}' on port {port}[/yellow]"
+                        )
+
+                        # Offer to shut it down
+                        from rich.prompt import Confirm
+
+                        if Confirm.ask(
+                            f"Do you want to shut down the existing server and create '{workspace_name}'?",
+                            default=False,
+                        ):
+                            # Find and kill the tmux session running the server
+                            killed_session = kill_server_on_port(port)
+                            if killed_session:
+                                console.print(
+                                    f"[green]Stopped existing server (session: {killed_session})[/green]"
+                                )
+                                # Wait a moment for port to be freed
+                                import time
+
+                                time.sleep(2)
+                            else:
+                                console.print(
+                                    "[yellow]Could not automatically stop existing server[/yellow]"
+                                )
+                                console.print(
+                                    f"[yellow]Manually stop the server on port {port} and try again[/yellow]"
+                                )
+                                return
+                        else:
+                            console.print(
+                                f"[yellow]Aborted - port {port} is in use[/yellow]"
+                            )
+                            console.print(
+                                "[yellow]Use a different port or stop the existing server[/yellow]"
+                            )
+                            return
+                    else:
+                        console.print(
+                            f"[yellow]Port {port} is in use by non-antennae service[/yellow]"
+                        )
+                        console.print("[yellow]Please use a different port[/yellow]")
+                        return
+
+                except requests.exceptions.RequestException:
+                    console.print(
+                        f"[yellow]Port {port} is in use by unknown service[/yellow]"
+                    )
+                    console.print("[yellow]Please use a different port[/yellow]")
+                    return
+
             # Create new tmux session with antennae server
             console.print(f"[green]Creating tmux session '{tmux_session_name}'[/green]")
 
@@ -579,9 +810,8 @@ def create_local_workspace(
                 )
 
                 try:
-                    # Use the tell endpoint with setup command
-                    setup_message = f"setup with {repo_url}"
-                    success, response = client.tell(setup_message)
+                    # Use the proper initialize endpoint instead of tell
+                    success, response = client.initialize(repo_url)
 
                     if success:
                         console.print(
@@ -592,9 +822,12 @@ def create_local_workspace(
                         )
                     else:
                         error_msg = response.get("error", "Unknown error")
+                        detail = response.get("detail", "")
                         console.print(
                             f"[yellow]Warning: Workspace initialization failed: {error_msg}[/yellow]"
                         )
+                        if detail:
+                            console.print(f"[yellow]Details: {detail}[/yellow]")
                         console.print(
                             f'[yellow]You can initialize manually with: silica remote tell -w {workspace_name} "setup with {repo_url}"[/yellow]'
                         )
@@ -647,10 +880,3 @@ def create_local_workspace(
         console.print(
             "[green bold]Local workspace created successfully (manual startup required)![/green bold]"
         )
-
-    # Create .silica/workspaces/{workspace} directory structure
-    # This keeps workspace files organized within the existing .silica directory
-    workspace_dir = silica_dir / "workspaces" / workspace_name
-
-    console.print(f"[bold]Creating workspace directory: {workspace_dir}[/bold]")
-    workspace_dir.mkdir(parents=True, exist_ok=True)
