@@ -150,63 +150,6 @@ def create(
         return create_remote_workspace(workspace, connection, git_root, silica_dir)
 
 
-def create_local_workspace(
-    workspace_name: str, port: int, git_root: Path, silica_dir: Path
-):
-    """Create a local workspace using antennae HTTP endpoints.
-
-    Args:
-        workspace_name: Name of the workspace
-        port: Port where antennae webapp will run
-        git_root: Path to git repository root
-        silica_dir: Path to .silica directory
-    """
-    console.print(
-        f"[bold]Creating local workspace '{workspace_name}' on port {port}[/bold]"
-    )
-
-    # Construct the local URL
-    url = f"http://localhost:{port}"
-
-    # Save workspace configuration with local mode and URL
-    from silica.remote.config.multi_workspace import create_workspace_config
-
-    create_workspace_config(silica_dir, workspace_name, url, is_local=True)
-
-    console.print("[green]Local workspace configuration saved[/green]")
-    console.print(f"Workspace URL: [cyan]{url}[/cyan]")
-    console.print(
-        f"Start the antennae webapp with: [bold]silica remote antennae --port {port} --workspace {workspace_name}[/bold]"
-    )
-    console.print(
-        f'Then initialize with the repository using: [bold]silica remote tell -w {workspace_name} "setup"[/bold]'
-    )
-
-    # Get current git repository URL for reference
-    try:
-        import git
-
-        repo = git.Repo(git_root)
-        repo_url = None
-
-        # Try to get the origin URL
-        if "origin" in [r.name for r in repo.remotes]:
-            repo_url = next(repo.remote("origin").urls, None)
-
-        if repo_url:
-            console.print(f"[dim]Repository URL: {repo_url}[/dim]")
-            console.print(
-                f"[dim]Current branch: {repo.active_branch.name if repo.active_branch else 'main'}[/dim]"
-            )
-
-    except Exception as e:
-        console.print(
-            f"[yellow]Warning: Could not determine repository details: {e}[/yellow]"
-        )
-
-    console.print("[green bold]Local workspace created successfully![/green bold]")
-
-
 def create_remote_workspace(
     workspace_name: str, connection: Optional[str], git_root: Path, silica_dir: Path
 ):
@@ -444,3 +387,228 @@ def create_remote_workspace(
         console.print(f"[red]Git error: {e}[/red]")
     except Exception as e:
         console.print(f"[red]Unexpected error: {e}[/red]")
+
+
+def create_local_workspace(
+    workspace_name: str, port: int, git_root: Path, silica_dir: Path
+):
+    """Create a local workspace using antennae HTTP endpoints.
+
+    Args:
+        workspace_name: Name of the workspace
+        port: Port where antennae webapp will run
+        git_root: Path to git repository root
+        silica_dir: Path to .silica directory
+    """
+    console.print(
+        f"[bold]Creating local workspace '{workspace_name}' on port {port}[/bold]"
+    )
+
+    # Construct the local URL
+    url = f"http://localhost:{port}"
+
+    # Save workspace configuration with local mode and URL
+    from silica.remote.config.multi_workspace import create_workspace_config
+
+    create_workspace_config(silica_dir, workspace_name, url, is_local=True)
+
+    console.print("[green]Local workspace configuration saved[/green]")
+    console.print(f"Workspace URL: [cyan]{url}[/cyan]")
+
+    # Start antennae server in tmux session (idempotently)
+    tmux_session_name = f"antennae-{workspace_name}"
+    console.print(
+        f"[bold]Starting antennae server in tmux session '{tmux_session_name}'...[/bold]"
+    )
+
+    try:
+        # Check if tmux is available
+        tmux_check = subprocess.run(["which", "tmux"], capture_output=True, check=False)
+        if tmux_check.returncode != 0:
+            console.print(
+                "[yellow]Tmux not found - skipping automatic server startup[/yellow]"
+            )
+            console.print(
+                f"[yellow]Start manually with: silica remote antennae --port {port} --workspace {workspace_name}[/yellow]"
+            )
+            console.print(
+                "[green bold]Local workspace created successfully![/green bold]"
+            )
+            return
+
+        # Check if tmux session already exists
+        check_result = subprocess.run(
+            ["tmux", "has-session", "-t", tmux_session_name],
+            capture_output=True,
+            check=False,
+        )
+
+        if check_result.returncode == 0:
+            console.print(
+                f"[yellow]Tmux session '{tmux_session_name}' already exists - checking if antennae is running[/yellow]"
+            )
+        else:
+            # Create new tmux session with antennae server
+            console.print(f"[green]Creating tmux session '{tmux_session_name}'[/green]")
+
+            # Test if antennae command works first
+            test_result = subprocess.run(
+                ["uv", "run", "silica", "remote", "antennae", "--help"],
+                capture_output=True,
+                check=False,
+                cwd=git_root,
+            )
+
+            if test_result.returncode != 0:
+                console.print(
+                    "[yellow]Could not run antennae command - skipping automatic startup[/yellow]"
+                )
+                console.print(
+                    f"[yellow]Start manually with: silica remote antennae --port {port} --workspace {workspace_name}[/yellow]"
+                )
+                console.print(
+                    "[green bold]Local workspace created successfully![/green bold]"
+                )
+                return
+
+            # Create the tmux session with a command that keeps it alive
+            subprocess.run(
+                [
+                    "tmux",
+                    "new-session",
+                    "-d",
+                    "-s",
+                    tmux_session_name,
+                    "-c",
+                    str(git_root),
+                    "bash",
+                    "-c",
+                    f"echo 'Starting antennae server...'; uv run silica remote antennae --port {port} --workspace {workspace_name} || (echo 'Antennae failed to start'; read -p 'Press enter to close session')",
+                ],
+                check=True,
+            )
+
+            console.print(
+                f"[green]Antennae server started in tmux session '{tmux_session_name}'[/green]"
+            )
+
+        # Wait a moment for the server to start
+        import time
+
+        console.print("[dim]Waiting for antennae server to start...[/dim]")
+        time.sleep(5)  # Give more time for server to fully start
+
+        # Test if antennae is responding
+        antennae_running = False
+        try:
+            # Import HTTP client
+            from silica.remote.utils.antennae_client import get_antennae_client
+
+            client = get_antennae_client(silica_dir, workspace_name)
+            success, response = client.health_check()
+            if success:
+                console.print("[green]Antennae server is responding[/green]")
+                antennae_running = True
+            else:
+                console.print(
+                    f"[yellow]Antennae server not responding: {response.get('error', 'Unknown error')}[/yellow]"
+                )
+        except Exception as e:
+            console.print(f"[yellow]Could not connect to antennae server: {e}[/yellow]")
+
+        if antennae_running:
+            # Get current git repository details
+            try:
+                import git
+
+                repo = git.Repo(git_root)
+                repo_url = None
+                current_branch = "main"
+
+                # Try to get the origin URL
+                if "origin" in [r.name for r in repo.remotes]:
+                    repo_url = next(repo.remote("origin").urls, None)
+
+                if repo.active_branch:
+                    current_branch = repo.active_branch.name
+
+            except Exception as e:
+                console.print(
+                    f"[yellow]Warning: Could not determine repository details: {e}[/yellow]"
+                )
+                repo_url = None
+                current_branch = "main"
+
+            # Initialize the workspace via HTTP if we have repository URL
+            if repo_url:
+                console.print(
+                    f"[bold]Initializing workspace with repository: {repo_url}[/bold]"
+                )
+
+                try:
+                    success, response = client.initialize(repo_url, current_branch)
+
+                    if success:
+                        console.print(
+                            "[green]Workspace initialized successfully![/green]"
+                        )
+                        console.print(
+                            "[green bold]Local workspace created and initialized![/green bold]"
+                        )
+                    else:
+                        error_msg = response.get("error", "Unknown error")
+                        console.print(
+                            f"[yellow]Warning: Workspace initialization failed: {error_msg}[/yellow]"
+                        )
+                        console.print(
+                            f'[yellow]You can initialize manually with: silica remote tell -w {workspace_name} "setup"[/yellow]'
+                        )
+
+                except Exception as e:
+                    console.print(
+                        f"[yellow]Warning: Could not initialize workspace: {e}[/yellow]"
+                    )
+                    console.print(
+                        f'[yellow]You can initialize manually with: silica remote tell -w {workspace_name} "setup"[/yellow]'
+                    )
+            else:
+                console.print(
+                    "[yellow]Could not determine repository URL - skipping automatic initialization[/yellow]"
+                )
+                console.print(
+                    f'[yellow]Initialize manually with: silica remote tell -w {workspace_name} "setup <repo_url>"[/yellow]'
+                )
+        else:
+            console.print(
+                "[yellow]Antennae server not responding - workspace created but not initialized[/yellow]"
+            )
+            console.print(
+                f"[yellow]Check the tmux session with: tmux attach -t {tmux_session_name}[/yellow]"
+            )
+
+        # Show connection instructions
+        console.print("\n[cyan]To connect to the workspace:[/cyan]")
+        console.print(f"[bold]silica remote agent -w {workspace_name}[/bold]")
+
+        console.print("\n[cyan]To view antennae server logs:[/cyan]")
+        console.print(f"[bold]tmux attach -t {tmux_session_name}[/bold]")
+
+        console.print("\n[cyan]To stop the antennae server:[/cyan]")
+        console.print(f"[bold]tmux kill-session -t {tmux_session_name}[/bold]")
+
+    except subprocess.CalledProcessError as e:
+        console.print(f"[red]Error starting antennae server: {e}[/red]")
+        console.print(
+            f"[yellow]Start manually with: silica remote antennae --port {port} --workspace {workspace_name}[/yellow]"
+        )
+        console.print(
+            "[green bold]Local workspace created successfully (manual startup required)![/green bold]"
+        )
+    except Exception as e:
+        console.print(f"[red]Unexpected error: {e}[/red]")
+        console.print(
+            f"[yellow]Start manually with: silica remote antennae --port {port} --workspace {workspace_name}[/yellow]"
+        )
+        console.print(
+            "[green bold]Local workspace created successfully (manual startup required)![/green bold]"
+        )

@@ -15,7 +15,9 @@ def antennae(
     ] = 8000,
     workspace: Annotated[
         str,
-        cyclopts.Parameter("--workspace", "-w", help="Name of the workspace to manage"),
+        cyclopts.Parameter(
+            name=["--workspace", "-w"], help="Name of the workspace to manage"
+        ),
     ] = "agent",
     host: Annotated[
         str, cyclopts.Parameter(help="Host address to bind to")
@@ -57,7 +59,9 @@ def antennae(
     current_dir = Path.cwd().resolve()
 
     # Check if we're in what looks like the silica repository root
-    if (current_dir / "silica" / "remote" / "antennae").exists():
+    # Skip the warning for temporary directories
+    is_temp_dir = "/tmp" in str(current_dir) or "temp" in str(current_dir).lower()
+    if not is_temp_dir and (current_dir / "silica" / "remote" / "antennae").exists():
         print("⚠️  WARNING: You appear to be running from the silica repository root.")
         print("   This could lead to accidental cleanup of your local workspace.")
         print("   It's recommended to run antennae from a temporary directory.")
@@ -67,15 +71,22 @@ def antennae(
         print(f"   silica remote antennae --port {port} --workspace {workspace}")
         print("")
 
-        # Ask for confirmation
-        try:
-            response = input("Continue anyway? [y/N]: ").strip().lower()
-            if response not in ["y", "yes"]:
-                print("Aborted.")
+        # Ask for confirmation (skip if not interactive)
+        if sys.stdin.isatty():
+            try:
+                response = input("Continue anyway? [y/N]: ").strip().lower()
+                if response not in ["y", "yes"]:
+                    print("Aborted.")
+                    return
+            except KeyboardInterrupt:
+                print("\nAborted.")
                 return
-        except KeyboardInterrupt:
-            print("\nAborted.")
-            return
+        else:
+            print("Running in non-interactive mode - continuing automatically.")
+            print("(Use Ctrl+C to abort if needed)")
+            import time
+
+            time.sleep(2)
 
     # Create .agent-scratchpad if it doesn't exist (for temporary files)
     scratchpad = current_dir / ".agent-scratchpad"
