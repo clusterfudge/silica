@@ -40,8 +40,8 @@ class AntennaeConfig:
 
     def get_tmux_session_name(self) -> str:
         """Get the tmux session name for this workspace."""
-        # Use workspace name as session name for consistency
-        return self.get_workspace_name_from_env()
+        # Use workspace name with -agent suffix to avoid collision with antennae server session
+        return f"{self.get_workspace_name_from_env()}-agent"
 
     def get_agent_command(
         self, workspace_config: Optional[Dict[str, Any]] = None

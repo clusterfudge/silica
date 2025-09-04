@@ -263,9 +263,13 @@ def print_single_workspace_status(status: Dict[str, Any], detailed: bool = False
         tmux_info = status_info.get("tmux_session", {})
         console.print("\n[bold]Agent Session Status:[/bold]")
         if tmux_info.get("running", False):
-            console.print(
-                f"  [green]✅ Session '{tmux_info.get('name', 'unknown')}' is running[/green]"
+            session_info = tmux_info.get("info", {})
+            session_name = (
+                session_info.get("session_name", "unknown")
+                if session_info
+                else "unknown"
             )
+            console.print(f"  [green]✅ Session '{session_name}' is running[/green]")
             if connection_info:
                 console.print(
                     f"  [dim]Working directory: {connection_info.get('working_directory', 'Unknown')}[/dim]"

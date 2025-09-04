@@ -411,30 +411,12 @@ def create_local_workspace(
     repo_name = git_root.name
     app_name = f"{workspace_name}-{repo_name}"
 
-    # Create .agent-scratchpad/workspaces/{workspace} directory structure
-    # This follows the convention from silica.developer module
-    scratchpad_dir = git_root / ".agent-scratchpad"
-    workspace_dir = scratchpad_dir / "workspaces" / workspace_name
+    # Create .silica/workspaces/{workspace} directory structure
+    # This keeps workspace files organized within the existing .silica directory
+    workspace_dir = silica_dir / "workspaces" / workspace_name
 
     console.print(f"[bold]Creating workspace directory: {workspace_dir}[/bold]")
     workspace_dir.mkdir(parents=True, exist_ok=True)
-
-    # Ensure .agent-scratchpad is in .gitignore
-    gitignore_path = git_root / ".gitignore"
-    if gitignore_path.exists():
-        with open(gitignore_path, "r") as f:
-            gitignore_content = f.read()
-
-        if ".agent-scratchpad" not in gitignore_content:
-            console.print("Adding .agent-scratchpad to .gitignore...")
-            with open(gitignore_path, "a") as f:
-                if gitignore_content and not gitignore_content.endswith("\n"):
-                    f.write("\n")
-                f.write(".agent-scratchpad\n")
-    else:
-        # Create .gitignore if it doesn't exist
-        with open(gitignore_path, "w") as f:
-            f.write(".agent-scratchpad\n")
 
     # Save workspace configuration with local mode, URL, and app name
     from silica.remote.config.multi_workspace import create_workspace_config
@@ -653,3 +635,10 @@ def create_local_workspace(
         console.print(
             "[green bold]Local workspace created successfully (manual startup required)![/green bold]"
         )
+
+    # Create .silica/workspaces/{workspace} directory structure
+    # This keeps workspace files organized within the existing .silica directory
+    workspace_dir = silica_dir / "workspaces" / workspace_name
+
+    console.print(f"[bold]Creating workspace directory: {workspace_dir}[/bold]")
+    workspace_dir.mkdir(parents=True, exist_ok=True)

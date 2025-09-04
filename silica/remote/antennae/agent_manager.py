@@ -68,14 +68,15 @@ class AgentManager:
             # Find our session in the output
             session_name = self.config.get_tmux_session_name()
             for line in result.stdout.strip().split("\n"):
-                if line.startswith(session_name + " "):
-                    parts = line.split()
-                    return {
-                        "session_name": parts[0],
-                        "windows": parts[1] if len(parts) > 1 else "1",
-                        "created": parts[2] if len(parts) > 2 else "unknown",
-                        "status": parts[3] if len(parts) > 3 else "unknown",
-                    }
+                if line.strip():  # Skip empty lines
+                    parts = line.strip().split()
+                    if len(parts) > 0 and parts[0] == session_name:
+                        return {
+                            "session_name": parts[0],
+                            "windows": parts[1] if len(parts) > 1 else "1",
+                            "created": parts[2] if len(parts) > 2 else "unknown",
+                            "status": parts[3] if len(parts) > 3 else "unknown",
+                        }
         except (subprocess.CalledProcessError, FileNotFoundError):
             pass
 
@@ -100,8 +101,8 @@ class AgentManager:
             agent_command = self.config.get_agent_command()
 
             # Create tmux session in detached mode, starting in code directory
-            # The session will run the agent and then keep bash open for debugging
-            tmux_command = [
+            # First create the session with a basic shell
+            tmux_create_command = [
                 "tmux",
                 "new-session",
                 "-d",
@@ -109,13 +110,27 @@ class AgentManager:
                 session_name,
                 "-c",
                 str(self.config.get_code_directory()),
-                f"bash -c '{agent_command}; exec bash'",
             ]
 
-            subprocess.run(tmux_command, check=True)
+            subprocess.run(tmux_create_command, check=True)
+
+            # Then send the agent command to the session
+            # This ensures proper terminal environment within tmux
+            tmux_send_command = [
+                "tmux",
+                "send-keys",
+                "-t",
+                session_name,
+                agent_command,
+                "C-m",
+            ]
+
+            subprocess.run(tmux_send_command, check=True)
+
             return True
 
-        except (subprocess.CalledProcessError, FileNotFoundError):
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            logger.error(f"Failed to start tmux session: {e}")
             return False
 
     def stop_tmux_session(self) -> bool:
