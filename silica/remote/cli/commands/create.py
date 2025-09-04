@@ -298,32 +298,42 @@ def create_remote_workspace(
             config_cmd = f"config:set {' '.join(config_args)}"
             piku_utils.run_piku_in_silica(config_cmd, workspace_name=workspace_name)
 
-        # Construct the remote URL - assume HTTPS and standard piku routing
+        # Construct the remote URL - use HTTP with hostname
         # Extract hostname from piku connection
         if "@" in connection:
             hostname = connection.split("@")[1]
         else:
             hostname = connection
 
-        remote_url = f"https://{app_name}.{hostname}"
+        # Use HTTP with hostname, routing handled by Host header
+        remote_url = f"http://{hostname}"
 
-        # Save workspace configuration
+        # Save workspace configuration with correct app_name
         from silica.remote.config.multi_workspace import create_workspace_config
 
         create_workspace_config(silica_dir, workspace_name, remote_url, is_local=False)
+
+        # Update workspace config with the correct app_name for Host header routing
+        from silica.remote.config.multi_workspace import (
+            get_workspace_config,
+            set_workspace_config,
+        )
+
+        workspace_config = get_workspace_config(silica_dir, workspace_name)
+        workspace_config["app_name"] = app_name
+        set_workspace_config(silica_dir, workspace_name, workspace_config)
 
         # Get current git repository details
         try:
             project_repo = git.Repo(git_root)
             repo_url = None
-            current_branch = "main"
 
             # Try to get the origin URL
             if "origin" in [r.name for r in project_repo.remotes]:
                 repo_url = next(project_repo.remote("origin").urls, None)
 
             if project_repo.active_branch:
-                current_branch = project_repo.active_branch.name
+                project_repo.active_branch.name
 
         except Exception as e:
             console.print(
@@ -334,7 +344,6 @@ def create_remote_workspace(
                 "[yellow]You'll need to initialize manually with the repository URL[/yellow]"
             )
             repo_url = None
-            current_branch = "main"
 
         console.print("[green bold]Remote workspace created successfully![/green bold]")
         console.print(f"Workspace name: [cyan]{workspace_name}[/cyan]")
@@ -351,7 +360,10 @@ def create_remote_workspace(
 
             try:
                 client = get_antennae_client(silica_dir, workspace_name)
-                success, response = client.initialize(repo_url, current_branch)
+
+                # Use the tell endpoint with setup command
+                setup_message = f"setup with {repo_url}"
+                success, response = client.tell(setup_message)
 
                 if success:
                     console.print(
@@ -546,21 +558,19 @@ def create_local_workspace(
 
                 repo = git.Repo(git_root)
                 repo_url = None
-                current_branch = "main"
 
                 # Try to get the origin URL
                 if "origin" in [r.name for r in repo.remotes]:
                     repo_url = next(repo.remote("origin").urls, None)
 
                 if repo.active_branch:
-                    current_branch = repo.active_branch.name
+                    repo.active_branch.name
 
             except Exception as e:
                 console.print(
                     f"[yellow]Warning: Could not determine repository details: {e}[/yellow]"
                 )
                 repo_url = None
-                current_branch = "main"
 
             # Initialize the workspace via HTTP if we have repository URL
             if repo_url:
@@ -569,7 +579,9 @@ def create_local_workspace(
                 )
 
                 try:
-                    success, response = client.initialize(repo_url, current_branch)
+                    # Use the tell endpoint with setup command
+                    setup_message = f"setup with {repo_url}"
+                    success, response = client.tell(setup_message)
 
                     if success:
                         console.print(
@@ -584,7 +596,7 @@ def create_local_workspace(
                             f"[yellow]Warning: Workspace initialization failed: {error_msg}[/yellow]"
                         )
                         console.print(
-                            f'[yellow]You can initialize manually with: silica remote tell -w {workspace_name} "setup"[/yellow]'
+                            f'[yellow]You can initialize manually with: silica remote tell -w {workspace_name} "setup with {repo_url}"[/yellow]'
                         )
 
                 except Exception as e:
