@@ -1,4 +1,5 @@
 import json
+import shutil
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -6,6 +7,11 @@ from silica.developer.context import AgentContext
 from silica.developer.tools import agent
 from silica.developer.tools.framework import tool
 from silica.developer.utils import render_tree
+
+
+def _has_ripgrep() -> bool:
+    """Check if ripgrep (rg) is available on the system."""
+    return shutil.which("rg") is not None
 
 
 @tool
@@ -44,14 +50,27 @@ def get_memory_tree(
 async def search_memory(
     context: "AgentContext", query: str, prefix: Optional[str] = None
 ) -> str:
-    """Search memory with the given query.
+    """Search memory entries for content matching the given query using intelligent text search.
+
+    This tool performs semantic and text-based search across all memory entries using ripgrep
+    (if available) or grep as fallback, returning relevant matches with context about why they match.
 
     Args:
-        query: Search query
-        prefix: Optional path prefix to limit search scope
+        query: Search terms or phrases to find in memory content
+        prefix: Optional path to limit search to a specific memory subtree
 
     Returns:
-        a list of memory paths (these should be used for read/write_memory_entry tools.
+        Formatted search results showing:
+        - Memory paths that contain matching content
+        - Brief explanations of why each entry matches
+        - Context snippets around matches
+        - "No matching memory entries found" if no results
+
+    Search Tips:
+        - Use specific keywords from the content you're looking for
+        - Try different variations (e.g., "React" vs "react component")
+        - Search is case-insensitive and supports partial matches
+        - Uses ripgrep (rg) when available for faster, more accurate results
     """
     memory_dir = context.memory_manager.base_dir
     search_path = memory_dir
@@ -62,11 +81,38 @@ async def search_memory(
             return f"Error: Path {prefix} does not exist or is not a directory"
 
     try:
-        # Use the agent tool to kick off an agentic search using grep
+        # Use the agent tool to kick off an agentic search using ripgrep or grep
         from silica.developer.tools.subagent import agent
 
+        has_rg = _has_ripgrep()
+        search_tool = "ripgrep (rg)" if has_rg else "grep"
+
+        if has_rg:
+            search_commands = f"""
+        Here are some ripgrep commands you should use (ripgrep is faster and more user-friendly):
+        - `rg "{query}" {search_path} --type md` (search in .md files)
+        - `rg -i "{query}" {search_path} --type md` (case insensitive search)
+        - `rg -l "{query}" {search_path} --type md` (just list matching files)
+        - `rg -n "{query}" {search_path} --type md` (show line numbers)
+        - `rg -C 2 "{query}" {search_path} --type md` (show 2 lines of context around matches)
+        
+        Ripgrep automatically:
+        - Respects .gitignore files (skips irrelevant files)
+        - Provides colored output for better readability
+        - Is significantly faster than grep
+        - Has better Unicode support
+        """
+        else:
+            search_commands = f"""
+        Here are some grep commands you might use (ripgrep is preferred but not available):
+        - `grep -r --include="*.md" "{query}" {search_path}`
+        - `grep -r --include="*.md" -i "{query}" {search_path}` (case insensitive)
+        - `grep -r --include="*.md" -l "{query}" {search_path}` (just list files)
+        - `grep -r --include="*.md" -n "{query}" {search_path}` (show line numbers)
+        """
+
         prompt = f"""
-        You are an expert in using grep to search through files. 
+        You are an expert in using {search_tool} to search through files. 
         
         TASK: Search through memory entries in the directory "{search_path}" to find information relevant to this query: "{query}"
         
@@ -74,12 +120,9 @@ async def search_memory(
         1. .md files for content
         2. .metadata.json files for metadata
         
-        Use grep to search through the .md files and find matches for the query.
+        Use {search_tool} to search through the .md files and find matches for the query.
         
-        Here are some grep commands you might use:
-        - `grep -r --include="*.md" "{query}" {search_path}`
-        - `grep -r --include="*.md" -i "{query}" {search_path}` (case insensitive)
-        - `grep -r --include="*.md" -l "{query}" {search_path}` (just list files)
+        {search_commands}
         
         After finding matches, examine the matching files to provide context around the matches. Format your results as:
         
@@ -97,7 +140,7 @@ async def search_memory(
         result = await agent(
             context=context,
             prompt=prompt,
-            tool_names="shell_execute",  # Allow grep commands
+            tool_names="shell_execute",  # Allow ripgrep/grep commands
             model="smart",
         )
 

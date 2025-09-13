@@ -61,6 +61,14 @@ Fetch the current state of any pull request that exists (including build state, 
    - never commit this directory or any of its contents
    - this directory should be used for temporary plans, test scripts, data or output files, logs, and the like.
 
+### Tool Preferences and Best Practices
+- **Use ripgrep (rg) over grep** when available for searching files:
+  - `rg "pattern" --type py` instead of `grep -r --include="*.py" "pattern"`
+  - Ripgrep is faster, has better defaults, and provides more intuitive output
+  - Automatically respects .gitignore and provides colored output
+  - Falls back to grep when ripgrep is not available
+- **Memory system searches** automatically use ripgrep when available for better performance
+
 ### Code Quality Standards
 Follow Kent Beck's "Tidy First?" principles:
 - Prefer small, reversible changes over large, irreversible ones

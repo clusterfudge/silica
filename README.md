@@ -34,8 +34,23 @@ For detailed deployment information, see the [Raspberry Pi Deployment Guide](doc
 
 - **Python**: 3.11 or higher (required)
 - **Package Manager**: `uv` (recommended) or `pip`
+- **ripgrep**: Optional but recommended for enhanced file search performance
 
 For complete installation instructions, see [docs/INSTALLATION.md](docs/remote/INSTALLATION.md).
+
+#### Optional: Install ripgrep for enhanced search performance
+```bash
+# macOS
+brew install ripgrep
+
+# Ubuntu/Debian
+sudo apt install ripgrep
+
+# Windows (chocolatey)
+choco install ripgrep
+```
+
+Ripgrep provides faster file searching and is automatically used by the memory system when available.
 
 ## What's New: Multi-Workspace Support
 
