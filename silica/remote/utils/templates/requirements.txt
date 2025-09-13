@@ -1,1 +1,1 @@
-pysilica
+pysilica>=0.5.1

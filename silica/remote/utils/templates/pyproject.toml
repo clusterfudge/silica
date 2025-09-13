@@ -5,7 +5,6 @@ description = "Environment for silica agent"
 requires-python = ">=3.11"
 dependencies = [
     "pysilica",
-    "heare-developer",
 ]
 
 [build-system]
