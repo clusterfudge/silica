@@ -9,9 +9,30 @@ from silica.developer.tools.framework import tool
 from silica.developer.utils import render_tree
 
 
+# Cache ripgrep availability check for efficiency (checked once per process startup)
+_RIPGREP_AVAILABLE = None
+
+
 def _has_ripgrep() -> bool:
-    """Check if ripgrep (rg) is available on the system."""
-    return shutil.which("rg") is not None
+    """Check if ripgrep (rg) is available on the system.
+
+    This function caches the result to avoid repeated expensive shutil.which() calls
+    since ripgrep availability is unlikely to change during process lifetime.
+    """
+    global _RIPGREP_AVAILABLE
+    if _RIPGREP_AVAILABLE is None:
+        _RIPGREP_AVAILABLE = shutil.which("rg") is not None
+    return _RIPGREP_AVAILABLE
+
+
+def _refresh_ripgrep_cache() -> None:
+    """Refresh the cached ripgrep availability check.
+
+    This can be called if ripgrep gets installed/uninstalled during runtime,
+    though this is rare in practice.
+    """
+    global _RIPGREP_AVAILABLE
+    _RIPGREP_AVAILABLE = None
 
 
 @tool

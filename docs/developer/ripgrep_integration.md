@@ -76,7 +76,10 @@ All agent personas now recommend using ripgrep over grep:
 ## Implementation Details
 
 ### Detection
-Silica uses `shutil.which("rg")` to detect ripgrep availability at runtime.
+Silica uses `shutil.which("rg")` to detect ripgrep availability, with results cached for efficiency:
+- **Cached on first use**: The expensive `shutil.which()` call happens only once per process
+- **Process-scoped cache**: Results are cached for the lifetime of the agent process
+- **Refresh capability**: Cache can be manually refreshed if ripgrep installation changes during runtime
 
 ### Fallback Behavior
 - If ripgrep is available: Uses ripgrep commands with enhanced features
@@ -122,8 +125,12 @@ Potential improvements for ripgrep integration:
 ### Debugging
 To verify ripgrep usage in the memory system:
 ```python
-from silica.developer.tools.memory import _has_ripgrep
+from silica.developer.tools.memory import _has_ripgrep, _refresh_ripgrep_cache
 print(f"Ripgrep available: {_has_ripgrep()}")
+
+# If ripgrep gets installed/uninstalled during runtime, refresh the cache:
+_refresh_ripgrep_cache()
+print(f"Ripgrep available (refreshed): {_has_ripgrep()}")
 ```
 
 ### Forcing Grep
