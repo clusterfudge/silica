@@ -106,55 +106,78 @@ async def search_memory(
         from silica.developer.tools.subagent import agent
 
         has_rg = _has_ripgrep()
-        search_tool = "ripgrep (rg)" if has_rg else "grep"
+        "ripgrep (rg)" if has_rg else "grep"
 
         if has_rg:
+            search_tool_intro = (
+                "You have ripgrep (rg) available, which is the preferred search tool."
+            )
             search_commands = f"""
-        Here are some ripgrep commands you should use (ripgrep is faster and more user-friendly):
+        Use these ripgrep commands (ripgrep is faster and more user-friendly than grep):
         - `rg "{query}" {search_path} --type md` (search in .md files)
         - `rg -i "{query}" {search_path} --type md` (case insensitive search)
         - `rg -l "{query}" {search_path} --type md` (just list matching files)
         - `rg -n "{query}" {search_path} --type md` (show line numbers)
         - `rg -C 2 "{query}" {search_path} --type md` (show 2 lines of context around matches)
+        - `rg --count "{query}" {search_path} --type md` (count matches per file)
         
-        Ripgrep automatically:
-        - Respects .gitignore files (skips irrelevant files)
+        Ripgrep advantages:
+        - Automatically respects .gitignore files (skips irrelevant files)
         - Provides colored output for better readability
-        - Is significantly faster than grep
-        - Has better Unicode support
+        - Significantly faster than grep, especially on large codebases
+        - Better Unicode support and more intuitive options
+        - Smart case sensitivity (case-insensitive for lowercase, case-sensitive for mixed case)
+        
+        Pro tip: If you need to install ripgrep, use:
+        - macOS: `brew install ripgrep`
+        - Ubuntu/Debian: `sudo apt install ripgrep`
+        - Windows: `choco install ripgrep` or `winget install BurntSushi.ripgrep.MSVC`
         """
         else:
+            search_tool_intro = "Ripgrep is not available, falling back to grep. Consider installing ripgrep for better performance."
             search_commands = f"""
-        Here are some grep commands you might use (ripgrep is preferred but not available):
+        Use these grep commands (ripgrep would be faster if available):
         - `grep -r --include="*.md" "{query}" {search_path}`
         - `grep -r --include="*.md" -i "{query}" {search_path}` (case insensitive)
         - `grep -r --include="*.md" -l "{query}" {search_path}` (just list files)
         - `grep -r --include="*.md" -n "{query}" {search_path}` (show line numbers)
+        - `grep -r --include="*.md" -A 2 -B 2 "{query}" {search_path}` (show 2 lines of context)
+        
+        Note: For better performance, consider installing ripgrep:
+        - macOS: `brew install ripgrep`
+        - Ubuntu/Debian: `sudo apt install ripgrep`
+        - Windows: `choco install ripgrep`
         """
 
         prompt = f"""
-        You are an expert in using {search_tool} to search through files. 
+        You are an expert in file searching and memory system navigation.
         
         TASK: Search through memory entries in the directory "{search_path}" to find information relevant to this query: "{query}"
         
-        The memory system stores entries as:
-        1. .md files for content
-        2. .metadata.json files for metadata
+        SEARCH TOOL STATUS: {search_tool_intro}
         
-        Use {search_tool} to search through the .md files and find matches for the query.
+        The memory system stores entries as:
+        1. .md files for content (search these)
+        2. .metadata.json files for metadata (usually skip these unless specifically needed)
         
         {search_commands}
         
-        After finding matches, examine the matching files to provide context around the matches. Format your results as:
+        SEARCH STRATEGY:
+        1. Start with the most specific search terms from the query
+        2. If no results, try broader or alternative terms
+        3. Consider synonyms and related concepts
+        4. Use case-insensitive search if initial search fails
+        
+        After finding matches, examine the matching files to provide context. Format your results as:
         
         ## Search Results
         
-        1. [Path to memory]: Brief explanation of why this matches
-        2. [Path to memory]: Brief explanation of why this matches
+        1. **[memory/path]**: Brief explanation of why this matches and what it contains
+        2. **[memory/path]**: Brief explanation of why this matches and what it contains
         
-        For the paths, strip off the .md extension and the base directory path to present clean memory paths.
+        For the paths, strip off the .md extension and the base directory path to present clean memory paths that can be used with read_memory_entry.
         
-        If no results match, say "No matching memory entries found."
+        If no results match, say "No matching memory entries found." and suggest trying different search terms.
         """
 
         # Use the subagent tool to perform the search with shell_execute tool

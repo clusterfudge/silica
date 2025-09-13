@@ -89,3 +89,35 @@ def test_refresh_ripgrep_cache():
 
     # Reset cache for other tests
     _refresh_ripgrep_cache()
+
+
+def test_system_prompt_includes_ripgrep():
+    """Test that system prompts dynamically include ripgrep guidance when available."""
+    from silica.developer.prompt import _get_system_section_text
+
+    with patch("silica.developer.tools.memory._has_ripgrep", return_value=True):
+        system_text_with_rg = _get_system_section_text()
+        assert "ripgrep" in system_text_with_rg.lower()
+        assert "File Search Best Practices" in system_text_with_rg
+        assert 'rg "pattern"' in system_text_with_rg
+        assert "faster" in system_text_with_rg
+
+    with patch("silica.developer.tools.memory._has_ripgrep", return_value=False):
+        system_text_without_rg = _get_system_section_text()
+        assert "ripgrep" not in system_text_without_rg.lower()
+        assert "File Search Best Practices" not in system_text_without_rg
+        assert "rg " not in system_text_without_rg
+
+
+def test_system_prompt_dynamic_loading():
+    """Test that the system prompt is generated dynamically each time."""
+    from silica.developer.prompt import _get_default_system_section
+
+    # Two calls should generate fresh content each time
+    with patch("silica.developer.tools.memory._has_ripgrep", return_value=True):
+        section1 = _get_default_system_section()
+        assert "ripgrep" in section1["text"].lower()
+
+    with patch("silica.developer.tools.memory._has_ripgrep", return_value=False):
+        section2 = _get_default_system_section()
+        assert "ripgrep" not in section2["text"].lower()
