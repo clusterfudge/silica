@@ -101,7 +101,59 @@ class AgentManager:
             agent_command = self.config.get_agent_command()
 
             # Create tmux session in detached mode, starting in code directory
-            # First create the session with a basic shell
+            # Prepare environment variables for the agent tmux session
+            from silica.remote.utils.github_auth import get_github_token
+
+            important_env_vars = [
+                "GH_TOKEN",
+                "GITHUB_TOKEN",
+                "ANTHROPIC_API_KEY",
+                "BRAVE_SEARCH_API_KEY",
+                "PATH",
+                "HOME",
+                "USER",
+                "TERM",
+                "SHELL",
+            ]
+
+            # Get GitHub token using our enhanced function that checks gh CLI
+            github_token = get_github_token()
+            if github_token:
+                # Set both GH_TOKEN and GITHUB_TOKEN for compatibility
+                # Use a simple approach - set environment variables directly in tmux
+                logger.info("Added GitHub token to agent environment")
+            else:
+                logger.warning("No GitHub token available for agent environment")
+
+            for var in important_env_vars:
+                # Skip GitHub tokens since we handled them above - will be set via tmux environment
+                if var in ["GH_TOKEN", "GITHUB_TOKEN"]:
+                    continue
+
+                value = os.environ.get(var)
+                if value:
+                    # Use simple quoting for environment variables
+                    logger.debug(f"Added {var} to agent environment")
+                else:
+                    logger.debug(f"Skipping {var} - not set in environment")
+
+            # Create environment dictionary for tmux
+            env_dict = {}
+
+            # Add GitHub token to environment
+            if github_token:
+                env_dict["GH_TOKEN"] = github_token
+                env_dict["GITHUB_TOKEN"] = github_token
+
+            # Add other important environment variables
+            for var in important_env_vars:
+                if var in ["GH_TOKEN", "GITHUB_TOKEN"]:
+                    continue  # Already handled above
+                value = os.environ.get(var)
+                if value:
+                    env_dict[var] = value
+
+            # Create tmux session with environment variables set
             tmux_create_command = [
                 "tmux",
                 "new-session",
@@ -112,10 +164,18 @@ class AgentManager:
                 str(self.config.get_code_directory()),
             ]
 
-            subprocess.run(tmux_create_command, check=True)
+            # Set environment variables for the tmux session
+            env = os.environ.copy()
+            env.update(env_dict)
 
-            # Then send the agent command to the session
-            # This ensures proper terminal environment within tmux
+            subprocess.run(tmux_create_command, env=env, check=True)
+
+            # Wait a moment for the session to fully initialize
+            import time
+
+            time.sleep(1)
+
+            # Send the agent command directly to the session
             tmux_send_command = [
                 "tmux",
                 "send-keys",
@@ -186,9 +246,10 @@ class AgentManager:
         """Clone a repository to the code directory.
 
         This method preserves local changes:
-        - If no repo exists, clones fresh
+        - If no repo exists, clones fresh using GitHub CLI for GitHub repositories
         - If repo exists and is clean, leaves it alone
         - If repo exists but has different remote/branch, reports status but doesn't destroy
+        - Sets up GitHub authentication before cloning GitHub repositories
 
         Args:
             repo_url: URL of the repository to clone
@@ -197,24 +258,65 @@ class AgentManager:
         Returns:
             True if repository is ready, False otherwise
         """
+        from silica.remote.utils.git import (
+            clone_repository as clone_repo_util,
+            is_github_repo,
+        )
+        from silica.remote.utils.github_auth import setup_github_authentication
+
         code_dir = self.config.get_code_directory()
 
         try:
+            # Set up GitHub authentication if this is a GitHub repository
+            if is_github_repo(repo_url):
+                success, message = setup_github_authentication()
+                if success:
+                    logger.info(f"GitHub authentication configured: {message}")
+                else:
+                    logger.warning(f"GitHub authentication setup failed: {message}")
+                    # Continue anyway - might work for public repositories
+
             # If code directory doesn't exist, clone fresh
             if not code_dir.exists():
                 self.config.ensure_code_directory()
-                git.Repo.clone_from(repo_url, code_dir, branch=branch)
-                return True
+                # Use the utility function which handles GitHub CLI + HTTPS
+                if clone_repo_util(repo_url, code_dir, branch=branch):
+                    # Set up git credentials in the cloned repository
+                    if is_github_repo(repo_url):
+                        setup_github_authentication(
+                            directory=code_dir, prefer_gh_cli=False
+                        )
+                    return True
+                else:
+                    # Cleanup on failure
+                    if code_dir.exists():
+                        shutil.rmtree(code_dir)
+                    return False
 
             # If code directory exists but no .git, clone fresh
             if not (code_dir / ".git").exists():
                 shutil.rmtree(code_dir)
                 self.config.ensure_code_directory()
-                git.Repo.clone_from(repo_url, code_dir, branch=branch)
-                return True
+                # Use the utility function which handles GitHub CLI + HTTPS
+                if clone_repo_util(repo_url, code_dir, branch=branch):
+                    # Set up git credentials in the cloned repository
+                    if is_github_repo(repo_url):
+                        setup_github_authentication(
+                            directory=code_dir, prefer_gh_cli=False
+                        )
+                    return True
+                else:
+                    # Cleanup on failure
+                    if code_dir.exists():
+                        shutil.rmtree(code_dir)
+                    return False
 
             # Repository already exists - check its state
             repo = git.Repo(code_dir)
+
+            # Set up git credentials for existing GitHub repositories
+            if is_github_repo(repo_url):
+                setup_github_authentication(directory=code_dir, prefer_gh_cli=False)
 
             # Check if the repository matches what we want
             current_remote_urls = [

@@ -143,14 +143,41 @@ def sync_repo_to_remote(
             # Directory doesn't exist, clone it
             console.print("Code directory not found. Cloning repository to remote...")
 
+            # Set up GitHub authentication if this is a GitHub repository
+            if is_github:
+                console.print("[dim]Setting up GitHub authentication...[/dim]")
+                auth_setup_cmd = """
+python3 -c "
+from silica.remote.utils.github_auth import setup_github_authentication
+success, message = setup_github_authentication()
+print(f'GitHub auth setup: {success} - {message}')
+"
+"""
+                try:
+                    piku_utils.run_piku_in_silica(
+                        auth_setup_cmd, workspace_name=workspace, use_shell_pipe=True
+                    )
+                except Exception as e:
+                    console.print(
+                        f"[yellow]Warning: GitHub auth setup failed: {e}[/yellow]"
+                    )
+
+            # Convert SSH URLs to HTTPS for GitHub repositories to enable token auth
+            clone_url = origin_url
+            if is_github and origin_url.startswith("git@github.com:"):
+                clone_url = origin_url.replace("git@github.com:", "https://github.com/")
+                console.print(
+                    "[dim]Converting SSH URL to HTTPS for token authentication[/dim]"
+                )
+
             if is_github:
                 # Clone using GitHub CLI
                 clone_cmd = f"run gh repo clone {repo_path} code"
                 console.print("[yellow]Cloning repository to remote...")
                 piku_utils.run_piku_in_silica(clone_cmd, workspace_name=workspace)
             else:
-                # Clone using git directly
-                clone_cmd = f"git clone {origin_url} code"
+                # Clone using git directly with converted URL
+                clone_cmd = f"git clone {clone_url} code"
                 piku_utils.run_piku_in_silica(
                     clone_cmd, workspace_name=workspace, use_shell_pipe=True
                 )
