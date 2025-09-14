@@ -19,6 +19,12 @@ def antennae(
             name=["--workspace", "-w"], help="Name of the workspace to manage"
         ),
     ] = "agent",
+    project: Annotated[
+        str,
+        cyclopts.Parameter(
+            name=["--project", "-p"], help="Name of the project (from git repo)"
+        ),
+    ] = "agent",
     host: Annotated[
         str, cyclopts.Parameter(help="Host address to bind to")
     ] = "0.0.0.0",
@@ -52,8 +58,9 @@ def antennae(
         silica remote create --workspace test-workspace --local --port 8000
         silica remote tell --workspace test-workspace "hello world"
     """
-    # Set the workspace name in the environment for the antennae webapp
+    # Set the workspace and project names in the environment for the antennae webapp
     os.environ["WORKSPACE_NAME"] = workspace
+    os.environ["PROJECT_NAME"] = project
 
     # Ensure we're not running from the repository root to avoid accidental cleanup
     current_dir = Path.cwd().resolve()
@@ -141,6 +148,7 @@ def antennae(
     env.update(
         {
             "WORKSPACE_NAME": workspace,
+            "PROJECT_NAME": project,
             "PORT": str(port),
         }
     )

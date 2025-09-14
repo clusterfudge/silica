@@ -19,7 +19,13 @@ class AntennaeConfig:
 
     def get_workspace_name_from_env(self) -> str:
         """Get workspace name from environment (dynamic)."""
-        return os.environ.get("WORKSPACE_NAME", "agent")
+        workspace_name = os.environ.get("WORKSPACE_NAME")
+        if not workspace_name:
+            raise RuntimeError(
+                "WORKSPACE_NAME environment variable must be set. "
+                "This should be configured automatically during remote workspace creation."
+            )
+        return workspace_name
 
     @property
     def code_directory(self) -> Path:
@@ -38,10 +44,26 @@ class AntennaeConfig:
         """Get the antennae working directory."""
         return self.working_directory
 
+    def get_project_name_from_env(self) -> str:
+        """Get project name from environment (dynamic)."""
+        project_name = os.environ.get("PROJECT_NAME")
+        if not project_name:
+            raise RuntimeError(
+                "PROJECT_NAME environment variable must be set. "
+                "This should be configured automatically during remote workspace creation."
+            )
+        return project_name
+
+    def get_project_name(self) -> str:
+        """Get the project name for this antennae instance."""
+        return self.get_project_name_from_env()
+
     def get_tmux_session_name(self) -> str:
         """Get the tmux session name for this workspace."""
-        # Use workspace name with -agent suffix to avoid collision with antennae server session
-        return f"{self.get_workspace_name_from_env()}-agent"
+        # Construct session name as workspace-project (matches piku app name)
+        workspace_name = self.get_workspace_name_from_env()
+        project_name = self.get_project_name_from_env()
+        return f"{workspace_name}-{project_name}"
 
     def get_agent_command(
         self, workspace_config: Optional[Dict[str, Any]] = None
