@@ -19,7 +19,13 @@ class AntennaeConfig:
 
     def get_workspace_name_from_env(self) -> str:
         """Get workspace name from environment (dynamic)."""
-        return os.environ.get("WORKSPACE_NAME", "agent")
+        workspace_name = os.environ.get("WORKSPACE_NAME")
+        if not workspace_name:
+            raise RuntimeError(
+                "WORKSPACE_NAME environment variable must be set. "
+                "This should be configured automatically during remote workspace creation."
+            )
+        return workspace_name
 
     @property
     def code_directory(self) -> Path:

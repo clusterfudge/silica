@@ -68,6 +68,38 @@ def setup_git_credentials_for_github(
         return False
 
     original_cwd = None
+
+    # Check if GitHub CLI credentials are already configured to avoid conflicts
+    try:
+        # Change to the specified directory if provided
+        if directory:
+            original_cwd = os.getcwd()
+            os.chdir(directory)
+
+        # Check if gh auth git-credential is already configured
+        result = subprocess.run(
+            ["git", "config", "--get-regexp", "credential.https://github.com.helper"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        if result.returncode == 0 and "gh auth git-credential" in result.stdout:
+            logger.info(
+                "GitHub CLI credentials already configured, skipping direct token setup"
+            )
+            return True
+
+    except Exception:
+        pass
+    finally:
+        if original_cwd:
+            try:
+                os.chdir(original_cwd)
+            except OSError:
+                pass
+
+    # Continue with original setup if no conflicts detected
     try:
         # Change to the specified directory if provided
         if directory:
