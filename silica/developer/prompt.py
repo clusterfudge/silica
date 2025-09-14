@@ -65,6 +65,20 @@ def create_system_message(
 ):
     sections: list[dict[str, Any]] = [system_section or _DEFAULT_SYSTEM_SECTION]
 
+    # Add ripgrep guidance regardless of which system section is used
+    try:
+        from silica.developer.tools.memory import _has_ripgrep
+
+        has_ripgrep = _has_ripgrep()
+        if has_ripgrep:
+            ripgrep_section = {
+                "type": "text",
+                "text": '\n## File Search Best Practices\n\n**Use ripgrep (rg) over grep when available for file searching:**\n- `rg "pattern" --type py` instead of `grep -r --include="*.py" "pattern"`\n- Ripgrep is significantly faster and has better defaults\n- Automatically respects .gitignore files and provides colored output\n- Memory system searches automatically use ripgrep when available\n- More efficient for large codebases with better Unicode support',
+            }
+            sections.append(ripgrep_section)
+    except ImportError:
+        pass
+
     if include_sandbox:
         system_message = "The current contents of the sandbox are:\n"
         sandbox_content = render_sandbox_content(agent_context.sandbox, False)

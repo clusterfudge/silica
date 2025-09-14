@@ -1,4 +1,5 @@
 import json
+import shutil
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -6,6 +7,32 @@ from silica.developer.context import AgentContext
 from silica.developer.tools import agent
 from silica.developer.tools.framework import tool
 from silica.developer.utils import render_tree
+
+
+# Cache ripgrep availability check for efficiency (checked once per process startup)
+_RIPGREP_AVAILABLE = None
+
+
+def _has_ripgrep() -> bool:
+    """Check if ripgrep (rg) is available on the system.
+
+    This function caches the result to avoid repeated expensive shutil.which() calls
+    since ripgrep availability is unlikely to change during process lifetime.
+    """
+    global _RIPGREP_AVAILABLE
+    if _RIPGREP_AVAILABLE is None:
+        _RIPGREP_AVAILABLE = shutil.which("rg") is not None
+    return _RIPGREP_AVAILABLE
+
+
+def _refresh_ripgrep_cache() -> None:
+    """Refresh the cached ripgrep availability check.
+
+    This can be called if ripgrep gets installed/uninstalled during runtime,
+    though this is rare in practice.
+    """
+    global _RIPGREP_AVAILABLE
+    _RIPGREP_AVAILABLE = None
 
 
 @tool
@@ -44,14 +71,27 @@ def get_memory_tree(
 async def search_memory(
     context: "AgentContext", query: str, prefix: Optional[str] = None
 ) -> str:
-    """Search memory with the given query.
+    """Search memory entries for content matching the given query using intelligent text search.
+
+    This tool performs semantic and text-based search across all memory entries using ripgrep
+    (if available) or grep as fallback, returning relevant matches with context about why they match.
 
     Args:
-        query: Search query
-        prefix: Optional path prefix to limit search scope
+        query: Search terms or phrases to find in memory content
+        prefix: Optional path to limit search to a specific memory subtree
 
     Returns:
-        a list of memory paths (these should be used for read/write_memory_entry tools.
+        Formatted search results showing:
+        - Memory paths that contain matching content
+        - Brief explanations of why each entry matches
+        - Context snippets around matches
+        - "No matching memory entries found" if no results
+
+    Search Tips:
+        - Use specific keywords from the content you're looking for
+        - Try different variations (e.g., "React" vs "react component")
+        - Search is case-insensitive and supports partial matches
+        - Uses ripgrep (rg) when available for faster, more accurate results
     """
     memory_dir = context.memory_manager.base_dir
     search_path = memory_dir
@@ -62,42 +102,68 @@ async def search_memory(
             return f"Error: Path {prefix} does not exist or is not a directory"
 
     try:
-        # Use the agent tool to kick off an agentic search using grep
+        # Use the agent tool to kick off an agentic search using ripgrep or grep
         from silica.developer.tools.subagent import agent
 
-        prompt = f"""
-        You are an expert in using grep to search through files. 
-        
-        TASK: Search through memory entries in the directory "{search_path}" to find information relevant to this query: "{query}"
-        
-        The memory system stores entries as:
-        1. .md files for content
-        2. .metadata.json files for metadata
-        
-        Use grep to search through the .md files and find matches for the query.
-        
-        Here are some grep commands you might use:
+        has_rg = _has_ripgrep()
+
+        if has_rg:
+            search_tool_intro = "You have ripgrep (rg) available."
+            search_commands = f"""
+        Use these ripgrep commands:
+        - `rg "{query}" {search_path} --type md` (search in .md files)
+        - `rg -i "{query}" {search_path} --type md` (case insensitive search)
+        - `rg -l "{query}" {search_path} --type md` (just list matching files)
+        - `rg -n "{query}" {search_path} --type md` (show line numbers)
+        - `rg -C 2 "{query}" {search_path} --type md` (show 2 lines of context around matches)
+        """
+        else:
+            search_tool_intro = "Ripgrep is not available, using grep."
+            search_commands = f"""
+        Use these grep commands:
         - `grep -r --include="*.md" "{query}" {search_path}`
         - `grep -r --include="*.md" -i "{query}" {search_path}` (case insensitive)
         - `grep -r --include="*.md" -l "{query}" {search_path}` (just list files)
+        - `grep -r --include="*.md" -n "{query}" {search_path}` (show line numbers)
+        - `grep -r --include="*.md" -A 2 -B 2 "{query}" {search_path}` (show 2 lines of context)
+        """
+
+        prompt = f"""
+        You are an expert in file searching and memory system navigation.
         
-        After finding matches, examine the matching files to provide context around the matches. Format your results as:
+        TASK: Search through memory entries in the directory "{search_path}" to find information relevant to this query: "{query}"
+        
+        SEARCH TOOL STATUS: {search_tool_intro}
+        
+        The memory system stores entries as:
+        1. .md files for content (search these)
+        2. .metadata.json files for metadata (usually skip these unless specifically needed)
+        
+        {search_commands}
+        
+        SEARCH STRATEGY:
+        1. Start with the most specific search terms from the query
+        2. If no results, try broader or alternative terms
+        3. Consider synonyms and related concepts
+        4. Use case-insensitive search if initial search fails
+        
+        After finding matches, examine the matching files to provide context. Format your results as:
         
         ## Search Results
         
-        1. [Path to memory]: Brief explanation of why this matches
-        2. [Path to memory]: Brief explanation of why this matches
+        1. **[memory/path]**: Brief explanation of why this matches and what it contains
+        2. **[memory/path]**: Brief explanation of why this matches and what it contains
         
-        For the paths, strip off the .md extension and the base directory path to present clean memory paths.
+        For the paths, strip off the .md extension and the base directory path to present clean memory paths that can be used with read_memory_entry.
         
-        If no results match, say "No matching memory entries found."
+        If no results match, say "No matching memory entries found." and suggest trying different search terms.
         """
 
         # Use the subagent tool to perform the search with shell_execute tool
         result = await agent(
             context=context,
             prompt=prompt,
-            tool_names="shell_execute",  # Allow grep commands
+            tool_names="shell_execute",  # Allow ripgrep/grep commands
             model="smart",
         )
 
