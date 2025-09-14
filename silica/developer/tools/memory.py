@@ -106,7 +106,6 @@ async def search_memory(
         from silica.developer.tools.subagent import agent
 
         has_rg = _has_ripgrep()
-        "ripgrep (rg)" if has_rg else "grep"
 
         if has_rg:
             search_tool_intro = "You have ripgrep (rg) available."
