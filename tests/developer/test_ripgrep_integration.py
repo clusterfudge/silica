@@ -91,33 +91,56 @@ def test_refresh_ripgrep_cache():
     _refresh_ripgrep_cache()
 
 
-def test_system_prompt_includes_ripgrep():
-    """Test that system prompts dynamically include ripgrep guidance when available."""
-    from silica.developer.prompt import _get_system_section_text
+def test_system_message_includes_ripgrep():
+    """Test that system messages dynamically include ripgrep guidance when available."""
+    from silica.developer.prompt import create_system_message
+    from unittest.mock import Mock
+
+    # Mock agent context
+    mock_context = Mock()
+    mock_context.sandbox.get_directory_listing.return_value = []
+    mock_context.memory_manager.get_tree.return_value = {"items": []}
 
     with patch("silica.developer.tools.memory._has_ripgrep", return_value=True):
-        system_text_with_rg = _get_system_section_text()
-        assert "ripgrep" in system_text_with_rg.lower()
-        assert "File Search Best Practices" in system_text_with_rg
-        assert 'rg "pattern"' in system_text_with_rg
-        assert "faster" in system_text_with_rg
+        sections = create_system_message(
+            mock_context, include_sandbox=False, include_memory=False
+        )
+        # Should have default section + ripgrep section
+        assert len(sections) == 2
+        ripgrep_section = sections[1]
+        assert "ripgrep" in ripgrep_section["text"].lower()
+        assert "File Search Best Practices" in ripgrep_section["text"]
 
     with patch("silica.developer.tools.memory._has_ripgrep", return_value=False):
-        system_text_without_rg = _get_system_section_text()
-        assert "ripgrep" not in system_text_without_rg.lower()
-        assert "File Search Best Practices" not in system_text_without_rg
-        assert "rg " not in system_text_without_rg
+        sections = create_system_message(
+            mock_context, include_sandbox=False, include_memory=False
+        )
+        # Should have only default section
+        assert len(sections) == 1
+        default_section = sections[0]
+        assert "ripgrep" not in default_section["text"].lower()
 
 
-def test_system_prompt_dynamic_loading():
-    """Test that the system prompt is generated dynamically each time."""
-    from silica.developer.prompt import _get_default_system_section
+def test_system_message_with_custom_section():
+    """Test that ripgrep guidance is added even with custom system sections."""
+    from silica.developer.prompt import create_system_message
+    from unittest.mock import Mock
 
-    # Two calls should generate fresh content each time
+    mock_context = Mock()
+    mock_context.sandbox.get_directory_listing.return_value = []
+    mock_context.memory_manager.get_tree.return_value = {"items": []}
+
+    custom_section = {"type": "text", "text": "Custom system prompt"}
+
     with patch("silica.developer.tools.memory._has_ripgrep", return_value=True):
-        section1 = _get_default_system_section()
-        assert "ripgrep" in section1["text"].lower()
-
-    with patch("silica.developer.tools.memory._has_ripgrep", return_value=False):
-        section2 = _get_default_system_section()
-        assert "ripgrep" not in section2["text"].lower()
+        sections = create_system_message(
+            mock_context,
+            system_section=custom_section,
+            include_sandbox=False,
+            include_memory=False,
+        )
+        # Should have custom section + ripgrep section
+        assert len(sections) == 2
+        assert sections[0]["text"] == "Custom system prompt"
+        ripgrep_section = sections[1]
+        assert "ripgrep" in ripgrep_section["text"].lower()

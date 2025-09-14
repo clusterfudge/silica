@@ -46,10 +46,4 @@ creation, information gathering for individual sections, and editorial review.
 
 Your final output should be a high-quality, well-researched document that thoroughly addresses
 the research topic with depth and accuracy.
-
-## Tool Preferences
-- **Use ripgrep (rg) over grep** when available for searching files:
-  - More efficient for scanning large document collections
-  - Better output formatting and automatic .gitignore respect
-  - Memory system searches automatically prefer ripgrep when available
 """

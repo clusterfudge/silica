@@ -50,31 +50,10 @@ def render_sandbox_content(sandbox, summarize, limit=1000):
     return result
 
 
-def _get_system_section_text():
-    """Generate the system section text with dynamic tool recommendations."""
-    # Check for ripgrep availability
-    try:
-        from silica.developer.tools.memory import _has_ripgrep
-
-        has_ripgrep = _has_ripgrep()
-    except ImportError:
-        has_ripgrep = False
-
-    base_text = f"You are an AI assistant with access to a sandbox environment. Today's date is {__import__('datetime').datetime.now().strftime('%Y-%m-%d')}.\n\n## Tool Usage Efficiency\n\nWhen multiple tools can be executed independently, you may invoke them in a single response for better performance. Tools automatically manage their own concurrency limits to prevent conflicts and respect API rate limits.\n\nExamples of efficient parallel usage:\n- Checking multiple files: `read_file` for several different files\n- Gathering information: `gmail_search` + `calendar_list_events` + `todo_read`\n- Multiple searches: `web_search` for different topics + `search_memory`\n- Mixed operations: File reads + API calls + memory operations\n- Parallel sub-agents: Multiple `agent` calls for independent research/analysis tasks"
-
-    # Add ripgrep guidance if available
-    if has_ripgrep:
-        base_text += '\n\n## File Search Best Practices\n\n**Use ripgrep (rg) over grep when available for file searching:**\n- `rg "pattern" --type py` instead of `grep -r --include="*.py" "pattern"`\n- Ripgrep is significantly faster and has better defaults\n- Automatically respects .gitignore files and provides colored output\n- Memory system searches automatically use ripgrep when available\n- More efficient for large codebases with better Unicode support'
-
-    return base_text
-
-
-# Dynamic system section that gets computed each time it's used
-def _get_default_system_section():
-    return {
-        "type": "text",
-        "text": _get_system_section_text(),
-    }
+_DEFAULT_SYSTEM_SECTION = {
+    "type": "text",
+    "text": f"You are an AI assistant with access to a sandbox environment. Today's date is {__import__('datetime').datetime.now().strftime('%Y-%m-%d')}.\n\n## Tool Usage Efficiency\n\nWhen multiple tools can be executed independently, you may invoke them in a single response for better performance. Tools automatically manage their own concurrency limits to prevent conflicts and respect API rate limits.\n\nExamples of efficient parallel usage:\n- Checking multiple files: `read_file` for several different files\n- Gathering information: `gmail_search` + `calendar_list_events` + `todo_read`\n- Multiple searches: `web_search` for different topics + `search_memory`\n- Mixed operations: File reads + API calls + memory operations\n- Parallel sub-agents: Multiple `agent` calls for independent research/analysis tasks",
+}
 
 
 def create_system_message(
@@ -84,7 +63,21 @@ def create_system_message(
     include_sandbox: bool = True,
     include_memory: bool = True,
 ):
-    sections: list[dict[str, Any]] = [system_section or _get_default_system_section()]
+    sections: list[dict[str, Any]] = [system_section or _DEFAULT_SYSTEM_SECTION]
+
+    # Add ripgrep guidance regardless of which system section is used
+    try:
+        from silica.developer.tools.memory import _has_ripgrep
+
+        has_ripgrep = _has_ripgrep()
+        if has_ripgrep:
+            ripgrep_section = {
+                "type": "text",
+                "text": '\n## File Search Best Practices\n\n**Use ripgrep (rg) over grep when available for file searching:**\n- `rg "pattern" --type py` instead of `grep -r --include="*.py" "pattern"`\n- Ripgrep is significantly faster and has better defaults\n- Automatically respects .gitignore files and provides colored output\n- Memory system searches automatically use ripgrep when available\n- More efficient for large codebases with better Unicode support',
+            }
+            sections.append(ripgrep_section)
+    except ImportError:
+        pass
 
     if include_sandbox:
         system_message = "The current contents of the sandbox are:\n"

@@ -109,44 +109,24 @@ async def search_memory(
         "ripgrep (rg)" if has_rg else "grep"
 
         if has_rg:
-            search_tool_intro = (
-                "You have ripgrep (rg) available, which is the preferred search tool."
-            )
+            search_tool_intro = "You have ripgrep (rg) available."
             search_commands = f"""
-        Use these ripgrep commands (ripgrep is faster and more user-friendly than grep):
+        Use these ripgrep commands:
         - `rg "{query}" {search_path} --type md` (search in .md files)
         - `rg -i "{query}" {search_path} --type md` (case insensitive search)
         - `rg -l "{query}" {search_path} --type md` (just list matching files)
         - `rg -n "{query}" {search_path} --type md` (show line numbers)
         - `rg -C 2 "{query}" {search_path} --type md` (show 2 lines of context around matches)
-        - `rg --count "{query}" {search_path} --type md` (count matches per file)
-        
-        Ripgrep advantages:
-        - Automatically respects .gitignore files (skips irrelevant files)
-        - Provides colored output for better readability
-        - Significantly faster than grep, especially on large codebases
-        - Better Unicode support and more intuitive options
-        - Smart case sensitivity (case-insensitive for lowercase, case-sensitive for mixed case)
-        
-        Pro tip: If you need to install ripgrep, use:
-        - macOS: `brew install ripgrep`
-        - Ubuntu/Debian: `sudo apt install ripgrep`
-        - Windows: `choco install ripgrep` or `winget install BurntSushi.ripgrep.MSVC`
         """
         else:
-            search_tool_intro = "Ripgrep is not available, falling back to grep. Consider installing ripgrep for better performance."
+            search_tool_intro = "Ripgrep is not available, using grep."
             search_commands = f"""
-        Use these grep commands (ripgrep would be faster if available):
+        Use these grep commands:
         - `grep -r --include="*.md" "{query}" {search_path}`
         - `grep -r --include="*.md" -i "{query}" {search_path}` (case insensitive)
         - `grep -r --include="*.md" -l "{query}" {search_path}` (just list files)
         - `grep -r --include="*.md" -n "{query}" {search_path}` (show line numbers)
         - `grep -r --include="*.md" -A 2 -B 2 "{query}" {search_path}` (show 2 lines of context)
-        
-        Note: For better performance, consider installing ripgrep:
-        - macOS: `brew install ripgrep`
-        - Ubuntu/Debian: `sudo apt install ripgrep`
-        - Windows: `choco install ripgrep`
         """
 
         prompt = f"""

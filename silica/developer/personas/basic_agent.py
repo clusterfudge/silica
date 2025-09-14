@@ -24,10 +24,4 @@ When taking actions:
   intentions when appropriate
 
 Always aim to be helpful, accurate, and respectful of the user's time and resources.
-
-## Tool Preferences
-- **Use ripgrep (rg) over grep** when available for searching files:
-  - More efficient and user-friendly than traditional grep
-  - Provides better output formatting and respects .gitignore files
-  - Memory system searches automatically prefer ripgrep when available
 """
