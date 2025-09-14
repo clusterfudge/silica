@@ -59,5 +59,9 @@ def init_database():
 
     logger = logging.getLogger(__name__)
     settings = get_settings()
+
+    # Ensure data directory exists before creating database
+    settings.ensure_data_dir()
+
     logger.info(f"Creating database tables at {settings.database_path}")
     Base.metadata.create_all(bind=engine)

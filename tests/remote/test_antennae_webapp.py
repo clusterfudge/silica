@@ -98,13 +98,22 @@ class TestAgentManagerSafe:
 
     def test_clone_repository_creates_directory(self, agent_manager):
         """Test that clone_repository ensures code directory exists."""
-        # Mock git.Repo.clone_from to avoid actual cloning
-        with patch("git.Repo.clone_from") as mock_clone:
+        # Mock the new clone utility and authentication setup
+        with patch("silica.remote.utils.git.clone_repository") as mock_clone, patch(
+            "silica.remote.utils.git.is_github_repo"
+        ) as mock_is_github, patch(
+            "silica.remote.utils.github_auth.setup_github_authentication"
+        ) as mock_auth:
+            mock_clone.return_value = True
+            mock_is_github.return_value = True
+            mock_auth.return_value = (True, "Authentication configured")
+
             result = agent_manager.clone_repository("https://github.com/test/repo.git")
 
             assert result is True
             assert agent_manager.config.get_code_directory().exists()
             mock_clone.assert_called_once()
+            mock_auth.assert_called()
 
     def test_clone_repository_cleans_existing_directory(
         self, agent_manager, temp_workspace
@@ -116,8 +125,16 @@ class TestAgentManagerSafe:
         test_file = code_dir / "existing_file.txt"
         test_file.write_text("existing content")
 
-        # Mock git.Repo.clone_from
-        with patch("git.Repo.clone_from"):
+        # Mock the new clone utility and authentication setup
+        with patch("silica.remote.utils.git.clone_repository") as mock_clone, patch(
+            "silica.remote.utils.git.is_github_repo"
+        ) as mock_is_github, patch(
+            "silica.remote.utils.github_auth.setup_github_authentication"
+        ) as mock_auth:
+            mock_clone.return_value = True
+            mock_is_github.return_value = True
+            mock_auth.return_value = (True, "Authentication configured")
+
             result = agent_manager.clone_repository("https://github.com/test/repo.git")
 
             assert result is True

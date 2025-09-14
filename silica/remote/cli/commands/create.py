@@ -1,5 +1,6 @@
 """Create command for silica."""
 
+import os
 import subprocess
 import cyclopts
 from pathlib import Path
@@ -503,6 +504,9 @@ def create_remote_workspace(
         # Initialize the workspace with the repository if we have the URL
         if repo_url:
             console.print(f"Initializing workspace with repository: {repo_url}")
+            console.print(
+                "[dim]Waiting for remote server to start up (with retries)...[/dim]"
+            )
 
             # Import the HTTP client
             from silica.remote.utils.antennae_client import get_antennae_client
@@ -510,8 +514,8 @@ def create_remote_workspace(
             try:
                 client = get_antennae_client(silica_dir, workspace_name)
 
-                # Use the proper initialize endpoint instead of tell
-                success, response = client.initialize(repo_url)
+                # Use the proper initialize endpoint with retries for server startup
+                success, response = client.initialize(repo_url, retries=5)
 
                 if success:
                     console.print(
@@ -738,6 +742,54 @@ def create_local_workspace(
                 return
 
             # Create the tmux session with antennae server running from workspace directory
+            # Prepare environment variables for the tmux session
+            env_vars = []
+
+            # Get important environment variables to pass to tmux
+            important_env_vars = [
+                "GH_TOKEN",
+                "GITHUB_TOKEN",
+                "ANTHROPIC_API_KEY",
+                "BRAVE_SEARCH_API_KEY",
+                "PATH",
+                "HOME",
+                "USER",
+                "TERM",
+                "SHELL",
+            ]
+
+            # First, try to get GitHub token from gh CLI if not available in environment
+            github_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+            if not github_token:
+                try:
+                    result = subprocess.run(
+                        ["gh", "auth", "token"],
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                    )
+                    github_token = result.stdout.strip()
+                    if github_token:
+                        console.print(
+                            "[green]Retrieved GitHub token from gh CLI[/green]"
+                        )
+                        # Set both GH_TOKEN and GITHUB_TOKEN for compatibility
+                        env_vars.append(f"GH_TOKEN={github_token}")
+                        env_vars.append(f"GITHUB_TOKEN={github_token}")
+                except (subprocess.CalledProcessError, FileNotFoundError):
+                    console.print(
+                        "[yellow]Warning: Could not retrieve GitHub token from gh CLI[/yellow]"
+                    )
+
+            for var in important_env_vars:
+                value = os.environ.get(var)
+                if value:
+                    env_vars.append(f"{var}={value}")
+
+            # Build the command with environment variables
+            env_setup = " ".join(f"export {var};" for var in env_vars)
+            full_command = f"{env_setup} echo 'Starting antennae server from {workspace_dir}...'; uv run silica remote antennae --port {port} --workspace {workspace_name} || (echo 'Antennae failed to start'; read -p 'Press enter to close session')"
+
             subprocess.run(
                 [
                     "tmux",
@@ -749,7 +801,7 @@ def create_local_workspace(
                     str(workspace_dir),  # Use workspace directory as working directory
                     "bash",
                     "-c",
-                    f"echo 'Starting antennae server from {workspace_dir}...'; uv run silica remote antennae --port {port} --workspace {workspace_name} || (echo 'Antennae failed to start'; read -p 'Press enter to close session')",
+                    full_command,
                 ],
                 check=True,
             )
@@ -808,10 +860,13 @@ def create_local_workspace(
                 console.print(
                     f"[bold]Initializing workspace with repository: {repo_url}[/bold]"
                 )
+                console.print(
+                    "[dim]Waiting for local server to start up (with retries)...[/dim]"
+                )
 
                 try:
-                    # Use the proper initialize endpoint instead of tell
-                    success, response = client.initialize(repo_url)
+                    # Use the proper initialize endpoint with retries for server startup
+                    success, response = client.initialize(repo_url, retries=5)
 
                     if success:
                         console.print(

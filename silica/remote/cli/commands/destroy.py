@@ -110,27 +110,28 @@ def destroy(
 
                             workspace_config = get_workspace_config(silica_dir, ws_name)
                             app_name = workspace_config.get("app_name", ws_name)
+                            tmux_session_name = f"antennae-{app_name}"
 
                             console.print(
-                                f"[bold]Stopping antennae server for '{ws_name}' (session '{app_name}')...[/bold]"
+                                f"[bold]Stopping antennae server for '{ws_name}' (session '{tmux_session_name}')...[/bold]"
                             )
 
                             check_result = subprocess.run(
-                                ["tmux", "has-session", "-t", app_name],
+                                ["tmux", "has-session", "-t", tmux_session_name],
                                 capture_output=True,
                                 check=False,
                             )
 
                             if check_result.returncode == 0:
                                 kill_result = subprocess.run(
-                                    ["tmux", "kill-session", "-t", app_name],
+                                    ["tmux", "kill-session", "-t", tmux_session_name],
                                     capture_output=True,
                                     check=False,
                                 )
 
                                 if kill_result.returncode == 0:
                                     console.print(
-                                        f"[green]Stopped antennae server for '{ws_name}'[/green]"
+                                        f"[green]Stopped antennae server for '{ws_name}' (session '{tmux_session_name}')[/green]"
                                     )
 
                         except Exception as e:
@@ -260,14 +261,15 @@ def destroy(
 
                 workspace_config = get_workspace_config(silica_dir, workspace)
                 app_name = workspace_config.get("app_name", workspace)
+                tmux_session_name = f"antennae-{app_name}"
 
                 console.print(
-                    f"[bold]Stopping local antennae server (tmux session '{app_name}')...[/bold]"
+                    f"[bold]Stopping local antennae server (tmux session '{tmux_session_name}')...[/bold]"
                 )
 
                 # Check if tmux session exists
                 check_result = subprocess.run(
-                    ["tmux", "has-session", "-t", app_name],
+                    ["tmux", "has-session", "-t", tmux_session_name],
                     capture_output=True,
                     check=False,
                 )
@@ -275,22 +277,22 @@ def destroy(
                 if check_result.returncode == 0:
                     # Kill the tmux session
                     kill_result = subprocess.run(
-                        ["tmux", "kill-session", "-t", app_name],
+                        ["tmux", "kill-session", "-t", tmux_session_name],
                         capture_output=True,
                         check=False,
                     )
 
                     if kill_result.returncode == 0:
                         console.print(
-                            f"[green]Stopped antennae server session '{app_name}'[/green]"
+                            f"[green]Stopped antennae server session '{tmux_session_name}'[/green]"
                         )
                     else:
                         console.print(
-                            f"[yellow]Warning: Could not stop tmux session '{app_name}'[/yellow]"
+                            f"[yellow]Warning: Could not stop tmux session '{tmux_session_name}'[/yellow]"
                         )
                 else:
                     console.print(
-                        f"[yellow]Tmux session '{app_name}' not found (may already be stopped)[/yellow]"
+                        f"[yellow]Tmux session '{tmux_session_name}' not found (may already be stopped)[/yellow]"
                     )
 
             except Exception as e:

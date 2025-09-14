@@ -17,11 +17,19 @@ from .routes.jobs import get_recent_executions
 from .scheduler import scheduler
 from .scripts.litestream_manager import LitestreamManager
 
-# Get settings
-settings = get_settings()
+# Lazy initialization - only create directories when actually needed
+# Don't call setup_logging() at module level to avoid creating directories
+# when the cron module is imported but not used
 
-# Configure logging
-setup_logging()
+
+def _ensure_cron_initialized():
+    """Ensure cron logging and settings are initialized."""
+    # This will be called when the cron app is actually used
+    setup_logging()
+
+
+# Get settings (but don't create directories yet)
+settings = get_settings()
 logger = get_logger(__name__)
 
 # Initialize Litestream manager
@@ -31,7 +39,8 @@ litestream_manager = LitestreamManager()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifecycle."""
-    # Startup
+    # Startup - ensure cron is properly initialized
+    _ensure_cron_initialized()
     logger.info("Starting cron application")
 
     # Initialize database tables
@@ -122,6 +131,8 @@ def entrypoint(
     enable_litestream: bool = None,
 ):
     """Entrypoint function."""
+    # Ensure cron is initialized when actually starting the service
+    _ensure_cron_initialized()
     # Use settings defaults if not provided
     host = bind_host or settings.host
     port = bind_port or settings.port
