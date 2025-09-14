@@ -10,15 +10,16 @@ import cyclopts
 
 
 def antennae(
-    port: Annotated[
-        int, cyclopts.Parameter(help="Port to run the antennae webapp on")
-    ] = 8000,
     workspace: Annotated[
         str,
         cyclopts.Parameter(
-            name=["--workspace", "-w"], help="Name of the workspace to manage"
+            name=["--workspace", "-w"],
+            help="Name of the workspace to manage (required)",
         ),
-    ] = "agent",
+    ],
+    port: Annotated[
+        int, cyclopts.Parameter(help="Port to run the antennae webapp on")
+    ] = 8000,
     host: Annotated[
         str, cyclopts.Parameter(help="Host address to bind to")
     ] = "0.0.0.0",

@@ -20,12 +20,15 @@ class TestAntennaeConfig:
             config = AntennaeConfig()
             assert config.get_workspace_name() == "test-workspace"
 
-    def test_workspace_name_default(self):
-        """Test default workspace name when not in environment."""
+    def test_workspace_name_required(self):
+        """Test that workspace name is required - raises error when not set."""
         # Ensure WORKSPACE_NAME is not set
         with patch.dict(os.environ, {}, clear=True):
             config = AntennaeConfig()
-            assert config.get_workspace_name() == "agent"
+            with pytest.raises(
+                RuntimeError, match="WORKSPACE_NAME environment variable must be set"
+            ):
+                config.get_workspace_name()
 
     def test_directory_paths(self):
         """Test directory path configuration."""
