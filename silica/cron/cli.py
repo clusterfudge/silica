@@ -85,7 +85,7 @@ def init():
     settings = get_settings()
 
     # Create data directory
-    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    settings.ensure_data_dir()
     print(f"Created data directory: {settings.data_dir}")
 
     # Create database tables

@@ -58,8 +58,12 @@ class Settings(BaseSettings):
     @property
     def database_path(self) -> Path:
         """Get the full database file path."""
-        self.data_dir.mkdir(exist_ok=True, parents=True)
+        # Don't create directory here - let it be created when actually needed
         return self.data_dir / f"{self.database_name}.db"
+
+    def ensure_data_dir(self) -> None:
+        """Ensure the data directory exists."""
+        self.data_dir.mkdir(exist_ok=True, parents=True)
 
     @property
     def database_url(self) -> str:

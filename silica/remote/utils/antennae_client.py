@@ -7,6 +7,7 @@ handling workspace URL detection and routing based on workspace configuration.
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
 import requests
+import time
 from requests.exceptions import RequestException
 
 from silica.remote.utils.workspace_detector import get_workspace_url
@@ -65,6 +66,8 @@ class AntennaeClient:
         endpoint: str,
         data: Optional[Dict[str, Any]] = None,
         timeout: Optional[float] = None,
+        retries: int = 0,
+        retry_delay: float = 1.0,
     ) -> Tuple[bool, Dict[str, Any]]:
         """Make HTTP request to antennae webapp.
 
@@ -73,6 +76,8 @@ class AntennaeClient:
             endpoint: API endpoint (without leading slash)
             data: JSON data to send with request
             timeout: Request timeout (uses default if None)
+            retries: Number of retries on failure (default: 0)
+            retry_delay: Delay between retries in seconds (default: 1.0)
 
         Returns:
             Tuple of (success, response_data)
@@ -80,56 +85,85 @@ class AntennaeClient:
         url = f"{self.base_url}/{endpoint}"
         request_timeout = timeout or self.timeout
 
-        try:
-            if method.upper() == "GET":
-                response = requests.get(
-                    url, headers=self.headers, timeout=request_timeout
-                )
-            elif method.upper() == "POST":
-                response = requests.post(
-                    url, headers=self.headers, json=data, timeout=request_timeout
-                )
-            else:
-                return False, {"error": f"Unsupported HTTP method: {method}"}
-
-            # Parse response
+        for attempt in range(retries + 1):
             try:
-                response_data = response.json()
-            except ValueError:
-                response_data = {"raw_response": response.text}
+                if method.upper() == "GET":
+                    response = requests.get(
+                        url, headers=self.headers, timeout=request_timeout
+                    )
+                elif method.upper() == "POST":
+                    response = requests.post(
+                        url, headers=self.headers, json=data, timeout=request_timeout
+                    )
+                else:
+                    return False, {"error": f"Unsupported HTTP method: {method}"}
 
-            # Check if request was successful
-            if response.status_code >= 200 and response.status_code < 300:
-                return True, response_data
-            else:
-                return False, {
-                    "error": f"HTTP {response.status_code}",
-                    "detail": response_data.get("detail", response.text),
-                }
+                # Parse response
+                try:
+                    response_data = response.json()
+                except ValueError:
+                    response_data = {"raw_response": response.text}
 
-        except requests.exceptions.Timeout:
-            return False, {"error": f"Timeout connecting to {url}"}
-        except requests.exceptions.ConnectionError:
-            return False, {"error": f"Connection failed to {url}"}
-        except RequestException as e:
-            return False, {"error": f"HTTP error: {str(e)}"}
-        except Exception as e:
-            return False, {"error": f"Unexpected error: {str(e)}"}
+                # Check if request was successful
+                if response.status_code >= 200 and response.status_code < 300:
+                    return True, response_data
+                else:
+                    # Check if this is a retryable error
+                    if attempt < retries and self._is_retryable_error(
+                        response.status_code
+                    ):
+                        time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
+                        continue
+
+                    return False, {
+                        "error": f"HTTP {response.status_code}",
+                        "detail": response_data.get("detail", response.text),
+                    }
+
+            except (
+                requests.exceptions.Timeout,
+                requests.exceptions.ConnectionError,
+            ) as e:
+                if attempt < retries:
+                    time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
+                    continue
+
+                error_type = (
+                    "Timeout"
+                    if isinstance(e, requests.exceptions.Timeout)
+                    else "Connection failed"
+                )
+                return False, {"error": f"{error_type} connecting to {url}"}
+            except RequestException as e:
+                if attempt < retries:
+                    time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
+                    continue
+                return False, {"error": f"HTTP error: {str(e)}"}
+            except Exception as e:
+                return False, {"error": f"Unexpected error: {str(e)}"}
+
+    def _is_retryable_error(self, status_code: int) -> bool:
+        """Check if HTTP status code indicates a retryable error."""
+        # Retry on server errors and service unavailable
+        return status_code in [500, 502, 503, 504]
 
     def initialize(
-        self, repo_url: str, branch: str = "main"
+        self, repo_url: str, branch: str = "main", retries: int = 5
     ) -> Tuple[bool, Dict[str, Any]]:
         """Initialize workspace via POST /initialize endpoint.
 
         Args:
             repo_url: URL of repository to clone
             branch: Git branch to checkout
+            retries: Number of retries for server startup (default: 5)
 
         Returns:
             Tuple of (success, response_data)
         """
         data = {"repo_url": repo_url, "branch": branch}
-        return self._make_request("POST", "initialize", data)
+        return self._make_request(
+            "POST", "initialize", data, retries=retries, retry_delay=2.0
+        )
 
     def tell(self, message: str) -> Tuple[bool, Dict[str, Any]]:
         """Send message to agent via POST /tell endpoint.

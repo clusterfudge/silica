@@ -503,6 +503,9 @@ def create_remote_workspace(
         # Initialize the workspace with the repository if we have the URL
         if repo_url:
             console.print(f"Initializing workspace with repository: {repo_url}")
+            console.print(
+                "[dim]Waiting for remote server to start up (with retries)...[/dim]"
+            )
 
             # Import the HTTP client
             from silica.remote.utils.antennae_client import get_antennae_client
@@ -510,8 +513,8 @@ def create_remote_workspace(
             try:
                 client = get_antennae_client(silica_dir, workspace_name)
 
-                # Use the proper initialize endpoint instead of tell
-                success, response = client.initialize(repo_url)
+                # Use the proper initialize endpoint with retries for server startup
+                success, response = client.initialize(repo_url, retries=5)
 
                 if success:
                     console.print(
@@ -808,10 +811,13 @@ def create_local_workspace(
                 console.print(
                     f"[bold]Initializing workspace with repository: {repo_url}[/bold]"
                 )
+                console.print(
+                    "[dim]Waiting for local server to start up (with retries)...[/dim]"
+                )
 
                 try:
-                    # Use the proper initialize endpoint instead of tell
-                    success, response = client.initialize(repo_url)
+                    # Use the proper initialize endpoint with retries for server startup
+                    success, response = client.initialize(repo_url, retries=5)
 
                     if success:
                         console.print(
