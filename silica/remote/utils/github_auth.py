@@ -10,41 +10,16 @@ logger = logging.getLogger(__name__)
 
 
 def get_github_token() -> Optional[str]:
-    """Get GitHub token from environment variables or GitHub CLI.
+    """Get GitHub token from environment variables.
 
-    Checks both GH_TOKEN and GITHUB_TOKEN (with GH_TOKEN taking precedence),
-    and falls back to getting the token from GitHub CLI if available.
+    Checks both GH_TOKEN and GITHUB_TOKEN (with GH_TOKEN taking precedence).
+    This is expected to be called in contexts where environment variables
+    should already be set up properly (e.g., remote agent sessions).
 
     Returns:
         GitHub token string or None if not found
     """
-    # First check environment variables
-    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
-    if token:
-        return token
-
-    # Fall back to getting token from GitHub CLI
-    if check_gh_cli_available():
-        try:
-            result = subprocess.run(
-                ["gh", "auth", "token"],
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=10,
-            )
-            token = result.stdout.strip()
-            if token:
-                logger.info("Retrieved GitHub token from gh CLI")
-                return token
-        except (
-            subprocess.CalledProcessError,
-            subprocess.TimeoutExpired,
-            FileNotFoundError,
-        ):
-            logger.debug("Could not retrieve GitHub token from gh CLI")
-
-    return None
+    return os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
 
 
 def check_gh_cli_available() -> bool:

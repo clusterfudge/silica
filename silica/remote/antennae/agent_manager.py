@@ -109,11 +109,6 @@ class AgentManager:
                 "GITHUB_TOKEN",
                 "ANTHROPIC_API_KEY",
                 "BRAVE_SEARCH_API_KEY",
-                "PATH",
-                "HOME",
-                "USER",
-                "TERM",
-                "SHELL",
             ]
 
             # Get GitHub token using our enhanced function that checks gh CLI
