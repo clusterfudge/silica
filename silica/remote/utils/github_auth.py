@@ -249,21 +249,25 @@ def setup_github_authentication(
             "No GitHub token found in GH_TOKEN or GITHUB_TOKEN environment variables",
         )
 
-    # Try GitHub CLI first if available and preferred
+    # Use ONLY ONE authentication method to avoid conflicts
     if prefer_gh_cli and check_gh_cli_available():
+        # Try GitHub CLI method
         success, message = setup_github_cli_auth()
         if success:
             return True, f"GitHub CLI: {message}"
         else:
-            logger.warning(
-                f"GitHub CLI setup failed: {message}, falling back to git credentials"
-            )
-
-    # Fall back to direct git credential configuration
-    if setup_git_credentials_for_github(directory, convert_ssh_remote=True):
-        return True, "Direct git credentials: GitHub authentication configured"
+            # If GitHub CLI fails, don't fall back - return the failure
+            # This prevents duplicate credential setups
+            return False, f"GitHub CLI setup failed: {message}"
     else:
-        return False, "Failed to configure GitHub authentication via git credentials"
+        # Use direct git credential configuration only
+        if setup_git_credentials_for_github(directory, convert_ssh_remote=True):
+            return True, "Direct git credentials: GitHub authentication configured"
+        else:
+            return (
+                False,
+                "Failed to configure GitHub authentication via git credentials",
+            )
 
 
 def verify_github_authentication(
