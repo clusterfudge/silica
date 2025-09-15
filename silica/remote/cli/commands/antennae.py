@@ -18,13 +18,13 @@ def antennae(
         cyclopts.Parameter(
             name=["--workspace", "-w"], help="Name of the workspace to manage"
         ),
-    ] = "agent",
+    ] = os.environ.get("WORKSPACE_NAME"),
     project: Annotated[
         str,
         cyclopts.Parameter(
             name=["--project", "-p"], help="Name of the project (from git repo)"
         ),
-    ] = "agent",
+    ] = os.environ.get("PROJECT_NAME"),
     host: Annotated[
         str, cyclopts.Parameter(help="Host address to bind to")
     ] = "0.0.0.0",
