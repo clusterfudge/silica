@@ -58,10 +58,6 @@ def antennae(
         silica remote create --workspace test-workspace --local --port 8000
         silica remote tell --workspace test-workspace "hello world"
     """
-    # Set the workspace and project names in the environment for the antennae webapp
-    os.environ["WORKSPACE_NAME"] = workspace
-    os.environ["PROJECT_NAME"] = project
-
     # Ensure we're not running from the repository root to avoid accidental cleanup
     current_dir = Path.cwd().resolve()
 
