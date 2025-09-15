@@ -76,9 +76,9 @@ class TestGitHubAuthRemoteFix:
         )
 
         with patch(
-            "silica.remote.cli.commands.workspace_environment.setup_gh_auth"
+            "silica.remote.utils.github_auth.setup_github_authentication"
         ) as mock_setup, patch(
-            "silica.remote.cli.commands.workspace_environment.verify_github_authentication"
+            "silica.remote.utils.github_auth.verify_github_authentication"
         ) as mock_verify, patch(
             "silica.remote.cli.commands.workspace_environment.console"
         ):
@@ -151,13 +151,13 @@ class TestGitHubAuthRemoteFix:
         with patch(
             "silica.remote.cli.commands.create.subprocess.run"
         ) as mock_run, patch("silica.remote.cli.commands.create.console"), patch(
-            "silica.remote.cli.commands.create.create_workspace_config"
+            "silica.remote.config.multi_workspace.create_workspace_config"
         ), patch(
-            "silica.remote.cli.commands.create.get_workspace_config"
+            "silica.remote.config.multi_workspace.get_workspace_config"
         ) as mock_get_config, patch(
-            "silica.remote.cli.commands.create.set_workspace_config"
-        ), patch("silica.remote.cli.commands.create.time.sleep"), patch(
-            "silica.remote.cli.commands.create.get_antennae_client"
+            "silica.remote.config.multi_workspace.set_workspace_config"
+        ), patch("time.sleep"), patch(
+            "silica.remote.utils.antennae_client.get_antennae_client"
         ), patch.dict(os.environ, {"GH_TOKEN": "test-local-token"}):
             mock_get_config.return_value = {}
             # Mock tmux commands to succeed
@@ -189,20 +189,20 @@ class TestGitHubAuthRemoteFix:
     def test_agent_manager_github_setup(self):
         """Test that agent manager properly sets up GitHub authentication."""
         from silica.remote.antennae.agent_manager import AgentManager
-        from silica.remote.antennae.config import WorkspaceConfig
+        from silica.remote.antennae.config import AntennaeConfig
 
         with patch(
             "silica.remote.antennae.agent_manager.subprocess.run"
         ) as mock_run, patch(
-            "silica.remote.antennae.agent_manager.setup_github_authentication"
+            "silica.remote.utils.github_auth.setup_github_authentication"
         ) as mock_setup_auth, patch(
-            "silica.remote.antennae.agent_manager.get_github_token"
+            "silica.remote.utils.github_auth.get_github_token"
         ) as mock_get_token, patch.object(
-            WorkspaceConfig, "get_tmux_session_name", return_value="test-session"
+            AntennaeConfig, "get_tmux_session_name", return_value="test-session"
         ), patch.object(
-            WorkspaceConfig, "get_agent_command", return_value="test-command"
+            AntennaeConfig, "get_agent_command", return_value="test-command"
         ), patch.object(
-            WorkspaceConfig, "get_code_directory", return_value=Path("/tmp/code")
+            AntennaeConfig, "get_code_directory", return_value=Path("/tmp/code")
         ):
             # Mock authentication setup
             mock_get_token.return_value = "test-token"
