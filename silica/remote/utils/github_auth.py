@@ -244,10 +244,37 @@ def setup_github_authentication(
     """
     github_token = get_github_token()
     if not github_token:
-        return (
-            False,
-            "No GitHub token found in GH_TOKEN or GITHUB_TOKEN environment variables",
-        )
+        # Try to get token from gh CLI if not in environment
+        if check_gh_cli_available():
+            try:
+                result = subprocess.run(
+                    ["gh", "auth", "token"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=10,
+                )
+                github_token = result.stdout.strip()
+                if github_token:
+                    logger.info("Retrieved GitHub token from gh CLI")
+                    # Set in environment for other processes
+                    import os
+
+                    os.environ["GH_TOKEN"] = github_token
+                    os.environ["GITHUB_TOKEN"] = github_token
+                else:
+                    return (False, "No GitHub token available from gh CLI")
+            except (
+                subprocess.CalledProcessError,
+                subprocess.TimeoutExpired,
+                FileNotFoundError,
+            ):
+                return (False, "Could not retrieve GitHub token from gh CLI")
+        else:
+            return (
+                False,
+                "No GitHub token found in environment variables and gh CLI not available",
+            )
 
     # Use ONLY ONE authentication method to avoid conflicts
     if prefer_gh_cli and check_gh_cli_available():
@@ -256,9 +283,20 @@ def setup_github_authentication(
         if success:
             return True, f"GitHub CLI: {message}"
         else:
-            # If GitHub CLI fails, don't fall back - return the failure
-            # This prevents duplicate credential setups
-            return False, f"GitHub CLI setup failed: {message}"
+            # If GitHub CLI fails, fall back to direct git configuration
+            logger.warning(
+                f"GitHub CLI setup failed: {message}, trying direct git configuration"
+            )
+            if setup_git_credentials_for_github(directory, convert_ssh_remote=True):
+                return (
+                    True,
+                    "Fallback to direct git credentials: GitHub authentication configured",
+                )
+            else:
+                return (
+                    False,
+                    f"Both GitHub CLI and direct git configuration failed: {message}",
+                )
     else:
         # Use direct git credential configuration only
         if setup_git_credentials_for_github(directory, convert_ssh_remote=True):
