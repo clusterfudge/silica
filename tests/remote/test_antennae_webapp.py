@@ -16,16 +16,22 @@ class TestAntennaeConfig:
 
     def test_workspace_name_from_environment(self):
         """Test that workspace name comes from environment variable."""
-        with patch.dict(os.environ, {"WORKSPACE_NAME": "test-workspace"}):
+        with patch.dict(
+            os.environ,
+            {"WORKSPACE_NAME": "test-workspace", "PROJECT_NAME": "test-project"},
+        ):
             config = AntennaeConfig()
             assert config.get_workspace_name() == "test-workspace"
 
-    def test_workspace_name_default(self):
-        """Test default workspace name when not in environment."""
+    def test_workspace_name_required(self):
+        """Test that workspace name is required - raises error when not set."""
         # Ensure WORKSPACE_NAME is not set
         with patch.dict(os.environ, {}, clear=True):
             config = AntennaeConfig()
-            assert config.get_workspace_name() == "agent"
+            with pytest.raises(
+                RuntimeError, match="WORKSPACE_NAME environment variable must be set"
+            ):
+                config.get_workspace_name()
 
     def test_directory_paths(self):
         """Test directory path configuration."""
@@ -36,11 +42,13 @@ class TestAntennaeConfig:
         assert code_dir == working_dir / "code"
         assert str(code_dir).endswith("/code")
 
-    def test_tmux_session_name_matches_workspace(self):
-        """Test that tmux session name includes workspace name with agent suffix."""
-        with patch.dict(os.environ, {"WORKSPACE_NAME": "my-workspace"}):
+    def test_tmux_session_name_matches_workspace_and_project(self):
+        """Test that tmux session name combines workspace and project names."""
+        with patch.dict(
+            os.environ, {"WORKSPACE_NAME": "my-workspace", "PROJECT_NAME": "my-project"}
+        ):
             config = AntennaeConfig()
-            assert config.get_tmux_session_name() == "my-workspace-agent"
+            assert config.get_tmux_session_name() == "my-workspace-my-project"
 
 
 class TestAgentManagerSafe:
@@ -54,7 +62,10 @@ class TestAgentManagerSafe:
             os.chdir(temp_dir)
 
             # Set test workspace environment
-            with patch.dict(os.environ, {"WORKSPACE_NAME": "test-workspace"}):
+            with patch.dict(
+                os.environ,
+                {"WORKSPACE_NAME": "test-workspace", "PROJECT_NAME": "test-project"},
+            ):
                 yield Path(temp_dir)
 
             os.chdir(original_cwd)
@@ -77,7 +88,7 @@ class TestAgentManagerSafe:
         """Test connection info generation."""
         conn_info = agent_manager.get_connection_info()
 
-        assert conn_info["session_name"] == "test-workspace-agent"
+        assert conn_info["session_name"] == "test-workspace-test-project"
         assert conn_info["tmux_running"] is False
         assert "working_directory" in conn_info
         assert "code_directory" in conn_info
@@ -228,7 +239,13 @@ class TestTmuxSessionManagement:
             os.chdir(temp_dir)
 
             try:
-                with patch.dict(os.environ, {"WORKSPACE_NAME": "test-tmux-lifecycle"}):
+                with patch.dict(
+                    os.environ,
+                    {
+                        "WORKSPACE_NAME": "test-tmux-lifecycle",
+                        "PROJECT_NAME": "test-project",
+                    },
+                ):
                     agent_manager = AgentManager()
 
                     # Ensure code directory exists
@@ -247,7 +264,10 @@ class TestTmuxSessionManagement:
                     # Get session info
                     session_info = agent_manager.get_tmux_session_info()
                     assert session_info is not None
-                    assert session_info["session_name"] == "test-tmux-lifecycle-agent"
+                    assert (
+                        session_info["session_name"]
+                        == "test-tmux-lifecycle-test-project"
+                    )
 
                     # Starting again should be idempotent (preserve existing session)
                     result = agent_manager.start_tmux_session()
@@ -272,7 +292,13 @@ class TestTmuxSessionManagement:
             os.chdir(temp_dir)
 
             try:
-                with patch.dict(os.environ, {"WORKSPACE_NAME": "test-tmux-message"}):
+                with patch.dict(
+                    os.environ,
+                    {
+                        "WORKSPACE_NAME": "test-tmux-message",
+                        "PROJECT_NAME": "test-project",
+                    },
+                ):
                     agent_manager = AgentManager()
                     agent_manager.config.ensure_code_directory()
 
@@ -300,7 +326,13 @@ class TestTmuxSessionManagement:
             os.chdir(temp_dir)
 
             try:
-                with patch.dict(os.environ, {"WORKSPACE_NAME": "test-tmux-preserve"}):
+                with patch.dict(
+                    os.environ,
+                    {
+                        "WORKSPACE_NAME": "test-tmux-preserve",
+                        "PROJECT_NAME": "test-project",
+                    },
+                ):
                     agent_manager = AgentManager()
                     agent_manager.config.ensure_code_directory()
 
@@ -342,7 +374,7 @@ class TestWebAppSafety:
             "agent_command": "test command",
         }
         mock_manager.get_connection_info.return_value = {
-            "session_name": "test-workspace",
+            "session_name": "test-workspace-test-project",
             "working_directory": "/test",
             "code_directory": "/test/code",
             "tmux_running": False,
@@ -401,13 +433,16 @@ class TestWebAppSafety:
         }
 
         mock_agent_manager.get_connection_info.return_value = {
-            "session_name": "test-workspace",
+            "session_name": "test-workspace-test-project",
             "working_directory": "/test",
             "code_directory": "/test/code",
             "tmux_running": False,
         }
 
-        with patch.dict(os.environ, {"WORKSPACE_NAME": "test-workspace"}):
+        with patch.dict(
+            os.environ,
+            {"WORKSPACE_NAME": "test-workspace", "PROJECT_NAME": "test-project"},
+        ):
             client = TestClient(app)
 
             # Test health endpoint

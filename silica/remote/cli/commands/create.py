@@ -439,6 +439,7 @@ def create_remote_workspace(
 
         # Add workspace configuration environment variables
         env_config["WORKSPACE_NAME"] = workspace_name
+        env_config["PROJECT_NAME"] = repo_name  # Project name from git repository
         env_config["NGINX_SERVER_NAME"] = app_name  # Enable hostname routing
 
         # Set all configuration values at once if we have any

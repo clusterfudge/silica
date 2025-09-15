@@ -7,7 +7,7 @@ running silica developer. Each antennae instance manages exactly one workspace.
 from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel
 from typing import Dict, Any
-import logging
+import structlog
 
 from .config import config
 from .agent_manager import agent_manager
@@ -18,9 +18,37 @@ try:
 except ImportError:
     __version__ = "unknown"
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Configure structured logging with proper handler setup
+import logging
+import sys
+
+# Set up basic logging configuration for structlog to work properly
+logging.basicConfig(
+    format="%(message)s",
+    stream=sys.stderr,
+    level=logging.INFO,
+)
+
+# Configure structlog
+structlog.configure(
+    processors=[
+        structlog.stdlib.filter_by_level,
+        structlog.stdlib.add_logger_name,
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.PositionalArgumentsFormatter(),
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.format_exc_info,
+        structlog.processors.UnicodeDecoder(),
+        structlog.processors.JSONRenderer(),
+    ],
+    context_class=dict,
+    logger_factory=structlog.stdlib.LoggerFactory(),
+    wrapper_class=structlog.stdlib.BoundLogger,
+    cache_logger_on_first_use=True,
+)
+
+logger = structlog.get_logger(__name__)
 
 # Create FastAPI app
 app = FastAPI(
@@ -104,45 +132,80 @@ async def initialize_workspace(request: InitializeRequest):
     Returns:
         Success/failure response
     """
-    logger.info(f"Initializing workspace {config.get_workspace_name()}")
+    workspace_name = config.get_workspace_name()
+
+    # Log the request parameters in detail
+    logger.info(
+        "initialize_workspace_started",
+        workspace_name=workspace_name,
+        repo_url=request.repo_url,
+        branch=request.branch,
+        request_body=request.model_dump(),
+    )
 
     try:
         # Step 1: Setup code directory and repository (idempotent)
-        logger.info(f"Setting up repository {request.repo_url}")
+        logger.info(
+            "repository_setup_starting",
+            workspace_name=workspace_name,
+            repo_url=request.repo_url,
+            branch=request.branch,
+        )
         if not agent_manager.clone_repository(request.repo_url, request.branch):
+            logger.error(
+                "repository_setup_failed",
+                workspace_name=workspace_name,
+                repo_url=request.repo_url,
+                branch=request.branch,
+            )
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to setup repository",
             )
-        logger.info("Repository setup completed")
+        logger.info(
+            "repository_setup_completed",
+            workspace_name=workspace_name,
+            repo_url=request.repo_url,
+        )
 
         # Step 2: Setup development environment (idempotent)
-        logger.info("Setting up development environment")
+        logger.info("environment_setup_starting", workspace_name=workspace_name)
         if not agent_manager.setup_environment():
+            logger.error("environment_setup_failed", workspace_name=workspace_name)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to setup development environment",
             )
-        logger.info("Environment setup completed")
+        logger.info("environment_setup_completed", workspace_name=workspace_name)
 
         # Step 3: Start tmux session with agent (idempotent - preserves existing sessions)
-        logger.info("Starting tmux session with silica developer")
+        logger.info("tmux_session_starting", workspace_name=workspace_name)
         if not agent_manager.start_tmux_session():
+            logger.error("tmux_session_start_failed", workspace_name=workspace_name)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to start tmux session",
             )
 
-        logger.info(f"Workspace {config.get_workspace_name()} initialized successfully")
+        logger.info(
+            "initialize_workspace_completed",
+            workspace_name=workspace_name,
+            success=True,
+        )
         return MessageResponse(
             success=True,
-            message=f"Workspace {config.get_workspace_name()} initialized successfully",
+            message=f"Workspace {workspace_name} initialized successfully",
         )
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Unexpected error during initialization: {str(e)}")
+        logger.error(
+            "initialize_workspace_unexpected_error",
+            workspace_name=workspace_name,
+            error=str(e),
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Initialization failed: {str(e)}",
@@ -159,20 +222,31 @@ async def tell_agent(request: TellRequest):
     Returns:
         Success/failure response
     """
-    logger.info(f"Sending message to agent in workspace {config.get_workspace_name()}")
+    workspace_name = config.get_workspace_name()
+
+    # Log the request parameters for the tell endpoint
+    logger.info(
+        "tell_agent_request",
+        workspace_name=workspace_name,
+        message_length=len(request.message),
+        request_body=request.model_dump(),
+    )
 
     if not agent_manager.is_tmux_session_running():
+        logger.warning("tell_agent_session_not_running", workspace_name=workspace_name)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Tmux session is not running. Initialize the workspace first.",
         )
 
     if not agent_manager.send_message_to_session(request.message):
+        logger.error("tell_agent_send_failed", workspace_name=workspace_name)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to send message to agent",
         )
 
+    logger.info("tell_agent_success", workspace_name=workspace_name)
     return MessageResponse(success=True, message="Message sent to agent successfully")
 
 
@@ -183,7 +257,8 @@ async def get_workspace_status():
     Returns:
         Detailed workspace status
     """
-    logger.debug(f"Getting status for workspace {config.get_workspace_name()}")
+    workspace_name = config.get_workspace_name()
+    logger.debug("get_workspace_status_request", workspace_name=workspace_name)
 
     status_info = agent_manager.get_workspace_status()
 
@@ -204,19 +279,28 @@ async def destroy_workspace():
     Returns:
         Success/failure response
     """
-    logger.info(f"Destroying workspace {config.get_workspace_name()}")
+    workspace_name = config.get_workspace_name()
+    logger.info("destroy_workspace_request", workspace_name=workspace_name)
 
     try:
         if not agent_manager.cleanup_workspace():
-            logger.warning("Workspace cleanup completed with some failures")
+            logger.warning(
+                "workspace_cleanup_partial_failure", workspace_name=workspace_name
+            )
             return MessageResponse(
                 success=True, message="Workspace destroyed (with some cleanup failures)"
             )
 
+        logger.info("destroy_workspace_success", workspace_name=workspace_name)
         return MessageResponse(success=True, message="Workspace destroyed successfully")
 
     except Exception as e:
-        logger.error(f"Error during workspace destruction: {str(e)}")
+        logger.error(
+            "destroy_workspace_error",
+            workspace_name=workspace_name,
+            error=str(e),
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to destroy workspace: {str(e)}",
@@ -230,7 +314,8 @@ async def get_connection_info():
     Returns:
         Connection details for tmux session
     """
-    logger.debug(f"Getting connection info for workspace {config.get_workspace_name()}")
+    workspace_name = config.get_workspace_name()
+    logger.debug("get_connection_info_request", workspace_name=workspace_name)
 
     conn_info = agent_manager.get_connection_info()
 
@@ -256,12 +341,16 @@ async def not_found_handler(request, exc):
 @app.exception_handler(500)
 async def internal_server_error_handler(request, exc):
     """Handle 500 errors with workspace context."""
+    workspace_name = config.get_workspace_name()
     logger.error(
-        f"Internal server error in workspace {config.get_workspace_name()}: {str(exc)}"
+        "internal_server_error",
+        workspace_name=workspace_name,
+        error=str(exc),
+        exc_info=True,
     )
     return {
         "error": "Internal server error",
-        "workspace": config.get_workspace_name(),
+        "workspace": workspace_name,
         "message": "An unexpected error occurred",
     }
 
@@ -274,9 +363,8 @@ if __name__ == "__main__":
 
     port = int(os.environ.get("PORT", "8000"))
 
-    logger.info(
-        f"Starting antennae webapp for workspace {config.get_workspace_name()} on port {port}"
-    )
+    workspace_name = config.get_workspace_name()
+    logger.info("starting_antennae_webapp", workspace_name=workspace_name, port=port)
 
     uvicorn.run(
         "silica.remote.antennae.webapp:app", host="0.0.0.0", port=port, log_level="info"

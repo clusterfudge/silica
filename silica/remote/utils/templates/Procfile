@@ -1,1 +1,1 @@
-web: uv run silica remote antennae --port $PORT --workspace ${WORKSPACE_NAME:-agent}
+web: uv run silica remote antennae --port $PORT
