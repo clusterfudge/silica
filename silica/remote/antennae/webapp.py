@@ -18,7 +18,18 @@ try:
 except ImportError:
     __version__ = "unknown"
 
-# Configure structured logging
+# Configure structured logging with proper handler setup
+import logging
+import sys
+
+# Set up basic logging configuration for structlog to work properly
+logging.basicConfig(
+    format="%(message)s",
+    stream=sys.stderr,
+    level=logging.INFO,
+)
+
+# Configure structlog
 structlog.configure(
     processors=[
         structlog.stdlib.filter_by_level,
