@@ -228,6 +228,17 @@ def clone_repository(repo_url, destination_path, branch="main", use_https=True):
             if clone_url != repo_url:
                 logger.info(f"Converted SSH URL to HTTPS: {repo_url} → {clone_url}")
 
+        # For GitHub repositories, set up GitHub CLI authentication first
+        if is_github_repo(clone_url):
+            from silica.remote.utils.github_auth import setup_github_authentication
+
+            success, message = setup_github_authentication()
+            if success:
+                logger.info(f"GitHub authentication configured: {message}")
+            else:
+                logger.warning(f"GitHub authentication setup failed: {message}")
+                # Continue anyway - might work for public repositories
+
         # For GitHub repositories, try GitHub CLI first if available
         if is_github_repo(clone_url) and check_gh_cli_available():
             repo_path = extract_github_repo_path(clone_url)

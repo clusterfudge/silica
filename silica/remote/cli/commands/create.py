@@ -437,6 +437,45 @@ def create_remote_workspace(
             if value:
                 env_config[key] = value
 
+        # Ensure GitHub authentication tokens are included
+        github_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+        if not github_token:
+            # Try to get token from GitHub CLI
+            try:
+                result = subprocess.run(
+                    ["gh", "auth", "token"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=10,
+                )
+                github_token = result.stdout.strip()
+                if github_token:
+                    console.print("[green]Retrieved GitHub token from gh CLI[/green]")
+            except (
+                subprocess.CalledProcessError,
+                FileNotFoundError,
+                subprocess.TimeoutExpired,
+            ):
+                console.print(
+                    "[yellow]Warning: Could not retrieve GitHub token from gh CLI[/yellow]"
+                )
+                console.print(
+                    "[yellow]Git operations may require authentication[/yellow]"
+                )
+
+        if github_token:
+            env_config["GH_TOKEN"] = github_token
+            env_config["GITHUB_TOKEN"] = github_token  # Set both for compatibility
+            console.print(
+                "[green]GitHub authentication configured for remote environment[/green]"
+            )
+        else:
+            console.print(
+                "[yellow]Warning: No GitHub token available for remote environment[/yellow]"
+            )
+            console.print("[yellow]Private repository operations may fail[/yellow]")
+
         # Add workspace configuration environment variables
         env_config["WORKSPACE_NAME"] = workspace_name
         env_config["PROJECT_NAME"] = repo_name  # Project name from git repository
@@ -768,6 +807,7 @@ def create_local_workspace(
                         capture_output=True,
                         text=True,
                         check=True,
+                        timeout=10,
                     )
                     github_token = result.stdout.strip()
                     if github_token:
@@ -777,10 +817,19 @@ def create_local_workspace(
                         # Set both GH_TOKEN and GITHUB_TOKEN for compatibility
                         env_vars.append(f"GH_TOKEN={github_token}")
                         env_vars.append(f"GITHUB_TOKEN={github_token}")
-                except (subprocess.CalledProcessError, FileNotFoundError):
+                except (
+                    subprocess.CalledProcessError,
+                    FileNotFoundError,
+                    subprocess.TimeoutExpired,
+                ):
                     console.print(
                         "[yellow]Warning: Could not retrieve GitHub token from gh CLI[/yellow]"
                     )
+            else:
+                # Use existing token from environment
+                env_vars.append(f"GH_TOKEN={github_token}")
+                env_vars.append(f"GITHUB_TOKEN={github_token}")
+                console.print("[green]Using GitHub token from environment[/green]")
 
             for var in important_env_vars:
                 value = os.environ.get(var)
