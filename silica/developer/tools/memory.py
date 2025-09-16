@@ -109,29 +109,31 @@ async def search_memory(
 
         if has_rg:
             search_tool_intro = "You have ripgrep (rg) available."
-            search_commands = f"""
-        Use these ripgrep commands:
-        - `rg "{query}" {search_path} --type md` (search in .md files)
-        - `rg -i "{query}" {search_path} --type md` (case insensitive search)
-        - `rg -l "{query}" {search_path} --type md` (just list matching files)
-        - `rg -n "{query}" {search_path} --type md` (show line numbers)
-        - `rg -C 2 "{query}" {search_path} --type md` (show 2 lines of context around matches)
+            search_commands = """
+        Use these ripgrep command patterns:
+        - `rg "SEARCH_TERM" /path/to/search --type md` (search in .md files)
+        - `rg -i "SEARCH_TERM" /path/to/search --type md` (case insensitive search)
+        - `rg -l "SEARCH_TERM" /path/to/search --type md` (just list matching files)
+        - `rg -n "SEARCH_TERM" /path/to/search --type md` (show line numbers)
+        - `rg -C 2 "SEARCH_TERM" /path/to/search --type md` (show 2 lines of context around matches)
+        - `rg "TERM1|TERM2" /path/to/search --type md` (search for multiple terms with OR)
+        - `rg "TERM1.*TERM2" /path/to/search --type md` (search for terms in sequence)
         """
         else:
             search_tool_intro = "Ripgrep is not available, using grep."
-            search_commands = f"""
-        Use these grep commands:
-        - `grep -r --include="*.md" "{query}" {search_path}`
-        - `grep -r --include="*.md" -i "{query}" {search_path}` (case insensitive)
-        - `grep -r --include="*.md" -l "{query}" {search_path}` (just list files)
-        - `grep -r --include="*.md" -n "{query}" {search_path}` (show line numbers)
-        - `grep -r --include="*.md" -A 2 -B 2 "{query}" {search_path}` (show 2 lines of context)
+            search_commands = """
+        Use these grep command patterns:
+        - `grep -r --include="*.md" "SEARCH_TERM" /path/to/search`
+        - `grep -r --include="*.md" -i "SEARCH_TERM" /path/to/search` (case insensitive)
+        - `grep -r --include="*.md" -l "SEARCH_TERM" /path/to/search` (just list files)
+        - `grep -r --include="*.md" -n "SEARCH_TERM" /path/to/search` (show line numbers)
+        - `grep -r --include="*.md" -A 2 -B 2 "SEARCH_TERM" /path/to/search` (show 2 lines of context)
+        - `grep -r --include="*.md" -E "TERM1|TERM2" /path/to/search` (search for multiple terms with OR)
+        - `grep -r --include="*.md" "TERM1.*TERM2" /path/to/search` (search for terms in sequence)
         """
 
         prompt = f"""
         You are an expert in file searching and memory system navigation.
-        
-        TASK: Search through memory entries in the directory "{search_path}" to find information relevant to this query: "{query}"
         
         SEARCH TOOL STATUS: {search_tool_intro}
         
@@ -141,11 +143,22 @@ async def search_memory(
         
         {search_commands}
         
-        SEARCH STRATEGY:
-        1. Start with the most specific search terms from the query
-        2. If no results, try broader or alternative terms
-        3. Consider synonyms and related concepts
-        4. Use case-insensitive search if initial search fails
+        IMPORTANT SEARCH FORMATTING RULES:
+        - Format queries for grep/ripgrep pattern matching (not generic text search)
+        - Use exact word matching when appropriate: "\\\\bword\\\\b" 
+        - Use case-insensitive search (-i) for better recall
+        - For multiple terms, use OR patterns: "term1|term2"
+        - For phrase matching, use exact quotes: "exact phrase"
+        - For wildcard matching, use appropriate regex: "term.*pattern"
+        
+        SEARCH STRATEGY (MAXIMUM 2 ATTEMPTS):
+        1. First attempt: Use the most specific, well-formatted search terms
+        2. If no results, make ONE more attempt with broader/alternative terms
+        3. After 2 attempts with no results, stop and report failure
+        
+        YOUR TASK: Search for information relevant to this query and path:
+        - Search Query: {query}
+        - Search Path: {search_path}
         
         After finding matches, examine the matching files to provide context. Format your results as:
         
@@ -156,7 +169,7 @@ async def search_memory(
         
         For the paths, strip off the .md extension and the base directory path to present clean memory paths that can be used with read_memory_entry.
         
-        If no results match, say "No matching memory entries found." and suggest trying different search terms.
+        If no results match after 2 attempts, say "No matching memory entries found." and suggest trying different search terms.
         """
 
         # Use the subagent tool to perform the search with shell_execute tool
