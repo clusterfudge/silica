@@ -561,6 +561,18 @@ def create_remote_workspace(
                     console.print(
                         "[green]Workspace initialized successfully with repository![/green]"
                     )
+
+                    # Try to get status to show version information
+                    try:
+                        status_success, status_response = client.get_status()
+                        if status_success:
+                            antennae_version = status_response.get("version", "old")
+                            console.print(
+                                f"[dim]Antennae version: {antennae_version}[/dim]"
+                            )
+                    except Exception:
+                        # Don't fail the create process if we can't get status
+                        pass
                 else:
                     error_msg = response.get("error", "Unknown error")
                     detail = response.get("detail", "")
@@ -885,6 +897,15 @@ def create_local_workspace(
             console.print(f"[yellow]Could not connect to antennae server: {e}[/yellow]")
 
         if antennae_running:
+            # Show version info since server is running
+            try:
+                status_success, status_response = client.get_status()
+                if status_success:
+                    antennae_version = status_response.get("version", "old")
+                    console.print(f"[dim]Antennae version: {antennae_version}[/dim]")
+            except Exception:
+                pass
+
             # Get current git repository details
             try:
                 import git
@@ -922,6 +943,19 @@ def create_local_workspace(
                         console.print(
                             "[green]Workspace initialized successfully![/green]"
                         )
+
+                        # Try to get status to show version information
+                        try:
+                            status_success, status_response = client.get_status()
+                            if status_success:
+                                antennae_version = status_response.get("version", "old")
+                                console.print(
+                                    f"[dim]Antennae version: {antennae_version}[/dim]"
+                                )
+                        except Exception:
+                            # Don't fail the create process if we can't get status
+                            pass
+
                         console.print(
                             "[green bold]Local workspace created and initialized![/green bold]"
                         )

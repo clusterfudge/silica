@@ -227,6 +227,11 @@ def print_single_workspace_status(status: Dict[str, Any], detailed: bool = False
 
     console.print("[green]✅ Antennae webapp is accessible[/green]")
 
+    # Show version information
+    status_info = status.get("status_info", {})
+    antennae_version = status_info.get("version") or "old"
+    console.print(f"[dim]Antennae version: {antennae_version}[/dim]")
+
     # Get status info from HTTP response
     status_info = status.get("status_info", {})
     connection_info = status.get("connection_info", {})
@@ -299,6 +304,7 @@ def print_all_workspaces_summary(statuses: List[Dict[str, Any]]):
     table.add_column("Accessible", style="green")
     table.add_column("Repository", style="blue")
     table.add_column("Agent Session", style="yellow")
+    table.add_column("Version", style="bright_black")
     table.add_column("Status", style="red")
 
     for status in statuses:
@@ -313,11 +319,13 @@ def print_all_workspaces_summary(statuses: List[Dict[str, Any]]):
         # Check repository status
         repo_status = "[yellow]Unknown[/yellow]"
         session_status = "[yellow]Unknown[/yellow]"
+        antennae_version = "old"
 
         if status["accessible"] and status["status_info"]:
             status_info = status["status_info"]
             repo_info = status_info.get("repository", {})
             tmux_info = status_info.get("tmux_session", {})
+            antennae_version = status_info.get("version") or "old"
 
             if repo_info.get("exists", False):
                 repo_status = "[green]✅[/green]"
@@ -342,6 +350,7 @@ def print_all_workspaces_summary(statuses: List[Dict[str, Any]]):
             accessible,
             repo_status,
             session_status,
+            antennae_version,
             overall_status,
         )
 
