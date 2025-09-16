@@ -144,8 +144,9 @@ class AntennaeClient:
 
     def _is_retryable_error(self, status_code: int) -> bool:
         """Check if HTTP status code indicates a retryable error."""
-        # Retry on server errors and service unavailable
-        return status_code in [500, 502, 503, 504]
+        # Retry on server errors, service unavailable, and not found (during app startup)
+        # 404 is included because piku apps may return 404 while starting up
+        return status_code in [404, 500, 502, 503, 504]
 
     def initialize(
         self, repo_url: str, branch: str = "main", retries: int = 5
