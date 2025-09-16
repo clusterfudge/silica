@@ -322,48 +322,6 @@ def get_required_env_vars() -> List[Dict[str, str]]:
     ]
 
 
-def setup_github_authentication():
-    """Set up GitHub authentication for the workspace environment."""
-    try:
-        from silica.remote.utils.github_auth import (
-            setup_github_authentication as setup_gh_auth,
-            verify_github_authentication,
-        )
-
-        # Set up GitHub authentication
-        success, message = setup_gh_auth(prefer_gh_cli=True)
-
-        if success:
-            console.print(
-                f"[green]✓ GitHub authentication configured: {message}[/green]"
-            )
-
-            # Verify it works
-            verify_success, verify_message = verify_github_authentication()
-            if verify_success:
-                console.print(
-                    f"[green]✓ GitHub authentication verified: {verify_message}[/green]"
-                )
-            else:
-                console.print(
-                    f"[yellow]⚠ GitHub authentication verification failed: {verify_message}[/yellow]"
-                )
-        else:
-            console.print(
-                f"[yellow]⚠ GitHub authentication setup failed: {message}[/yellow]"
-            )
-            console.print(
-                "[yellow]Git operations may require manual authentication[/yellow]"
-            )
-
-    except ImportError:
-        console.print(
-            "[yellow]⚠ GitHub authentication utilities not available[/yellow]"
-        )
-    except Exception as e:
-        console.print(f"[yellow]⚠ GitHub authentication setup error: {e}[/yellow]")
-
-
 def get_silica_developer_command(workspace_config: Dict[str, Any]) -> str:
     """Get the command to run silica developer with default args."""
     command_parts = [
@@ -427,9 +385,6 @@ def _setup_impl():
         console.print("[red]✗ Failed to sync dependencies[/red]")
         sys.exit(1)
 
-    # Set up GitHub authentication if tokens are available
-    setup_github_authentication()
-
     # Get workspace configuration (always silica_developer now)
     workspace_config = get_workspace_config()
     if not workspace_config:
@@ -487,9 +442,6 @@ def _run_impl():
 
     # Load environment
     load_environment_variables()
-
-    # Set up GitHub authentication
-    setup_github_authentication()
 
     # Get workspace configuration (always silica_developer now)
     workspace_config = get_workspace_config()
