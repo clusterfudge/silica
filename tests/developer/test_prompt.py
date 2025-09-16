@@ -100,16 +100,25 @@ file1.txt
             first_content,
         )
 
-        # Second section contains the sandbox contents
-        second_content = result[1]["text"]
-        self.assertIn("<sandbox_contents>", second_content)
-        self.assertIn("file1.txt", second_content)
-        self.assertIn("dir1/", second_content)
-        self.assertIn("file2.txt", second_content)
-        self.assertIn("</sandbox_contents>", second_content)
+        # Find the section that contains sandbox contents (could be 1, 2, or later)
+        sandbox_section = None
+        for section in result:
+            if "<sandbox_contents>" in section["text"]:
+                sandbox_section = section["text"]
+                break
+
+        # Verify we found the sandbox section
+        self.assertIsNotNone(sandbox_section, "Could not find sandbox contents section")
+
+        # Verify sandbox section content
+        self.assertIn("<sandbox_contents>", sandbox_section)
+        self.assertIn("file1.txt", sandbox_section)
+        self.assertIn("dir1/", sandbox_section)
+        self.assertIn("file2.txt", sandbox_section)
+        self.assertIn("</sandbox_contents>", sandbox_section)
         self.assertIn(
             "You can read, write, and list files/directories, as well as execute some bash commands.",
-            second_content,
+            sandbox_section,
         )
 
 

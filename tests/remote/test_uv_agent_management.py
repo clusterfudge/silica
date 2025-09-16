@@ -66,7 +66,6 @@ class TestSilicaDeveloperManagement:
             "uv",
             "run",
             "silica",
-            "developer",
             "--dwr",
             "--persona",
             "autonomous_engineer",
@@ -85,7 +84,7 @@ class TestSilicaDeveloperManagement:
         command = get_silica_developer_command(workspace_config)
 
         # Should contain base command + custom flags and args
-        assert "uv run silica developer --dwr --persona autonomous_engineer" in command
+        assert "uv run silica --dwr --persona autonomous_engineer" in command
         assert "--verbose" in command
         assert "--timeout 60" in command
         assert "--debug" in command
@@ -131,7 +130,7 @@ class TestSilicaDeveloperManagement:
         result = get_silica_developer_command(workspace_config)
 
         # Should return the hardcoded silica developer command
-        assert "uv run silica developer" in result
+        assert "uv run silica" in result
         assert "--dwr" in result
         assert "autonomous_engineer" in result
 
