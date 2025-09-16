@@ -71,6 +71,12 @@ class Toolbox:
         self.register_cli_tool(
             "model", self._model, "Display or change the current AI model"
         )
+        self.register_cli_tool(
+            "sandbox",
+            self._sandbox_debug,
+            "Show sandbox configuration and debug information",
+            aliases=["debug"],
+        )
 
         self.register_cli_tool(
             "view-memory", self._launch_memory_webapp, "Launch memory webapp"
@@ -781,6 +787,16 @@ class Toolbox:
             return f"Failed to resume session {session_id}"
 
         return f"Resumed session {session_id}"
+
+    def _sandbox_debug(self, user_interface, sandbox, user_input, *args, **kwargs):
+        """Show sandbox configuration and debug information."""
+        from .tools.sandbox_debug import sandbox_debug
+
+        # Call the actual sandbox_debug tool function
+        result = sandbox_debug(self.context)
+
+        # Return the result for display
+        return result
 
     def _model(self, user_interface, sandbox, user_input, *args, **kwargs):
         """Display or change the current AI model"""
