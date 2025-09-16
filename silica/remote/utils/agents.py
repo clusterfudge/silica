@@ -25,7 +25,6 @@ def generate_agent_command(workspace_config: Dict[str, Any]) -> str:
         "uv",
         "run",
         "silica",
-        "developer",
         "--dwr",
         "--persona",
         "autonomous_engineer",
