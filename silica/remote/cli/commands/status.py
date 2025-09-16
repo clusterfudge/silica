@@ -156,7 +156,7 @@ def get_workspace_status_legacy(workspace_name: str, git_root: Path) -> Dict[str
             pass
 
             result = run_piku_in_silica(
-                "silica developer sessions",
+                "silica sessions",
                 use_shell_pipe=True,
                 workspace_name=workspace_name,
                 capture_output=True,
@@ -247,7 +247,7 @@ def print_single_workspace_status(status: Dict[str, Any], detailed: bool = False
         if detailed:
             agent_command = status_info.get(
                 "agent_command",
-                "uv run silica developer --dwr --persona autonomous_engineer",
+                "uv run silica --dwr --persona autonomous_engineer",
             )
             console.print(f"[green]Command: {agent_command}[/green]")
 
