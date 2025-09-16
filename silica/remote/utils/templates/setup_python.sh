@@ -154,72 +154,6 @@ install_uv() {
     fi
 }
 
-# Install GitHub CLI
-install_github_cli() {
-    print_status "Installing GitHub CLI..."
-    
-    if command -v gh &> /dev/null; then
-        print_success "GitHub CLI already installed"
-        return
-    fi
-    
-    # Install GitHub CLI for Debian/Ubuntu systems
-    if command -v apt-get &> /dev/null; then
-        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
-            && sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
-            && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
-            && sudo apt update \
-            && sudo apt install gh -y
-        
-        if command -v gh &> /dev/null; then
-            print_success "GitHub CLI installed"
-        else
-            print_warning "GitHub CLI installation may have failed"
-        fi
-    else
-        print_warning "Cannot install GitHub CLI - apt-get not found"
-        print_warning "Install manually: https://github.com/cli/cli#installation"
-    fi
-}
-
-# Set up GitHub authentication if tokens are available
-setup_github_auth() {
-    print_status "Setting up GitHub authentication..."
-    
-    # Check for GitHub tokens
-    if [ -n "$GH_TOKEN" ] || [ -n "$GITHUB_TOKEN" ]; then
-        if command -v gh &> /dev/null; then
-            print_status "Configuring GitHub CLI authentication..."
-            
-            # Use the available token
-            GITHUB_TOKEN_TO_USE="${GH_TOKEN:-$GITHUB_TOKEN}"
-            
-            # Set up GitHub CLI authentication
-            echo "$GITHUB_TOKEN_TO_USE" | gh auth login --with-token >/dev/null 2>&1
-            
-            if [ $? -eq 0 ]; then
-                # Set up git integration
-                gh auth setup-git >/dev/null 2>&1
-                print_success "GitHub CLI authentication configured"
-            else
-                print_warning "GitHub CLI authentication setup failed"
-            fi
-        else
-            print_warning "GitHub CLI not available - using direct git credentials"
-            
-            # Set up git credentials directly
-            git config --global credential.https://github.com.helper ""
-            git config --global credential.https://github.com.username "token"
-            git config --global credential.https://github.com.password "${GH_TOKEN:-$GITHUB_TOKEN}"
-            
-            print_success "Git credentials configured for GitHub"
-        fi
-    else
-        print_warning "No GitHub tokens found in environment variables"
-        print_warning "Set GH_TOKEN or GITHUB_TOKEN for automatic GitHub authentication"
-    fi
-}
-
 # Set up virtual environment
 setup_venv() {
     print_status "Setting up virtual environment..."
@@ -336,12 +270,6 @@ main() {
     
     # Install uv
     install_uv
-    
-    # Install GitHub CLI (useful for authentication)
-    install_github_cli
-    
-    # Set up GitHub authentication
-    setup_github_auth
     
     # Set up virtual environment
     setup_venv
