@@ -413,8 +413,10 @@ class TestWebAppSafety:
             repository={"status": "clean", "is_dirty": False},
             tmux_session={"running": True, "info": None},
             agent_command="test cmd",
+            version="1.0.0",
         )
         assert status_resp.workspace_name == "test"
+        assert status_resp.version == "1.0.0"
 
     @patch("silica.remote.antennae.webapp.agent_manager")
     def test_webapp_endpoints_safe(self, mock_agent_manager):

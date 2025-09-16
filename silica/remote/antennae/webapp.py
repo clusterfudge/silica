@@ -81,6 +81,7 @@ class StatusResponse(BaseModel):
     repository: Dict[str, Any]
     tmux_session: Dict[str, Any]
     agent_command: str
+    version: str
 
 
 class ConnectionResponse(BaseModel):
@@ -269,6 +270,7 @@ async def get_workspace_status():
         repository=status_info["repository"],
         tmux_session=status_info["tmux_session"],
         agent_command=status_info["agent_command"],
+        version=__version__,
     )
 
 
