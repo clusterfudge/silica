@@ -50,10 +50,27 @@ def render_sandbox_content(sandbox, summarize, limit=1000):
     return result
 
 
-_DEFAULT_SYSTEM_SECTION = {
-    "type": "text",
-    "text": f"You are an AI assistant with access to a sandbox environment. Today's date is {__import__('datetime').datetime.now().strftime('%Y-%m-%d')}.\n\n## Tool Usage Efficiency\n\nWhen multiple tools can be executed independently, you may invoke them in a single response for better performance. Tools automatically manage their own concurrency limits to prevent conflicts and respect API rate limits.\n\nExamples of efficient parallel usage:\n- Checking multiple files: `read_file` for several different files\n- Gathering information: `gmail_search` + `calendar_list_events` + `todo_read`\n- Multiple searches: `web_search` for different topics + `search_memory`\n- Mixed operations: File reads + API calls + memory operations\n- Parallel sub-agents: Multiple `agent` calls for independent research/analysis tasks",
-}
+def _create_default_system_section(agent_context: AgentContext):
+    """Create the default system section with sandbox path information."""
+    import os
+
+    sandbox_path_info = f"""
+## Sandbox Environment Configuration
+
+**Sandbox Root Directory:** `{agent_context.sandbox.root_directory}`
+**Current Working Directory:** `{os.getcwd()}`
+**Sandbox Mode:** `{agent_context.sandbox.mode.name}`
+
+The sandbox filesystem tools (read_file, write_file, list_directory, edit_file) operate within the sandbox root directory. All paths provided to these tools are relative to the sandbox root.
+
+Shell commands (shell_execute, shell_session_*) operate in the current working directory and may have access to a different filesystem context.
+
+Use the `sandbox_debug` tool to diagnose sandbox configuration issues if file operations behave unexpectedly.
+"""
+
+    base_text = f"You are an AI assistant with access to a sandbox environment. Today's date is {__import__('datetime').datetime.now().strftime('%Y-%m-%d')}.\n\n## Tool Usage Efficiency\n\nWhen multiple tools can be executed independently, you may invoke them in a single response for better performance. Tools automatically manage their own concurrency limits to prevent conflicts and respect API rate limits.\n\nExamples of efficient parallel usage:\n- Checking multiple files: `read_file` for several different files\n- Gathering information: `gmail_search` + `calendar_list_events` + `todo_read`\n- Multiple searches: `web_search` for different topics + `search_memory`\n- Mixed operations: File reads + API calls + memory operations\n- Parallel sub-agents: Multiple `agent` calls for independent research/analysis tasks"
+
+    return {"type": "text", "text": base_text + sandbox_path_info}
 
 
 def create_system_message(
@@ -63,7 +80,9 @@ def create_system_message(
     include_sandbox: bool = True,
     include_memory: bool = True,
 ):
-    sections: list[dict[str, Any]] = [system_section or _DEFAULT_SYSTEM_SECTION]
+    sections: list[dict[str, Any]] = [
+        system_section or _create_default_system_section(agent_context)
+    ]
 
     # Add ripgrep guidance regardless of which system section is used
     try:

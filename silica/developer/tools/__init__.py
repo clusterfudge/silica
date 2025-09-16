@@ -1,5 +1,6 @@
 from .subagent import agent
 from .files import read_file, write_file, list_directory, edit_file
+from .sandbox_debug import sandbox_debug
 from .repl import python_repl
 from .shell import (
     shell_execute,
@@ -54,6 +55,7 @@ ALL_TOOLS = (
         write_file,
         list_directory,
         edit_file,
+        sandbox_debug,
         web_search,
         agent,
         safe_curl,
