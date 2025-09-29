@@ -18,7 +18,7 @@ MODEL_MAP: dict[str, ModelSpec] = {
         "context_window": 200000,  # 200k tokens context window
     },
     "sonnet": {
-        "title": "claude-sonnet-4-20250514",
+        "title": "claude-sonnet-4-5-20250929",
         "pricing": {"input": 3.00, "output": 15.00},
         "cache_pricing": {"write": 3.75, "read": 0.30},
         "max_tokens": 8192,

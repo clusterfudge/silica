@@ -41,7 +41,7 @@ def test_model_command_no_args_shows_current(mock_context):
     call_args = mock_context.user_interface.handle_system_message.call_args[0][0]
 
     assert "Current Model:" in call_args
-    assert "claude-sonnet-4-20250514" in call_args
+    assert "claude-sonnet-4-5-20250929" in call_args
     assert "sonnet" in call_args
     assert "Max Tokens:" in call_args
     assert "Context Window:" in call_args
