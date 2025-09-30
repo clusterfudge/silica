@@ -95,16 +95,18 @@ class ConversationCompacter:
             if self._has_incomplete_tool_use(context_dict["messages"]):
                 return self._estimate_full_context_tokens(context_dict)
 
-            # Check if ANY assistant message contains thinking blocks
-            # The API has contradictory requirements but empirically:
-            # - If ANY message has thinking, you MUST enable the thinking parameter
-            # - Otherwise you get: "cannot contain thinking when thinking is disabled"
+            # Check if the LAST assistant message starts with thinking blocks
+            # The API requirement: when thinking is enabled, the FINAL assistant message
+            # must START with a thinking block. We should only enable thinking for token
+            # counting if the last assistant message actually starts with thinking.
             thinking_config = None
-            has_thinking = self._has_thinking_in_any_assistant_message(
+            has_thinking_in_last = self._has_thinking_in_last_assistant_message(
                 context_dict["messages"]
             )
-            print(f"[DEBUG] Has thinking in any assistant message: {has_thinking}")
-            if has_thinking:
+            print(
+                f"[DEBUG] Last assistant message starts with thinking: {has_thinking_in_last}"
+            )
+            if has_thinking_in_last:
                 # Enable thinking for token counting (use a reasonable budget)
                 thinking_config = {"type": "enabled", "budget_tokens": 10000}
                 print(
