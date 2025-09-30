@@ -96,13 +96,20 @@ class TestCompactionWithThinking(unittest.TestCase):
             "thinking_pricing": 15.00,
         }
 
+        # Create a minimal mock client for tests that don't need API calls
+        class MinimalMockClient:
+            def __init__(self):
+                self.messages = None
+
+        self.mock_client = MinimalMockClient()
+
     def tearDown(self):
         """Clean up test environment."""
         shutil.rmtree(self.test_dir)
 
     def test_has_thinking_detection_with_sdk_objects(self):
         """Test that _has_thinking_in_any_assistant_message detects SDK objects."""
-        compacter = ConversationCompacter()
+        compacter = ConversationCompacter(client=self.mock_client)
 
         # Messages with SDK objects (as they appear in chat_history)
         messages = [
@@ -123,7 +130,7 @@ class TestCompactionWithThinking(unittest.TestCase):
 
     def test_has_thinking_detection_with_dicts(self):
         """Test that _has_thinking_in_any_assistant_message detects dict blocks."""
-        compacter = ConversationCompacter()
+        compacter = ConversationCompacter(client=self.mock_client)
 
         # Messages with dicts (as they might appear after serialization)
         messages = [
@@ -146,7 +153,7 @@ class TestCompactionWithThinking(unittest.TestCase):
 
     def test_has_thinking_detection_in_middle_message(self):
         """Test that thinking blocks are detected even when not in the last message."""
-        compacter = ConversationCompacter()
+        compacter = ConversationCompacter(client=self.mock_client)
 
         # Thinking in message 1, plain text in message 3
         messages = [
@@ -173,7 +180,7 @@ class TestCompactionWithThinking(unittest.TestCase):
 
     def test_has_thinking_no_thinking_blocks(self):
         """Test that no thinking is detected when there are no thinking blocks."""
-        compacter = ConversationCompacter()
+        compacter = ConversationCompacter(client=self.mock_client)
 
         messages = [
             {"role": "user", "content": "What is 2+2?"},
