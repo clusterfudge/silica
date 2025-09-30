@@ -391,18 +391,16 @@ async def run(
                 return_to_user_after_interrupt = False
                 cost = f"${agent_context.usage_summary()['total_cost']:.2f}"
 
-                # Add thinking mode indicator to prompt
-                thinking_emoji = "🚫"
+                # Add thinking mode indicator to prompt (only if enabled)
+                prompt = f"{cost} > "
                 if agent_context.thinking_mode == "normal":
-                    thinking_emoji = "💭"
+                    prompt = f"💭 {cost} > "
                 elif agent_context.thinking_mode == "ultra":
-                    thinking_emoji = "🧠"
+                    prompt = f"🧠 {cost} > "
 
                 user_input = ""
                 while not user_input.strip():
-                    user_input = await user_interface.get_user_input(
-                        f"{thinking_emoji} {cost} > "
-                    )
+                    user_input = await user_interface.get_user_input(prompt)
 
                 command_name = (
                     user_input.split()[0][1:] if user_input.startswith("/") else ""
@@ -551,9 +549,18 @@ async def run(
                         thinking_config = get_thinking_config(
                             agent_context.thinking_mode, model
                         )
+
+                        # Calculate max_tokens based on whether thinking is enabled
+                        # When thinking is enabled, max_tokens must be thinking_budget + completion_tokens
+                        max_tokens = model["max_tokens"]
+                        if thinking_config:
+                            max_tokens = (
+                                thinking_config["budget_tokens"] + model["max_tokens"]
+                            )
+
                         api_kwargs = {
                             "system": system_message,
-                            "max_tokens": model["max_tokens"],
+                            "max_tokens": max_tokens,
                             "messages": messages,
                             "model": model["title"],
                             "tools": toolbox.agent_schema,

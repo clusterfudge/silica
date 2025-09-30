@@ -16,21 +16,21 @@ class TestModelThinkingSupport:
         model = get_model("opus")
         assert model["thinking_support"] is True
         assert "thinking_pricing" in model
-        assert model["thinking_pricing"]["thinking"] == 45.00  # 3x input price
+        assert model["thinking_pricing"]["thinking"] == 18.75  # Same as output price
 
     def test_sonnet_supports_thinking(self):
         """Sonnet 4.5 should support thinking."""
         model = get_model("sonnet")
         assert model["thinking_support"] is True
         assert "thinking_pricing" in model
-        assert model["thinking_pricing"]["thinking"] == 9.00  # 3x input price
+        assert model["thinking_pricing"]["thinking"] == 15.00  # Same as output price
 
     def test_sonnet_37_supports_thinking(self):
         """Sonnet 3.7 should support thinking."""
         model = get_model("sonnet-3.7")
         assert model["thinking_support"] is True
         assert "thinking_pricing" in model
-        assert model["thinking_pricing"]["thinking"] == 9.00  # 3x input price
+        assert model["thinking_pricing"]["thinking"] == 15.00  # Same as output price
 
     def test_haiku_no_thinking_support(self):
         """Haiku should not support thinking."""
@@ -196,8 +196,8 @@ class TestUsageSummaryWithThinking:
         assert summary["total_output_tokens"] == 500
         assert summary["total_thinking_tokens"] == 4500
 
-        # Calculate expected thinking cost: 4500 tokens * $45/MTok = $0.2025
-        expected_thinking_cost = 4500 * 45.00 / 1_000_000
+        # Calculate expected thinking cost: 4500 tokens * $18.75/MTok (same as output) = $0.084375
+        expected_thinking_cost = 4500 * 18.75 / 1_000_000
         assert abs(summary["thinking_cost"] - expected_thinking_cost) < 0.0001
 
     def test_usage_summary_with_dict_style_thinking(self):
@@ -227,8 +227,8 @@ class TestUsageSummaryWithThinking:
         summary = context.usage_summary()
         assert summary["total_thinking_tokens"] == 3000
 
-        # Calculate expected thinking cost: 3000 tokens * $9/MTok = $0.027
-        expected_thinking_cost = 3000 * 9.00 / 1_000_000
+        # Calculate expected thinking cost: 3000 tokens * $15/MTok (same as output) = $0.045
+        expected_thinking_cost = 3000 * 15.00 / 1_000_000
         assert abs(summary["thinking_cost"] - expected_thinking_cost) < 0.0001
 
 

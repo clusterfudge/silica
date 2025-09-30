@@ -19,7 +19,7 @@ MODEL_MAP: dict[str, ModelSpec] = {
         "max_tokens": 8192,
         "context_window": 200000,  # 200k tokens context window
         "thinking_support": True,
-        "thinking_pricing": {"thinking": 45.00},  # 3x input price
+        "thinking_pricing": {"thinking": 18.75},  # Same as output tokens
     },
     "sonnet": {
         "title": "claude-sonnet-4-5-20250929",
@@ -28,7 +28,7 @@ MODEL_MAP: dict[str, ModelSpec] = {
         "max_tokens": 8192,
         "context_window": 200000,  # 200k tokens context window
         "thinking_support": True,
-        "thinking_pricing": {"thinking": 9.00},  # 3x input price
+        "thinking_pricing": {"thinking": 15.00},  # Same as output tokens
     },
     "haiku": {
         "title": "claude-3-5-haiku-20241022",
@@ -56,7 +56,7 @@ MODEL_MAP: dict[str, ModelSpec] = {
         "max_tokens": 8192,
         "context_window": 200000,
         "thinking_support": True,
-        "thinking_pricing": {"thinking": 9.00},  # 3x input price
+        "thinking_pricing": {"thinking": 15.00},  # Same as output tokens
     },
 }
 
