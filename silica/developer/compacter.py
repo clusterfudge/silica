@@ -95,14 +95,28 @@ class ConversationCompacter:
             if self._has_incomplete_tool_use(context_dict["messages"]):
                 return self._estimate_full_context_tokens(context_dict)
 
-            # Use the Anthropic API's count_tokens method with the actual parameters
-            # that would be sent to the messages API
-            response = self.client.messages.count_tokens(
-                model=model,
-                system=context_dict["system"],
-                messages=context_dict["messages"],
-                tools=context_dict["tools"] if context_dict["tools"] else None,
+            # Strip thinking blocks from history messages for token counting
+            # The API has strict requirements: when thinking is enabled, the LAST
+            # assistant message must start with a thinking block. Old thinking blocks
+            # in history would trigger this requirement but can't satisfy it.
+            # Solution: remove all thinking blocks from the message copies we send.
+            messages_for_counting = self._strip_thinking_blocks(
+                context_dict["messages"]
             )
+
+            # Use the Anthropic API's count_tokens method with the actual parameters
+            # that would be sent to the messages API (but without thinking blocks)
+            count_kwargs = {
+                "model": model,
+                "system": context_dict["system"],
+                "messages": messages_for_counting,
+                "tools": context_dict["tools"] if context_dict["tools"] else None,
+            }
+
+            # Note: We intentionally do NOT enable the thinking parameter here
+            # because we've stripped all thinking blocks from the messages
+
+            response = self.client.messages.count_tokens(**count_kwargs)
 
             # Extract token count from response
             if hasattr(response, "token_count"):
@@ -129,6 +143,74 @@ class ConversationCompacter:
             # Fallback to estimation
             context_dict = agent_context.get_api_context()
             return self._estimate_full_context_tokens(context_dict)
+
+    def _strip_thinking_blocks(self, messages: list) -> list:
+        """Strip thinking blocks from messages for token counting.
+
+        The API requires: when thinking is enabled, the LAST assistant message
+        must start with a thinking block. Old thinking blocks in conversation
+        history would trigger this requirement but can't satisfy it (they're not
+        in the last message).
+
+        Solution: Create a deep copy of messages with all thinking blocks removed.
+        This allows us to count tokens without the thinking parameter enabled.
+
+        Args:
+            messages: List of messages that may contain thinking blocks
+
+        Returns:
+            Deep copy of messages with thinking blocks stripped out
+        """
+        import copy
+
+        # Deep copy to avoid modifying the original
+        cleaned_messages = copy.deepcopy(messages)
+
+        for message in cleaned_messages:
+            if message.get("role") != "assistant":
+                continue
+
+            content = message.get("content", [])
+            if not isinstance(content, list):
+                continue
+
+            # Filter out thinking blocks
+            filtered_content = []
+            for block in content:
+                # Check both dict and object representations
+                if isinstance(block, dict):
+                    if block.get("type") not in ["thinking", "redacted_thinking"]:
+                        filtered_content.append(block)
+                elif hasattr(block, "type"):
+                    if block.type not in ["thinking", "redacted_thinking"]:
+                        # Convert to dict for consistency
+                        filtered_content.append(
+                            {
+                                "type": block.type,
+                                **(
+                                    {"text": block.text}
+                                    if hasattr(block, "text")
+                                    else {}
+                                ),
+                                **(
+                                    {"id": block.id, "name": block.name}
+                                    if hasattr(block, "id")
+                                    else {}
+                                ),
+                                **(
+                                    {"tool_use_id": block.tool_use_id}
+                                    if hasattr(block, "tool_use_id")
+                                    else {}
+                                ),
+                            }
+                        )
+                else:
+                    # Keep unknown block types
+                    filtered_content.append(block)
+
+            message["content"] = filtered_content
+
+        return cleaned_messages
 
     def _has_incomplete_tool_use(self, messages: list) -> bool:
         """Check if messages have tool_use without corresponding tool_result.
@@ -378,23 +460,28 @@ class ConversationCompacter:
         summary = self.generate_summary(agent_context, model)
 
         # Create a new conversation with the summary as the system message
+        # Note: We use a list for content to maintain consistency with other messages
         new_messages = [
             {
                 "role": "user",
-                "content": (
-                    f"### Conversation Summary (Compacted from {summary.original_message_count} previous messages)\n\n"
-                    f"{summary.summary}\n\n"
-                    f"Continue the conversation from this point."
-                ),
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            f"### Conversation Summary (Compacted from {summary.original_message_count} previous messages)\n\n"
+                            f"{summary.summary}\n\n"
+                            f"Continue the conversation from this point."
+                        ),
+                    }
+                ],
             }
         ]
 
-        # Optionally, retain the most recent few messages for immediate context
-        # This is configurable - here we're adding the last user/assistant exchange
-        context_dict = agent_context.get_api_context()
-        messages_to_use = context_dict["messages"]
-        if len(messages_to_use) >= 2:
-            new_messages.extend(messages_to_use[-2:])
+        # Don't preserve old messages - they can create invalid tool_use/tool_result sequences
+        # The summary provides sufficient context, and preserving partial exchanges
+        # can lead to API errors when tool_result blocks reference tool_use blocks
+        # that are not in the immediately preceding assistant message.
+        # See: Bug report about "unexpected `tool_use_id` found in `tool_result` blocks"
 
         return new_messages, summary
 
