@@ -95,15 +95,16 @@ class CLIUserInterface(UserInterface):
         # Set up key bindings
         kb = KeyBindings()
 
-        # Store a reference to track mode switches
+        # Store a reference to track mode switches and preserve user input
         self._mode_switch_pending = False
+        self._preserved_input = None
 
         @kb.add("c-t")
         def _(event):
             """Cycle through thinking modes: off -> normal -> ultra -> off
 
-            This handler cycles the thinking mode without re-rendering the prompt.
-            The prompt will be updated on the next input cycle.
+            This handler cycles the thinking mode and preserves the current input.
+            The prompt will be re-rendered with the new mode icon.
             """
             if self.agent_context:
                 current_mode = self.agent_context.thinking_mode
@@ -117,7 +118,10 @@ class CLIUserInterface(UserInterface):
                 # Mark that we have a pending mode switch
                 self._mode_switch_pending = True
 
-                # Abort the current prompt and return empty string to trigger re-prompt
+                # Preserve the current input text
+                self._preserved_input = event.app.current_buffer.text
+
+                # Abort the current prompt to trigger re-prompt with new mode
                 event.app.exit(result="")
 
         self.session = PromptSession(
@@ -338,12 +342,20 @@ class CLIUserInterface(UserInterface):
     async def get_user_input(self, prompt: str = "") -> str:
         _console = Console(file=None)
 
-        user_input = await self.session.prompt_async(rich_to_prompt_toolkit(prompt))
-
-        # If mode switch was pending and we got empty input, just return empty
-        # The agent loop will handle the re-prompt
-        if self._mode_switch_pending and not user_input.strip():
+        # If we have preserved input from a mode switch, restore it
+        default_text = ""
+        if self._mode_switch_pending and self._preserved_input is not None:
+            default_text = self._preserved_input
+            self._preserved_input = None
             self._mode_switch_pending = False
+
+        user_input = await self.session.prompt_async(
+            rich_to_prompt_toolkit(prompt), default=default_text
+        )
+
+        # Handle empty input (should not happen with mode switch anymore)
+        if not user_input.strip() and default_text:
+            # This means user cleared the preserved text and hit enter
             return ""
 
         # Handle multi-line input
