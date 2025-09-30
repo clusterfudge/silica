@@ -95,15 +95,15 @@ class ConversationCompacter:
             if self._has_incomplete_tool_use(context_dict["messages"]):
                 return self._estimate_full_context_tokens(context_dict)
 
-            # Check if the LAST assistant message contains thinking blocks
-            # The API requires: when thinking is enabled, the final assistant message
-            # must start with a thinking block. So we only enable thinking if the
-            # last assistant message has thinking blocks.
+            # Check if ANY assistant message contains thinking blocks
+            # The API has contradictory requirements but empirically:
+            # - If ANY message has thinking, you MUST enable the thinking parameter
+            # - Otherwise you get: "cannot contain thinking when thinking is disabled"
             thinking_config = None
-            has_thinking = self._has_thinking_in_last_assistant_message(
+            has_thinking = self._has_thinking_in_any_assistant_message(
                 context_dict["messages"]
             )
-            print(f"[DEBUG] Has thinking in last assistant message: {has_thinking}")
+            print(f"[DEBUG] Has thinking in any assistant message: {has_thinking}")
             if has_thinking:
                 # Enable thinking for token counting (use a reasonable budget)
                 thinking_config = {"type": "enabled", "budget_tokens": 10000}
@@ -251,8 +251,9 @@ class ConversationCompacter:
     def _has_thinking_in_any_assistant_message(self, messages: list) -> bool:
         """Check if ANY assistant message contains thinking blocks.
 
-        This is kept for potential future use, but for count_tokens we use
-        _has_thinking_in_last_assistant_message instead.
+        The API requires: if ANY message has thinking blocks, you MUST enable
+        the thinking parameter in count_tokens. Otherwise you get the error:
+        "When thinking is disabled, an assistant message cannot contain thinking"
 
         Args:
             messages: List of messages to check
@@ -263,8 +264,10 @@ class ConversationCompacter:
         if not messages:
             return False
 
+        print(f"[DEBUG] Checking {len(messages)} messages for thinking in ANY message")
+
         # Check ALL assistant messages
-        for message in messages:
+        for msg_idx, message in enumerate(messages):
             if message.get("role") != "assistant":
                 continue
 
@@ -272,15 +275,22 @@ class ConversationCompacter:
             if not isinstance(content, list):
                 continue
 
-            # Check if this assistant message has thinking blocks
-            for block in content:
+            # Check if this assistant message has thinking blocks ANYWHERE
+            for block_idx, block in enumerate(content):
                 if isinstance(block, dict):
                     if block.get("type") == "thinking":
+                        print(
+                            f"[DEBUG] ✓ Found thinking block (dict) at message {msg_idx}, block {block_idx}"
+                        )
                         return True
                 elif hasattr(block, "type"):
                     if block.type == "thinking":
+                        print(
+                            f"[DEBUG] ✓ Found thinking block (object) at message {msg_idx}, block {block_idx}"
+                        )
                         return True
 
+        print("[DEBUG] No thinking blocks found in any message")
         return False
 
     def _estimate_full_context_tokens(self, context_dict: dict) -> int:

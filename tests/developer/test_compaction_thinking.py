@@ -108,7 +108,7 @@ class TestCompactionWithThinking(unittest.TestCase):
         shutil.rmtree(self.test_dir)
 
     def test_has_thinking_detection_with_sdk_objects(self):
-        """Test that _has_thinking_in_last_assistant_message detects SDK objects."""
+        """Test that _has_thinking_in_any_assistant_message detects SDK objects."""
         compacter = ConversationCompacter(client=self.mock_client)
 
         # Messages with SDK objects (as they appear in chat_history)
@@ -125,11 +125,11 @@ class TestCompactionWithThinking(unittest.TestCase):
             },
         ]
 
-        result = compacter._has_thinking_in_last_assistant_message(messages)
+        result = compacter._has_thinking_in_any_assistant_message(messages)
         self.assertTrue(result, "Should detect thinking blocks in SDK objects")
 
     def test_has_thinking_detection_with_dicts(self):
-        """Test that _has_thinking_in_last_assistant_message detects dict blocks."""
+        """Test that _has_thinking_in_any_assistant_message detects dict blocks."""
         compacter = ConversationCompacter(client=self.mock_client)
 
         # Messages with dicts (as they might appear after serialization)
@@ -148,14 +148,15 @@ class TestCompactionWithThinking(unittest.TestCase):
             },
         ]
 
-        result = compacter._has_thinking_in_last_assistant_message(messages)
+        result = compacter._has_thinking_in_any_assistant_message(messages)
         self.assertTrue(result, "Should detect thinking blocks in dicts")
 
-    def test_has_thinking_not_detected_when_not_in_last_message(self):
-        """Test that thinking blocks are NOT detected when only in middle messages.
+    def test_has_thinking_detected_in_middle_message(self):
+        """Test that thinking blocks ARE detected even in middle messages.
 
-        This changed behavior: we now only enable thinking for count_tokens if the
-        LAST assistant message has thinking, not just any message in history.
+        The API requires: if ANY message has thinking blocks, you MUST enable
+        the thinking parameter. This test verifies we detect thinking even when
+        it's not in the last message.
         """
         compacter = ConversationCompacter(client=self.mock_client)
 
@@ -177,9 +178,9 @@ class TestCompactionWithThinking(unittest.TestCase):
             {"role": "assistant", "content": [{"type": "text", "text": "Six"}]},
         ]
 
-        result = compacter._has_thinking_in_last_assistant_message(messages)
-        self.assertFalse(
-            result, "Should NOT detect thinking when last assistant message has none"
+        result = compacter._has_thinking_in_any_assistant_message(messages)
+        self.assertTrue(
+            result, "Should detect thinking even when not in last assistant message"
         )
 
     def test_has_thinking_no_thinking_blocks(self):
@@ -191,7 +192,7 @@ class TestCompactionWithThinking(unittest.TestCase):
             {"role": "assistant", "content": [{"type": "text", "text": "Four"}]},
         ]
 
-        result = compacter._has_thinking_in_last_assistant_message(messages)
+        result = compacter._has_thinking_in_any_assistant_message(messages)
         self.assertFalse(result, "Should not detect thinking when there are none")
 
     def test_count_tokens_with_thinking_enables_thinking_param(self):
@@ -319,7 +320,3 @@ class TestCompactionWithThinking(unittest.TestCase):
             mock_client.thinking_enabled,
             "thinking parameter should not be enabled when no thinking blocks present",
         )
-
-
-if __name__ == "__main__":
-    unittest.main()
