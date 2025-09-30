@@ -346,27 +346,25 @@ class CLIUserInterface(UserInterface):
     async def get_user_input(self, prompt: str = "") -> str:
         _console = Console(file=None)
 
-        # If a mode switch was triggered, the prompt will return empty
-        # Keep re-prompting until we get actual input
-        while True:
-            user_input = await self.session.prompt_async(rich_to_prompt_toolkit(prompt))
+        user_input = await self.session.prompt_async(rich_to_prompt_toolkit(prompt))
 
-            # If mode switch was pending and we got empty input, re-prompt
-            if self._mode_switch_pending and not user_input.strip():
-                self._mode_switch_pending = False
-                continue
+        # If mode switch was pending and we got empty input, just return empty
+        # The agent loop will handle the re-prompt
+        if self._mode_switch_pending and not user_input.strip():
+            self._mode_switch_pending = False
+            return ""
 
-            # Handle multi-line input
-            if user_input.strip() == "{":
-                multi_line_input = []
-                while True:
-                    line = await self.session.prompt_async("... ")
-                    if line.strip() == "}":
-                        break
-                    multi_line_input.append(line)
-                user_input = "\n".join(multi_line_input)
+        # Handle multi-line input
+        if user_input.strip() == "{":
+            multi_line_input = []
+            while True:
+                line = await self.session.prompt_async("... ")
+                if line.strip() == "}":
+                    break
+                multi_line_input.append(line)
+            user_input = "\n".join(multi_line_input)
 
-            return user_input
+        return user_input
 
     def handle_user_input(self, user_input: str):
         """
