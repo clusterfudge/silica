@@ -105,8 +105,15 @@ class CLIUserInterface(UserInterface):
 
             This handler cycles the thinking mode and preserves the current input.
             The prompt will be re-rendered with the new mode icon.
+
+            Note: Even if agent_context is None (during early initialization), we must
+            handle this event to prevent the default Ctrl+T behavior (transpose characters).
             """
-            if self.agent_context:
+            if not self.agent_context:
+                # Agent context not yet initialized - do nothing but prevent default behavior
+                # by explicitly handling the event (don't let it fall through to defaults)
+                pass
+            else:
                 current_mode = self.agent_context.thinking_mode
                 if current_mode == "off":
                     self.agent_context.thinking_mode = "normal"
