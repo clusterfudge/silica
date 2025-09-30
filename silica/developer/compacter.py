@@ -199,12 +199,16 @@ class ConversationCompacter:
             return False
 
         # Check if last assistant message has thinking blocks
-        has_thinking = any(
-            isinstance(block, dict) and block.get("type") == "thinking"
-            for block in content
-        )
+        # Handle both dict and object types
+        for block in content:
+            if isinstance(block, dict):
+                if block.get("type") == "thinking":
+                    return True
+            elif hasattr(block, "type"):
+                if block.type == "thinking":
+                    return True
 
-        return has_thinking
+        return False
 
     def _estimate_full_context_tokens(self, context_dict: dict) -> int:
         """Estimate token count for full context as a fallback.
