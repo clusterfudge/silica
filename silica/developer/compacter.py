@@ -196,36 +196,55 @@ class ConversationCompacter:
             bool: True if any assistant message contains thinking blocks
         """
         if not messages:
+            print("[DEBUG] No messages to check")
             return False
+
+        print(f"[DEBUG] Checking {len(messages)} messages for thinking blocks")
 
         # Check ALL assistant messages, not just the last one
         for msg_idx, message in enumerate(messages):
-            if message.get("role") != "assistant":
+            role = message.get("role")
+            print(f"[DEBUG] Message {msg_idx}: role={role}")
+
+            if role != "assistant":
                 continue
 
             content = message.get("content", [])
+            print(
+                f"[DEBUG]   Content type: {type(content)}, is list: {isinstance(content, list)}"
+            )
+
             if not isinstance(content, list):
+                print("[DEBUG]   Skipping - content is not a list")
                 continue
+
+            print(f"[DEBUG]   Checking {len(content)} content blocks")
 
             # Check if this assistant message has thinking blocks
             # Handle both dict and object types
             for block_idx, block in enumerate(content):
+                print(f"[DEBUG]   Block {block_idx}: type={type(block).__name__}")
                 block_type = None
                 if isinstance(block, dict):
                     block_type = block.get("type")
+                    print(f"[DEBUG]     Dict block has type='{block_type}'")
                     if block_type == "thinking":
                         print(
-                            f"[DEBUG] Found thinking block (dict) at message {msg_idx}, block {block_idx}"
+                            f"[DEBUG] ✓ Found thinking block (dict) at message {msg_idx}, block {block_idx}"
                         )
                         return True
                 elif hasattr(block, "type"):
                     block_type = block.type
+                    print(f"[DEBUG]     Object block has type='{block_type}'")
                     if block_type == "thinking":
                         print(
-                            f"[DEBUG] Found thinking block (object) at message {msg_idx}, block {block_idx}"
+                            f"[DEBUG] ✓ Found thinking block (object) at message {msg_idx}, block {block_idx}"
                         )
                         return True
+                else:
+                    print("[DEBUG]     Block has no type attribute")
 
+        print("[DEBUG] No thinking blocks found in any message")
         return False
 
     def _estimate_full_context_tokens(self, context_dict: dict) -> int:
