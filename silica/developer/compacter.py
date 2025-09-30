@@ -95,14 +95,27 @@ class ConversationCompacter:
             if self._has_incomplete_tool_use(context_dict["messages"]):
                 return self._estimate_full_context_tokens(context_dict)
 
+            # Check if the last assistant message contains thinking blocks
+            # If so, we need to enable thinking in the count_tokens call
+            thinking_config = None
+            if self._has_thinking_in_last_assistant_message(context_dict["messages"]):
+                # Enable thinking for token counting (use a reasonable budget)
+                thinking_config = {"type": "enabled", "budget_tokens": 10000}
+
             # Use the Anthropic API's count_tokens method with the actual parameters
             # that would be sent to the messages API
-            response = self.client.messages.count_tokens(
-                model=model,
-                system=context_dict["system"],
-                messages=context_dict["messages"],
-                tools=context_dict["tools"] if context_dict["tools"] else None,
-            )
+            count_kwargs = {
+                "model": model,
+                "system": context_dict["system"],
+                "messages": context_dict["messages"],
+                "tools": context_dict["tools"] if context_dict["tools"] else None,
+            }
+
+            # Add thinking parameter if needed
+            if thinking_config:
+                count_kwargs["thinking"] = thinking_config
+
+            response = self.client.messages.count_tokens(**count_kwargs)
 
             # Extract token count from response
             if hasattr(response, "token_count"):
@@ -160,6 +173,38 @@ class ConversationCompacter:
         # If we have tool_use in the last message, it's incomplete
         # (no chance for tool_result to follow)
         return has_tool_use
+
+    def _has_thinking_in_last_assistant_message(self, messages: list) -> bool:
+        """Check if the last assistant message contains thinking blocks.
+
+        When counting tokens, if the last assistant message contains thinking blocks,
+        we must enable thinking in the count_tokens call, otherwise the API will
+        reject it with an error.
+
+        Args:
+            messages: List of messages to check
+
+        Returns:
+            bool: True if last assistant message contains thinking blocks
+        """
+        if not messages:
+            return False
+
+        last_message = messages[-1]
+        if last_message.get("role") != "assistant":
+            return False
+
+        content = last_message.get("content", [])
+        if not isinstance(content, list):
+            return False
+
+        # Check if last assistant message has thinking blocks
+        has_thinking = any(
+            isinstance(block, dict) and block.get("type") == "thinking"
+            for block in content
+        )
+
+        return has_thinking
 
     def _estimate_full_context_tokens(self, context_dict: dict) -> int:
         """Estimate token count for full context as a fallback.
