@@ -102,25 +102,17 @@ class CLIUserInterface(UserInterface):
         def _(event):
             """Cycle through thinking modes: off -> normal -> ultra -> off
 
-            This handler cycles the thinking mode and triggers a prompt abort/re-render.
+            This handler cycles the thinking mode without re-rendering the prompt.
+            The prompt will be updated on the next input cycle.
             """
             if self.agent_context:
                 current_mode = self.agent_context.thinking_mode
                 if current_mode == "off":
                     self.agent_context.thinking_mode = "normal"
-                    mode_emoji = "💭"
-                    mode_name = "normal (8k budget)"
                 elif current_mode == "normal":
                     self.agent_context.thinking_mode = "ultra"
-                    mode_emoji = "🧠"
-                    mode_name = "ultra (20k budget)"
                 else:  # ultra
                     self.agent_context.thinking_mode = "off"
-                    mode_emoji = "🚫"
-                    mode_name = "off"
-
-                # Display the mode change
-                print(f"\n{mode_emoji} Thinking mode: {mode_name}")
 
                 # Mark that we have a pending mode switch
                 self._mode_switch_pending = True

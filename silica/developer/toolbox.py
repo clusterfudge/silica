@@ -361,6 +361,12 @@ class Toolbox:
 * The AI can read, write, and edit files in your project
 * Use `/add` and `/remove` to manage which files are in the sandbox context
 
+**Thinking Mode (Extended Thinking API):**
+* Press **Ctrl+T** to cycle through thinking modes: off → 💭 normal (8k) → 🧠 ultra (20k) → off
+* When enabled, the AI thinks deeply before responding (costs 3x input pricing)
+* The prompt shows the current mode: `💭 $0.00 >` (normal) or `🧠 $0.00 >` (ultra)
+* Thinking content is displayed in a collapsible panel after responses
+
 **Command Shortcuts:**
 * Use `/exec` to run shell commands quickly
 * Use `/commit` to auto-generate git commit messages
