@@ -7,6 +7,8 @@ class ModelSpec(TypedDict):
     cache_pricing: dict[str, float]
     max_tokens: int
     context_window: int
+    thinking_support: bool
+    thinking_pricing: dict[str, float]
 
 
 MODEL_MAP: dict[str, ModelSpec] = {
@@ -16,6 +18,8 @@ MODEL_MAP: dict[str, ModelSpec] = {
         "cache_pricing": {"write": 3.75, "read": 0.30},
         "max_tokens": 8192,
         "context_window": 200000,  # 200k tokens context window
+        "thinking_support": True,
+        "thinking_pricing": {"thinking": 45.00},  # 3x input price
     },
     "sonnet": {
         "title": "claude-sonnet-4-5-20250929",
@@ -23,6 +27,8 @@ MODEL_MAP: dict[str, ModelSpec] = {
         "cache_pricing": {"write": 3.75, "read": 0.30},
         "max_tokens": 8192,
         "context_window": 200000,  # 200k tokens context window
+        "thinking_support": True,
+        "thinking_pricing": {"thinking": 9.00},  # 3x input price
     },
     "haiku": {
         "title": "claude-3-5-haiku-20241022",
@@ -30,6 +36,8 @@ MODEL_MAP: dict[str, ModelSpec] = {
         "cache_pricing": {"write": 1.00, "read": 0.08},
         "max_tokens": 8192,
         "context_window": 100000,  # 100k tokens context window
+        "thinking_support": False,
+        "thinking_pricing": {"thinking": 0.00},  # Not supported
     },
     # Legacy model aliases for backwards compatibility
     "sonnet-3.5": {
@@ -38,6 +46,8 @@ MODEL_MAP: dict[str, ModelSpec] = {
         "cache_pricing": {"write": 3.75, "read": 0.30},
         "max_tokens": 8192,
         "context_window": 200000,
+        "thinking_support": False,
+        "thinking_pricing": {"thinking": 0.00},  # Not supported
     },
     "sonnet-3.7": {
         "title": "claude-3-7-sonnet-20250219",
@@ -45,6 +55,8 @@ MODEL_MAP: dict[str, ModelSpec] = {
         "cache_pricing": {"write": 3.75, "read": 0.30},
         "max_tokens": 8192,
         "context_window": 200000,
+        "thinking_support": True,
+        "thinking_pricing": {"thinking": 9.00},  # 3x input price
     },
 }
 

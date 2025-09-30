@@ -36,6 +36,7 @@ class AgentContext:
     usage: list[tuple[Any, Any]]
     memory_manager: "MemoryManager"
     cli_args: list[str] = None
+    thinking_mode: str = "off"  # "off", "normal", or "ultra"
     _chat_history: list[MessageParam] = None
     _tool_result_buffer: list[dict] = None
 
@@ -170,7 +171,9 @@ class AgentContext:
         usage_summary = {
             "total_input_tokens": 0,
             "total_output_tokens": 0,
+            "total_thinking_tokens": 0,
             "total_cost": 0.0,
+            "thinking_cost": 0.0,
             "cached_tokens": 0,
             "model_breakdown": {},
         }
@@ -179,6 +182,7 @@ class AgentContext:
             model_name = model_spec["title"]
             pricing = model_spec["pricing"]
             cache_pricing = model_spec["cache_pricing"]
+            thinking_pricing = model_spec.get("thinking_pricing", {"thinking": 0.0})
 
             input_tokens = self._prop_or_dict_entry(usage_entry, "input_tokens")
             output_tokens = self._prop_or_dict_entry(usage_entry, "output_tokens")
@@ -189,22 +193,35 @@ class AgentContext:
                 usage_entry, "cache_read_input_tokens"
             )
 
+            # Extract thinking tokens if present (Anthropic SDK v0.62.0+)
+            thinking_tokens = 0
+            if hasattr(usage_entry, "thinking_tokens"):
+                thinking_tokens = usage_entry.thinking_tokens
+            elif isinstance(usage_entry, dict) and "thinking_tokens" in usage_entry:
+                thinking_tokens = usage_entry["thinking_tokens"]
+
             usage_summary["total_input_tokens"] += input_tokens
             usage_summary["total_output_tokens"] += output_tokens
+            usage_summary["total_thinking_tokens"] += thinking_tokens
             usage_summary["cached_tokens"] += cache_read_input_tokens
+
+            thinking_cost = thinking_tokens * thinking_pricing["thinking"]
 
             total_cost = (
                 input_tokens * pricing["input"]
                 + output_tokens * pricing["output"]
                 + cache_pricing["read"] * cache_read_input_tokens
                 + cache_pricing["write"] * cache_creation_input_tokens
+                + thinking_cost
             )
 
             if model_name not in usage_summary["model_breakdown"]:
                 usage_summary["model_breakdown"][model_name] = {
                     "total_input_tokens": 0,
                     "total_output_tokens": 0,
+                    "total_thinking_tokens": 0,
                     "total_cost": 0.0,
+                    "thinking_cost": 0.0,
                     "cached_tokens": 0,
                     "token_breakdown": {},
                 }
@@ -212,13 +229,17 @@ class AgentContext:
             model_breakdown = usage_summary["model_breakdown"][model_name]
             model_breakdown["total_input_tokens"] += input_tokens
             model_breakdown["total_output_tokens"] += output_tokens
+            model_breakdown["total_thinking_tokens"] += thinking_tokens
             model_breakdown["cached_tokens"] += cache_read_input_tokens
 
             model_breakdown["total_cost"] += total_cost
+            model_breakdown["thinking_cost"] += thinking_cost / 1_000_000
 
             usage_summary["total_cost"] += total_cost
+            usage_summary["thinking_cost"] += thinking_cost
 
         usage_summary["total_cost"] /= 1_000_000
+        usage_summary["thinking_cost"] /= 1_000_000
 
         return usage_summary
 
@@ -297,6 +318,7 @@ class AgentContext:
             "model_spec": self.model_spec,
             "usage": self.usage,
             "messages": chat_history,
+            "thinking_mode": self.thinking_mode,
             "metadata": {
                 "created_at": current_time,
                 "last_updated": current_time,
@@ -390,6 +412,7 @@ def load_session_data(
         model_spec = session_data.get("model_spec", base_context.model_spec)
         parent_id = session_data.get("parent_session_id")
         cli_args = session_data.get("metadata", {}).get("cli_args")
+        thinking_mode = session_data.get("thinking_mode", "off")
 
         # Create a new context with the loaded data
         updated_context = AgentContext(
@@ -401,6 +424,7 @@ def load_session_data(
             usage=usage_data if usage_data else base_context.usage,
             memory_manager=base_context.memory_manager,
             cli_args=cli_args.copy() if cli_args else None,
+            thinking_mode=thinking_mode,
             _chat_history=chat_history,
             _tool_result_buffer=[],  # Always start with empty tool buffer
         )
