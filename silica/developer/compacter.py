@@ -275,6 +275,26 @@ class ConversationCompacter:
             if not isinstance(content, list):
                 continue
 
+            # Validate thinking block placement (must be at start, not end)
+            if len(content) > 0:
+                last_block = content[-1]
+                last_block_type = None
+                if isinstance(last_block, dict):
+                    last_block_type = last_block.get("type")
+                elif hasattr(last_block, "type"):
+                    last_block_type = last_block.type
+
+                if last_block_type == "thinking":
+                    print(
+                        f"[DEBUG] ⚠️  WARNING: Message {msg_idx} has thinking block at END (block {len(content)-1})"
+                    )
+                    print(
+                        "[DEBUG] This violates API requirement: thinking must be FIRST, not last"
+                    )
+                    print(
+                        f"[DEBUG] Full content block types: {[b.type if hasattr(b, 'type') else b.get('type') for b in content]}"
+                    )
+
             # Check if this assistant message has thinking blocks ANYWHERE
             for block_idx, block in enumerate(content):
                 if isinstance(block, dict):

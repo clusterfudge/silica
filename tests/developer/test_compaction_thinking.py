@@ -320,3 +320,156 @@ class TestCompactionWithThinking(unittest.TestCase):
             mock_client.thinking_enabled,
             "thinking parameter should not be enabled when no thinking blocks present",
         )
+
+        """Test the real-world scenario: thinking on, then off.
+
+        This reproduces the actual bug:
+        1. User enables thinking and gets response with thinking blocks
+        2. User disables thinking and continues conversation
+        3. Token counting should enable thinking parameter (old message has thinking)
+        4. API should accept this even though new response won't have thinking
+        """
+
+        class MockClient:
+            def __init__(self):
+                self.thinking_enabled = False
+                self.messages = self.MessagesClient(self)
+
+            class MessagesClient:
+                def __init__(self, parent):
+                    self.parent = parent
+
+                def count_tokens(
+                    self, model, system=None, messages=None, tools=None, thinking=None
+                ):
+                    if thinking is not None:
+                        self.parent.thinking_enabled = True
+
+                    class TokenResponse:
+                        def __init__(self):
+                            self.input_tokens = 500
+
+                    return TokenResponse()
+
+        mock_client = MockClient()
+        compacter = ConversationCompacter(client=mock_client)
+
+        # Create context
+        ui = MockUserInterface()
+        sandbox = Sandbox(self.test_dir, mode=SandboxMode.ALLOW_ALL)
+        memory_manager = MemoryManager()
+        context = AgentContext(
+            parent_session_id=None,
+            session_id="test-session",
+            model_spec=self.model_spec,
+            sandbox=sandbox,
+            user_interface=ui,
+            usage=[],
+            memory_manager=memory_manager,
+        )
+
+        # Simulate the conversation flow:
+        # Turn 1: User asks with thinking enabled
+        # Turn 2: Assistant responds WITH thinking blocks
+        # Turn 3: User asks again (thinking now disabled)
+        # Turn 4: We're about to send to API - need to count tokens
+        context._chat_history = [
+            {"role": "user", "content": "What is 2+2?"},
+            {
+                "role": "assistant",
+                "content": [
+                    ThinkingBlock(
+                        signature="test_sig", thinking="Let me think", type="thinking"
+                    ),
+                    TextBlock(text="The answer is 4", type="text"),
+                ],
+            },
+            {"role": "user", "content": "What is 3+3?"},
+        ]
+
+        # Count tokens before sending request
+        # This should ENABLE thinking because message[1] has thinking blocks
+        token_count = compacter.count_tokens(context, "claude-sonnet-4-20250514")
+
+        # Verify thinking WAS enabled (this is correct behavior)
+        self.assertTrue(
+            mock_client.thinking_enabled,
+            "thinking parameter SHOULD be enabled when history contains thinking blocks",
+        )
+        self.assertEqual(token_count, 500)
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+    def test_thinking_mode_switch_scenario(self):
+        """Test the real-world scenario: thinking on, then off.
+
+        This reproduces the actual bug:
+        1. User enables thinking and gets response with thinking blocks
+        2. User disables thinking and continues conversation
+        3. Token counting should enable thinking parameter (old message has thinking)
+        4. API should accept this even though new response won't have thinking
+        """
+
+        class MockClient:
+            def __init__(self):
+                self.thinking_enabled = False
+                self.messages = self.MessagesClient(self)
+
+            class MessagesClient:
+                def __init__(self, parent):
+                    self.parent = parent
+
+                def count_tokens(
+                    self, model, system=None, messages=None, tools=None, thinking=None
+                ):
+                    if thinking is not None:
+                        self.parent.thinking_enabled = True
+
+                    class TokenResponse:
+                        def __init__(self):
+                            self.input_tokens = 500
+
+                    return TokenResponse()
+
+        mock_client = MockClient()
+        compacter = ConversationCompacter(client=mock_client)
+
+        # Create context
+        ui = MockUserInterface()
+        sandbox = Sandbox(self.test_dir, mode=SandboxMode.ALLOW_ALL)
+        memory_manager = MemoryManager()
+        context = AgentContext(
+            parent_session_id=None,
+            session_id="test-session",
+            model_spec=self.model_spec,
+            sandbox=sandbox,
+            user_interface=ui,
+            usage=[],
+            memory_manager=memory_manager,
+        )
+
+        # Simulate conversation: thinking enabled, then disabled
+        context._chat_history = [
+            {"role": "user", "content": "What is 2+2?"},
+            {
+                "role": "assistant",
+                "content": [
+                    ThinkingBlock(
+                        signature="test_sig", thinking="Let me think", type="thinking"
+                    ),
+                    TextBlock(text="The answer is 4", type="text"),
+                ],
+            },
+            {"role": "user", "content": "What is 3+3?"},
+        ]
+
+        # Count tokens - should enable thinking
+        token_count = compacter.count_tokens(context, "claude-sonnet-4-20250514")
+
+        self.assertTrue(
+            mock_client.thinking_enabled,
+            "thinking parameter SHOULD be enabled when history contains thinking blocks",
+        )
+        self.assertEqual(token_count, 500)
