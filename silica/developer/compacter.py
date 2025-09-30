@@ -98,9 +98,16 @@ class ConversationCompacter:
             # Check if the last assistant message contains thinking blocks
             # If so, we need to enable thinking in the count_tokens call
             thinking_config = None
-            if self._has_thinking_in_last_assistant_message(context_dict["messages"]):
+            has_thinking = self._has_thinking_in_last_assistant_message(
+                context_dict["messages"]
+            )
+            print(f"[DEBUG] Has thinking in last message: {has_thinking}")
+            if has_thinking:
                 # Enable thinking for token counting (use a reasonable budget)
                 thinking_config = {"type": "enabled", "budget_tokens": 10000}
+                print(
+                    f"[DEBUG] Enabled thinking for token counting with config: {thinking_config}"
+                )
 
             # Use the Anthropic API's count_tokens method with the actual parameters
             # that would be sent to the messages API
@@ -201,12 +208,20 @@ class ConversationCompacter:
         # Check if last assistant message has thinking blocks
         # Handle both dict and object types
         for block in content:
+            # Debug: print what we're seeing
+            block_type = None
             if isinstance(block, dict):
-                if block.get("type") == "thinking":
+                block_type = block.get("type")
+                if block_type == "thinking":
+                    print(f"[DEBUG] Found thinking block (dict): {block_type}")
                     return True
             elif hasattr(block, "type"):
-                if block.type == "thinking":
+                block_type = block.type
+                if block_type == "thinking":
+                    print(f"[DEBUG] Found thinking block (object): {block_type}")
                     return True
+            else:
+                print(f"[DEBUG] Unknown block format: {type(block)}")
 
         return False
 
