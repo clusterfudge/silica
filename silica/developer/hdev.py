@@ -95,9 +95,15 @@ class CLIUserInterface(UserInterface):
         # Set up key bindings
         kb = KeyBindings()
 
+        # Store a reference to track mode switches
+        self._mode_switch_pending = False
+
         @kb.add("c-t")
         def _(event):
-            """Cycle through thinking modes: off -> normal -> ultra -> off"""
+            """Cycle through thinking modes: off -> normal -> ultra -> off
+
+            This handler cycles the thinking mode and triggers a prompt abort/re-render.
+            """
             if self.agent_context:
                 current_mode = self.agent_context.thinking_mode
                 if current_mode == "off":
@@ -114,9 +120,13 @@ class CLIUserInterface(UserInterface):
                     mode_name = "off"
 
                 # Display the mode change
-                self.console.print(
-                    f"\n[bold cyan]{mode_emoji} Thinking mode: {mode_name}[/bold cyan]"
-                )
+                print(f"\n{mode_emoji} Thinking mode: {mode_name}")
+
+                # Mark that we have a pending mode switch
+                self._mode_switch_pending = True
+
+                # Abort the current prompt and return empty string to trigger re-prompt
+                event.app.exit(result="")
 
         self.session = PromptSession(
             history=history,
@@ -335,19 +345,28 @@ class CLIUserInterface(UserInterface):
 
     async def get_user_input(self, prompt: str = "") -> str:
         _console = Console(file=None)
-        user_input = await self.session.prompt_async(rich_to_prompt_toolkit(prompt))
 
-        # Handle multi-line input
-        if user_input.strip() == "{":
-            multi_line_input = []
-            while True:
-                line = await self.session.prompt_async("... ")
-                if line.strip() == "}":
-                    break
-                multi_line_input.append(line)
-            user_input = "\n".join(multi_line_input)
+        # If a mode switch was triggered, the prompt will return empty
+        # Keep re-prompting until we get actual input
+        while True:
+            user_input = await self.session.prompt_async(rich_to_prompt_toolkit(prompt))
 
-        return user_input
+            # If mode switch was pending and we got empty input, re-prompt
+            if self._mode_switch_pending and not user_input.strip():
+                self._mode_switch_pending = False
+                continue
+
+            # Handle multi-line input
+            if user_input.strip() == "{":
+                multi_line_input = []
+                while True:
+                    line = await self.session.prompt_async("... ")
+                    if line.strip() == "}":
+                        break
+                    multi_line_input.append(line)
+                user_input = "\n".join(multi_line_input)
+
+            return user_input
 
     def handle_user_input(self, user_input: str):
         """
