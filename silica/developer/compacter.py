@@ -95,13 +95,13 @@ class ConversationCompacter:
             if self._has_incomplete_tool_use(context_dict["messages"]):
                 return self._estimate_full_context_tokens(context_dict)
 
-            # Check if the last assistant message contains thinking blocks
+            # Check if any assistant message contains thinking blocks
             # If so, we need to enable thinking in the count_tokens call
             thinking_config = None
-            has_thinking = self._has_thinking_in_last_assistant_message(
+            has_thinking = self._has_thinking_in_any_assistant_message(
                 context_dict["messages"]
             )
-            print(f"[DEBUG] Has thinking in last message: {has_thinking}")
+            print(f"[DEBUG] Has thinking in any message: {has_thinking}")
             if has_thinking:
                 # Enable thinking for token counting (use a reasonable budget)
                 thinking_config = {"type": "enabled", "budget_tokens": 10000}
@@ -181,47 +181,50 @@ class ConversationCompacter:
         # (no chance for tool_result to follow)
         return has_tool_use
 
-    def _has_thinking_in_last_assistant_message(self, messages: list) -> bool:
-        """Check if the last assistant message contains thinking blocks.
+    def _has_thinking_in_any_assistant_message(self, messages: list) -> bool:
+        """Check if ANY assistant message contains thinking blocks.
 
-        When counting tokens, if the last assistant message contains thinking blocks,
+        When counting tokens, if any assistant message contains thinking blocks,
         we must enable thinking in the count_tokens call, otherwise the API will
-        reject it with an error.
+        reject it with an error. The API error can occur even if the thinking
+        block is not in the last message.
 
         Args:
             messages: List of messages to check
 
         Returns:
-            bool: True if last assistant message contains thinking blocks
+            bool: True if any assistant message contains thinking blocks
         """
         if not messages:
             return False
 
-        last_message = messages[-1]
-        if last_message.get("role") != "assistant":
-            return False
+        # Check ALL assistant messages, not just the last one
+        for msg_idx, message in enumerate(messages):
+            if message.get("role") != "assistant":
+                continue
 
-        content = last_message.get("content", [])
-        if not isinstance(content, list):
-            return False
+            content = message.get("content", [])
+            if not isinstance(content, list):
+                continue
 
-        # Check if last assistant message has thinking blocks
-        # Handle both dict and object types
-        for block in content:
-            # Debug: print what we're seeing
-            block_type = None
-            if isinstance(block, dict):
-                block_type = block.get("type")
-                if block_type == "thinking":
-                    print(f"[DEBUG] Found thinking block (dict): {block_type}")
-                    return True
-            elif hasattr(block, "type"):
-                block_type = block.type
-                if block_type == "thinking":
-                    print(f"[DEBUG] Found thinking block (object): {block_type}")
-                    return True
-            else:
-                print(f"[DEBUG] Unknown block format: {type(block)}")
+            # Check if this assistant message has thinking blocks
+            # Handle both dict and object types
+            for block_idx, block in enumerate(content):
+                block_type = None
+                if isinstance(block, dict):
+                    block_type = block.get("type")
+                    if block_type == "thinking":
+                        print(
+                            f"[DEBUG] Found thinking block (dict) at message {msg_idx}, block {block_idx}"
+                        )
+                        return True
+                elif hasattr(block, "type"):
+                    block_type = block.type
+                    if block_type == "thinking":
+                        print(
+                            f"[DEBUG] Found thinking block (object) at message {msg_idx}, block {block_idx}"
+                        )
+                        return True
 
         return False
 
