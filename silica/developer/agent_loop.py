@@ -389,17 +389,17 @@ async def run(
             ):
                 # Reset the interrupt flag
                 return_to_user_after_interrupt = False
-                cost = f"${agent_context.usage_summary()['total_cost']:.2f}"
-
-                # Add thinking mode indicator to prompt (only if enabled)
-                prompt = f"{cost} > "
-                if agent_context.thinking_mode == "normal":
-                    prompt = f"💭 {cost} > "
-                elif agent_context.thinking_mode == "ultra":
-                    prompt = f"🧠 {cost} > "
 
                 user_input = ""
                 while not user_input.strip():
+                    # Build prompt inside loop so it updates when thinking mode changes
+                    cost = f"${agent_context.usage_summary()['total_cost']:.2f}"
+                    prompt = f"{cost} > "
+                    if agent_context.thinking_mode == "normal":
+                        prompt = f"💭 {cost} > "
+                    elif agent_context.thinking_mode == "ultra":
+                        prompt = f"🧠 {cost} > "
+
                     user_input = await user_interface.get_user_input(prompt)
 
                 command_name = (
