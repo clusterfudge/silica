@@ -95,14 +95,21 @@ class ConversationCompacter:
             if self._has_incomplete_tool_use(context_dict["messages"]):
                 return self._estimate_full_context_tokens(context_dict)
 
-            # Use the Anthropic API's count_tokens method with the actual parameters
-            # that would be sent to the messages API
-            response = self.client.messages.count_tokens(
-                model=model,
-                system=context_dict["system"],
-                messages=context_dict["messages"],
-                tools=context_dict["tools"] if context_dict["tools"] else None,
+            # Strip thinking blocks to avoid API complexity
+            # Thinking blocks have complicated validation rules, so just remove them for counting
+            messages_for_counting = self._strip_all_thinking_blocks(
+                context_dict["messages"]
             )
+
+            # Use the Anthropic API's count_tokens method
+            count_kwargs = {
+                "model": model,
+                "system": context_dict["system"],
+                "messages": messages_for_counting,
+                "tools": context_dict["tools"] if context_dict["tools"] else None,
+            }
+
+            response = self.client.messages.count_tokens(**count_kwargs)
 
             # Extract token count from response
             if hasattr(response, "token_count"):
@@ -139,7 +146,6 @@ class ConversationCompacter:
         Returns:
             bool: True if there are incomplete tool_use blocks
         """
-        # Check the last message for tool_use without a following tool_result
         if not messages:
             return False
 
@@ -152,14 +158,56 @@ class ConversationCompacter:
             return False
 
         # Check if last assistant message has tool_use
-        has_tool_use = any(
+        return any(
             isinstance(block, dict) and block.get("type") == "tool_use"
             for block in content
         )
 
-        # If we have tool_use in the last message, it's incomplete
-        # (no chance for tool_result to follow)
-        return has_tool_use
+    def _strip_all_thinking_blocks(self, messages: list) -> list:
+        """Strip ALL thinking blocks from ALL messages.
+
+        This is used when the last assistant message doesn't start with thinking,
+        but earlier messages have thinking blocks. The API requires that if ANY
+        message has thinking, the thinking parameter must be enabled. But if
+        thinking is enabled, the LAST message must start with thinking. So when
+        the last message doesn't have thinking, we must strip ALL thinking blocks.
+
+        Args:
+            messages: List of messages that may contain thinking blocks
+
+        Returns:
+            Deep copy of messages with all thinking blocks stripped out
+        """
+        import copy
+
+        # Deep copy to avoid modifying the original
+        cleaned_messages = copy.deepcopy(messages)
+
+        for message in cleaned_messages:
+            if message.get("role") != "assistant":
+                continue
+
+            content = message.get("content", [])
+            if not isinstance(content, list):
+                continue
+
+            # Filter out thinking blocks
+            filtered_content = []
+            for block in content:
+                # Check both dict and object representations
+                block_type = None
+                if isinstance(block, dict):
+                    block_type = block.get("type")
+                elif hasattr(block, "type"):
+                    block_type = block.type
+
+                # Skip thinking and redacted_thinking blocks
+                if block_type not in ["thinking", "redacted_thinking"]:
+                    filtered_content.append(block)
+
+            message["content"] = filtered_content
+
+        return cleaned_messages
 
     def _estimate_full_context_tokens(self, context_dict: dict) -> int:
         """Estimate token count for full context as a fallback.

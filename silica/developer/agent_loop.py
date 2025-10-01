@@ -12,10 +12,35 @@ from anthropic.types import TextBlock, MessageParam
 from dotenv import load_dotenv
 
 from silica.developer.context import AgentContext
+from silica.developer.models import ModelSpec
 from silica.developer.prompt import create_system_message
 from silica.developer.rate_limiter import RateLimiter
 from silica.developer.toolbox import Toolbox
 from silica.developer.sandbox import DoSomethingElseError
+
+
+def get_thinking_config(thinking_mode: str, model_spec: ModelSpec) -> dict | None:
+    """Get the thinking configuration for the API call based on the current mode.
+
+    Args:
+        thinking_mode: One of "off", "normal", or "ultra"
+        model_spec: The model specification dict
+
+    Returns:
+        Thinking config dict for API call, or None if thinking is off or unsupported
+    """
+    # Check if model supports thinking
+    if not model_spec.get("thinking_support", False):
+        return {"type": "disabled"}
+
+    if thinking_mode == "off":
+        return None
+    elif thinking_mode == "normal":
+        return {"type": "enabled", "budget_tokens": 8000}
+    elif thinking_mode == "ultra":
+        return {"type": "enabled", "budget_tokens": 20000}
+    else:
+        return {"type": "disabled"}
 
 
 def retry_with_exponential_backoff(func, max_retries=5, base_delay=1, max_delay=60):
@@ -365,10 +390,18 @@ async def run(
             ):
                 # Reset the interrupt flag
                 return_to_user_after_interrupt = False
-                cost = f"${agent_context.usage_summary()['total_cost']:.2f}"
+
                 user_input = ""
                 while not user_input.strip():
-                    user_input = await user_interface.get_user_input(f"{cost} > ")
+                    # Build prompt inside loop so it updates when thinking mode changes
+                    cost = f"${agent_context.usage_summary()['total_cost']:.2f}"
+                    prompt = f"{cost} > "
+                    if agent_context.thinking_mode == "normal":
+                        prompt = f"💭 {cost} > "
+                    elif agent_context.thinking_mode == "ultra":
+                        prompt = f"🧠 {cost} > "
+
+                    user_input = await user_interface.get_user_input(prompt)
 
                 command_name = (
                     user_input.split()[0][1:] if user_input.startswith("/") else ""
@@ -512,16 +545,51 @@ async def run(
                         messages = _inline_latest_file_mentions(
                             agent_context.chat_history
                         )
-                        with client.messages.stream(
-                            system=system_message,
-                            max_tokens=model["max_tokens"],
-                            messages=messages,
-                            model=model["title"],
-                            tools=toolbox.agent_schema,
-                        ) as stream:
+
+                        # Get thinking configuration if enabled
+                        thinking_config = get_thinking_config(
+                            agent_context.thinking_mode, model
+                        )
+
+                        # Calculate max_tokens based on whether thinking is enabled
+                        # When thinking is enabled, max_tokens must be thinking_budget + completion_tokens
+                        max_tokens = model["max_tokens"]
+                        if thinking_config and thinking_config.get("type") == "enabled":
+                            max_tokens = (
+                                thinking_config["budget_tokens"] + model["max_tokens"]
+                            )
+
+                        api_kwargs = {
+                            "system": system_message,
+                            "max_tokens": max_tokens,
+                            "messages": messages,
+                            "model": model["title"],
+                            "tools": toolbox.agent_schema,
+                        }
+
+                        # Add thinking parameter if configured
+                        if thinking_config:
+                            api_kwargs["thinking"] = thinking_config
+
+                        thinking_content = ""
+                        with client.messages.stream(**api_kwargs) as stream:
                             for chunk in stream:
                                 if chunk.type == "text":
                                     ai_response += chunk.text
+                                elif chunk.type == "content_block_start":
+                                    # Check if this is a thinking block
+                                    if hasattr(chunk, "content_block") and hasattr(
+                                        chunk.content_block, "type"
+                                    ):
+                                        if chunk.content_block.type == "thinking":
+                                            thinking_content = ""
+                                elif chunk.type == "content_block_delta":
+                                    # Accumulate thinking content if this is a thinking delta
+                                    if hasattr(chunk, "delta") and hasattr(
+                                        chunk.delta, "type"
+                                    ):
+                                        if chunk.delta.type == "thinking_delta":
+                                            thinking_content += chunk.delta.thinking
 
                             final_message = stream.get_final_message()
 
@@ -581,6 +649,15 @@ async def run(
             usage_summary = agent_context.usage_summary()
             user_interface.handle_assistant_message(ai_response)
 
+            # Display thinking content if present
+            if thinking_content:
+                thinking_tokens = usage_summary.get("total_thinking_tokens", 0)
+                thinking_cost = usage_summary.get("thinking_cost", 0.0)
+                if hasattr(user_interface, "handle_thinking_content"):
+                    user_interface.handle_thinking_content(
+                        thinking_content, thinking_tokens, thinking_cost, collapsed=True
+                    )
+
             # Use conversation size calculated before the API call (when state was complete)
             # This avoids counting incomplete states with tool_use but no tool_result
             conversation_size = getattr(agent_context, "_last_conversation_size", None)
@@ -595,6 +672,8 @@ async def run(
                 cached_tokens=usage_summary["cached_tokens"],
                 conversation_size=conversation_size,
                 context_window=context_window,
+                thinking_tokens=usage_summary.get("total_thinking_tokens", 0),
+                thinking_cost=usage_summary.get("thinking_cost", 0.0),
             )
 
             if final_message.stop_reason == "tool_use":

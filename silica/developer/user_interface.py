@@ -104,6 +104,8 @@ class UserInterface(ABC):
         cached_tokens: int | None = None,
         conversation_size: int | None = None,
         context_window: int | None = None,
+        thinking_tokens: int | None = None,
+        thinking_cost: float | None = None,
     ) -> None:
         """
         Display token count information.
@@ -115,6 +117,8 @@ class UserInterface(ABC):
         :param cached_tokens: Number of tokens read from cache
         :param conversation_size: Current size of the conversation in tokens
         :param context_window: Total context window size for the current model
+        :param thinking_tokens: Number of thinking tokens used
+        :param thinking_cost: Cost of thinking tokens
         """
 
     @abstractmethod
@@ -142,3 +146,26 @@ class UserInterface(ABC):
         :param live: Optional Rich Live instance for real-time updates
         :return:
         """
+
+    def handle_thinking_content(
+        self, content: str, tokens: int, cost: float, collapsed: bool = True
+    ) -> None:
+        """
+        Handle and display thinking content from the model.
+
+        :param content: The thinking content
+        :param tokens: Number of thinking tokens used
+        :param cost: Cost of the thinking tokens
+        :param collapsed: Whether to display in collapsed format (default: True)
+        """
+        # Default implementation does nothing - subclasses can override
+
+    def update_thinking_status(self, tokens: int, budget: int, cost: float) -> None:
+        """
+        Update the status display with thinking progress.
+
+        :param tokens: Current number of thinking tokens used
+        :param budget: Total thinking token budget
+        :param cost: Current cost of thinking tokens
+        """
+        # Default implementation does nothing - subclasses can override

@@ -16,6 +16,7 @@ from prompt_toolkit import PromptSession, ANSI
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.document import Document
+from prompt_toolkit.key_binding import KeyBindings
 
 from silica.developer import personas
 from silica.developer.agent_loop import run
@@ -79,19 +80,63 @@ def rich_to_prompt_toolkit(rich_text):
 
 
 class CLIUserInterface(UserInterface):
-    def __init__(self, console: Console, sandbox_mode: SandboxMode):
+    def __init__(self, console: Console, sandbox_mode: SandboxMode, agent_context=None):
         self.console = console
         self.sandbox_mode = sandbox_mode
         self.toolbox = None  # Will be set after Sandbox is created
+        self.agent_context = (
+            agent_context  # Reference to agent context for thinking mode
+        )
 
         # Initialize the session with the history file
         history_file_path = self._get_history_file_path()
         history = FileHistory(history_file_path)
+
+        # Set up key bindings
+        kb = KeyBindings()
+
+        # Store a reference to track mode switches and preserve user input
+        self._mode_switch_pending = False
+        self._preserved_input = None
+
+        @kb.add("c-t")
+        def _(event):
+            """Cycle through thinking modes: off -> normal -> ultra -> off
+
+            This handler cycles the thinking mode and preserves the current input.
+            The prompt will be re-rendered with the new mode icon.
+
+            Note: Even if agent_context is None (during early initialization), we must
+            handle this event to prevent the default Ctrl+T behavior (transpose characters).
+            """
+            if not self.agent_context:
+                # Agent context not yet initialized - do nothing but prevent default behavior
+                # by explicitly handling the event (don't let it fall through to defaults)
+                pass
+            else:
+                current_mode = self.agent_context.thinking_mode
+                if current_mode == "off":
+                    self.agent_context.thinking_mode = "normal"
+                elif current_mode == "normal":
+                    self.agent_context.thinking_mode = "ultra"
+                else:  # ultra
+                    self.agent_context.thinking_mode = "off"
+
+                # Mark that we have a pending mode switch
+                self._mode_switch_pending = True
+
+                # Preserve the current input text
+                self._preserved_input = event.app.current_buffer.text
+
+                # Abort the current prompt to trigger re-prompt with new mode
+                event.app.exit(result="")
+
         self.session = PromptSession(
             history=history,
             auto_suggest=AutoSuggestFromHistory(),
             enable_history_search=True,
             complete_while_typing=True,
+            key_bindings=kb,
         )
 
     def _get_history_file_path(self) -> str:
@@ -303,7 +348,22 @@ class CLIUserInterface(UserInterface):
 
     async def get_user_input(self, prompt: str = "") -> str:
         _console = Console(file=None)
-        user_input = await self.session.prompt_async(rich_to_prompt_toolkit(prompt))
+
+        # If we have preserved input from a mode switch, restore it
+        default_text = ""
+        if self._mode_switch_pending and self._preserved_input is not None:
+            default_text = self._preserved_input
+            self._preserved_input = None
+            self._mode_switch_pending = False
+
+        user_input = await self.session.prompt_async(
+            rich_to_prompt_toolkit(prompt), default=default_text
+        )
+
+        # Handle empty input (should not happen with mode switch anymore)
+        if not user_input.strip() and default_text:
+            # This means user cleared the preserved text and hit enter
+            return ""
 
         # Handle multi-line input
         if user_input.strip() == "{":
@@ -335,6 +395,8 @@ class CLIUserInterface(UserInterface):
         cached_tokens: int | None = None,
         conversation_size: int | None = None,
         context_window: int | None = None,
+        thinking_tokens: int | None = None,
+        thinking_cost: float | None = None,
     ) -> None:
         token_components = [
             ("Token Count:\n", "bold"),
@@ -343,8 +405,15 @@ class CLIUserInterface(UserInterface):
                 "cyan",
             ),
             (f"Completion: {completion_tokens}\n", "green"),
-            (f"Total: {total_tokens}\n", "yellow"),
         ]
+
+        # Add thinking tokens if present
+        if thinking_tokens and thinking_tokens > 0:
+            token_components.append(
+                (f"Thinking: {thinking_tokens} (${thinking_cost:.4f})\n", "magenta")
+            )
+
+        token_components.append((f"Total: {total_tokens}\n", "yellow"))
 
         # Add conversation size and context window information if available
         if conversation_size is not None and context_window is not None:
@@ -399,6 +468,45 @@ class CLIUserInterface(UserInterface):
             live.update(message)
         else:
             self.console.print(message)
+
+    def handle_thinking_content(
+        self, content: str, tokens: int, cost: float, collapsed: bool = True
+    ) -> None:
+        """Display thinking content in a collapsible panel."""
+        from rich.markdown import Markdown
+        from rich.text import Text
+        from rich.console import Group
+
+        # Prepare the header with token count and cost
+        header = Text.assemble(
+            ("Thinking Process ", "bold magenta"),
+            (f"({tokens} tokens, ${cost:.4f})", "dim"),
+        )
+
+        # If collapsed, show only first 150 characters
+        if collapsed and len(content) > 150:
+            preview = content[:150] + "..."
+            display_content = Text(preview, style="dim")
+            footer = Text(
+                "\n[Use /dump to see full thinking content]", style="dim italic"
+            )
+            content_group = Group(display_content, footer)
+        else:
+            # Show full content with markdown rendering
+            content_group = Markdown(content)
+
+        panel = create_clean_panel(
+            content_group,
+            title=str(header),
+            style="magenta",
+        )
+
+        self.console.print(panel)
+
+    def update_thinking_status(self, tokens: int, budget: int, cost: float) -> None:
+        """Update the status display with thinking progress (not implemented in CLI yet)."""
+        # This would require live status updates during streaming
+        # For now, we'll just track the final thinking content
 
 
 class CustomCompleter(Completer):
@@ -704,6 +812,9 @@ def cyclopts_main(
         session_id=session_id,
         cli_args=original_args,
     )
+
+    # Set the agent context reference in the UI for keyboard shortcuts
+    user_interface.agent_context = context
 
     # Setup system prompt/persona (identical to original)
     system_block: dict[str, Any] | None = (

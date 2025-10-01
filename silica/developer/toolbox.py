@@ -361,6 +361,12 @@ class Toolbox:
 * The AI can read, write, and edit files in your project
 * Use `/add` and `/remove` to manage which files are in the sandbox context
 
+**Thinking Mode (Extended Thinking API):**
+* Press **Ctrl+T** to cycle through thinking modes: off → 💭 normal (8k) → 🧠 ultra (20k) → off
+* When enabled, the AI thinks deeply before responding (costs 3x input pricing)
+* The prompt shows the current mode: `💭 $0.00 >` (normal) or `🧠 $0.00 >` (ultra)
+* Thinking content is displayed in a collapsible panel after responses
+
 **Command Shortcuts:**
 * Use `/exec` to run shell commands quickly
 * Use `/commit` to auto-generate git commit messages
@@ -426,14 +432,47 @@ class Toolbox:
             "\n\n[bold cyan]Chat History (with inlined file contents):[/bold cyan]\n"
         )
         inlined_history = _inline_latest_file_mentions(kwargs["chat_history"])
-        for message in inlined_history:
+        for msg_idx, message in enumerate(inlined_history):
+            content += f"\n\n[bold]Message {msg_idx} ({message['role']}):[/bold]"
+
             if isinstance(message["content"], str):
-                content += f"\n[bold]{message['role']}:[/bold] {message['content']}"
+                content += f"\n  [text] {message['content'][:100]}..."
             elif isinstance(message["content"], list):
-                content += f"\n[bold]{message['role']}:[/bold]"
-                for block in message["content"]:
-                    if isinstance(block, dict) and "text" in block:
-                        content += f"\n{block['text']}"
+                content += f"\n  Content blocks: {len(message['content'])}"
+                for block_idx, block in enumerate(message["content"]):
+                    # Get block type
+                    block_type = None
+                    if isinstance(block, dict):
+                        block_type = block.get("type", "unknown")
+                    elif hasattr(block, "type"):
+                        block_type = block.type
+                    else:
+                        block_type = type(block).__name__
+
+                    content += f"\n    [{block_idx}] {block_type}"
+
+                    # Show preview of content
+                    if isinstance(block, dict):
+                        if "text" in block:
+                            preview = block["text"][:100]
+                            content += f": {preview}{'...' if len(block['text']) > 100 else ''}"
+                        elif "thinking" in block:
+                            content += (
+                                f" (signature: {block.get('signature', 'N/A')[:20]}...)"
+                            )
+                        elif "tool_use" in block or block_type == "tool_use":
+                            content += f" (name: {block.get('name', 'N/A')})"
+                        elif "tool_result" in block or block_type == "tool_result":
+                            content += f" (tool_use_id: {block.get('tool_use_id', 'N/A')[:20]}...)"
+                    elif hasattr(block, "text"):
+                        preview = block.text[:100]
+                        content += (
+                            f": {preview}{'...' if len(block.text) > 100 else ''}"
+                        )
+                    elif hasattr(block, "thinking"):
+                        content += f" (signature: {block.signature[:20] if hasattr(block, 'signature') else 'N/A'}...)"
+                    elif hasattr(block, "name"):
+                        content += f" (name: {block.name})"
 
         return content
 
