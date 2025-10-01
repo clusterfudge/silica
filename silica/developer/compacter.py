@@ -126,12 +126,8 @@ class ConversationCompacter:
 
                 # If last message doesn't start with thinking, add a minimal thinking block
                 if not has_thinking_in_last:
-                    print(
-                        "[DEBUG] Adding minimal thinking block to last assistant message"
-                    )
-                    messages_for_counting = self._add_minimal_thinking_to_last_message(
-                        context_dict["messages"]
-                    )
+                    # remove last message for purpose of counting
+                    messages_for_counting = messages_for_counting[:-1]
 
             # Use the Anthropic API's count_tokens method
             count_kwargs = {
@@ -182,27 +178,21 @@ class ConversationCompacter:
         Returns:
             bool: True if there are incomplete tool_use blocks
         """
-        # Check the last message for tool_use without a following tool_result
-        if not messages:
+        # Check if conversation ends with an assistant message that has tool_use
+        # If so, it's incomplete (no chance for tool_result to follow)
+        if not self._ends_with_assistant_message(messages):
             return False
 
         last_message = messages[-1]
-        if last_message.get("role") != "assistant":
-            return False
-
         content = last_message.get("content", [])
         if not isinstance(content, list):
             return False
 
         # Check if last assistant message has tool_use
-        has_tool_use = any(
+        return any(
             isinstance(block, dict) and block.get("type") == "tool_use"
             for block in content
         )
-
-        # If we have tool_use in the last message, it's incomplete
-        # (no chance for tool_result to follow)
-        return has_tool_use
 
     def _add_minimal_thinking_to_last_message(self, messages: list) -> list:
         """Add a minimal thinking block to the last assistant message.
@@ -287,20 +277,30 @@ class ConversationCompacter:
 
         return cleaned_messages
 
-    def _has_thinking_in_last_assistant_message(self, messages: list) -> bool:
-        """Check if the LAST assistant message contains thinking blocks.
-
-        The API has a requirement: when thinking is enabled in count_tokens,
-        the final assistant message must start with a thinking block.
-
-        This means we should only enable thinking for token counting if the
-        last assistant message actually has thinking blocks.
+    def _ends_with_assistant_message(self, messages: list) -> bool:
+        """Check if the conversation ends with an assistant message.
 
         Args:
             messages: List of messages to check
 
         Returns:
-            bool: True if last assistant message contains thinking blocks
+            bool: True if the last message is from the assistant
+        """
+        if not messages:
+            return False
+        return messages[-1].get("role") == "assistant"
+
+    def _has_thinking_in_last_assistant_message(self, messages: list) -> bool:
+        """Check if the LAST assistant message starts with a thinking block.
+
+        The API has a requirement: when thinking is enabled in count_tokens,
+        the final assistant message must start with a thinking block.
+
+        Args:
+            messages: List of messages to check
+
+        Returns:
+            bool: True if last assistant message starts with thinking block
         """
         if not messages:
             return False
