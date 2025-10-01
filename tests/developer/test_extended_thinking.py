@@ -71,16 +71,16 @@ class TestThinkingConfiguration:
         assert config["budget_tokens"] == 20000
 
     def test_thinking_config_unsupported_model(self):
-        """Unsupported model should return None even if mode is enabled."""
+        """Unsupported model should return disabled config."""
         model = get_model("haiku")
         config = get_thinking_config("normal", model)
-        assert config is None
+        assert config == {"type": "disabled"}
 
     def test_thinking_config_invalid_mode(self):
-        """Invalid mode should return None."""
+        """Invalid mode should return disabled config."""
         model = get_model("opus")
         config = get_thinking_config("invalid", model)
-        assert config is None
+        assert config == {"type": "disabled"}
 
 
 class TestAgentContextThinkingMode:

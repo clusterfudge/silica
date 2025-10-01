@@ -554,7 +554,7 @@ async def run(
                         # Calculate max_tokens based on whether thinking is enabled
                         # When thinking is enabled, max_tokens must be thinking_budget + completion_tokens
                         max_tokens = model["max_tokens"]
-                        if thinking_config:
+                        if thinking_config and thinking_config.get("type") == "enabled":
                             max_tokens = (
                                 thinking_config["budget_tokens"] + model["max_tokens"]
                             )

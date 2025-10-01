@@ -390,7 +390,6 @@ class ConversationCompacter:
             system=system_prompt,
             messages=[{"role": "user", "content": conversation_str}],
             max_tokens=4000,
-            betas=["interleaved-thinking-2025-05-14"],
         )
 
         summary = response.content[0].text
