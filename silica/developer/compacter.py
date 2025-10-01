@@ -95,39 +95,11 @@ class ConversationCompacter:
             if self._has_incomplete_tool_use(context_dict["messages"]):
                 return self._estimate_full_context_tokens(context_dict)
 
-            # The API has strict requirements for thinking blocks:
-            # 1. If ANY message has thinking, you MUST enable the thinking parameter
-            # 2. If thinking is enabled, the LAST assistant message MUST start with thinking
-            #
-            # Solution: Check if ANY message has thinking blocks.
-            # - If ANY message has thinking: Enable thinking parameter
-            # - If last message doesn't start with thinking: Add minimal thinking block to it
-            # This preserves all thinking blocks for accurate token counting while satisfying API rules.
-
-            has_thinking_anywhere = self._has_thinking_in_any_assistant_message(
+            # Strip thinking blocks to avoid API complexity
+            # Thinking blocks have complicated validation rules, so just remove them for counting
+            messages_for_counting = self._strip_all_thinking_blocks(
                 context_dict["messages"]
             )
-            has_thinking_in_last = self._has_thinking_in_last_assistant_message(
-                context_dict["messages"]
-            )
-
-            print(f"[DEBUG] Has thinking anywhere: {has_thinking_anywhere}")
-            print(
-                f"[DEBUG] Last assistant message starts with thinking: {has_thinking_in_last}"
-            )
-
-            thinking_config = None
-            messages_for_counting = context_dict["messages"]
-
-            if has_thinking_anywhere:
-                # Some message has thinking - must enable thinking parameter
-                thinking_config = {"type": "enabled", "budget_tokens": 10000}
-                print("[DEBUG] Enabled thinking for token counting")
-
-                # If last message doesn't start with thinking, add a minimal thinking block
-                if not has_thinking_in_last:
-                    # remove last message for purpose of counting
-                    messages_for_counting = messages_for_counting[:-1]
 
             # Use the Anthropic API's count_tokens method
             count_kwargs = {
@@ -136,10 +108,6 @@ class ConversationCompacter:
                 "messages": messages_for_counting,
                 "tools": context_dict["tools"] if context_dict["tools"] else None,
             }
-
-            # Add thinking parameter if enabled
-            if thinking_config:
-                count_kwargs["thinking"] = thinking_config
 
             response = self.client.messages.count_tokens(**count_kwargs)
 
@@ -178,12 +146,13 @@ class ConversationCompacter:
         Returns:
             bool: True if there are incomplete tool_use blocks
         """
-        # Check if conversation ends with an assistant message that has tool_use
-        # If so, it's incomplete (no chance for tool_result to follow)
-        if not self._ends_with_assistant_message(messages):
+        if not messages:
             return False
 
         last_message = messages[-1]
+        if last_message.get("role") != "assistant":
+            return False
+
         content = last_message.get("content", [])
         if not isinstance(content, list):
             return False
@@ -193,43 +162,6 @@ class ConversationCompacter:
             isinstance(block, dict) and block.get("type") == "tool_use"
             for block in content
         )
-
-    def _add_minimal_thinking_to_last_message(self, messages: list) -> list:
-        """Add a minimal thinking block to the last assistant message.
-
-        When older messages have thinking blocks but the last message doesn't,
-        we need to add a minimal thinking block to the last message to satisfy
-        the API requirement that "when thinking is enabled, the final assistant
-        message must start with a thinking block."
-
-        This is better than stripping all thinking blocks because it preserves
-        the thinking content for accurate token counting.
-
-        Args:
-            messages: List of messages
-
-        Returns:
-            Deep copy of messages with minimal thinking added to last assistant message
-        """
-        import copy
-
-        # Deep copy to avoid modifying the original
-        modified_messages = copy.deepcopy(messages)
-
-        # Find the last assistant message
-        for idx in range(len(modified_messages) - 1, -1, -1):
-            if modified_messages[idx].get("role") == "assistant":
-                content = modified_messages[idx].get("content", [])
-                if isinstance(content, list):
-                    # Insert a minimal thinking block at the beginning
-                    minimal_thinking = {
-                        "type": "thinking",
-                        "thinking": "Continuing from previous context.",
-                    }
-                    modified_messages[idx]["content"] = [minimal_thinking] + content
-                break
-
-        return modified_messages
 
     def _strip_all_thinking_blocks(self, messages: list) -> list:
         """Strip ALL thinking blocks from ALL messages.
@@ -276,146 +208,6 @@ class ConversationCompacter:
             message["content"] = filtered_content
 
         return cleaned_messages
-
-    def _ends_with_assistant_message(self, messages: list) -> bool:
-        """Check if the conversation ends with an assistant message.
-
-        Args:
-            messages: List of messages to check
-
-        Returns:
-            bool: True if the last message is from the assistant
-        """
-        if not messages:
-            return False
-        return messages[-1].get("role") == "assistant"
-
-    def _has_thinking_in_last_assistant_message(self, messages: list) -> bool:
-        """Check if the LAST assistant message starts with a thinking block.
-
-        The API has a requirement: when thinking is enabled in count_tokens,
-        the final assistant message must start with a thinking block.
-
-        Args:
-            messages: List of messages to check
-
-        Returns:
-            bool: True if last assistant message starts with thinking block
-        """
-        if not messages:
-            return False
-
-        print(f"[DEBUG] Checking {len(messages)} messages for thinking blocks")
-
-        # Find the last assistant message
-        last_assistant_msg = None
-        last_assistant_idx = None
-        for idx in range(len(messages) - 1, -1, -1):
-            if messages[idx].get("role") == "assistant":
-                last_assistant_msg = messages[idx]
-                last_assistant_idx = idx
-                break
-
-        if not last_assistant_msg:
-            print("[DEBUG] No assistant messages found")
-            return False
-
-        print(f"[DEBUG] Last assistant message at index {last_assistant_idx}")
-
-        content = last_assistant_msg.get("content", [])
-        if not isinstance(content, list):
-            print("[DEBUG] Last assistant message content is not a list")
-            return False
-
-        print(
-            f"[DEBUG] Checking {len(content)} content blocks in last assistant message"
-        )
-
-        # Check if the FIRST block is a thinking block (API requirement)
-        if len(content) > 0:
-            first_block = content[0]
-            print(f"[DEBUG] First block type: {type(first_block).__name__}")
-
-            if isinstance(first_block, dict):
-                block_type = first_block.get("type")
-                print(f"[DEBUG]   Dict block has type='{block_type}'")
-                if block_type == "thinking":
-                    print("[DEBUG] ✓ Last assistant message starts with thinking block")
-                    return True
-            elif hasattr(first_block, "type"):
-                block_type = first_block.type
-                print(f"[DEBUG]   Object block has type='{block_type}'")
-                if block_type == "thinking":
-                    print("[DEBUG] ✓ Last assistant message starts with thinking block")
-                    return True
-
-        print("[DEBUG] Last assistant message does not start with thinking block")
-        return False
-
-    def _has_thinking_in_any_assistant_message(self, messages: list) -> bool:
-        """Check if ANY assistant message contains thinking blocks.
-
-        The API requires: if ANY message has thinking blocks, you MUST enable
-        the thinking parameter in count_tokens. Otherwise you get the error:
-        "When thinking is disabled, an assistant message cannot contain thinking"
-
-        Args:
-            messages: List of messages to check
-
-        Returns:
-            bool: True if any assistant message contains thinking blocks
-        """
-        if not messages:
-            return False
-
-        print(f"[DEBUG] Checking {len(messages)} messages for thinking in ANY message")
-
-        # Check ALL assistant messages
-        for msg_idx, message in enumerate(messages):
-            if message.get("role") != "assistant":
-                continue
-
-            content = message.get("content", [])
-            if not isinstance(content, list):
-                continue
-
-            # Validate thinking block placement (must be at start, not end)
-            if len(content) > 0:
-                last_block = content[-1]
-                last_block_type = None
-                if isinstance(last_block, dict):
-                    last_block_type = last_block.get("type")
-                elif hasattr(last_block, "type"):
-                    last_block_type = last_block.type
-
-                if last_block_type == "thinking":
-                    print(
-                        f"[DEBUG] ⚠️  WARNING: Message {msg_idx} has thinking block at END (block {len(content)-1})"
-                    )
-                    print(
-                        "[DEBUG] This violates API requirement: thinking must be FIRST, not last"
-                    )
-                    print(
-                        f"[DEBUG] Full content block types: {[b.type if hasattr(b, 'type') else b.get('type') for b in content]}"
-                    )
-
-            # Check if this assistant message has thinking blocks ANYWHERE
-            for block_idx, block in enumerate(content):
-                if isinstance(block, dict):
-                    if block.get("type") == "thinking":
-                        print(
-                            f"[DEBUG] ✓ Found thinking block (dict) at message {msg_idx}, block {block_idx}"
-                        )
-                        return True
-                elif hasattr(block, "type"):
-                    if block.type == "thinking":
-                        print(
-                            f"[DEBUG] ✓ Found thinking block (object) at message {msg_idx}, block {block_idx}"
-                        )
-                        return True
-
-        print("[DEBUG] No thinking blocks found in any message")
-        return False
 
     def _estimate_full_context_tokens(self, context_dict: dict) -> int:
         """Estimate token count for full context as a fallback.
@@ -598,6 +390,7 @@ class ConversationCompacter:
             system=system_prompt,
             messages=[{"role": "user", "content": conversation_str}],
             max_tokens=4000,
+            betas=["interleaved-thinking-2025-05-14"],
         )
 
         summary = response.content[0].text

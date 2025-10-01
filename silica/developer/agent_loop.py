@@ -12,13 +12,14 @@ from anthropic.types import TextBlock, MessageParam
 from dotenv import load_dotenv
 
 from silica.developer.context import AgentContext
+from silica.developer.models import ModelSpec
 from silica.developer.prompt import create_system_message
 from silica.developer.rate_limiter import RateLimiter
 from silica.developer.toolbox import Toolbox
 from silica.developer.sandbox import DoSomethingElseError
 
 
-def get_thinking_config(thinking_mode: str, model_spec: dict) -> dict | None:
+def get_thinking_config(thinking_mode: str, model_spec: ModelSpec) -> dict | None:
     """Get the thinking configuration for the API call based on the current mode.
 
     Args:
@@ -30,7 +31,7 @@ def get_thinking_config(thinking_mode: str, model_spec: dict) -> dict | None:
     """
     # Check if model supports thinking
     if not model_spec.get("thinking_support", False):
-        return None
+        return {"type": "disabled"}
 
     if thinking_mode == "off":
         return None
@@ -39,7 +40,7 @@ def get_thinking_config(thinking_mode: str, model_spec: dict) -> dict | None:
     elif thinking_mode == "ultra":
         return {"type": "enabled", "budget_tokens": 20000}
     else:
-        return None
+        return {"type": "disabled"}
 
 
 def retry_with_exponential_backoff(func, max_retries=5, base_delay=1, max_delay=60):
