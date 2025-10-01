@@ -95,34 +95,47 @@ class ConversationCompacter:
             if self._has_incomplete_tool_use(context_dict["messages"]):
                 return self._estimate_full_context_tokens(context_dict)
 
-            # Check if the LAST assistant message starts with thinking blocks
-            # The API requirement: when thinking is enabled, the FINAL assistant message
-            # must START with a thinking block. We should only enable thinking for token
-            # counting if the last assistant message actually starts with thinking.
-            thinking_config = None
+            # The API has strict requirements for thinking blocks:
+            # 1. If ANY message has thinking, you MUST enable the thinking parameter
+            # 2. If thinking is enabled, the LAST assistant message MUST start with thinking
+            #
+            # Solution: Check if last message starts with thinking.
+            # - If YES: Enable thinking for token counting (rule 1 satisfied implicitly)
+            # - If NO: Strip ALL thinking blocks from ALL messages, then disable thinking
+
             has_thinking_in_last = self._has_thinking_in_last_assistant_message(
                 context_dict["messages"]
             )
             print(
                 f"[DEBUG] Last assistant message starts with thinking: {has_thinking_in_last}"
             )
+
+            thinking_config = None
+            messages_for_counting = context_dict["messages"]
+
             if has_thinking_in_last:
-                # Enable thinking for token counting (use a reasonable budget)
+                # Last message has thinking - enable thinking parameter
                 thinking_config = {"type": "enabled", "budget_tokens": 10000}
+                print("[DEBUG] Enabled thinking for token counting")
+            else:
+                # Last message doesn't have thinking - must strip ALL thinking blocks
+                # from ALL messages to avoid "cannot contain thinking when disabled" error
                 print(
-                    f"[DEBUG] Enabled thinking for token counting with config: {thinking_config}"
+                    "[DEBUG] Stripping thinking blocks from all messages for token counting"
+                )
+                messages_for_counting = self._strip_all_thinking_blocks(
+                    context_dict["messages"]
                 )
 
-            # Use the Anthropic API's count_tokens method with the actual parameters
-            # that would be sent to the messages API
+            # Use the Anthropic API's count_tokens method
             count_kwargs = {
                 "model": model,
                 "system": context_dict["system"],
-                "messages": context_dict["messages"],
+                "messages": messages_for_counting,
                 "tools": context_dict["tools"] if context_dict["tools"] else None,
             }
 
-            # Add thinking parameter if needed
+            # Add thinking parameter if enabled
             if thinking_config:
                 count_kwargs["thinking"] = thinking_config
 
@@ -184,6 +197,52 @@ class ConversationCompacter:
         # If we have tool_use in the last message, it's incomplete
         # (no chance for tool_result to follow)
         return has_tool_use
+
+    def _strip_all_thinking_blocks(self, messages: list) -> list:
+        """Strip ALL thinking blocks from ALL messages.
+
+        This is used when the last assistant message doesn't start with thinking,
+        but earlier messages have thinking blocks. The API requires that if ANY
+        message has thinking, the thinking parameter must be enabled. But if
+        thinking is enabled, the LAST message must start with thinking. So when
+        the last message doesn't have thinking, we must strip ALL thinking blocks.
+
+        Args:
+            messages: List of messages that may contain thinking blocks
+
+        Returns:
+            Deep copy of messages with all thinking blocks stripped out
+        """
+        import copy
+
+        # Deep copy to avoid modifying the original
+        cleaned_messages = copy.deepcopy(messages)
+
+        for message in cleaned_messages:
+            if message.get("role") != "assistant":
+                continue
+
+            content = message.get("content", [])
+            if not isinstance(content, list):
+                continue
+
+            # Filter out thinking blocks
+            filtered_content = []
+            for block in content:
+                # Check both dict and object representations
+                block_type = None
+                if isinstance(block, dict):
+                    block_type = block.get("type")
+                elif hasattr(block, "type"):
+                    block_type = block.type
+
+                # Skip thinking and redacted_thinking blocks
+                if block_type not in ["thinking", "redacted_thinking"]:
+                    filtered_content.append(block)
+
+            message["content"] = filtered_content
+
+        return cleaned_messages
 
     def _has_thinking_in_last_assistant_message(self, messages: list) -> bool:
         """Check if the LAST assistant message contains thinking blocks.
