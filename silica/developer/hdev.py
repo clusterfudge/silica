@@ -487,7 +487,9 @@ class CLIUserInterface(UserInterface):
         if collapsed and len(content) > 150:
             preview = content[:150] + "..."
             display_content = Text(preview, style="dim")
-            footer = Text("\n[Press 't' to expand]", style="dim italic")
+            footer = Text(
+                "\n[Use /dump to see full thinking content]", style="dim italic"
+            )
             content_group = Group(display_content, footer)
         else:
             # Show full content with markdown rendering
