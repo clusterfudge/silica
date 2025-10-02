@@ -354,7 +354,7 @@ def delete_memory(context: "AgentContext", path: str) -> str:
 
 
 @tool
-def write_memory_agentic(
+async def write_memory_agentic(
     context: "AgentContext",
     content: str,
     path: str = "",
@@ -422,7 +422,7 @@ def write_memory_agentic(
 
     try:
         # Use agentic write operation
-        result = agentic_write(storage, path, content, context, instruction)
+        result = await agentic_write(storage, path, content, context, instruction)
 
         if not result.success:
             return f"❌ Failed to write memory at: {path}"
@@ -447,7 +447,7 @@ def write_memory_agentic(
 
 
 @tool
-def split_memory(context: "AgentContext", path: str = "") -> str:
+async def split_memory(context: "AgentContext", path: str = "") -> str:
     """Split a large memory node into organized child nodes.
 
     When a memory file grows too large (>10KB), it becomes harder to navigate
@@ -525,7 +525,7 @@ def split_memory(context: "AgentContext", path: str = "") -> str:
             )
 
         # Perform the split
-        result = split_memory_node(storage, path, context)
+        result = await split_memory_node(storage, path, context)
 
         if not result.success:
             return f"❌ Failed to split memory node: {path}\n\nThe splitting operation encountered an error."

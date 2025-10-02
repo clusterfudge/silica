@@ -114,9 +114,9 @@ class TestExtractLinks:
 class TestAgenticWrite:
     """Tests for agentic_write function."""
 
-    def test_write_new_file(self, temp_storage):
+    async def test_write_new_file(self, temp_storage):
         """Test writing to a new file."""
-        result = agentic_write(temp_storage, "memory", "Initial content")
+        result = await agentic_write(temp_storage, "memory", "Initial content")
 
         assert result.success is True
         assert result.path == "memory"
@@ -127,13 +127,13 @@ class TestAgenticWrite:
         content = temp_storage.read("memory")
         assert "Initial content" in content
 
-    def test_write_merge_existing(self, temp_storage):
+    async def test_write_merge_existing(self, temp_storage):
         """Test merging with existing content."""
         # Write initial content
         temp_storage.write("memory", "Old information")
 
         # Write new content (should merge)
-        result = agentic_write(temp_storage, "memory", "New information")
+        result = await agentic_write(temp_storage, "memory", "New information")
 
         assert result.success is True
         content = temp_storage.read("memory")
@@ -142,27 +142,29 @@ class TestAgenticWrite:
         assert "Old information" in content
         assert "New information" in content
 
-    def test_write_triggers_split_flag(self, temp_storage):
+    async def test_write_triggers_split_flag(self, temp_storage):
         """Test that large files trigger split flag."""
         # Create content over threshold
         large_content = "x" * (SIZE_THRESHOLD + 100)
-        result = agentic_write(temp_storage, "memory", large_content)
+        result = await agentic_write(temp_storage, "memory", large_content)
 
         assert result.success is True
         assert result.split_triggered is True
         assert result.size_bytes > SIZE_THRESHOLD
 
-    def test_write_no_split_flag_below_threshold(self, temp_storage):
+    async def test_write_no_split_flag_below_threshold(self, temp_storage):
         """Test that small files don't trigger split flag."""
-        result = agentic_write(temp_storage, "memory", "Small content")
+        result = await agentic_write(temp_storage, "memory", "Small content")
 
         assert result.success is True
         assert result.split_triggered is False
         assert result.size_bytes < SIZE_THRESHOLD
 
-    def test_write_nested_path(self, temp_storage):
+    async def test_write_nested_path(self, temp_storage):
         """Test writing to nested path."""
-        result = agentic_write(temp_storage, "projects/silica", "Silica project info")
+        result = await agentic_write(
+            temp_storage, "projects/silica", "Silica project info"
+        )
 
         assert result.success is True
         assert result.path == "projects/silica"
@@ -260,20 +262,20 @@ class TestSearchMemory:
 class TestSplitMemoryNode:
     """Tests for split_memory_node function."""
 
-    def test_split_returns_result(self, temp_storage):
+    async def test_split_returns_result(self, temp_storage):
         """Test that split returns a WriteResult."""
         # Create a large file
         large_content = "x" * (SIZE_THRESHOLD + 100)
         temp_storage.write("memory", large_content)
 
-        result = split_memory_node(temp_storage, "memory")
+        result = await split_memory_node(temp_storage, "memory")
 
         assert isinstance(result, WriteResult)
         assert result.path == "memory"
 
-    def test_split_nonexistent_file(self, temp_storage):
+    async def test_split_nonexistent_file(self, temp_storage):
         """Test splitting a non-existent file."""
-        result = split_memory_node(temp_storage, "nonexistent")
+        result = await split_memory_node(temp_storage, "nonexistent")
 
         # Should return a result indicating failure
         assert isinstance(result, WriteResult)
@@ -283,11 +285,11 @@ class TestSplitMemoryNode:
 class TestIntegration:
     """Integration tests for operations working together."""
 
-    def test_write_search_cycle(self, temp_storage):
+    async def test_write_search_cycle(self, temp_storage):
         """Test writing content and then searching for it."""
         # Write some content
-        agentic_write(temp_storage, "memory", "Python programming information")
-        agentic_write(
+        await agentic_write(temp_storage, "memory", "Python programming information")
+        await agentic_write(
             temp_storage, "projects/silica", "Silica is a Python agent framework"
         )
 
@@ -299,13 +301,13 @@ class TestIntegration:
         assert "memory" in paths
         assert "projects/silica" in paths
 
-    def test_write_merge_search(self, temp_storage):
+    async def test_write_merge_search(self, temp_storage):
         """Test that merged content is searchable."""
         # Write initial content
-        agentic_write(temp_storage, "memory", "Initial Python content")
+        await agentic_write(temp_storage, "memory", "Initial Python content")
 
         # Merge new content
-        agentic_write(temp_storage, "memory", "Additional Python details")
+        await agentic_write(temp_storage, "memory", "Additional Python details")
 
         # Search should find both
         results = search_memory(temp_storage, "Python")
@@ -315,7 +317,7 @@ class TestIntegration:
         assert "Initial" in content
         assert "Additional" in content
 
-    def test_multiple_nested_writes(self, temp_storage):
+    async def test_multiple_nested_writes(self, temp_storage):
         """Test writing to multiple nested paths."""
         paths = [
             "memory",
@@ -327,7 +329,7 @@ class TestIntegration:
         ]
 
         for path in paths:
-            result = agentic_write(
+            result = await agentic_write(
                 temp_storage, path, f"Content for {path} with Python"
             )
             assert result.success is True

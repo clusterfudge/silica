@@ -43,7 +43,7 @@ SIZE_THRESHOLD = 10240  # 10KB
 SIZE_WARNING = 8192  # 8KB (80% of threshold)
 
 
-def agentic_write(
+async def agentic_write(
     storage: MemoryStorage,
     path: str,
     new_content: str,
@@ -65,14 +65,12 @@ def agentic_write(
         storage: Storage backend to use
         path: Path to write to
         new_content: New information to incorporate
-        context: AgentContext for sub-agent execution
+        context: AgentContext for sub-agent execution (required for agent mode)
         instruction: Custom instruction for how to incorporate content
 
     Returns:
         WriteResult with operation details
     """
-    # For now, implement a simple merge strategy
-    # TODO: Use sub-agent for intelligent merging
     try:
         # Check if file exists
         existing_content = ""
@@ -90,9 +88,60 @@ def agentic_write(
                 split_triggered=(size > SIZE_THRESHOLD),
             )
 
-        # Simple merge: append new content with separator
-        # TODO: Replace with agent-driven intelligent merge
-        merged_content = f"{existing_content}\n\n---\n\n{new_content}"
+        # If context not provided, fall back to simple merge
+        if context is None:
+            merged_content = f"{existing_content}\n\n---\n\n{new_content}"
+            storage.write(path, merged_content)
+            size = storage.get_size(path)
+            return WriteResult(
+                success=True,
+                path=path,
+                size_bytes=size,
+                split_triggered=(size > SIZE_THRESHOLD),
+            )
+
+        # Use sub-agent for intelligent merging
+        from silica.developer.tools.subagent import run_agent
+
+        merge_prompt = f"""You are updating a memory file with new information.
+
+**Current file path**: {path}
+
+**Existing content**:
+```
+{existing_content}
+```
+
+**New information to incorporate**:
+```
+{new_content}
+```
+
+**Your task**: {instruction}
+
+Guidelines:
+1. Avoid duplicating information that's already present
+2. Update or replace outdated information with newer details
+3. Maintain logical organization and structure
+4. Preserve important context and details from existing content
+5. Use clear markdown formatting
+6. If the new information conflicts with existing, prefer the new information
+7. Merge related topics together rather than keeping them separate
+
+Write the final merged content that incorporates both existing and new information.
+Output ONLY the final merged content, no explanations or meta-commentary.
+"""
+
+        # Run sub-agent for intelligent merging
+        merged_content = await run_agent(
+            context=context,
+            prompt=merge_prompt,
+            tool_names=[],  # No tools needed - just text processing
+            system=None,
+            model="smart",  # Use smart model for better reasoning
+        )
+
+        # Write the merged content
         storage.write(path, merged_content)
         size = storage.get_size(path)
 
@@ -104,12 +153,25 @@ def agentic_write(
         )
 
     except Exception:
-        return WriteResult(
-            success=False,
-            path=path,
-            size_bytes=0,
-            split_triggered=False,
-        )
+        # Fall back to simple merge on error
+        try:
+            existing = storage.read(path) if storage.exists(path) else ""
+            merged = f"{existing}\n\n---\n\n{new_content}" if existing else new_content
+            storage.write(path, merged)
+            size = storage.get_size(path)
+            return WriteResult(
+                success=True,
+                path=path,
+                size_bytes=size,
+                split_triggered=(size > SIZE_THRESHOLD),
+            )
+        except Exception:
+            return WriteResult(
+                success=False,
+                path=path,
+                size_bytes=0,
+                split_triggered=False,
+            )
 
 
 def extract_links(content: str) -> List[str]:
@@ -130,7 +192,7 @@ def extract_links(content: str) -> List[str]:
     return matches
 
 
-def split_memory_node(
+async def split_memory_node(
     storage: MemoryStorage,
     path: str,
     context: Optional[AgentContext] = None,
@@ -147,27 +209,113 @@ def split_memory_node(
     Args:
         storage: Storage backend to use
         path: Path to the node to split
-        context: AgentContext for sub-agent execution
+        context: AgentContext for sub-agent execution (required for agent mode)
 
     Returns:
         WriteResult with details of created child nodes
     """
-    # TODO: Implement agent-driven splitting
-    # For now, return a placeholder result
     try:
+        # Check if file exists
+        if not storage.exists(path):
+            return WriteResult(
+                success=False,
+                path=path,
+                size_bytes=0,
+                split_triggered=False,
+            )
+
+        # Read content and check size
+        content = storage.read(path)
         size = storage.get_size(path)
-        return WriteResult(
-            success=False,  # Not yet implemented
-            path=path,
-            size_bytes=size,
-            split_triggered=False,
-            new_files=[],
+
+        # If no context, can't use agent
+        if context is None:
+            return WriteResult(
+                success=False,
+                path=path,
+                size_bytes=size,
+                split_triggered=False,
+            )
+
+        # Use sub-agent for intelligent splitting
+        from silica.developer.tools.subagent import run_agent
+
+        split_prompt = f"""You are analyzing a memory file that needs to be split into smaller, organized child nodes.
+
+**File path**: {path}
+**File size**: {size} bytes ({size/1024:.2f} KB)
+**Threshold**: 10 KB
+
+**Current content**:
+```
+{content}
+```
+
+**Your task**:
+1. Analyze the content and identify natural groupings (topics, entities, themes, time periods)
+2. Choose an appropriate split strategy:
+   - **Topic-based**: Group by semantic topics (e.g., "projects", "knowledge", "notes")
+   - **Entity-based**: Group by entities (e.g., "silica", "webapp", specific projects)
+   - **Chronological**: Group by time periods (for logs/journals)
+   - **Category-based**: Group by categories (e.g., "python", "javascript", "devops")
+
+3. Create child nodes with clear, semantic names (e.g., "{path}/projects", "{path}/knowledge")
+4. Distribute the content to appropriate child nodes
+5. Update the parent node ({path}) with:
+   - A high-level summary
+   - Links to children using [[child/path]] syntax in a ## Links section
+   - Any content that doesn't fit child categories
+
+Guidelines:
+- Use clear, semantic names for children (no generic names like "node1" or "part1")
+- Each child should be a cohesive, focused unit
+- Parent should remain useful as an overview/routing document
+- Preserve ALL information (no data loss!)
+- Use markdown formatting consistently
+- Add ## Links section in parent for navigation
+
+Execute the split by using these tools:
+1. Use write_memory to create each child node with its content
+2. Use write_memory to update the parent with summary and links
+
+You have access to: write_memory
+"""
+
+        # Run sub-agent with write_memory tool
+        _ = await run_agent(
+            context=context,
+            prompt=split_prompt,
+            tool_names=["write_memory"],
+            system=None,
+            model="smart",  # Use smart model for complex reasoning
         )
+
+        # Get the new file list to determine what was created
+        all_files_after = set(storage.list_files())
+
+        # Find child nodes (files under the parent path)
+        new_children = [
+            f for f in all_files_after if f.startswith(f"{path}/") and f != path
+        ]
+
+        # Get updated parent size
+        final_size = storage.get_size(path) if storage.exists(path) else 0
+
+        return WriteResult(
+            success=True,
+            path=path,
+            size_bytes=final_size,
+            split_triggered=False,  # Split already happened
+            new_files=sorted(new_children),
+        )
+
     except Exception:
+        # Return failure result
+        size = storage.get_size(path) if storage.exists(path) else 0
         return WriteResult(
             success=False,
             path=path,
-            size_bytes=0,
+            size_bytes=size,
             split_triggered=False,
         )
 
@@ -180,7 +328,7 @@ def search_memory(
     context: Optional[AgentContext] = None,
 ) -> List[SearchResult]:
     """
-    Search memory using agent-driven traversal.
+    Search memory using simple text search or agent-driven traversal.
 
     The agent will:
     - Start at the specified path
@@ -194,13 +342,13 @@ def search_memory(
         query: Search query
         max_results: Maximum number of results to return
         start_path: Path to start search from
-        context: AgentContext for sub-agent execution
+        context: AgentContext for sub-agent execution (optional)
 
     Returns:
         List of SearchResult objects
     """
-    # TODO: Implement agent-driven search
     # For now, implement simple text search across all files
+    # TODO: Implement agent-driven search with link traversal
     results = []
 
     try:
