@@ -325,3 +325,48 @@ class TestToolIntegration:
         # Setup
         storage = temp_context.memory_manager.storage
         storage.write("", "Default content")
+
+
+class TestToolRegistration:
+    """Tests for tool registration in ALL_TOOLS."""
+
+    def test_split_memory_is_registered(self):
+        """Test that split_memory tool is registered in ALL_TOOLS."""
+        from silica.developer.tools import ALL_TOOLS
+
+        tool_names = [tool.__name__ for tool in ALL_TOOLS]
+        assert "split_memory" in tool_names, "split_memory should be in ALL_TOOLS"
+
+    def test_search_memory_is_registered(self):
+        """Test that search_memory tool is registered in ALL_TOOLS."""
+        from silica.developer.tools import ALL_TOOLS
+
+        tool_names = [tool.__name__ for tool in ALL_TOOLS]
+        assert "search_memory" in tool_names, "search_memory should be in ALL_TOOLS"
+
+    def test_all_memory_v2_tools_registered(self):
+        """Test that all Memory V2 tools are registered."""
+        from silica.developer.tools import ALL_TOOLS
+
+        tool_names = [tool.__name__ for tool in ALL_TOOLS]
+
+        expected_memory_tools = [
+            "read_memory",
+            "write_memory",
+            "list_memory_files",
+            "delete_memory",
+            "split_memory",
+            "search_memory",
+        ]
+
+        for tool_name in expected_memory_tools:
+            assert (
+                tool_name in tool_names
+            ), f"{tool_name} should be in ALL_TOOLS but was not found"
+
+    def test_tools_can_be_imported(self):
+        """Test that the tools can be imported directly."""
+        from silica.developer.tools.memory_v2_tools import split_memory, search_memory
+
+        assert callable(split_memory), "split_memory should be callable"
+        assert callable(search_memory), "search_memory should be callable"

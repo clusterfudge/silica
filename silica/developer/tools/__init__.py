@@ -43,6 +43,8 @@ from .memory_v2_tools import (
     write_memory,
     list_memory_files,
     delete_memory,
+    split_memory,
+    search_memory,
 )
 from .todos import (
     todo_read,
@@ -93,6 +95,8 @@ ALL_TOOLS = (
         write_memory,
         list_memory_files,
         delete_memory,
+        split_memory,
+        search_memory,
         # Todo tools
         todo_read,
         todo_write,
