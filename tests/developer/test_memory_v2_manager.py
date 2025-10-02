@@ -23,32 +23,25 @@ class TestMemoryManager:
             assert manager.storage is not None
             assert isinstance(manager.storage, LocalDiskStorage)
 
-    def test_init_with_valid_persona(self):
-        """Test initialization with valid persona name."""
+    def test_init_with_any_persona_name(self):
+        """Test initialization accepts any persona name without validation."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Mock the persona registry
-            with patch("silica.developer.personas.for_name") as mock_for_name:
-                mock_for_name.return_value = "some persona content"
+            # MemoryManager should accept any string as a persona name
+            manager = MemoryManager(persona_name="coding_agent", base_path=tmpdir)
 
-                manager = MemoryManager(persona_name="coding_agent", base_path=tmpdir)
+            assert manager.persona_name == "coding_agent"
+            assert manager.persona_path == Path(tmpdir) / "coding_agent"
 
-                assert manager.persona_name == "coding_agent"
-                assert manager.persona_path == Path(tmpdir) / "coding_agent"
-                mock_for_name.assert_called_once_with("coding_agent")
-
-    def test_init_with_invalid_persona_falls_back(self):
-        """Test initialization with invalid persona falls back to default."""
+    def test_init_with_nonexistent_persona_name(self):
+        """Test initialization with made-up persona name (no validation)."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Mock the persona registry to return None (invalid persona)
-            with patch("silica.developer.personas.for_name") as mock_for_name:
-                mock_for_name.return_value = None
+            # MemoryManager should accept any string, even if it's not a real persona
+            manager = MemoryManager(
+                persona_name="nonexistent_persona", base_path=tmpdir
+            )
 
-                manager = MemoryManager(
-                    persona_name="nonexistent_persona", base_path=tmpdir
-                )
-
-                assert manager.persona_name == "default"
-                assert manager.persona_path == Path(tmpdir) / "default"
+            assert manager.persona_name == "nonexistent_persona"
+            assert manager.persona_path == Path(tmpdir) / "nonexistent_persona"
 
     def test_init_with_none_persona(self):
         """Test initialization with None persona."""
@@ -81,7 +74,7 @@ class TestMemoryManager:
             manager = MemoryManager(persona_name="test_persona", base_path=tmpdir)
 
             assert manager.root_path == manager.persona_path
-            assert manager.root_path == Path(tmpdir) / "default"
+            assert manager.root_path == Path(tmpdir) / "test_persona"
 
     def test_repr(self):
         """Test string representation."""
@@ -90,7 +83,7 @@ class TestMemoryManager:
 
             repr_str = repr(manager)
             assert "MemoryManager" in repr_str
-            assert "coding_agent" in repr_str or "default" in repr_str
+            assert "coding_agent" in repr_str
             assert tmpdir in repr_str
 
     def test_storage_creates_persona_directory(self):
@@ -105,54 +98,28 @@ class TestMemoryManager:
     def test_multiple_managers_different_personas(self):
         """Test that different personas get different storage paths."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Mock persona registry
-            with patch("silica.developer.personas.for_name") as mock_for_name:
-                mock_for_name.side_effect = (
-                    lambda name: "content" if name in ["persona1", "persona2"] else None
-                )
+            manager1 = MemoryManager(persona_name="persona1", base_path=tmpdir)
+            manager2 = MemoryManager(persona_name="persona2", base_path=tmpdir)
 
-                manager1 = MemoryManager(persona_name="persona1", base_path=tmpdir)
-                manager2 = MemoryManager(persona_name="persona2", base_path=tmpdir)
-
-                assert manager1.persona_path != manager2.persona_path
-                assert manager1.persona_path == Path(tmpdir) / "persona1"
-                assert manager2.persona_path == Path(tmpdir) / "persona2"
+            assert manager1.persona_path != manager2.persona_path
+            assert manager1.persona_path == Path(tmpdir) / "persona1"
+            assert manager2.persona_path == Path(tmpdir) / "persona2"
 
     def test_persona_isolation(self):
         """Test that different personas have isolated memory storage."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Mock persona registry
-            with patch("silica.developer.personas.for_name") as mock_for_name:
-                mock_for_name.side_effect = (
-                    lambda name: "content" if name in ["persona1", "persona2"] else None
-                )
+            manager1 = MemoryManager(persona_name="persona1", base_path=tmpdir)
+            manager2 = MemoryManager(persona_name="persona2", base_path=tmpdir)
 
-                manager1 = MemoryManager(persona_name="persona1", base_path=tmpdir)
-                manager2 = MemoryManager(persona_name="persona2", base_path=tmpdir)
+            # Write to manager1
+            manager1.storage.write("memory", "Persona 1 content")
 
-                # Write to manager1
-                manager1.storage.write("memory", "Persona 1 content")
+            # Manager2 should not see it
+            assert not manager2.storage.exists("memory")
 
-                # Manager2 should not see it
-                assert not manager2.storage.exists("memory")
+            # Write to manager2
+            manager2.storage.write("memory", "Persona 2 content")
 
-                # Write to manager2
-                manager2.storage.write("memory", "Persona 2 content")
-
-                # Manager1 should still have its own content
-                assert manager1.storage.read("memory") == "Persona 1 content"
-                assert manager2.storage.read("memory") == "Persona 2 content"
-
-    def test_fallback_when_personas_module_unavailable(self):
-        """Test fallback behavior when personas module can't be imported."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Mock import to fail
-            with patch(
-                "silica.developer.personas.for_name",
-                side_effect=ImportError("Module not found"),
-            ):
-                # Should use the provided name even if module is unavailable
-                manager = MemoryManager(persona_name="custom_persona", base_path=tmpdir)
-
-                assert manager.persona_name == "custom_persona"
-                assert manager.persona_path == Path(tmpdir) / "custom_persona"
+            # Manager1 should still have its own content
+            assert manager1.storage.read("memory") == "Persona 1 content"
+            assert manager2.storage.read("memory") == "Persona 2 content"

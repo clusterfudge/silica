@@ -63,32 +63,19 @@ class MemoryManager:
 
     def _resolve_persona_name(self, persona_name: Optional[str]) -> str:
         """
-        Resolve the persona name, falling back to default if needed.
+        Resolve the persona name, using default if none provided.
+
+        The memory system simply accepts any persona name as a string
+        and uses it for directory isolation. Persona validation happens
+        elsewhere (in hdev.py where actual persona prompts are used).
 
         Args:
             persona_name: Requested persona name
 
         Returns:
-            Validated persona name or "default"
+            The persona name or "default" if none provided
         """
-        if not persona_name:
-            return "default"
-
-        # Try to import and check if persona exists
-        try:
-            from silica.developer.personas import for_name
-
-            # Check if the persona exists in the registry
-            if for_name(persona_name) is not None:
-                return persona_name
-
-            # Persona doesn't exist, fall back to default
-            return "default"
-
-        except ImportError:
-            # If personas module doesn't exist or can't be imported,
-            # just use the provided name or default
-            return persona_name if persona_name else "default"
+        return persona_name if persona_name else "default"
 
     @property
     def root_path(self) -> Path:
