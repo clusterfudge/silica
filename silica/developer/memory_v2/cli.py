@@ -155,17 +155,18 @@ async def _migrate_async(
         return
 
     # Create minimal agent context for AI operations
-    # We don't need full CLI args, just enough for sub-agent to work
-    from silica.developer.user_interface import UserInterface
-    from silica.developer.models import get_model_spec
+    from silica.developer.hdev import CLIUserInterface
+    from silica.developer.models import get_model
+    from silica.developer.sandbox import SandboxMode
 
-    ui = UserInterface()
-    model_spec = get_model_spec()
-    context = AgentContext(
+    ui = CLIUserInterface(console=console, sandbox_mode=SandboxMode.ALLOW_ALL)
+    model_spec = get_model("sonnet")  # Use sonnet for migration
+    context = AgentContext.create(
         user_interface=ui,
         model_spec=model_spec,
         cli_args=["--persona", persona],
-        memory_manager=memory_manager,
+        sandbox_mode=SandboxMode.ALLOW_ALL,
+        sandbox_contents=[],
     )
 
     # Process files with progress bar
