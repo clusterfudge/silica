@@ -80,14 +80,14 @@ class TestExtractLinks:
     """Tests for extract_links function."""
 
     def test_extract_single_link(self):
-        content = "See [[projects]] for more info"
+        content = "See [Projects](projects) for more info"
         links = extract_links(content)
         assert links == ["projects"]
 
     def test_extract_multiple_links(self):
         content = """
-        See [[projects]] and [[knowledge]] for details.
-        Also check [[notes/meeting]].
+        See [Projects](projects) and [Knowledge](knowledge) for details.
+        Also check [Meeting Notes](notes/meeting).
         """
         links = extract_links(content)
         assert len(links) == 3
@@ -101,12 +101,12 @@ class TestExtractLinks:
         assert links == []
 
     def test_extract_nested_path_links(self):
-        content = "Check [[projects/silica]] for details"
+        content = "Check [Silica Project](projects/silica) for details"
         links = extract_links(content)
         assert links == ["projects/silica"]
 
     def test_extract_ignores_malformed_links(self):
-        content = "This has [single brackets] and [[valid]] link"
+        content = "This has [single brackets] without URL and [Valid Link](valid) too"
         links = extract_links(content)
         assert links == ["valid"]
 
@@ -298,7 +298,7 @@ class TestAgenticSearch:
 
         # Write some test content
         temp_storage.write("memory", "Root content about Python")
-        temp_storage.write("projects", "Projects including [[projects/silica]]")
+        temp_storage.write("projects", "Projects including [Silica](projects/silica)")
         temp_storage.write("projects/silica", "Silica is a Python framework")
 
         # Search with context - this would normally use AI

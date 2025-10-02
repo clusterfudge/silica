@@ -178,7 +178,7 @@ def extract_links(content: str) -> List[str]:
     """
     Extract memory links from content.
 
-    Looks for [[path]] syntax in the content.
+    Looks for markdown link syntax [text](path) in the content.
 
     Args:
         content: Content to search for links
@@ -186,10 +186,12 @@ def extract_links(content: str) -> List[str]:
     Returns:
         List of linked paths
     """
-    # Match [[path]] syntax
-    pattern = r"\[\[([^\]]+)\]\]"
+    # Match markdown link syntax: [text](path)
+    # This will capture the path part from [any text](path/to/file)
+    pattern = r"\[([^\]]+)\]\(([^)]+)\)"
     matches = re.findall(pattern, content)
-    return matches
+    # Return just the paths (second capture group)
+    return [path for text, path in matches]
 
 
 async def split_memory_node(
@@ -237,49 +239,86 @@ async def split_memory_node(
                 split_triggered=False,
             )
 
+        # Get list of files before split
+        files_before = set(storage.list_files())
+
         # Use sub-agent for intelligent splitting
         from silica.developer.tools.subagent import run_agent
 
-        split_prompt = f"""You are analyzing a memory file that needs to be split into smaller, organized child nodes.
+        # Parent path for child nodes
+        parent_path = path if path else ""
 
-**File path**: {path}
-**File size**: {size} bytes ({size/1024:.2f} KB)
-**Threshold**: 10 KB
+        split_prompt = f"""You are splitting a large memory file into smaller, focused child files.
 
-**Current content**:
-```
+**Parent path**: `{parent_path or "(root)"}` 
+**File size**: {size} bytes ({size/1024:.2f} KB) - exceeds 10 KB threshold
+**Split strategy**: Create 3-5 focused child files organized by topic/theme
+
+**Current content to split**:
+```markdown
 {content}
 ```
 
-**Your task**:
-1. Analyze the content and identify natural groupings (topics, entities, themes, time periods)
-2. Choose an appropriate split strategy:
-   - **Topic-based**: Group by semantic topics (e.g., "projects", "knowledge", "notes")
-   - **Entity-based**: Group by entities (e.g., "silica", "webapp", specific projects)
-   - **Chronological**: Group by time periods (for logs/journals)
-   - **Category-based**: Group by categories (e.g., "python", "javascript", "devops")
+**Your task - Complete ALL steps:**
 
-3. Create child nodes with clear, semantic names (e.g., "{path}/projects", "{path}/knowledge")
-4. Distribute the content to appropriate child nodes
-5. Update the parent node ({path}) with:
-   - A high-level summary
-   - Links to children using [[child/path]] syntax in a ## Links section
-   - Any content that doesn't fit child categories
+**Step 1: Plan the split**
+- Identify 3-5 major themes/topics in the content
+- Choose clear, semantic child names (e.g., "projects", "knowledge", "meetings", etc.)
+- Decide which content goes to each child
 
-Guidelines:
-- Use clear, semantic names for children (no generic names like "node1" or "part1")
-- Each child should be a cohesive, focused unit
-- Parent should remain useful as an overview/routing document
-- Preserve ALL information (no data loss!)
-- Use markdown formatting consistently
-- Add ## Links section in parent for navigation
+**Step 2: Create each child file**
+For EACH child you identified, call write_memory with:
+- path: "{parent_path}/child_name" (use the parent path as prefix)
+- content: The full content for that child (be thorough!)
 
-Execute the split by using these tools:
-1. Use write_memory to create each child node with its content
-2. Use write_memory to update the parent with summary and links
+**Step 3: Update the parent file**
+Call write_memory for path "{parent_path or '(empty string for root)'}" with content that includes:
 
-You have access to: write_memory
-"""
+1. **High-level overview** - Brief summary of what this memory area contains (2-3 sentences)
+2. **Key highlights** - Important top-level information that shouldn't be buried in children (3-5 bullet points of the most important facts)
+3. **Organization** - Brief explanation of how the content is organized
+4. **Markdown links to children** in a "## Contents" section:
+   ```markdown
+   ## Contents
+   
+   - [Projects](projects) - Description of what's in projects
+   - [Knowledge](knowledge) - Description of what's in knowledge
+   - [Meetings](meetings) - Description of what's in meetings
+   ```
+
+**CRITICAL GUIDELINES:**
+- **Preserve ALL content** - Every piece of information must go somewhere (either parent or a child)
+- **Call write_memory for EACH child** - Don't just mention them, actually create them!
+- **Use markdown links** - Format: `[Display Text](relative/path)` NOT `[[path]]`
+- **Keep parent valuable** - It should provide context and orientation, not just be a table of contents
+- **Use semantic names** - Names should clearly indicate what's inside
+- **No data loss** - If in doubt, include more context in the parent
+
+**Example parent structure:**
+```markdown
+# Project Memory
+
+This is my personal project knowledge base, containing information about active and completed software projects, technical learnings, and development notes accumulated since 2024.
+
+**Key Highlights:**
+- Currently working on 3 active projects: Silica (AI agent framework), WebApp (personal site), and CLI tools
+- Primary tech stack: Python 3.11+, TypeScript, React
+- All projects follow test-driven development with >80% coverage
+
+**Organization:**
+I've organized this memory into focused areas for easier navigation and maintenance. Each section contains detailed information about that specific domain.
+
+## Contents
+
+- [Projects](projects) - Active and completed software projects with architecture docs
+- [Knowledge Base](knowledge) - Technical learnings, patterns, and best practices
+- [Meeting Notes](meetings) - Important discussions and decisions from team meetings
+- [Ideas](ideas) - Future project ideas and technical explorations
+
+Last updated: 2025-01-02
+```
+
+**Now execute the split:** Call write_memory for each child file, then update the parent."""
 
         # Run sub-agent with write_memory tool
         _ = await run_agent(
@@ -291,12 +330,19 @@ You have access to: write_memory
         )
 
         # Get the new file list to determine what was created
-        all_files_after = set(storage.list_files())
+        files_after = set(storage.list_files())
+        new_children = sorted(files_after - files_before)
 
-        # Find child nodes (files under the parent path)
-        new_children = [
-            f for f in all_files_after if f.startswith(f"{path}/") and f != path
-        ]
+        # Verify at least some children were created
+        if not new_children:
+            # Split failed - no children created
+            return WriteResult(
+                success=False,
+                path=path,
+                size_bytes=size,
+                split_triggered=False,
+                new_files=[],
+            )
 
         # Get updated parent size
         final_size = storage.get_size(path) if storage.exists(path) else 0
@@ -306,7 +352,7 @@ You have access to: write_memory
             path=path,
             size_bytes=final_size,
             split_triggered=False,  # Split already happened
-            new_files=sorted(new_children),
+            new_files=new_children,
         )
 
     except Exception:
@@ -368,7 +414,7 @@ async def search_memory(
 **Your approach:**
 1. Start by reading the content at the starting path
 2. Assess if the content is relevant to the query
-3. Look for [[path]] links in the content that might lead to relevant information
+3. Look for markdown links `[text](path)` in the content that might lead to relevant information
 4. Follow the most promising links by reading those paths
 5. Track which paths you've visited to avoid loops
 6. Collect relevant excerpts with their paths
@@ -391,7 +437,7 @@ CONTEXT: <brief explanation of why this is relevant and how you found it>
 
 **Guidelines:**
 - Prioritize paths that seem semantically related to the query
-- Follow [[links]] that appear promising
+- Follow markdown links `[text](path)` that appear promising
 - Higher relevance scores (closer to 1.0) for exact matches and highly relevant content
 - Lower relevance scores (0.3-0.6) for tangentially related content
 - Keep excerpts concise (50-150 characters) and informative
