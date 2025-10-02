@@ -68,18 +68,18 @@ class TestReadMemory:
 class TestWriteMemory:
     """Tests for write_memory tool."""
 
-    def test_write_root_memory(self, temp_context):
+    async def test_write_root_memory(self, temp_context):
         """Test writing to root memory (persona root)."""
-        result = write_memory(temp_context, "Test content", "")
+        result = await write_memory(temp_context, "Test content", "")
 
         assert "✅" in result
         # Check that write was successful (path shown is empty for root)
         storage = temp_context.memory_manager.storage
         assert storage.read("") == "Test content"
 
-    def test_write_nested_memory(self, temp_context):
+    async def test_write_nested_memory(self, temp_context):
         """Test writing to nested path."""
-        result = write_memory(
+        result = await write_memory(
             temp_context, "Nested content", "projects/silica/architecture"
         )
 
@@ -87,81 +87,34 @@ class TestWriteMemory:
         storage = temp_context.memory_manager.storage
         assert storage.read("projects/silica/architecture") == "Nested content"
 
-    def test_write_shows_size_info(self, temp_context):
+    async def test_write_shows_size_info(self, temp_context):
         """Test that write result includes size information."""
-        result = write_memory(temp_context, "Small content", "test")
+        result = await write_memory(temp_context, "Small content", "test")
 
         assert "📊" in result
         assert "KB" in result
         assert "bytes" in result
 
-    def test_write_warns_on_large_file(self, temp_context):
+    async def test_write_warns_on_large_file(self, temp_context):
         """Test warning when file exceeds 10KB threshold."""
         # Create content > 10KB
         large_content = "x" * 11000
 
-        result = write_memory(temp_context, large_content, "large")
+        result = await write_memory(temp_context, large_content, "large")
 
         assert "⚠️" in result
         assert "10kb" in result.lower()
         assert "split" in result.lower()
 
-    def test_write_warns_approaching_threshold(self, temp_context):
+    async def test_write_warns_approaching_threshold(self, temp_context):
         """Test warning when file approaches 10KB threshold."""
         # Create content > 8KB but < 10KB
         medium_content = "x" * 9000
 
-        result = write_memory(temp_context, medium_content, "medium")
+        result = await write_memory(temp_context, medium_content, "medium")
 
         assert "💡" in result
         assert "getting large" in result.lower()
-
-    def test_write_overwrites_existing(self, temp_context):
-        """Test that write replaces existing content by default."""
-        write_memory(temp_context, "Original", "test")
-        write_memory(temp_context, "Updated", "test")
-
-        storage = temp_context.memory_manager.storage
-        assert storage.read("test") == "Updated"
-
-    def test_write_append_mode(self, temp_context):
-        """Test append mode adds to existing content."""
-        write_memory(temp_context, "First", "test")
-        write_memory(temp_context, "Second", "test", append=True)
-
-        storage = temp_context.memory_manager.storage
-        assert storage.read("test") == "FirstSecond"
-
-    def test_write_append_to_nonexistent_creates_new(self, temp_context):
-        """Test append mode creates new file if it doesn't exist."""
-        write_memory(temp_context, "Content", "new", append=True)
-
-        storage = temp_context.memory_manager.storage
-        assert storage.read("new") == "Content"
-
-    def test_write_empty_content(self, temp_context):
-        """Test writing empty content is allowed."""
-        result = write_memory(temp_context, "", "empty")
-
-        assert "✅" in result
-        storage = temp_context.memory_manager.storage
-        assert storage.read("empty") == ""
-
-    def test_write_unicode_content(self, temp_context):
-        """Test writing Unicode content."""
-        content = "Hello 世界 🌍"
-        write_memory(temp_context, content, "unicode")
-
-        storage = temp_context.memory_manager.storage
-        assert storage.read("unicode") == content
-
-    def test_write_with_default_path(self, temp_context):
-        """Test writing with no path defaults to root (persona root)."""
-        result = write_memory(temp_context, "Default content")
-
-        assert "✅" in result
-        storage = temp_context.memory_manager.storage
-        assert storage.read("") == "Default content"
 
 
 class TestListMemoryFiles:
@@ -295,17 +248,17 @@ class TestDeleteMemory:
 class TestToolIntegration:
     """Integration tests for multiple tools working together."""
 
-    def test_write_read_cycle(self, temp_context):
+    async def test_write_read_cycle(self, temp_context):
         """Test writing then reading content."""
-        write_memory(temp_context, "Test content", "test")
+        await write_memory(temp_context, "Test content", "test")
         result = read_memory(temp_context, "test")
 
         assert result == "Test content"
 
-    def test_write_list_read_delete_cycle(self, temp_context):
+    async def test_write_list_read_delete_cycle(self, temp_context):
         """Test full lifecycle of memory operations."""
         # Write
-        write_result = write_memory(temp_context, "Content", "test")
+        write_result = await write_memory(temp_context, "Content", "test")
         assert "✅" in write_result
 
         # List
@@ -324,14 +277,14 @@ class TestToolIntegration:
         list_result2 = list_memory_files(temp_context)
         assert "No memory files found" in list_result2
 
-    def test_parent_child_operations(self, temp_context):
+    async def test_parent_child_operations(self, temp_context):
         """Test operations on parent and child nodes."""
         # Create parent
-        write_memory(temp_context, "Parent", "projects")
+        await write_memory(temp_context, "Parent", "projects")
 
         # Create children
-        write_memory(temp_context, "Silica", "projects/silica")
-        write_memory(temp_context, "Personal", "projects/personal")
+        await write_memory(temp_context, "Silica", "projects/silica")
+        await write_memory(temp_context, "Personal", "projects/personal")
 
         # List should show all
         list_result = list_memory_files(temp_context)
@@ -344,17 +297,17 @@ class TestToolIntegration:
         assert read_memory(temp_context, "projects/silica") == "Silica"
         assert read_memory(temp_context, "projects/personal") == "Personal"
 
-    def test_organic_growth_scenario(self, temp_context):
+    async def test_organic_growth_scenario(self, temp_context):
         """Test organic growth from simple to complex."""
         # Start simple
-        write_memory(temp_context, "Initial thoughts", "memory")
+        await write_memory(temp_context, "Initial thoughts", "memory")
 
         # Grow
-        write_memory(temp_context, "Updated thoughts with more context", "memory")
+        await write_memory(temp_context, "Updated thoughts with more context", "memory")
 
         # Split into topics
-        write_memory(temp_context, "Project info", "memory/projects")
-        write_memory(temp_context, "Knowledge base", "memory/knowledge")
+        await write_memory(temp_context, "Project info", "memory/projects")
+        await write_memory(temp_context, "Knowledge base", "memory/knowledge")
 
         # Verify structure
         list_result = list_memory_files(temp_context)

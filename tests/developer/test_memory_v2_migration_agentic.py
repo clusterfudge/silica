@@ -121,10 +121,10 @@ async def test_extract_and_store_uses_agentic_write(
             "read_memory",
         ]
 
-        # Verify prompt emphasizes organic growth strategy
+        # Verify prompt emphasizes extraction strategy
         prompt = call_args.kwargs["prompt"]
         assert "extract" in prompt.lower()
-        assert "individual facts" in prompt.lower() or "discrete" in prompt.lower()
+        assert "key facts" in prompt.lower() or "valuable" in prompt.lower()
         assert "root" in prompt.lower() or 'path=""' in prompt
 
 
@@ -183,13 +183,9 @@ async def test_migration_emphasizes_writing_to_root(
         async def mock_agent_run(context, prompt, tool_names, system, model):
             # Verify prompt emphasizes writing to root
             assert 'path=""' in prompt or "write to root" in prompt.lower()
-            assert "organic growth" in prompt.lower()
 
-            # Should mention writing multiple times (one per fact)
-            assert (
-                "write multiple times" in prompt.lower()
-                or "each fact" in prompt.lower()
-            )
+            # Simplified approach now writes ONCE with all facts (not multiple times)
+            assert "single" in prompt.lower() or "one" in prompt.lower()
 
             return "Facts written to root"
 

@@ -51,97 +51,124 @@ async def agentic_write(
     instruction: str = "Incorporate the new information into the existing content intelligently.",
 ) -> WriteResult:
     """
-    Write content to memory using an agent to intelligently merge with existing content.
+    Write content to memory using AI to intelligently merge with existing content.
 
-    The agent will:
-    - Read existing content (if any)
-    - Analyze both old and new content
-    - Merge information to avoid duplication
-    - Maintain logical structure and organization
-    - Update outdated information
-    - Preserve important context
+    This is the core write operation for Memory V2. It:
+    1. Reads existing content at the specified path (if any)
+    2. Uses AI to merge new content with existing content
+    3. Writes the merged result back
+    4. Checks if file size exceeds thresholds
+
+    The AI agent:
+    - Identifies duplicate information and avoids redundancy
+    - Updates outdated information with newer details
+    - Maintains logical organization and structure
+    - Preserves important context
+    - Creates coherent, well-organized content
 
     Args:
         storage: Storage backend to use
-        path: Path to write to
+        path: Path where content should be written (typically "" for root)
         new_content: New information to incorporate
-        context: AgentContext for sub-agent execution (required for agent mode)
+        context: AgentContext for AI operations (required for intelligent merging)
         instruction: Custom instruction for how to incorporate content
 
     Returns:
         WriteResult with operation details
     """
-    try:
-        # Check if file exists
-        existing_content = ""
-        if storage.exists(path):
+    # If no context, fall back to simple append
+    if context is None:
+        try:
+            existing = storage.read(path) if storage.exists(path) else ""
+            merged = f"{existing}\n\n---\n\n{new_content}" if existing else new_content
+            storage.write(path, merged)
+            size = storage.get_size(path)
+            return WriteResult(
+                success=True,
+                path=path,
+                size_bytes=size,
+                split_triggered=(size > SIZE_THRESHOLD),
+            )
+        except Exception:
+            return WriteResult(
+                success=False,
+                path=path,
+                size_bytes=0,
+                split_triggered=False,
+            )
+
+    # Use AI to intelligently merge content
+    from silica.developer.tools.subagent import run_agent
+
+    # Read existing content
+    existing_content = ""
+    if storage.exists(path):
+        try:
             existing_content = storage.read(path)
+        except Exception:
+            existing_content = ""
 
-        # If no existing content, just write new content
-        if not existing_content:
-            storage.write(path, new_content)
-            size = storage.get_size(path)
-            return WriteResult(
-                success=True,
-                path=path,
-                size_bytes=size,
-                split_triggered=(size > SIZE_THRESHOLD),
-            )
-
-        # If context not provided, fall back to simple merge
-        if context is None:
-            merged_content = f"{existing_content}\n\n---\n\n{new_content}"
-            storage.write(path, merged_content)
-            size = storage.get_size(path)
-            return WriteResult(
-                success=True,
-                path=path,
-                size_bytes=size,
-                split_triggered=(size > SIZE_THRESHOLD),
-            )
-
-        # Use sub-agent for intelligent merging
-        from silica.developer.tools.subagent import run_agent
-
+    # Prepare merge prompt
+    if existing_content:
         merge_prompt = f"""You are updating a memory file with new information.
 
-**Current file path**: {path}
-
-**Existing content**:
+**Current content at '{path or "(root)"}'**:
 ```
 {existing_content}
 ```
 
-**New information to incorporate**:
+**New content to incorporate**:
 ```
 {new_content}
 ```
 
 **Your task**: {instruction}
 
-Guidelines:
-1. Avoid duplicating information that's already present
-2. Update or replace outdated information with newer details
-3. Maintain logical organization and structure
-4. Preserve important context and details from existing content
-5. Use clear markdown formatting
-6. If the new information conflicts with existing, prefer the new information
-7. Merge related topics together rather than keeping them separate
+**Guidelines**:
+- Avoid duplicating information that's already present
+- Update outdated information with newer details
+- Maintain or improve the logical organization
+- Preserve important context and relationships
+- Keep the content concise and well-structured
+- If the new content is already covered, you may skip adding it
+- Use clear markdown formatting (headings, lists, code blocks as appropriate)
 
-Write the final merged content that incorporates both existing and new information.
-Output ONLY the final merged content, no explanations or meta-commentary.
+**Output**: Provide ONLY the final merged content. Do not include any commentary, just the content itself.
+"""
+    else:
+        # No existing content - just format the new content nicely
+        merge_prompt = f"""You are creating a new memory file.
+
+**Content to store**:
+```
+{new_content}
+```
+
+**Your task**: Format this content clearly and concisely for storage.
+
+**Guidelines**:
+- Use clear markdown formatting (headings, lists, code blocks as appropriate)
+- Organize the information logically
+- Keep it concise but complete
+- No commentary, just the formatted content
+
+**Output**: Provide ONLY the formatted content. No commentary.
 """
 
-        # Run sub-agent for intelligent merging
-        merged_content = await run_agent(
+    try:
+        # Run sub-agent to merge content
+        result = await run_agent(
             context=context,
             prompt=merge_prompt,
-            tool_names=[],  # No tools needed - just text processing
+            tool_names=[],  # No tools needed, just text processing
             system=None,
-            model="smart",  # Use smart model for better reasoning
+            model="smart",  # Use smart model for quality merging
         )
 
-        # Write the merged content
+        # The result is the merged content
+        merged_content = result.strip() if result else new_content
+
+        # Write merged content
         storage.write(path, merged_content)
         size = storage.get_size(path)
 
@@ -153,7 +180,7 @@ Output ONLY the final merged content, no explanations or meta-commentary.
         )
 
     except Exception:
-        # Fall back to simple merge on error
+        # Fall back to simple append on error
         try:
             existing = storage.read(path) if storage.exists(path) else ""
             merged = f"{existing}\n\n---\n\n{new_content}" if existing else new_content

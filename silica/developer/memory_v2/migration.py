@@ -194,17 +194,14 @@ async def extract_and_store_v1_file(
     v1_file: V1MemoryFile, storage: MemoryStorage, context: AgentContext
 ) -> tuple[bool, str]:
     """
-    Extract salient facts from a V1 file and write them to root memory for organic growth.
+    Extract salient facts from a V1 file and write them to root memory.
 
-    This follows the V2 organic growth strategy:
+    This simplified approach:
     1. Reads the V1 file content
-    2. Uses AI to extract individual facts and key information (not dump entire file)
-    3. Writes each fact to root ("") using write_memory
-    4. Lets agentic write intelligently merge facts into existing content
-    5. Root naturally grows and will split when it exceeds 10KB
-
-    The goal is to extract discrete, valuable facts and let them accumulate in root.
-    Organization emerges naturally through the organic growth process.
+    2. Uses AI to extract key information (not dump entire file)
+    3. Writes extracted facts to root ("") using write_memory
+    4. Lets agentic write intelligently merge with existing content
+    5. Root will naturally grow and can be split later when it exceeds 10KB
 
     What gets extracted:
     - Important facts about individuals, projects, technologies
@@ -268,9 +265,8 @@ async def extract_and_store_v1_file(
         if "version" in v1_file.metadata:
             metadata_section += f"- Version: {v1_file.metadata['version']}\n"
 
-    # Create extraction and migration prompt
-    # Following organic growth strategy: extract facts, write to root, let it grow naturally
-    migration_prompt = f"""You are migrating information from an old memory system (V1) to a new organic memory system (V2).
+    # Simplified extraction prompt - focus on getting facts into a single write
+    migration_prompt = f"""You are migrating information from an old memory system (V1) to a new simplified memory system (V2).
 
 **Source File**: {v1_file.path}
 **Last Modified**: {v1_file.last_modified.strftime("%Y-%m-%d %H:%M:%S")}
@@ -282,97 +278,61 @@ async def extract_and_store_v1_file(
 {v1_file.content}
 ```
 
-**YOUR TASK: Extract Individual Facts and Write Them to Root**
+**YOUR TASK: Extract Key Facts and Write to Root Memory**
 
-Your goal is to extract discrete, valuable facts from this file and write each one to the root memory using `write_memory()`. The agentic write tool will intelligently merge them with existing content.
+Review the V1 file and extract the most important, valuable information. Focus on:
 
-**Organic Growth Strategy:**
-1. Start by populating the root memory with individual facts
-2. The root will naturally grow as facts accumulate
-3. When root exceeds 10KB, it will be split into organized child nodes
-4. This mirrors how new content is added to the system
+✅ **DO Extract**:
+- Key facts about projects, technologies, people, companies
+- Current states, decisions, and outcomes  
+- Best practices and learnings
+- Technical reference information (APIs, configs, patterns)
+- Important context and relationships
 
-**What to Extract:**
-
-✅ **DO Extract** (as individual facts):
-- Key facts about individuals, projects, companies, technologies
-- Current project states, statuses, and important decisions
-- Best practices, learnings, and insights
-- Technical details worth referencing (APIs, configs, architectures)
-- Important relationships and connections
-- Actionable information and useful context
-
-❌ **DON'T Extract:**
-- Redundant information (check existing content first with `read_memory("")`)
-- Trivial details (meeting schedules, temporary status updates)
-- Outdated information superseded by newer facts
+❌ **DON'T Extract**:
+- Redundant information
+- Trivial or outdated details
+- Temporary status updates
 - Verbose logs or repetitive content
-- Information with no future value
 
-**How to Write Facts:**
+**Instructions**:
 
-For each significant fact or related group of facts, call:
-```python
-write_memory(
-    content="[Your extracted fact in clear, concise format]",
-    path="",  # Always write to root ("")
-    instruction="This is a fact extracted from V1 file {v1_file.path}. Merge intelligently with existing content."
-)
-```
+1. **First, check existing content**: Call `read_memory("")` to see what's already in root memory
 
-**Format your extracted facts concisely:**
-```
-Type: [project/knowledge/person/company/reference/best-practice]
-Topic: [clear, specific topic]
+2. **Extract and format**: Create a concise summary of the valuable facts from this file. Use clear structure:
+   ```
+   ## [Topic/Category]
+   
+   [Brief overview]
+   
+   **Key Points:**
+   - Point 1
+   - Point 2
+   - Point 3
+   
+   [Any additional context]
+   ```
 
-[1-3 sentence summary of the key information]
+3. **Write once**: Make a SINGLE call to `write_memory()` with ALL extracted facts:
+   ```python
+   write_memory(
+       content="[All your extracted facts formatted clearly]",
+       path="",
+       instruction="Extracted from V1 file {v1_file.path}. Merge this information intelligently with existing memory, avoiding duplication."
+   )
+   ```
 
-Key Details:
-- [Specific detail #1]
-- [Specific detail #2]
+**Guidelines**:
+- Extract ALL valuable info in ONE write_memory call (not multiple calls)
+- Be concise but complete - capture the essence  
+- Use markdown formatting (headings, lists, code blocks)
+- Quality over quantity - only extract what's truly valuable
+- The write_memory tool will handle merging with existing content
 
-Context: [Why this matters]
-```
-
-**Example:**
-
-If the V1 file contains information about Silica Memory V2, you might extract:
-
-```python
-# First fact - architecture overview
-write_memory(
-    content="Type: project/technical-architecture
-Topic: Silica Memory V2 System
-
-Memory V2 is an organic growth memory system that starts with a single root file and splits automatically at 10KB threshold. Uses agentic operations for intelligent write merging, semantic search, and automatic splitting. Storage supports both local disk and S3 backends.",
-    path="",
-    instruction="Extracted from V1 migration. This is core architecture information about Silica Memory V2."
-)
-
-# Second fact - implementation status  
-write_memory(
-    content="Type: project/milestone
-Topic: Silica Memory V2 Implementation Status
-
-Memory V2 Phase 2 (Agentic Operations) completed January 2025. Includes AI-powered write merging, split operations with content preservation, and semantic search. All 102 tests passing.",
-    path="",
-    instruction="Extracted from V1 migration. This is status information about Memory V2 completion."
-)
-```
-
-**CRITICAL GUIDELINES:**
-- **Write multiple times** - One `write_memory()` call per fact or coherent fact group
-- **Always path=""** - Write everything to root, let organic growth handle organization
-- **Be concise** - Each fact should be clear and focused
-- **Let AI merge** - The `write_memory` tool uses AI to merge intelligently, avoid duplication
-- **Quality over quantity** - Only extract truly valuable information
-- **Check before writing** - Use `read_memory("")` first to see what's already there
-
-**Now extract and write the facts from this V1 file:**
+**Now extract the facts and write them to root memory with a single write_memory call.**
 """
 
     # Run migration agent with write_memory and read_memory tools
-    # Agent will extract facts and write them individually to root
     try:
         await run_agent(
             context=context,

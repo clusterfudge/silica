@@ -388,8 +388,9 @@ async def write_memory(
         return f"❌ Error writing memory: {e}"
 
 
-@tool
-async def split_memory(context: "AgentContext", path: str = "") -> str:
+# Temporarily disabled - will re-enable after single-file approach is working
+# @tool
+async def split_memory_disabled(context: "AgentContext", path: str = "") -> str:
     """Split a large memory node into organized child nodes.
 
     When a memory file grows too large (>10KB), it becomes harder to navigate
