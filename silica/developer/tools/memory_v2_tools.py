@@ -28,6 +28,16 @@ from silica.developer.tools.framework import tool
 
 
 def memory_prompt(context: AgentContext) -> str:
+    try:
+        root_content = context.memory_manager.storage.read("")
+        memory_section = f"""======= MEMORY =======
+{root_content}
+======== END MEMORY ======="""
+    except MemoryNotFoundError:
+        memory_section = """======= MEMORY =======
+(No root memory yet - use write_memory to create your first memory)
+======== END MEMORY ======="""
+
     return f"""You have access to a memory system. This system is populated by your experiences.
 This system grows organically as you add content to it, though you are responsible for managing it. 
 The root of this memory system is always available to you, and you should consider the memory tree
@@ -42,9 +52,7 @@ go into memory, as well as what's most important, based on that core.
 
 
 Here is the current root of your memory -- you have decided that these are the most important facts that you have learned so far!
-======= MEMORY =======
-{context.memory_manager.storage.read("")}
-======== END MEMORY =======
+{memory_section}
     """
 
 
