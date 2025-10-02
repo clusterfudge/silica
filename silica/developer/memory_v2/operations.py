@@ -422,14 +422,15 @@ Review the content and identify:
 
 **STEP 2: Create Child Files** 
 
-For EACH semantic group, call write_memory:
+For EACH semantic group, call _memory_write:
 ```python
-write_memory(
-    content="[Child content - focus on that specific theme]",
+_memory_write(
     path="{parent_path}/child_name",
-    instruction="This is [theme] content from a split. Keep it focused and concise."
+    content="[Child content - focus on that specific theme]"
 )
 ```
+
+Note: _memory_write does direct writes (no AI merging), so format content clearly.
 
 **Child content guidelines**:
 - Stay focused on the child's theme
@@ -441,7 +442,7 @@ write_memory(
 
 The parent should be an **executive summary + navigation hub**, not just a table of contents.
 
-Call write_memory for the parent path with content structured like:
+Call _memory_write for the parent path with content structured like:
 
 ```markdown
 # [Parent Title]
@@ -513,15 +514,19 @@ Contents:
 ```
 
 **Now execute the split:**
-1. Call write_memory for each child (with focused, consolidated content)
-2. Call write_memory for the parent (with insights + navigation)
+1. Call _memory_write for each child (with focused, consolidated content)
+2. Call _memory_write for the parent (with insights + navigation)
 3. Ensure all valuable information is preserved (but consolidated where redundant)"""
 
-        # Run sub-agent with write_memory tool
+        # Create specialized toolbox with direct storage access
+        tools = create_split_toolbox(storage)
+        tool_names = [t.__name__ for t in tools]
+
+        # Run sub-agent with internal memory tools (direct storage access, no agentic operations)
         _ = await run_agent(
             context=context,
             prompt=split_prompt,
-            tool_names=["write_memory"],
+            tool_names=tool_names,  # Uses _memory_read, _memory_write, _memory_list
             system=None,
             model="smart",  # Use smart model for complex reasoning
         )
