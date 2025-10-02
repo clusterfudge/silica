@@ -3,8 +3,9 @@ CLI commands for Memory V2 operations.
 """
 
 import asyncio
+import contextlib
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 
 from cyclopts import App
 from rich.console import Console
@@ -27,9 +28,70 @@ from silica.developer.memory_v2.migration import (
 from silica.developer.memory_v2.manager import MemoryManager
 from silica.developer.memory_v2.operations import agentic_write
 from silica.developer.context import AgentContext
+from silica.developer.user_interface import UserInterface
+from silica.developer.sandbox import SandboxMode
 
 app = App(name="memory-v2", help="Memory V2 management commands")
 console = Console()
+
+
+class QuietMigrationUI(UserInterface):
+    """A minimal UI that doesn't create live displays (prevents conflicts with progress bars)."""
+
+    def __init__(self, console: Console):
+        self.console = console
+        self._sandbox_mode = SandboxMode.ALLOW_ALL
+
+    async def get_user_input(self, prompt: str = "") -> str:
+        # Migration is non-interactive
+        return ""
+
+    def display_welcome_message(self) -> None:
+        pass
+
+    @contextlib.contextmanager
+    def status(self, message: str, spinner: str = None, update=False):
+        """No-op status - prevents live display conflicts."""
+        # Just yield without creating a status display
+        yield None
+
+    def handle_system_message(self, message, markdown=True, live=None):
+        # Silently ignore during migration
+        pass
+
+    def handle_user_input(self, message):
+        pass
+
+    def handle_assistant_message(self, message):
+        pass
+
+    def handle_tool_use(self, tool_name, tool_input):
+        pass
+
+    def handle_tool_result(self, tool_name, result, live=None):
+        pass
+
+    def display_token_count(
+        self,
+        prompt_tokens,
+        completion_tokens,
+        total_tokens,
+        total_cost,
+        cached_tokens=None,
+        conversation_size=None,
+        context_window=None,
+    ):
+        pass
+
+    def permission_callback(self, operation, path, sandbox_mode, action_arguments):
+        return True
+
+    def permission_rendering_callback(self, operation, path, action_arguments):
+        return True
+
+    def bare(self, message: str | Any, live=None) -> None:
+        # Silently ignore during migration
+        pass
 
 
 @app.command
@@ -155,13 +217,13 @@ async def _migrate_async(
         return
 
     # Create minimal agent context for AI operations
-    from silica.developer.hdev import CLIUserInterface
     from silica.developer.models import get_model
     from silica.developer.sandbox import Sandbox, SandboxMode
     from uuid import uuid4
     import os
 
-    ui = CLIUserInterface(console=console, sandbox_mode=SandboxMode.ALLOW_ALL)
+    # Create a quiet UI that doesn't use live displays
+    ui = QuietMigrationUI(console=console)
     model_spec = get_model("sonnet")  # Use sonnet for migration
 
     # Create sandbox
