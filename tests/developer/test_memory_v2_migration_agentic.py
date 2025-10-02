@@ -153,13 +153,13 @@ async def test_migration_prompt_emphasizes_summarization(
 
             # Should guide on what TO extract
             assert (
-                "key facts" in prompt.lower() or "individual facts" in prompt.lower()
-            ), "Prompt should mention facts"
+                "facts" in prompt.lower() or "generalizable" in prompt.lower()
+            ), "Prompt should mention facts or generalizability"
             assert (
                 "best practices" in prompt.lower()
                 or "learnings" in prompt.lower()
                 or "insights" in prompt.lower()
-            ), "Prompt should mention practices/learnings"
+            ), "Prompt should mention practices/learnings/insights"
 
             return "Extracted successfully"
 

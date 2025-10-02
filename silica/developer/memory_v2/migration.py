@@ -278,22 +278,25 @@ async def extract_and_store_v1_file(
 {v1_file.content}
 ```
 
-**YOUR TASK: Extract Key Facts and Write to Root Memory**
+**YOUR TASK: Extract Generalizable Facts and Write to Root Memory**
 
-Review the V1 file and extract the most important, valuable information. Focus on:
+Review the V1 file and extract information with **lasting value**. Think: "What would be useful a year from now?"
 
-✅ **DO Extract**:
-- Key facts about projects, technologies, people, companies
-- Current states, decisions, and outcomes  
-- Best practices and learnings
-- Technical reference information (APIs, configs, patterns)
-- Important context and relationships
+✅ **DO Extract** (Generalizable & Timeless):
+- Architectural decisions and their reasoning
+- Patterns, principles, and best practices learned
+- Key relationships and dependencies between systems
+- Technical insights and discoveries
+- Core facts about projects/technologies (purpose, approach, key features)
+- Important context that provides understanding
 
-❌ **DON'T Extract**:
+❌ **DON'T Extract** (Temporary & Detailed):
+- Specific project statuses ("completed X on date Y" - unless it reveals lasting insight)
+- Version numbers and dates (unless historically significant)
+- Task lists and to-dos (already completed)
+- Verbose implementation details (focus on insights, not exhaustive logs)
 - Redundant information
-- Trivial or outdated details
-- Temporary status updates
-- Verbose logs or repetitive content
+- Information superseded by newer understanding
 
 **Instructions**:
 
@@ -324,10 +327,12 @@ Review the V1 file and extract the most important, valuable information. Focus o
 
 **Guidelines**:
 - Extract ALL valuable info in ONE write_memory call (not multiple calls)
-- Be concise but complete - capture the essence  
+- **Focus on insights and patterns**, not exhaustive details
+- **Synthesize and summarize** - what's the essential learning here?
+- Be concise but complete - capture the essence, not every fact
 - Use markdown formatting (headings, lists, code blocks)
-- Quality over quantity - only extract what's truly valuable
-- The write_memory tool will handle merging with existing content
+- **Ask yourself**: "Will this be useful in a year, or is it just historical noise?"
+- The write_memory tool will handle merging with existing content intelligently
 
 **Now extract the facts and write them to root memory with a single write_memory call.**
 """

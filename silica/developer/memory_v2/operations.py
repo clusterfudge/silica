@@ -112,7 +112,7 @@ async def agentic_write(
     if existing_content:
         merge_prompt = f"""You are updating a memory file with new information.
 
-**Current content at '{path or "(root)"}'**:
+**Current content at '{path or "(root)"}'** ({len(existing_content)} bytes):
 ```
 {existing_content}
 ```
@@ -124,14 +124,31 @@ async def agentic_write(
 
 **Your task**: {instruction}
 
-**Guidelines**:
-- Avoid duplicating information that's already present
-- Update outdated information with newer details
-- Maintain or improve the logical organization
-- Preserve important context and relationships
-- Keep the content concise and well-structured
-- If the new content is already covered, you may skip adding it
-- Use clear markdown formatting (headings, lists, code blocks as appropriate)
+**Critical Guidelines - Focus on Conciseness**:
+
+**What to Keep**:
+- Generalizable facts, patterns, and learnings
+- Architectural decisions and their reasoning
+- Best practices and insights that remain relevant
+- Key relationships and dependencies
+- Timeless technical knowledge
+
+**What to Discard or Summarize**:
+- Temporary project statuses (unless they reveal lasting insights)
+- Specific dates and version numbers (unless historically significant)
+- Detailed logs of completed work
+- Redundant information already well-covered
+- Information superseded by newer understanding
+
+**How to Merge**:
+1. **Synthesize, don't append**: Look for higher-level patterns across old + new content
+2. **Consolidate redundancy**: If similar info appears multiple times, create one better statement
+3. **Update stale info**: Replace outdated facts with current understanding
+4. **Preserve wisdom**: Keep insights and learnings that have lasting value
+5. **Stay concise**: Aim to keep or reduce total length when possible
+
+**Goal**: The merged content should be MORE valuable but NOT necessarily longer.
+Think: "What would I want to remember a year from now?" Not: "What happened this week?"
 
 **Output**: Provide ONLY the final merged content. Do not include any commentary, just the content itself.
 """
@@ -147,9 +164,11 @@ async def agentic_write(
 **Your task**: Format this content clearly and concisely for storage.
 
 **Guidelines**:
+- Focus on generalizable facts, patterns, and learnings (not temporary statuses)
 - Use clear markdown formatting (headings, lists, code blocks as appropriate)
 - Organize the information logically
-- Keep it concise but complete
+- Keep it concise but complete - aim for lasting value
+- Extract the essence and insights, not exhaustive details
 - No commentary, just the formatted content
 
 **Output**: Provide ONLY the formatted content. No commentary.
