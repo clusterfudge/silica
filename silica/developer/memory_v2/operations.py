@@ -520,13 +520,12 @@ Contents:
 
         # Create specialized toolbox with direct storage access
         tools = create_split_toolbox(storage)
-        tool_names = [t.__name__ for t in tools]
 
         # Run sub-agent with internal memory tools (direct storage access, no agentic operations)
         _ = await run_agent(
             context=context,
             prompt=split_prompt,
-            tool_names=tool_names,  # Uses _memory_read, _memory_write, _memory_list
+            tools=tools,  # Pass actual tool objects, not names
             system=None,
             model="smart",  # Use smart model for complex reasoning
         )
