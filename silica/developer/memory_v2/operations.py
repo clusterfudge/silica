@@ -294,77 +294,124 @@ async def split_memory_node(
         # Parent path for child nodes
         parent_path = path if path else ""
 
-        split_prompt = f"""You are splitting a large memory file into smaller, focused child files.
+        split_prompt = f"""You are reorganizing a large memory file by splitting it into focused, semantic child files.
 
-**Parent path**: `{parent_path or "(root)"}` 
-**File size**: {size} bytes ({size/1024:.2f} KB) - exceeds 10 KB threshold
-**Split strategy**: Create 3-5 focused child files organized by topic/theme
+**Why we're splitting**: This file has grown to {size} bytes ({size/1024:.2f} KB), making it harder to navigate and maintain.
+
+**Your goal**: Create a cleaner, more navigable structure while maintaining (or improving) content quality.
 
 **Current content to split**:
 ```markdown
 {content}
 ```
 
-**Your task - Complete ALL steps:**
+**STEP 1: Analyze and Plan**
 
-**Step 1: Plan the split**
-- Identify 3-5 major themes/topics in the content
-- Choose clear, semantic child names (e.g., "projects", "knowledge", "meetings", etc.)
-- Decide which content goes to each child
+Review the content and identify:
+1. **Natural groupings**: What are the 3-5 major themes/topics?
+2. **Semantic categories**: What names would make these groups immediately clear?
+3. **Hierarchy**: What insights belong at the parent level vs in children?
+4. **Consolidation opportunities**: Where can you reduce redundancy during the split?
 
-**Step 2: Create each child file**
-For EACH child you identified, call write_memory with:
-- path: "{parent_path}/child_name" (use the parent path as prefix)
-- content: The full content for that child (be thorough!)
+**Good child names**: `core_architecture`, `learnings`, `best_practices`, `technical_decisions`
+**Avoid**: `misc`, `other`, `temp`, overly specific names like `bug_fixes_jan_2025`
 
-**Step 3: Update the parent file**
-Call write_memory for path "{parent_path or '(empty string for root)'}" with content that includes:
+**STEP 2: Create Child Files** 
 
-1. **High-level overview** - Brief summary of what this memory area contains (2-3 sentences)
-2. **Key highlights** - Important top-level information that shouldn't be buried in children (3-5 bullet points of the most important facts)
-3. **Organization** - Brief explanation of how the content is organized
-4. **Markdown links to children** in a "## Contents" section:
-   ```markdown
-   ## Contents
-   
-   - [Projects](projects) - Description of what's in projects
-   - [Knowledge](knowledge) - Description of what's in knowledge
-   - [Meetings](meetings) - Description of what's in meetings
-   ```
-
-**CRITICAL GUIDELINES:**
-- **Preserve ALL content** - Every piece of information must go somewhere (either parent or a child)
-- **Call write_memory for EACH child** - Don't just mention them, actually create them!
-- **Use markdown links** - Format: `[Display Text](relative/path)` NOT `[[path]]`
-- **Keep parent valuable** - It should provide context and orientation, not just be a table of contents
-- **Use semantic names** - Names should clearly indicate what's inside
-- **No data loss** - If in doubt, include more context in the parent
-
-**Example parent structure:**
-```markdown
-# Project Memory
-
-This is my personal project knowledge base, containing information about active and completed software projects, technical learnings, and development notes accumulated since 2024.
-
-**Key Highlights:**
-- Currently working on 3 active projects: Silica (AI agent framework), WebApp (personal site), and CLI tools
-- Primary tech stack: Python 3.11+, TypeScript, React
-- All projects follow test-driven development with >80% coverage
-
-**Organization:**
-I've organized this memory into focused areas for easier navigation and maintenance. Each section contains detailed information about that specific domain.
-
-## Contents
-
-- [Projects](projects) - Active and completed software projects with architecture docs
-- [Knowledge Base](knowledge) - Technical learnings, patterns, and best practices
-- [Meeting Notes](meetings) - Important discussions and decisions from team meetings
-- [Ideas](ideas) - Future project ideas and technical explorations
-
-Last updated: 2025-01-02
+For EACH semantic group, call write_memory:
+```python
+write_memory(
+    content="[Child content - focus on that specific theme]",
+    path="{parent_path}/child_name",
+    instruction="This is [theme] content from a split. Keep it focused and concise."
+)
 ```
 
-**Now execute the split:** Call write_memory for each child file, then update the parent."""
+**Child content guidelines**:
+- Stay focused on the child's theme
+- Maintain our conciseness philosophy (insights over details)
+- Each child should feel cohesive and purposeful
+- Remove redundancy within each child during the split
+
+**STEP 3: Create a Valuable Parent**
+
+The parent should be an **executive summary + navigation hub**, not just a table of contents.
+
+Call write_memory for the parent path with content structured like:
+
+```markdown
+# [Parent Title]
+
+[2-3 sentence overview of what this memory area covers and why it matters]
+
+## Key Insights
+
+[3-5 bullet points of the MOST important cross-cutting insights - things that 
+tie themes together or represent the highest-level learnings. These shouldn't 
+just duplicate what's in children; they should provide context and connections.]
+
+- Insight 1: [Something that spans multiple children or provides meta-context]
+- Insight 2: [A pattern or principle that emerges from the details]
+- Insight 3: [Critical context for understanding the children]
+
+## Organization
+
+This memory is organized into focused areas:
+
+- **[Child Name](child_name)**: [What's in it and when to look there]
+- **[Child Name](child_name)**: [What's in it and when to look there]
+- **[Child Name](child_name)**: [What's in it and when to look there]
+
+[Optional: Brief note about relationships between children or how they fit together]
+```
+
+**CRITICAL PRINCIPLES:**
+
+1. **Preserve all valuable content** - But use the split as an opportunity to consolidate redundancy
+2. **Parent = Context + Navigation** - Not just a table of contents; provide insights and connections
+3. **Children = Focused themes** - Each child should have a clear, singular purpose
+4. **Semantic names** - Names should make content discoverable and obvious
+5. **Conciseness throughout** - This is reorganization, not just redistribution
+6. **Use markdown links** - Format: `[Display Text](relative/path)`
+
+**Example of a GOOD parent** (note the valuable insights, not just links):
+
+```markdown
+# Software Development Learnings
+
+Core insights and best practices accumulated from building production systems 
+in Python, TypeScript, and infrastructure automation.
+
+## Key Insights
+
+- **Architecture evolution**: Start simple, add complexity only when validated by real need
+- **Testing pyramid**: Unit tests for logic, integration tests for workflows, e2e for critical paths
+- **Prompt engineering matters more than framework choice** for AI-powered tools
+
+## Organization
+
+- **[Python Patterns](python_patterns)**: Language-specific best practices, async patterns, type hints
+- **[System Design](system_design)**: Architectural decisions, scalability learnings, trade-offs
+- **[Developer Experience](developer_experience)**: Tooling choices, workflow optimizations, productivity insights
+
+These areas are interconnected - good architecture enables good testing, which improves DX.
+```
+
+**Example of a POOR parent** (just a table of contents):
+
+```markdown
+# Memory
+
+Contents:
+- [Projects](projects) - Projects
+- [Knowledge](knowledge) - Knowledge  
+- [Notes](notes) - Notes
+```
+
+**Now execute the split:**
+1. Call write_memory for each child (with focused, consolidated content)
+2. Call write_memory for the parent (with insights + navigation)
+3. Ensure all valuable information is preserved (but consolidated where redundant)"""
 
         # Run sub-agent with write_memory tool
         _ = await run_agent(
