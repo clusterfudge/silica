@@ -359,6 +359,19 @@ class MemoryStorage(ABC):
 **Storage Design Note:**
 Each memory node is represented as a directory containing a `.content` file. This design allows any node to seamlessly transition from a leaf to a parent node without file/directory conflicts, enabling true organic growth.
 
+**Persona Isolation:**
+All memory paths shown above are relative to the persona's root directory. For example, with `--persona coding_agent`, the full path would be:
+```
+~/.silica/memory_v2/coding_agent/
+  ├── memory/
+  │   └── .content
+  ├── projects/
+  │   ├── .content
+  │   └── silica/
+  │       └── .content
+  ...
+```
+
 **Implementation Notes:**
 - Use pathlib for cross-platform compatibility
 - Files are plain text (UTF-8 encoding)
@@ -479,12 +492,14 @@ knowledge/python            # Python-specific knowledge
 
 ## Implementation Phases
 
-### Phase 1: Core Infrastructure
-- [ ] Define storage interface
-- [ ] Implement local disk storage
-- [ ] Implement basic read/write operations
-- [ ] File size monitoring
-- [ ] Basic tests
+### Phase 1: Core Infrastructure ✅ COMPLETE
+- [x] Define storage interface
+- [x] Implement local disk storage with `.content` files
+- [x] Implement basic read/write operations
+- [x] File size monitoring with warnings
+- [x] Basic tests (34 storage + 30 tool + 11 manager tests)
+- [x] MemoryManager with persona isolation
+- [x] Integration with AgentContext
 
 ### Phase 2: Agentic Operations
 - [ ] Implement write_memory with read-update pattern
@@ -510,6 +525,73 @@ knowledge/python            # Python-specific knowledge
 - [ ] Web UI integration
 - [ ] Performance optimization
 - [ ] Documentation
+
+## Persona-Specific Memory Isolation
+
+Memory V2 provides automatic isolation of memory across different personas (or any arbitrary string identifier). Each persona gets its own subdirectory within the memory storage.
+
+### How It Works
+
+**Storage Structure:**
+```
+~/.silica/memory_v2/
+  ├── default/              # Default persona memory
+  ├── coding_agent/         # Coding agent persona memory
+  ├── deep_research_agent/  # Research persona memory
+  └── custom_name/          # Any custom identifier
+```
+
+**Key Principles:**
+
+1. **No Validation in Memory System**: The memory system accepts any string as a persona name. It's simply used for directory naming and isolation.
+
+2. **Validation Happens Elsewhere**: Persona validation only occurs in `hdev.py` where actual persona prompts are loaded. If an invalid persona name is provided, the system still creates isolated memory but doesn't apply a persona prompt.
+
+3. **Default Persona**: When no persona is specified, the system uses `"default"` as the persona name.
+
+### Memory Manager API
+
+```python
+from silica.developer.memory_v2 import MemoryManager
+
+# Initialize with a persona name (any string)
+manager = MemoryManager(persona_name="coding_agent")
+
+# The manager provides access to storage
+manager.storage.write("memory", "Content specific to coding agent")
+
+# Different personas have isolated storage
+manager1 = MemoryManager(persona_name="persona1")
+manager2 = MemoryManager(persona_name="persona2")
+
+manager1.storage.write("memory", "Persona 1 content")
+manager2.storage.write("memory", "Persona 2 content")
+# These are completely isolated from each other
+```
+
+### Integration with AgentContext
+
+The memory manager is automatically created when `AgentContext.create()` is called:
+
+```python
+# In hdev.py, the --persona flag is parsed from CLI args
+context = AgentContext.create(
+    cli_args=["--persona", "coding_agent", ...],
+    ...
+)
+
+# The context automatically has a memory manager
+context.memory_manager  # MemoryManager with persona_name="coding_agent"
+```
+
+### Persona Behavior Matrix
+
+| CLI Flag | Memory Path | Persona Prompt Applied? |
+|----------|-------------|------------------------|
+| `--persona coding_agent` (valid) | `~/.silica/memory_v2/coding_agent/` | ✅ Yes - loads coding agent prompt |
+| `--persona custom_name` (invalid) | `~/.silica/memory_v2/custom_name/` | ❌ No - isolated memory, no prompt |
+| `--persona default` | `~/.silica/memory_v2/default/` | ❌ No - default behavior |
+| (no flag) | `~/.silica/memory_v2/default/` | ❌ No - default behavior |
 
 ## Configuration
 
@@ -561,6 +643,23 @@ MEMORY_V2_CACHE_TTL = 300  # 5 minutes
 5. **Flexibility**: Easy to switch between local and S3 storage
 6. **Transparency**: Clear logs of agent decisions during splits
 
+## Implementation Notes
+
+### Persona Handling (Resolved)
+
+**Decision**: Persona validation happens only in `hdev.py` where persona prompts are used, NOT in the memory system.
+
+**Rationale**: 
+- Memory system is just for storage and doesn't need to know about persona prompts
+- Allows arbitrary string identifiers for memory isolation
+- Cleaner separation of concerns
+- More flexible for future use cases
+
+**Implementation**:
+- `MemoryManager` accepts any string for `persona_name`
+- `hdev.py` checks if persona is valid before applying persona prompt
+- Invalid personas still get isolated memory, just no persona prompt
+
 ## Open Questions
 
 1. **Circular References**: How to handle if agent creates circular links?
@@ -570,8 +669,8 @@ MEMORY_V2_CACHE_TTL = 300  # 5 minutes
    - Proposed: Phase 6 feature, triggered when multiple files stay small
 
 3. **Concurrent Writes**: How to handle race conditions?
-   - Local: File locking
-   - S3: Optimistic concurrency with ETags
+   - Local: File locking (implemented)
+   - S3: Optimistic concurrency with ETags (future)
 
 4. **Search Index**: Should we maintain a separate search index?
    - Proposed: Optional optimization, not required for MVP
