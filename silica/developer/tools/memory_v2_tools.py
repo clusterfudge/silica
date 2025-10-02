@@ -25,6 +25,35 @@ from silica.developer.memory_v2.operations import (
     SIZE_WARNING,
 )
 from silica.developer.tools.framework import tool
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    TaskProgressColumn,
+    TimeRemainingColumn,
+)
+
+
+def memory_prompt(context: AgentContext) -> str:
+    return f"""You have access to a memory system. This system is populated by your experiences.
+This system grows organically as you add content to it, though you are responsible for managing it. 
+The root of this memory system is always available to you, and you should consider the memory tree
+ass part of a heap, where the most important memories bubble to the top (or stay there). When a memory 
+file becomes too large, you will split it, into two or more file.
+
+These memories will, over time, make up your core personality and interests. These are things for you to decide! You 
+started as a blank slate, and are building up your sense of self based on the things you experience.
+
+Use your memory often, you tend to under-use it. Consider your core personality, and decide what should
+go into memory, as well as what's most important, based on that core.  
+
+
+Here is the current root of your memory -- you have decided that these are the most important facts that you have learned so far!
+======= MEMORY =======
+{context.memory_manager.storage.read()}
+======== END MEMORY =======
+    """
 
 
 @dataclass
@@ -676,3 +705,264 @@ async def search_memory(
 
     except Exception as e:
         return f"❌ Error searching memory: {e}"
+
+
+@tool
+async def migrate_memory_v1_to_v2(
+    context: "AgentContext",
+    v1_path: str = "",
+    resume: bool = True,
+    max_files: int = 0,
+) -> str:
+    """Migrate memory from V1 to V2 system using AI extraction.
+
+    This tool intelligently migrates your existing V1 memory by:
+    1. Scanning V1 memory files in chronological order (oldest first)
+    2. Using AI to extract salient information from each file
+    3. Storing extracted information in V2 with intelligent merging
+    4. Tracking progress and allowing resumption
+
+    **How it works:**
+    - AI reads each V1 file and extracts key facts, concepts, relationships
+    - Extracted information is stored at V2 root using agentic write
+    - The system organically grows and organizes as more content is added
+    - Progress is saved after each file (resumable if interrupted)
+
+    **Migration is intelligent:**
+    - Not a direct file copy - AI understands and summarizes content
+    - Extracts only salient information, skips redundant details
+    - Preserves context and relationships
+    - Lets V2's organic structure emerge naturally
+
+    **Progress tracking:**
+    - Visual progress bar shows current file and percentage
+    - State saved after each file
+    - Can be resumed if interrupted
+    - Migration state stored in .metadata/migration_state.json
+
+    Args:
+        v1_path: Path to V1 memory directory (default: ~/.silica/memory)
+        resume: Resume from last checkpoint (default: True)
+        max_files: Maximum files to process in this run (0 = all, useful for testing)
+
+    Returns:
+        Migration summary with statistics and any errors.
+
+    **Examples:**
+    ```
+    # Full migration (resumable)
+    migrate_memory_v1_to_v2()
+
+    # Test with first 10 files
+    migrate_memory_v1_to_v2(max_files=10)
+
+    # Start fresh (ignore previous progress)
+    migrate_memory_v1_to_v2(resume=False)
+
+    # Custom V1 location
+    migrate_memory_v1_to_v2(v1_path="/path/to/old/memory")
+    ```
+
+    **Important notes:**
+    - This can take time (AI processing for each file)
+    - Migration is additive - doesn't delete V1 files
+    - Can run multiple times - already processed files are skipped
+    - Use max_files for testing before full migration
+    - V2 will automatically organize content as it grows
+    """
+    storage = _get_storage(context)
+
+    try:
+        from pathlib import Path
+        from silica.developer.memory_v2.migration import (
+            scan_v1_memory,
+            load_migration_state,
+        )
+
+        # Parse v1_path
+        v1_path_obj = Path(v1_path) if v1_path else None
+
+        # Scan to get file list
+        v1_files = scan_v1_memory(v1_path_obj)
+
+        if not v1_files:
+            v1_location = v1_path_obj or Path.home() / ".silica" / "memory"
+            return f"❌ No V1 memory files found at: {v1_location}\n\nMake sure the V1 memory directory exists."
+
+        # Load existing state if resuming
+        state = None
+        if resume:
+            state = load_migration_state(storage)
+
+        # Determine files to process
+        if state and resume:
+            processed_count = len(state.processed_files)
+            remaining = state.total_files - processed_count
+
+            if remaining == 0:
+                return (
+                    f"✅ Migration already complete!\n\n"
+                    f"Processed: {state.total_files} files\n"
+                    f"Started: {state.started_at}\n"
+                    f"Completed: {state.last_updated}\n\n"
+                    f"Use resume=False to start fresh."
+                )
+
+            result_msg = "📂 Resuming migration...\n"
+            result_msg += (
+                f"Already processed: {processed_count}/{state.total_files} files\n"
+            )
+            result_msg += f"Remaining: {remaining} files\n\n"
+        else:
+            result_msg = "📂 Starting new migration...\n"
+            result_msg += f"Total files to process: {len(v1_files)}\n\n"
+
+        # Apply max_files limit
+        files_to_show = len(v1_files)
+        if max_files and max_files > 0:
+            files_to_show = min(max_files, len(v1_files))
+            result_msg += f"⚠️  Processing max {max_files} files (test mode)\n\n"
+
+        # Create progress bar
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TimeRemainingColumn(),
+            console=context.user_interface.console
+            if hasattr(context.user_interface, "console")
+            else None,
+        ) as progress:
+            task = progress.add_task(
+                "Migrating V1 memory...",
+                total=files_to_show if max_files else len(v1_files),
+            )
+
+            # We need to wrap the migration to update progress
+            # Since migrate_v1_to_v2 doesn't support callbacks, we'll process files manually
+            from silica.developer.memory_v2.migration import (
+                load_migration_state,
+                save_migration_state,
+                MigrationState,
+                extract_information_from_file,
+            )
+            from silica.developer.memory_v2.operations import agentic_write
+            from datetime import datetime
+
+            # Load or create state
+            state = None
+            if resume:
+                state = load_migration_state(storage)
+
+            if state is None:
+                state = MigrationState(
+                    started_at=datetime.now().isoformat(),
+                    last_updated=datetime.now().isoformat(),
+                    processed_files=[],
+                    total_files=len(v1_files),
+                )
+
+            # Build set of processed paths
+            processed_paths = {pf["path"] for pf in state.processed_files}
+
+            # Filter to unprocessed
+            files_to_process = [f for f in v1_files if f.path not in processed_paths]
+
+            # Apply max_files
+            if max_files and max_files > 0:
+                files_to_process = files_to_process[:max_files]
+
+            # Process files
+            success_count = 0
+            error_count = 0
+            errors = []
+
+            for i, v1_file in enumerate(files_to_process):
+                # Update progress description
+                progress.update(
+                    task,
+                    description=f"Processing: {v1_file.path}",
+                    completed=i,
+                )
+
+                try:
+                    # Extract information
+                    extracted_info = await extract_information_from_file(
+                        v1_file, context
+                    )
+
+                    # Store using agentic write
+                    result = await agentic_write(
+                        storage=storage,
+                        path="",  # Root, let organic growth handle it
+                        new_content=f"# Migrated from V1: {v1_file.path}\n\n{extracted_info}",
+                        context=context,
+                        instruction=f"This is information migrated from the old memory system (file: {v1_file.path}). "
+                        f"Incorporate appropriately, organizing by topic. Avoid duplication.",
+                    )
+
+                    if result.success:
+                        success_count += 1
+                        state.processed_files.append(
+                            {
+                                "path": v1_file.path,
+                                "processed_at": datetime.now().isoformat(),
+                                "success": True,
+                                "size_bytes": v1_file.size_bytes,
+                            }
+                        )
+                    else:
+                        error_count += 1
+                        errors.append(f"{v1_file.path}: Write failed")
+
+                except Exception as e:
+                    error_count += 1
+                    errors.append(f"{v1_file.path}: {str(e)}")
+                    state.processed_files.append(
+                        {
+                            "path": v1_file.path,
+                            "processed_at": datetime.now().isoformat(),
+                            "success": False,
+                            "error": str(e),
+                        }
+                    )
+
+                # Save state
+                save_migration_state(storage, state)
+
+                # Update progress
+                progress.update(task, completed=i + 1)
+
+            # Check if complete
+            if len(state.processed_files) >= state.total_files:
+                state.completed = True
+                save_migration_state(storage, state)
+
+            progress.update(task, completed=len(files_to_process))
+
+        # Format results
+        result_msg += "✅ Migration batch complete!\n\n"
+        result_msg += f"Files processed: {success_count}\n"
+        if error_count > 0:
+            result_msg += f"Errors: {error_count}\n"
+        result_msg += f"\nTotal progress: {len(state.processed_files)}/{state.total_files} files\n"
+
+        if state.completed:
+            result_msg += "\n🎉 **Migration fully complete!**\n"
+        else:
+            remaining = state.total_files - len(state.processed_files)
+            result_msg += f"\nRemaining: {remaining} files\n"
+            result_msg += "Run again to continue migration.\n"
+
+        if errors:
+            result_msg += "\n⚠️  Errors encountered:\n"
+            for error in errors[:5]:  # Show first 5
+                result_msg += f"  - {error}\n"
+            if len(errors) > 5:
+                result_msg += f"  ... and {len(errors) - 5} more\n"
+
+        return result_msg
+
+    except Exception as e:
+        return f"❌ Migration error: {e}\n\nCheck that V1 memory path exists and is readable."
