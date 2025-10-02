@@ -340,6 +340,7 @@ async def run(
     initial_prompt: str = None,
     single_response: bool = False,
     tool_names: list[str] | None = None,
+    tools: list | None = None,
     system_prompt: dict[str, Any] | None = None,
     enable_compaction: bool = True,
 ) -> list[MessageParam]:
@@ -348,7 +349,8 @@ async def run(
         agent_context.user_interface,
         agent_context.model_spec,
     )
-    toolbox = Toolbox(agent_context, tool_names=tool_names)
+    # Create toolbox with either tools or tool_names (tools takes precedence)
+    toolbox = Toolbox(agent_context, tool_names=tool_names, tools=tools)
     if hasattr(user_interface, "set_toolbox"):
         user_interface.set_toolbox(toolbox)
 

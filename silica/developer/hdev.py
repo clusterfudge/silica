@@ -678,8 +678,8 @@ def cyclopts_main(
         ),
     ] = None,
     persona: Annotated[
-        Optional[str], cyclopts.Parameter(help="Persona to use for the assistant")
-    ] = None,
+        str, cyclopts.Parameter(help="Persona to use for the assistant")
+    ] = "default",
 ):
     """
     Cyclopts-based reimplementation of the main method for the AI-powered developer assistant.
@@ -747,13 +747,9 @@ def cyclopts_main(
     if dwr:
         parsed_sandbox_mode = SandboxMode.ALLOW_ALL
 
-    # Validate persona if specified
-    if persona and persona not in available_personas:
-        console = Console()
-        console.print(
-            f"[red]Error: Invalid persona '{persona}'. Available personas: {', '.join(available_personas)}[/red]"
-        )
-        return
+    # Note: We don't validate persona here anymore - it's just passed through
+    # to the memory system. Validation happens when checking if we should use
+    # a persona prompt (lines ~820-822)
 
     # Check for session ID in environment variable if not specified in args
     if not session_id and "silica_DEVELOPER_SESSION_ID" in os.environ:
@@ -816,9 +812,14 @@ def cyclopts_main(
     # Set the agent context reference in the UI for keyboard shortcuts
     user_interface.agent_context = context
 
-    # Setup system prompt/persona (identical to original)
+    # Setup system prompt/persona
+    # Only use persona content if it's a valid persona name, otherwise use None
+    persona_content = None
+    if persona and persona in available_personas:
+        persona_content = personas.for_name(persona)
+
     system_block: dict[str, Any] | None = (
-        wrap_text_as_content_block(personas.for_name(persona)) if persona else None
+        wrap_text_as_content_block(persona_content) if persona_content else None
     )
 
     # Run the agent loop (identical to original)
