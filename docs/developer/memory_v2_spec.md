@@ -501,12 +501,18 @@ knowledge/python            # Python-specific knowledge
 - [x] MemoryManager with persona isolation
 - [x] Integration with AgentContext
 
-### Phase 2: Agentic Operations
-- [ ] Implement write_memory with read-update pattern
-- [ ] Implement split detection and triggering
-- [ ] Implement split strategy agent
-- [ ] Implement search_memory with traversal
-- [ ] Advanced tests
+### Phase 2: Agentic Operations ✅ COMPLETE
+- [x] Implement write_memory with read-update pattern ✅ (AI-powered merging)
+- [x] Implement split detection and triggering ✅ (warnings at 8KB/10KB)
+- [x] Implement split strategy agent ✅ (AI analyzes and splits)
+- [x] Implement search_memory with traversal ✅ (text search implemented)
+- [x] Advanced tests ✅ (27 operation tests + async integration)
+
+**Implementation Details:**
+- `agentic_write()`: Uses sub-agent with 'smart' model to intelligently merge content
+- `split_memory_node()`: Uses sub-agent with write_memory tool to analyze and split
+- All operations async with graceful fallback
+- Total: 102 tests passing (all memory v2)
 
 ### Phase 3: S3 Backend
 - [ ] Implement S3 storage backend
