@@ -194,23 +194,29 @@ async def extract_and_store_v1_file(
     v1_file: V1MemoryFile, storage: MemoryStorage, context: AgentContext
 ) -> tuple[bool, str]:
     """
-    Extract salient information from a V1 file and intelligently store it in V2.
+    Extract salient facts from a V1 file and write them to root memory for organic growth.
 
-    This is the core migration function that:
+    This follows the V2 organic growth strategy:
     1. Reads the V1 file content
-    2. Uses AI to extract key facts, concepts, and relationships (not dump entire file)
-    3. Uses AI to determine the best location in V2 memory hierarchy
-    4. Stores the extracted information using agentic write
+    2. Uses AI to extract individual facts and key information (not dump entire file)
+    3. Writes each fact to root ("") using write_memory
+    4. Lets agentic write intelligently merge facts into existing content
+    5. Root naturally grows and will split when it exceeds 10KB
 
-    The goal is NOT to preserve the entire V1 file structure or content verbatim.
-    Instead, we extract and distill:
+    The goal is to extract discrete, valuable facts and let them accumulate in root.
+    Organization emerges naturally through the organic growth process.
+
+    What gets extracted:
     - Important facts about individuals, projects, technologies
     - Current project states and decisions
     - Best practices and learnings
-    - Actionable information
-    - Relevant context
+    - Actionable information with context
 
-    Trivial, redundant, or outdated information is intentionally discarded.
+    What gets discarded:
+    - Redundant information already in V2
+    - Trivial, outdated, or verbose content
+    - Temporary status updates
+    - Information with no future value
 
     Args:
         v1_file: V1 memory file to process
@@ -262,15 +268,8 @@ async def extract_and_store_v1_file(
         if "version" in v1_file.metadata:
             metadata_section += f"- Version: {v1_file.metadata['version']}\n"
 
-    # Get current V2 structure to help agent make placement decisions
-    try:
-        existing_files = storage.list_files()
-        root_content = storage.read("") if storage.exists("") else "(empty)"
-    except Exception:
-        existing_files = []
-        root_content = "(empty)"
-
-    # Create comprehensive migration prompt for extraction AND placement
+    # Create extraction and migration prompt
+    # Following organic growth strategy: extract facts, write to root, let it grow naturally
     migration_prompt = f"""You are migrating information from an old memory system (V1) to a new organic memory system (V2).
 
 **Source File**: {v1_file.path}
@@ -283,111 +282,106 @@ async def extract_and_store_v1_file(
 {v1_file.content}
 ```
 
-**Current V2 Memory Structure**:
-- Existing paths: {', '.join(existing_files) if existing_files else '(none - starting fresh)'}
+**YOUR TASK: Extract Individual Facts and Write Them to Root**
 
-**Current V2 Root Content**:
-```
-{root_content[:500]}{'...' if len(root_content) > 500 else ''}
-```
+Your goal is to extract discrete, valuable facts from this file and write each one to the root memory using `write_memory()`. The agentic write tool will intelligently merge them with existing content.
 
-**YOUR TASK - Complete BOTH steps:**
+**Organic Growth Strategy:**
+1. Start by populating the root memory with individual facts
+2. The root will naturally grow as facts accumulate
+3. When root exceeds 10KB, it will be split into organized child nodes
+4. This mirrors how new content is added to the system
 
-**STEP 1: Extract Salient Information**
+**What to Extract:**
 
-Your goal is NOT to preserve the entire file. Instead, extract and distill:
-
-✅ **DO Extract:**
+✅ **DO Extract** (as individual facts):
 - Key facts about individuals, projects, companies, technologies
-- Current project states, statuses, and recent decisions
+- Current project states, statuses, and important decisions
 - Best practices, learnings, and insights
-- Technical details that are reference-worthy (APIs, configs, architectures)
+- Technical details worth referencing (APIs, configs, architectures)
 - Important relationships and connections
-- Actionable information and context
+- Actionable information and useful context
 
 ❌ **DON'T Extract:**
-- Redundant information already in V2
-- Trivial details (meeting schedules, old status updates)
+- Redundant information (check existing content first with `read_memory("")`)
+- Trivial details (meeting schedules, temporary status updates)
 - Outdated information superseded by newer facts
 - Verbose logs or repetitive content
-- Information that provides no future value
+- Information with no future value
 
-**Format your extraction concisely**:
-```
-Type: [project/knowledge/person/company/reference/best-practice/etc]
-Topic: [clear, specific topic]
+**How to Write Facts:**
 
-Summary: [1-3 sentences capturing the essence]
-
-Key Facts:
-- [Specific, valuable fact #1]
-- [Specific, valuable fact #2]
-- [etc - only important facts]
-
-Context: [Why this matters, when it's relevant]
-Related: [Connections to other topics/concepts if any]
-```
-
-**STEP 2: Store in the Right Place**
-
-Now determine WHERE this information belongs in V2 memory:
-
-1. **Use write_memory** to store the extracted content
-2. Choose the appropriate path:
-   - `""` (root) - For high-level, cross-cutting information or if unsure
-   - `"projects"` - For project-specific information
-   - `"knowledge"` - For technical knowledge and best practices
-   - `"people"` - For information about individuals
-   - `"companies"` or other semantic paths as appropriate
-   - Or create new semantic paths if the content warrants it
-
-3. Let the agentic write handle merging with existing content
-
-**GUIDELINES:**
-- **Summarize, don't dump** - Extract essence, not entire content
-- **Be selective** - Quality over quantity
-- **Choose semantic paths** - Organize by meaning, not by V1 structure
-- **Avoid duplication** - The intelligent write will handle merging
-- **One write operation** - Store all extracted content in one appropriate location
-- **Provide context in instruction** - Tell write_memory how to integrate this
-
-**EXAMPLE:**
-
-If you extract information about the "Silica project architecture":
-```
+For each significant fact or related group of facts, call:
+```python
 write_memory(
-    content='''Type: project/technical-reference
-Topic: Silica Memory V2 Architecture
-
-Summary: V2 uses organic growth pattern with single root file that splits at 10KB threshold.
-
-Key Facts:
-- Starts with single 'memory' file, grows through AI-driven splitting
-- Storage abstraction supports local disk and S3 backends
-- Agentic operations for write (merge), search (traverse), and split
-- Each node can have both content and children
-
-Context: Core architecture for memory system redesign completed Jan 2025''',
-    
-    path="projects",
-    
-    instruction="This is extracted information about Silica project architecture from V1 migration. If there's existing Silica content, merge with it. If not, create new organized section."
+    content="[Your extracted fact in clear, concise format]",
+    path="",  # Always write to root ("")
+    instruction="This is a fact extracted from V1 file {v1_file.path}. Merge intelligently with existing content."
 )
 ```
 
-**Now execute the migration for this file. Extract the salient information and store it appropriately.**
+**Format your extracted facts concisely:**
+```
+Type: [project/knowledge/person/company/reference/best-practice]
+Topic: [clear, specific topic]
+
+[1-3 sentence summary of the key information]
+
+Key Details:
+- [Specific detail #1]
+- [Specific detail #2]
+
+Context: [Why this matters]
+```
+
+**Example:**
+
+If the V1 file contains information about Silica Memory V2, you might extract:
+
+```python
+# First fact - architecture overview
+write_memory(
+    content="Type: project/technical-architecture
+Topic: Silica Memory V2 System
+
+Memory V2 is an organic growth memory system that starts with a single root file and splits automatically at 10KB threshold. Uses agentic operations for intelligent write merging, semantic search, and automatic splitting. Storage supports both local disk and S3 backends.",
+    path="",
+    instruction="Extracted from V1 migration. This is core architecture information about Silica Memory V2."
+)
+
+# Second fact - implementation status  
+write_memory(
+    content="Type: project/milestone
+Topic: Silica Memory V2 Implementation Status
+
+Memory V2 Phase 2 (Agentic Operations) completed January 2025. Includes AI-powered write merging, split operations with content preservation, and semantic search. All 102 tests passing.",
+    path="",
+    instruction="Extracted from V1 migration. This is status information about Memory V2 completion."
+)
+```
+
+**CRITICAL GUIDELINES:**
+- **Write multiple times** - One `write_memory()` call per fact or coherent fact group
+- **Always path=""** - Write everything to root, let organic growth handle organization
+- **Be concise** - Each fact should be clear and focused
+- **Let AI merge** - The `write_memory` tool uses AI to merge intelligently, avoid duplication
+- **Quality over quantity** - Only extract truly valuable information
+- **Check before writing** - Use `read_memory("")` first to see what's already there
+
+**Now extract and write the facts from this V1 file:**
 """
 
-    # Run migration agent with write_memory tool
+    # Run migration agent with write_memory and read_memory tools
+    # Agent will extract facts and write them individually to root
     try:
         await run_agent(
             context=context,
             prompt=migration_prompt,
-            tool_names=["write_memory", "read_memory", "list_memory_files"],
+            tool_names=["write_memory", "read_memory"],
             system=None,
-            model="smart",  # Use smart model for analysis and placement
+            model="smart",  # Use smart model for extraction and writing
         )
-        return True, "Successfully extracted and stored information"
+        return True, "Successfully extracted and stored facts"
     except Exception as e:
         return False, f"Error during migration: {e}"
 

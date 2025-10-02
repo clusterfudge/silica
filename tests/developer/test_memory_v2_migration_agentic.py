@@ -3,8 +3,9 @@ Tests for agentic memory V2 migration.
 
 These tests verify that the migration process:
 1. Extracts salient information (not entire files)
-2. Uses AI to determine appropriate placement
-3. Leverages write_memory for intelligent integration
+2. Writes facts individually to root memory
+3. Leverages write_memory for intelligent merging
+4. Follows organic growth strategy (root → split when needed)
 """
 
 import pytest
@@ -87,21 +88,19 @@ It helps developers by automating code reviews, writing tests, and suggesting im
 async def test_extract_and_store_uses_agentic_write(
     temp_storage, mock_context, sample_v1_file
 ):
-    """Test that migration uses write_memory for intelligent placement."""
+    """Test that migration writes facts to root using write_memory."""
 
     # Mock the run_agent function to simulate AI agent behavior
     with patch("silica.developer.tools.subagent.run_agent") as mock_run_agent:
-        # Simulate agent calling write_memory with extracted content
+        # Simulate agent extracting facts and writing to root
         async def mock_agent_run(context, prompt, tool_names, system, model):
-            # Agent should have access to write_memory
+            # Agent should have write_memory and read_memory
             assert "write_memory" in tool_names
             assert "read_memory" in tool_names
-            assert "list_memory_files" in tool_names
+            # No longer needs list_memory_files - just writes to root
 
-            # Simulate agent deciding to store in "projects" path
-            # In real execution, this would call write_memory
-            # For test, we just verify the agent has the right tools
-            return "Agent decided to store information"
+            # In real execution, this would call write_memory("", facts)
+            return "Agent extracted and wrote facts to root"
 
         mock_run_agent.side_effect = mock_agent_run
 
@@ -114,22 +113,19 @@ async def test_extract_and_store_uses_agentic_write(
         assert success
         assert "Successfully" in message
 
-        # Verify agent was called with correct tools
+        # Verify agent was called with correct tools (only write + read)
         mock_run_agent.assert_called_once()
         call_args = mock_run_agent.call_args
         assert call_args.kwargs["tool_names"] == [
             "write_memory",
             "read_memory",
-            "list_memory_files",
         ]
 
-        # Verify prompt emphasizes extraction over dumping
+        # Verify prompt emphasizes organic growth strategy
         prompt = call_args.kwargs["prompt"]
-        assert "Extract and distill" in prompt or "salient" in prompt.lower()
-        assert (
-            "DON'T Extract" in prompt
-            or "not to preserve the entire file" in prompt.lower()
-        )
+        assert "extract" in prompt.lower()
+        assert "individual facts" in prompt.lower() or "discrete" in prompt.lower()
+        assert "root" in prompt.lower() or 'path=""' in prompt
 
 
 @pytest.mark.asyncio
@@ -142,23 +138,28 @@ async def test_migration_prompt_emphasizes_summarization(
 
         async def mock_agent_run(context, prompt, tool_names, system, model):
             # Check that prompt contains key guidance
-            assert "summarize" in prompt.lower() or "extract" in prompt.lower()
-            assert "salient" in prompt.lower()
+            assert "extract" in prompt.lower(), "Prompt should mention extraction"
 
-            # Should tell agent NOT to preserve entire file
+            # Should tell agent NOT to dump everything
             assert any(
                 keyword in prompt.lower()
                 for keyword in [
-                    "not to preserve",
                     "don't extract",
-                    "avoid redundant",
+                    "redundant",
                     "quality over quantity",
+                    "trivial",
                 ]
-            )
+            ), "Prompt should warn against dumping"
 
             # Should guide on what TO extract
-            assert "key facts" in prompt.lower()
-            assert "best practices" in prompt.lower() or "learnings" in prompt.lower()
+            assert (
+                "key facts" in prompt.lower() or "individual facts" in prompt.lower()
+            ), "Prompt should mention facts"
+            assert (
+                "best practices" in prompt.lower()
+                or "learnings" in prompt.lower()
+                or "insights" in prompt.lower()
+            ), "Prompt should mention practices/learnings"
 
             return "Extracted successfully"
 
@@ -172,28 +173,25 @@ async def test_migration_prompt_emphasizes_summarization(
 
 
 @pytest.mark.asyncio
-async def test_migration_provides_v2_context_to_agent(
+async def test_migration_emphasizes_writing_to_root(
     temp_storage, mock_context, sample_v1_file
 ):
-    """Test that migration provides current V2 structure to help placement decisions."""
-
-    # Pre-populate V2 with some content
-    temp_storage.write("", "Root memory content")
-    temp_storage.write("projects", "Existing projects")
+    """Test that migration prompts agent to write facts to root."""
 
     with patch("silica.developer.tools.subagent.run_agent") as mock_run_agent:
 
         async def mock_agent_run(context, prompt, tool_names, system, model):
-            # Verify prompt includes current V2 structure
-            assert "Current V2 Memory Structure" in prompt
-            assert "Existing paths:" in prompt
-            assert "projects" in prompt  # Should list existing path
+            # Verify prompt emphasizes writing to root
+            assert 'path=""' in prompt or "write to root" in prompt.lower()
+            assert "organic growth" in prompt.lower()
 
-            # Verify it includes root content
-            assert "Current V2 Root Content" in prompt
-            assert "Root memory content" in prompt
+            # Should mention writing multiple times (one per fact)
+            assert (
+                "write multiple times" in prompt.lower()
+                or "each fact" in prompt.lower()
+            )
 
-            return "Placed intelligently"
+            return "Facts written to root"
 
         mock_run_agent.side_effect = mock_agent_run
 
