@@ -184,12 +184,18 @@ async def _migrate_async(
             console.print(f"Processed: {state.total_files} files")
             console.print(f"Started: {state.started_at}")
             console.print(f"Completed: {state.last_updated}")
+            if state.total_cost > 0:
+                console.print(f"\n💰 Total cost: ${state.total_cost:.4f}")
+                console.print(f"📊 Total tokens: {state.total_tokens:,}")
             console.print("\nUse --no-resume to start fresh.")
             return
 
         console.print("[yellow]📂 Resuming migration...[/yellow]")
         console.print(f"Already processed: {processed_count}/{state.total_files} files")
-        console.print(f"Remaining: {remaining} files\n")
+        console.print(f"Remaining: {remaining} files")
+        if state.total_cost > 0:
+            console.print(f"Cost so far: ${state.total_cost:.4f}")
+        console.print()
     else:
         console.print("[blue]📂 Starting new migration...[/blue]")
         console.print(f"Total files: {len(v1_files)}\n")
@@ -299,6 +305,10 @@ async def _migrate_async(
 
                 if result.success:
                     success_count += 1
+
+                    # Get usage summary from context to track costs
+                    usage = context.usage_summary()
+
                     console.print(
                         f"[green]✓ Successfully migrated: {v1_file.path}[/green]"
                     )
@@ -310,6 +320,14 @@ async def _migrate_async(
                             "size_bytes": v1_file.size_bytes,
                         }
                     )
+
+                    # Update cumulative costs in state
+                    state.total_cost = usage["total_cost"]
+                    state.total_tokens = (
+                        usage["total_input_tokens"] + usage["total_output_tokens"]
+                    )
+                    state.total_prompt_tokens = usage["total_input_tokens"]
+                    state.total_completion_tokens = usage["total_output_tokens"]
                 else:
                     error_count += 1
                     errors.append(f"{v1_file.path}: Write failed")
@@ -364,6 +382,13 @@ async def _migrate_async(
     console.print(
         f"\n[bold]Total progress: {len(state.processed_files)}/{state.total_files} files[/bold]"
     )
+
+    # Display cost summary
+    if state.total_cost > 0:
+        console.print(f"\n💰 [bold]Total cost so far:[/bold] ${state.total_cost:.4f}")
+        console.print(f"📊 [bold]Total tokens:[/bold] {state.total_tokens:,}")
+        console.print(f"   • Prompt tokens: {state.total_prompt_tokens:,}")
+        console.print(f"   • Completion tokens: {state.total_completion_tokens:,}")
 
     if state.completed:
         console.print("\n[green bold]🎉 Migration fully complete![/green bold]")

@@ -36,6 +36,11 @@ class MigrationState:
     processed_files: List[Dict[str, Any]]
     total_files: int
     completed: bool = False
+    # Cost tracking
+    total_cost: float = 0.0
+    total_tokens: int = 0
+    total_prompt_tokens: int = 0
+    total_completion_tokens: int = 0
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
@@ -44,6 +49,15 @@ class MigrationState:
     @classmethod
     def from_dict(cls, data: dict) -> "MigrationState":
         """Create from dictionary."""
+        # Handle old state files without cost tracking
+        if "total_cost" not in data:
+            data["total_cost"] = 0.0
+        if "total_tokens" not in data:
+            data["total_tokens"] = 0
+        if "total_prompt_tokens" not in data:
+            data["total_prompt_tokens"] = 0
+        if "total_completion_tokens" not in data:
+            data["total_completion_tokens"] = 0
         return cls(**data)
 
 
