@@ -13,29 +13,46 @@ from silica.developer.memory_v2.migration import (
     load_migration_state,
     save_migration_state,
     extract_information_from_file,
+    load_v1_metadata,
 )
 
 
 @pytest.fixture
 def temp_v1_memory():
     """Create a temporary V1 memory structure for testing."""
+    import json
+
     with TemporaryDirectory() as tmpdir:
         v1_path = Path(tmpdir) / "v1_memory"
         v1_path.mkdir()
 
-        # Create some test files
+        # Create some test files (as .md files with optional .metadata.json)
         (v1_path / "projects").mkdir()
-        (v1_path / "projects" / "silica").write_text(
-            "Silica is a Python agent framework"
+        (v1_path / "projects" / "silica.md").write_text(
+            "# Silica Project\n\nSilica is a Python agent framework"
         )
-        (v1_path / "projects" / "webapp").write_text("Web application project")
+        # Add metadata for silica
+        (v1_path / "projects" / "silica.md.metadata.json").write_text(
+            json.dumps(
+                {
+                    "created": "1756164365.8600342",
+                    "updated": "1756310072.6633813",
+                    "version": 2,
+                    "summary": "Python agent framework project documentation",
+                }
+            )
+        )
+
+        (v1_path / "projects" / "webapp.md").write_text(
+            "# Web App\n\nWeb application project"
+        )
 
         (v1_path / "knowledge").mkdir()
-        (v1_path / "knowledge" / "python").write_text(
-            "Python best practices and patterns"
+        (v1_path / "knowledge" / "python.md").write_text(
+            "# Python Knowledge\n\nPython best practices and patterns"
         )
 
-        (v1_path / "notes").write_text("Random notes and thoughts")
+        (v1_path / "notes.md").write_text("# Notes\n\nRandom notes and thoughts")
 
         yield v1_path
 
@@ -73,6 +90,26 @@ class TestV1MemoryFile:
         )
 
         assert file.content == "Test content"
+
+    def test_v1_memory_file_with_metadata(self):
+        metadata = {
+            "created": "1756164365.8600342",
+            "updated": "1756310072.6633813",
+            "version": 2,
+            "summary": "Test summary",
+        }
+
+        file = V1MemoryFile(
+            path="test/file",
+            full_path=Path("/path/to/file"),
+            size_bytes=100,
+            last_modified=datetime.now(),
+            metadata=metadata,
+        )
+
+        assert file.metadata is not None
+        assert file.metadata["version"] == 2
+        assert "summary" in file.metadata
 
 
 class TestMigrationState:
@@ -120,6 +157,40 @@ class TestMigrationState:
         assert state.completed is False
 
 
+class TestLoadV1Metadata:
+    """Tests for load_v1_metadata function."""
+
+    def test_load_metadata_exists(self, temp_v1_memory):
+        md_file = temp_v1_memory / "projects" / "silica.md"
+        metadata = load_v1_metadata(md_file)
+
+        assert metadata is not None
+        assert "created" in metadata
+        assert "updated" in metadata
+        assert "summary" in metadata
+        assert metadata["version"] == 2
+
+    def test_load_metadata_not_exists(self, temp_v1_memory):
+        md_file = temp_v1_memory / "projects" / "webapp.md"
+        metadata = load_v1_metadata(md_file)
+
+        # webapp.md has no metadata file
+        assert metadata is None
+
+    def test_load_metadata_invalid_json(self, temp_v1_memory):
+        # Create file with invalid JSON metadata
+        md_file = temp_v1_memory / "invalid.md"
+        md_file.write_text("# Test")
+
+        metadata_file = temp_v1_memory / "invalid.md.metadata.json"
+        metadata_file.write_text("{invalid json")
+
+        metadata = load_v1_metadata(md_file)
+
+        # Should handle gracefully and return None
+        assert metadata is None
+
+
 class TestScanV1Memory:
     """Tests for scan_v1_memory function."""
 
@@ -135,26 +206,53 @@ class TestScanV1Memory:
     def test_scan_with_files(self, temp_v1_memory):
         files = scan_v1_memory(temp_v1_memory)
 
-        # Should find all files
+        # Should find all .md files
         assert (
             len(files) == 4
-        )  # projects/silica, projects/webapp, knowledge/python, notes
+        )  # projects/silica.md, projects/webapp.md, knowledge/python.md, notes.md
 
         # Check file structure
         paths = [f.path for f in files]
-        assert "projects/silica" in paths
-        assert "knowledge/python" in paths
-        assert "notes" in paths
+        assert "projects/silica.md" in paths
+        assert "knowledge/python.md" in paths
+        assert "notes.md" in paths
+
+    def test_scan_ignores_json_files(self, temp_v1_memory):
+        # Create a standalone .json file
+        (temp_v1_memory / "config.json").write_text('{"key": "value"}')
+
+        files = scan_v1_memory(temp_v1_memory)
+
+        # Should not include .json files
+        paths = [f.path for f in files]
+        assert "config.json" not in paths
+        # But should still find .md files
+        assert len(files) == 4
+
+    def test_scan_loads_metadata(self, temp_v1_memory):
+        files = scan_v1_memory(temp_v1_memory)
+
+        # Find silica.md which has metadata
+        silica_file = next(f for f in files if "silica.md" in f.path)
+
+        assert silica_file.metadata is not None
+        assert "created" in silica_file.metadata
+        assert "summary" in silica_file.metadata
+
+        # Find webapp.md which has no metadata
+        webapp_file = next(f for f in files if "webapp.md" in f.path)
+
+        assert webapp_file.metadata is None
 
     def test_scan_sorted_chronologically(self, temp_v1_memory):
         import time
 
         # Modify files with different times
         files_in_order = [
-            "notes",
-            "knowledge/python",
-            "projects/webapp",
-            "projects/silica",
+            "notes.md",
+            "knowledge/python.md",
+            "projects/webapp.md",
+            "projects/silica.md",
         ]
 
         for i, file_path in enumerate(files_in_order):
@@ -172,12 +270,12 @@ class TestScanV1Memory:
 
     def test_scan_ignores_hidden_files(self, temp_v1_memory):
         # Create hidden file
-        (temp_v1_memory / ".hidden").write_text("Hidden content")
+        (temp_v1_memory / ".hidden.md").write_text("Hidden content")
 
         files = scan_v1_memory(temp_v1_memory)
 
         paths = [f.path for f in files]
-        assert ".hidden" not in paths
+        assert ".hidden.md" not in paths
 
     def test_scan_ignores_directories(self, temp_v1_memory):
         files = scan_v1_memory(temp_v1_memory)
@@ -244,12 +342,20 @@ class TestExtractInformation:
         mock_context = MagicMock()
         mock_context.user_interface = MagicMock()
 
-        # Create V1 file
+        # Create V1 file with metadata
+        metadata = {
+            "created": "1756164365.8600342",
+            "updated": "1756310072.6633813",
+            "version": 2,
+            "summary": "Test memory file",
+        }
+
         v1_file = V1MemoryFile(
-            path="test/file",
-            full_path=temp_v1_memory / "notes",
+            path="test/file.md",
+            full_path=temp_v1_memory / "notes.md",
             size_bytes=100,
             last_modified=datetime.now(),
+            metadata=metadata,
         )
 
         # For testing, we'll just verify it doesn't crash

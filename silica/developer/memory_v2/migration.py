@@ -24,6 +24,7 @@ class V1MemoryFile:
     size_bytes: int
     last_modified: datetime
     content: Optional[str] = None  # Loaded on demand
+    metadata: Optional[Dict[str, Any]] = None  # Metadata from .metadata.json
 
 
 @dataclass
@@ -53,9 +54,35 @@ def get_v1_memory_path() -> Path:
     return v1_path
 
 
+def load_v1_metadata(md_file_path: Path) -> Optional[Dict[str, Any]]:
+    """
+    Load metadata from a .metadata.json file corresponding to a .md file.
+
+    Args:
+        md_file_path: Path to the .md file
+
+    Returns:
+        Dictionary with metadata, or None if metadata file doesn't exist
+    """
+    # Check for corresponding .metadata.json file
+    metadata_path = md_file_path.parent / f"{md_file_path.name}.metadata.json"
+
+    if not metadata_path.exists():
+        return None
+
+    try:
+        with open(metadata_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
 def scan_v1_memory(v1_path: Optional[Path] = None) -> List[V1MemoryFile]:
     """
-    Scan V1 memory directory and return all files sorted by modification time.
+    Scan V1 memory directory and return all markdown files sorted by modification time.
+
+    Only processes .md files, ignoring .json files. Loads metadata from corresponding
+    .metadata.json files if they exist.
 
     Args:
         v1_path: Path to V1 memory directory (defaults to ~/.silica/memory)
@@ -72,7 +99,7 @@ def scan_v1_memory(v1_path: Optional[Path] = None) -> List[V1MemoryFile]:
     files = []
 
     # Walk the V1 memory directory
-    for file_path in v1_path.rglob("*"):
+    for file_path in v1_path.rglob("*.md"):
         # Skip directories and hidden files
         if file_path.is_dir():
             continue
@@ -85,12 +112,16 @@ def scan_v1_memory(v1_path: Optional[Path] = None) -> List[V1MemoryFile]:
         # Get file stats
         stat = file_path.stat()
 
+        # Load metadata if available
+        metadata = load_v1_metadata(file_path)
+
         files.append(
             V1MemoryFile(
                 path=str(rel_path),
                 full_path=file_path,
                 size_bytes=stat.st_size,
                 last_modified=datetime.fromtimestamp(stat.st_mtime),
+                metadata=metadata,
             )
         )
 
@@ -174,13 +205,45 @@ async def extract_information_from_file(
         except Exception as e:
             return f"Error reading file: {e}"
 
+    # Format metadata if available
+    metadata_section = ""
+    if v1_file.metadata:
+        metadata_section = "\n**Metadata**:\n"
+
+        # Format timestamps
+        if "created" in v1_file.metadata:
+            try:
+                created = datetime.fromtimestamp(float(v1_file.metadata["created"]))
+                metadata_section += (
+                    f"- Created: {created.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                )
+            except (ValueError, TypeError):
+                pass
+
+        if "updated" in v1_file.metadata:
+            try:
+                updated = datetime.fromtimestamp(float(v1_file.metadata["updated"]))
+                metadata_section += (
+                    f"- Updated: {updated.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                )
+            except (ValueError, TypeError):
+                pass
+
+        # Include summary if present
+        if "summary" in v1_file.metadata:
+            metadata_section += f"- Summary: {v1_file.metadata['summary']}\n"
+
+        # Include version if present
+        if "version" in v1_file.metadata:
+            metadata_section += f"- Version: {v1_file.metadata['version']}\n"
+
     # Create extraction prompt
     extraction_prompt = f"""You are migrating information from an old memory system to a new one.
 
 **File**: {v1_file.path}
 **Last Modified**: {v1_file.last_modified.strftime("%Y-%m-%d %H:%M:%S")}
 **Size**: {v1_file.size_bytes} bytes
-
+{metadata_section}
 **Content**:
 ```
 {v1_file.content}
