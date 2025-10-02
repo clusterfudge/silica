@@ -43,6 +43,110 @@ SIZE_THRESHOLD = 10240  # 10KB
 SIZE_WARNING = 8192  # 8KB (80% of threshold)
 
 
+def create_split_toolbox(storage: MemoryStorage) -> list:
+    """
+    Create a specialized toolbox for the split_memory agent.
+
+    This toolbox provides direct storage access (no agentic operations)
+    to avoid recursive AI calls during splitting. The tools are internal
+    and not exposed to the main agent.
+
+    Args:
+        storage: Storage backend to use
+
+    Returns:
+        List of tool functions with closures over storage:
+        - _memory_read: Direct read from storage
+        - _memory_write: Direct write to storage (no merging)
+        - _memory_list: List all memory paths
+
+    Example:
+        >>> tools = create_split_toolbox(storage)
+        >>> # Use in sub-agent by passing tool names
+        >>> tool_names = [t.__name__ for t in tools]
+        >>> run_agent(context, prompt, tool_names=tool_names, ...)
+    """
+    # Import here to avoid circular imports
+    from silica.developer.tools.framework import tool
+
+    # Define internal tools with closure over storage
+    @tool
+    def _memory_read(context: "AgentContext", path: str) -> str:
+        """
+        Internal: Read memory content directly from storage.
+
+        This is a direct read operation (no agentic processing).
+        Used by split agent to explore memory structure.
+
+        Args:
+            path: Memory path to read (empty string for root)
+
+        Returns:
+            Formatted string with content and metadata
+        """
+        try:
+            content = storage.read(path)
+            size = len(content)
+            path_display = path if path else "(root)"
+            return f"Content at '{path_display}' ({size} bytes):\n```\n{content}\n```"
+        except Exception as e:
+            return f"Error reading '{path}': {e}"
+
+    @tool
+    def _memory_write(context: "AgentContext", path: str, content: str) -> str:
+        """
+        Internal: Write content directly to storage.
+
+        This is a direct write operation (no agentic merging).
+        Used by split agent to create child nodes.
+
+        Args:
+            path: Memory path to write to (empty string for root)
+            content: Content to write
+
+        Returns:
+            Success or error message
+        """
+        try:
+            storage.write(path, content)
+            size = storage.get_size(path)
+            path_display = path if path else "(root)"
+            return f"✅ Successfully written to '{path_display}' ({size} bytes)"
+        except Exception as e:
+            return f"❌ Error writing to '{path}': {e}"
+
+    @tool
+    def _memory_list(context: "AgentContext") -> str:
+        """
+        Internal: List all memory paths in storage.
+
+        This is a direct list operation.
+        Used by split agent to see existing structure.
+
+        Returns:
+            Formatted list of all memory paths with sizes
+        """
+        try:
+            paths = storage.list_files()
+            if not paths:
+                return "No memory files exist yet."
+
+            result = "Existing memory paths:\n"
+            for p in sorted(paths):
+                try:
+                    size = storage.get_size(p)
+                    path_display = p if p else "(root)"
+                    result += f"  - '{path_display}' ({size} bytes)\n"
+                except Exception:
+                    result += f"  - '{p}' (size unknown)\n"
+            return result
+        except Exception as e:
+            return f"Error listing paths: {e}"
+
+    # Return list of tools
+    return [_memory_read, _memory_write, _memory_list]
+
+
 async def agentic_write(
     storage: MemoryStorage,
     path: str,
