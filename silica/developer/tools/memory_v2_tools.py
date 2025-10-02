@@ -17,6 +17,13 @@ from silica.developer.memory_v2.exceptions import (
     MemoryStorageError,
 )
 from silica.developer.memory_v2.storage import MemoryStorage
+from silica.developer.memory_v2.operations import (
+    agentic_write,
+    search_memory as search_memory_operation,
+    split_memory_node,
+    SIZE_THRESHOLD,
+    SIZE_WARNING,
+)
 from silica.developer.tools.framework import tool
 
 
@@ -344,3 +351,326 @@ def delete_memory(context: "AgentContext", path: str) -> str:
         return f"❌ Memory file not found: {path}\n\nUse list_memory_files() to see available paths."
     except MemoryStorageError as e:
         return f"❌ Error deleting memory: {e}"
+
+
+@tool
+def write_memory_agentic(
+    context: "AgentContext",
+    content: str,
+    path: str = "",
+    instruction: str = "Incorporate the new information into the existing content intelligently.",
+) -> str:
+    """Write content to memory with intelligent merging of existing information.
+
+    This is an enhanced version of write_memory that uses AI to intelligently
+    incorporate new information into existing content. The AI will:
+    - Read and understand existing content
+    - Identify overlaps and redundancies
+    - Merge information logically
+    - Update outdated information
+    - Maintain consistent structure and organization
+    - Preserve important context
+
+    **When to use this tool:**
+    - Adding information to an existing memory node
+    - Updating or refining previous content
+    - Building up knowledge over multiple interactions
+    - When you want AI to help organize the information
+
+    **When to use regular write_memory instead:**
+    - Creating brand new content
+    - Completely replacing old content
+    - Simple append operations
+    - When you've already organized the content yourself
+
+    Args:
+        content: New information to incorporate
+        path: Path to memory node. Use "" for root memory.
+        instruction: Optional custom instruction for how to merge content.
+                    Default is to incorporate intelligently.
+
+    Returns:
+        Success message with size information and split warning if needed.
+
+    **Examples:**
+    ```
+    # Add new project information
+    write_memory_agentic(
+        "Silica now supports memory search with semantic traversal",
+        "projects/silica"
+    )
+
+    # Update with custom instruction
+    write_memory_agentic(
+        "New insight about Python async patterns",
+        "knowledge/python",
+        instruction="Add this as a new section about async/await best practices"
+    )
+    ```
+
+    **Important notes:**
+    - This operation may take longer than regular write_memory
+    - The AI tries to be smart about merging, but review results
+    - Files over 10KB will trigger split warnings
+    - Use for iterative content building, not bulk data dumps
+    """
+    storage = _get_storage(context)
+
+    # Handle empty path as root
+    if not path:
+        path = "memory"
+
+    try:
+        # Use agentic write operation
+        result = agentic_write(storage, path, content, context, instruction)
+
+        if not result.success:
+            return f"❌ Failed to write memory at: {path}"
+
+        # Format response
+        size_kb = result.size_bytes / 1024
+        response = f"✅ Memory updated successfully: {path}\n"
+        response += f"📊 Size: {size_kb:.2f} KB ({result.size_bytes} bytes)\n"
+
+        # Check for split threshold
+        if result.size_bytes > SIZE_THRESHOLD:
+            response += "\n⚠️  **File exceeds 10KB threshold!**\n"
+            response += "Consider using split_memory to organize into smaller nodes.\n"
+        elif result.size_bytes > SIZE_WARNING:
+            response += "\n💡 File is getting large (>8KB).\n"
+            response += "Consider organizing into child nodes soon.\n"
+
+        return response
+
+    except Exception as e:
+        return f"❌ Error writing memory: {e}"
+
+
+@tool
+def split_memory(context: "AgentContext", path: str = "") -> str:
+    """Split a large memory node into organized child nodes.
+
+    When a memory file grows too large (>10KB), it becomes harder to navigate
+    and manage. This tool uses AI to analyze the content and intelligently
+    split it into smaller, semantically organized child nodes.
+
+    **What the AI does:**
+    1. Analyzes content to identify natural groupings (topics, entities, themes)
+    2. Chooses an appropriate split strategy
+    3. Creates child nodes with semantic names
+    4. Distributes content to appropriate children
+    5. Updates the parent with a summary and links to children
+
+    **Split strategies:**
+    - **Topic-based**: Group by themes (e.g., "projects", "knowledge", "notes")
+    - **Entity-based**: Group by entities (e.g., "silica", "webapp", "cli")
+    - **Chronological**: Group by time periods (for logs/journals)
+    - **Category-based**: Group by categories (e.g., "python", "javascript", "devops")
+
+    **When to use this tool:**
+    - File exceeds 10KB (you'll see a warning)
+    - Content has distinct, separable topics
+    - Navigation is becoming difficult
+    - You want better organization
+
+    Args:
+        path: Path to the memory node to split. Use "" for root memory.
+
+    Returns:
+        Success message with list of created child nodes, or error message.
+
+    **Example:**
+    ```
+    # Split an overgrown projects file
+    split_memory("projects")
+
+    # Output might be:
+    # ✅ Successfully split: projects
+    #
+    # Created child nodes:
+    #   - projects/silica (3.2 KB)
+    #   - projects/webapp (2.8 KB)
+    #   - projects/cli (2.1 KB)
+    #
+    # Parent updated with summary and links.
+    ```
+
+    **Important notes:**
+    - This operation creates new files - review them after
+    - Original content is preserved, just reorganized
+    - Parent file becomes a routing/summary node
+    - Child nodes can be further split if they grow
+    - No data loss - everything is migrated
+    """
+    storage = _get_storage(context)
+
+    # Handle empty path as root
+    if not path:
+        path = "memory"
+
+    # Check if file exists
+    if not storage.exists(path):
+        return f"❌ Memory file not found: {path}\n\nUse list_memory_files() to see available paths."
+
+    # Check size
+    try:
+        size = storage.get_size(path)
+        size_kb = size / 1024
+
+        if size <= SIZE_THRESHOLD:
+            return (
+                f"💡 File {path} is only {size_kb:.2f} KB.\n\n"
+                f"Splitting is recommended for files >10 KB.\n"
+                f"Current file is below threshold and may not need splitting yet."
+            )
+
+        # Perform the split
+        result = split_memory_node(storage, path, context)
+
+        if not result.success:
+            return f"❌ Failed to split memory node: {path}\n\nThe splitting operation encountered an error."
+
+        # Format response
+        response = f"✅ Successfully split: {path}\n\n"
+
+        if result.new_files:
+            response += "Created child nodes:\n"
+            for child_path in result.new_files:
+                try:
+                    child_size = storage.get_size(child_path)
+                    child_kb = child_size / 1024
+                    response += f"  - {child_path} ({child_kb:.2f} KB)\n"
+                except Exception:
+                    response += f"  - {child_path}\n"
+
+            response += "\n"
+            response += f"Parent node ({path}) updated with summary and links.\n"
+        else:
+            response += "No child nodes were created.\n"
+
+        return response
+
+    except Exception as e:
+        return f"❌ Error splitting memory: {e}"
+
+
+@tool
+def search_memory(
+    context: "AgentContext", query: str, max_results: int = 10, start_path: str = ""
+) -> str:
+    """Search memory using intelligent semantic traversal.
+
+    This tool uses AI to search through your memory by following semantic
+    relationships and links, rather than just doing simple text search.
+    It understands context and can find related information even if the
+    exact words don't match.
+
+    **How it works:**
+    1. Starts at the specified path (or root)
+    2. Reads and analyzes content for relevance
+    3. Follows links ([[path]]) to related nodes
+    4. Recursively explores promising paths
+    5. Collects relevant excerpts
+    6. Returns ranked results
+
+    **Advantages over simple text search:**
+    - Understands semantic relationships
+    - Follows logical organization
+    - Provides context about where information was found
+    - Avoids irrelevant matches
+    - Ranks by relevance, not just keyword frequency
+
+    **When to use this tool:**
+    - Finding information you've stored before
+    - Exploring related topics
+    - Discovering connections in your memory
+    - Research and information retrieval
+
+    Args:
+        query: Natural language search query
+        max_results: Maximum number of results to return (default: 10)
+        start_path: Path to start search from (default: "" for root)
+
+    Returns:
+        Formatted search results with paths, excerpts, and relevance scores.
+
+    **Examples:**
+    ```
+    # General search from root
+    search_memory("Python testing frameworks")
+
+    # Search within a specific area
+    search_memory("API design patterns", start_path="knowledge")
+
+    # Focused search with fewer results
+    search_memory("Silica architecture", max_results=5)
+    ```
+
+    **Output format:**
+    ```
+    🔍 Search Results for: "your query"
+
+    1. projects/silica (relevance: 0.9)
+       ...uses pytest for testing and ruff for linting...
+       Context: Found in projects section
+
+    2. knowledge/python (relevance: 0.7)
+       ...Python testing best practices include...
+       Context: Found in knowledge base
+    ```
+
+    **Tips:**
+    - Use natural language - the AI understands context
+    - Start specific, then broaden if needed
+    - Use start_path to search within a subtree
+    - Review the context to understand where info was found
+    - Lower relevance scores may still be useful
+    """
+    storage = _get_storage(context)
+
+    # Handle empty start path
+    if not start_path:
+        start_path = "memory"
+
+    # Validate start path exists
+    if not storage.exists(start_path):
+        return (
+            f"❌ Start path not found: {start_path}\n\n"
+            f"Use list_memory_files() to see available paths."
+        )
+
+    try:
+        # Perform the search
+        results = search_memory_operation(
+            storage, query, max_results, start_path, context
+        )
+
+        if not results:
+            return (
+                f'🔍 No results found for: "{query}"\n\n'
+                f"Try:\n"
+                f"  - Using different keywords\n"
+                f'  - Searching from root (start_path="")\n'
+                f"  - Using list_memory_files() to see what's stored\n"
+            )
+
+        # Format results
+        response = f'🔍 Search Results for: "{query}"\n'
+        response += f"{'=' * 60}\n\n"
+
+        for i, result in enumerate(results, 1):
+            response += f"{i}. {result.path} "
+            response += f"(relevance: {result.relevance_score:.2f})\n"
+            response += f"   {result.excerpt}\n"
+
+            if result.context:
+                response += f"   Context: {result.context}\n"
+
+            response += "\n"
+
+        response += f"Found {len(results)} result(s)\n"
+
+        return response
+
+    except Exception as e:
+        return f"❌ Error searching memory: {e}"
