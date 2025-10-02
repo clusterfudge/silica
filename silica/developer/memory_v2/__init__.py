@@ -7,6 +7,7 @@ become too large.
 """
 
 from .storage import MemoryStorage, LocalDiskStorage
+from .manager import MemoryManager
 from .exceptions import (
     MemoryError,
     MemoryNotFoundError,
@@ -16,6 +17,7 @@ from .exceptions import (
 __all__ = [
     "MemoryStorage",
     "LocalDiskStorage",
+    "MemoryManager",
     "MemoryError",
     "MemoryNotFoundError",
     "MemoryStorageError",

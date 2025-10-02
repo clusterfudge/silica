@@ -6,18 +6,17 @@ which starts with a single memory file and organically grows through
 agentic splitting when files become too large.
 """
 
-import os
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
 from typing import List
 
 from silica.developer.context import AgentContext
-from silica.developer.memory_v2 import LocalDiskStorage
+from silica.developer.memory_v2 import MemoryManager
 from silica.developer.memory_v2.exceptions import (
     MemoryNotFoundError,
     MemoryStorageError,
 )
+from silica.developer.memory_v2.storage import MemoryStorage
 from silica.developer.tools.framework import tool
 
 
@@ -36,21 +35,19 @@ class MemoryFileInfo:
         return f"{self.path} ({size_kb:.1f} KB, updated {date_str})"
 
 
-def _get_storage(context: "AgentContext") -> LocalDiskStorage:
+def _get_storage(context: "AgentContext") -> MemoryStorage:
     """
-    Get or create storage instance for the context.
+    Get storage instance from the context's memory manager.
 
-    For now, uses local disk storage. Future versions will support S3.
+    The memory manager should be initialized when the AgentContext is created,
+    providing persona-specific memory isolation.
     """
-    # Check if storage is already cached in context
-    if not hasattr(context, "_memory_v2_storage"):
-        # Get base path from environment or use default
-        base_path = os.environ.get(
-            "MEMORY_V2_PATH", str(Path.home() / ".silica" / "memory_v2")
-        )
-        context._memory_v2_storage = LocalDiskStorage(base_path)
+    if not hasattr(context, "memory_manager") or context.memory_manager is None:
+        # Fallback: create a default memory manager if not present
+        # This ensures backward compatibility but shouldn't normally happen
+        context.memory_manager = MemoryManager()
 
-    return context._memory_v2_storage
+    return context.memory_manager.storage
 
 
 @tool

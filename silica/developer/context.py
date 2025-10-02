@@ -12,7 +12,7 @@ from silica.developer.models import ModelSpec
 from silica.developer.sandbox import Sandbox, SandboxMode
 from silica.developer.user_interface import UserInterface
 from pydantic import BaseModel
-from silica.developer.memory import MemoryManager
+from silica.developer.memory_v2 import MemoryManager
 
 
 class PydanticJSONEncoder(json.JSONEncoder):
@@ -73,7 +73,19 @@ class AgentContext:
             permission_check_rendering_callback=user_interface.permission_rendering_callback,
         )
 
-        memory_manager = MemoryManager()
+        # Extract persona name from cli_args if available
+        persona_name = None
+        if cli_args:
+            try:
+                # Look for --persona flag in cli_args
+                persona_idx = cli_args.index("--persona")
+                if persona_idx + 1 < len(cli_args):
+                    persona_name = cli_args[persona_idx + 1]
+            except (ValueError, IndexError):
+                # --persona not found or no value after it
+                pass
+
+        memory_manager = MemoryManager(persona_name=persona_name)
 
         # Use provided session_id or generate a new one
         context_session_id = session_id if session_id else str(uuid4())

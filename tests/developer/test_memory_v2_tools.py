@@ -8,7 +8,7 @@ from unittest.mock import Mock
 import pytest
 
 from silica.developer.context import AgentContext
-from silica.developer.memory_v2 import LocalDiskStorage
+from silica.developer.memory_v2 import MemoryManager
 from silica.developer.tools.memory_v2_tools import (
     read_memory,
     write_memory,
@@ -22,8 +22,8 @@ def temp_context():
     """Create a temporary context with isolated memory storage."""
     with tempfile.TemporaryDirectory() as tmpdir:
         context = Mock(spec=AgentContext)
-        # Set up isolated storage for this test
-        context._memory_v2_storage = LocalDiskStorage(tmpdir)
+        # Set up isolated memory manager for this test
+        context.memory_manager = MemoryManager(base_path=tmpdir)
         yield context
 
 
@@ -33,7 +33,7 @@ class TestReadMemory:
     def test_read_root_memory(self, temp_context):
         """Test reading root memory file."""
         # Setup: create root memory
-        storage = temp_context._memory_v2_storage
+        storage = temp_context.memory_manager.storage
         storage.write("memory", "Root content")
 
         # Test: read with empty path
@@ -42,7 +42,7 @@ class TestReadMemory:
 
     def test_read_nested_memory(self, temp_context):
         """Test reading nested memory file."""
-        storage = temp_context._memory_v2_storage
+        storage = temp_context.memory_manager.storage
         storage.write("projects/silica", "Silica content")
 
         result = read_memory(temp_context, "projects/silica")
@@ -58,7 +58,7 @@ class TestReadMemory:
 
     def test_read_with_default_path(self, temp_context):
         """Test reading with no path argument defaults to root."""
-        storage = temp_context._memory_v2_storage
+        storage = temp_context.memory_manager.storage
         storage.write("memory", "Default content")
 
         result = read_memory(temp_context)
@@ -74,7 +74,7 @@ class TestWriteMemory:
 
         assert "✅" in result
         assert "memory" in result
-        storage = temp_context._memory_v2_storage
+        storage = temp_context.memory_manager.storage
         assert storage.read("memory") == "Test content"
 
     def test_write_nested_memory(self, temp_context):
@@ -84,7 +84,7 @@ class TestWriteMemory:
         )
 
         assert "✅" in result
-        storage = temp_context._memory_v2_storage
+        storage = temp_context.memory_manager.storage
         assert storage.read("projects/silica/architecture") == "Nested content"
 
     def test_write_shows_size_info(self, temp_context):
@@ -121,7 +121,7 @@ class TestWriteMemory:
         write_memory(temp_context, "Original", "test")
         write_memory(temp_context, "Updated", "test")
 
-        storage = temp_context._memory_v2_storage
+        storage = temp_context.memory_manager.storage
         assert storage.read("test") == "Updated"
 
     def test_write_append_mode(self, temp_context):
@@ -129,14 +129,14 @@ class TestWriteMemory:
         write_memory(temp_context, "First", "test")
         write_memory(temp_context, "Second", "test", append=True)
 
-        storage = temp_context._memory_v2_storage
+        storage = temp_context.memory_manager.storage
         assert storage.read("test") == "FirstSecond"
 
     def test_write_append_to_nonexistent_creates_new(self, temp_context):
         """Test append mode creates new file if it doesn't exist."""
         write_memory(temp_context, "Content", "new", append=True)
 
-        storage = temp_context._memory_v2_storage
+        storage = temp_context.memory_manager.storage
         assert storage.read("new") == "Content"
 
     def test_write_empty_content(self, temp_context):
@@ -144,7 +144,7 @@ class TestWriteMemory:
         result = write_memory(temp_context, "", "empty")
 
         assert "✅" in result
-        storage = temp_context._memory_v2_storage
+        storage = temp_context.memory_manager.storage
         assert storage.read("empty") == ""
 
     def test_write_unicode_content(self, temp_context):
@@ -152,7 +152,7 @@ class TestWriteMemory:
         content = "Hello 世界 🌍"
         write_memory(temp_context, content, "unicode")
 
-        storage = temp_context._memory_v2_storage
+        storage = temp_context.memory_manager.storage
         assert storage.read("unicode") == content
 
     def test_write_with_default_path(self, temp_context):
@@ -160,7 +160,7 @@ class TestWriteMemory:
         result = write_memory(temp_context, "Default content")
 
         assert "✅" in result
-        storage = temp_context._memory_v2_storage
+        storage = temp_context.memory_manager.storage
         assert storage.read("memory") == "Default content"
 
 
@@ -177,7 +177,7 @@ class TestListMemoryFiles:
 
     def test_list_single_file(self, temp_context):
         """Test listing with single memory file."""
-        storage = temp_context._memory_v2_storage
+        storage = temp_context.memory_manager.storage
         storage.write("memory", "Content")
 
         result = list_memory_files(temp_context)
@@ -188,7 +188,7 @@ class TestListMemoryFiles:
 
     def test_list_multiple_files(self, temp_context):
         """Test listing multiple memory files."""
-        storage = temp_context._memory_v2_storage
+        storage = temp_context.memory_manager.storage
         storage.write("memory", "Root")
         storage.write("projects", "Projects")
         storage.write("projects/silica", "Silica")
@@ -202,7 +202,7 @@ class TestListMemoryFiles:
 
     def test_list_shows_size_info(self, temp_context):
         """Test that list shows size information."""
-        storage = temp_context._memory_v2_storage
+        storage = temp_context.memory_manager.storage
         storage.write("test", "Some content")
 
         result = list_memory_files(temp_context)
@@ -212,7 +212,7 @@ class TestListMemoryFiles:
 
     def test_list_shows_date_info(self, temp_context):
         """Test that list shows date information."""
-        storage = temp_context._memory_v2_storage
+        storage = temp_context.memory_manager.storage
         storage.write("test", "Content")
 
         result = list_memory_files(temp_context)
@@ -225,7 +225,7 @@ class TestListMemoryFiles:
 
     def test_list_warns_on_large_files(self, temp_context):
         """Test that list warns about large files."""
-        storage = temp_context._memory_v2_storage
+        storage = temp_context.memory_manager.storage
         large_content = "x" * 11000
         storage.write("large", large_content)
 
@@ -236,7 +236,7 @@ class TestListMemoryFiles:
 
     def test_list_warns_on_medium_files(self, temp_context):
         """Test that list warns about files approaching threshold."""
-        storage = temp_context._memory_v2_storage
+        storage = temp_context.memory_manager.storage
         medium_content = "x" * 9000
         storage.write("medium", medium_content)
 
@@ -251,7 +251,7 @@ class TestDeleteMemory:
 
     def test_delete_existing_file(self, temp_context):
         """Test deleting an existing file."""
-        storage = temp_context._memory_v2_storage
+        storage = temp_context.memory_manager.storage
         storage.write("test", "Content")
 
         result = delete_memory(temp_context, "test")
@@ -270,7 +270,7 @@ class TestDeleteMemory:
 
     def test_delete_preserves_children(self, temp_context):
         """Test that deleting parent preserves children."""
-        storage = temp_context._memory_v2_storage
+        storage = temp_context.memory_manager.storage
         storage.write("parent", "Parent content")
         storage.write("parent/child", "Child content")
 
@@ -283,7 +283,7 @@ class TestDeleteMemory:
 
     def test_delete_nested_file(self, temp_context):
         """Test deleting nested file."""
-        storage = temp_context._memory_v2_storage
+        storage = temp_context.memory_manager.storage
         storage.write("a/b/c", "Deep content")
 
         result = delete_memory(temp_context, "a/b/c")
