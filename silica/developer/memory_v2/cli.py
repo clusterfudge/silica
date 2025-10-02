@@ -174,6 +174,10 @@ async def _migrate_async(
     error_count = 0
     errors = []
 
+    console.print(
+        f"[blue]Starting to process {len(files_to_process)} files...[/blue]\n"
+    )
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[bold blue]{task.description}"),
@@ -196,10 +200,15 @@ async def _migrate_async(
             )
 
             try:
+                console.print(f"[dim]Extracting from: {v1_file.path}[/dim]")
+
                 # Extract information using AI
                 extracted_info = await extract_information_from_file(v1_file, context)
 
+                console.print(f"[dim]Extracted {len(extracted_info)} chars[/dim]")
+
                 # Store using agentic write to root
+                console.print("[dim]Writing to V2 storage...[/dim]")
                 result = await agentic_write(
                     storage=storage,
                     path="",  # Root, let organic growth handle organization
@@ -211,6 +220,9 @@ async def _migrate_async(
 
                 if result.success:
                     success_count += 1
+                    console.print(
+                        f"[green]✓ Successfully migrated: {v1_file.path}[/green]"
+                    )
                     state.processed_files.append(
                         {
                             "path": v1_file.path,
@@ -222,6 +234,7 @@ async def _migrate_async(
                 else:
                     error_count += 1
                     errors.append(f"{v1_file.path}: Write failed")
+                    console.print(f"[red]✗ Write failed: {v1_file.path}[/red]")
                     state.processed_files.append(
                         {
                             "path": v1_file.path,
@@ -235,6 +248,10 @@ async def _migrate_async(
                 error_count += 1
                 error_msg = str(e)
                 errors.append(f"{v1_file.path}: {error_msg}")
+                console.print(f"[red]✗ Error: {v1_file.path} - {error_msg}[/red]")
+                import traceback
+
+                console.print(f"[dim]{traceback.format_exc()}[/dim]")
                 state.processed_files.append(
                     {
                         "path": v1_file.path,
