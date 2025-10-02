@@ -71,14 +71,14 @@ def read_memory(context: "AgentContext", path: str = "") -> str:
     - Review content before updating or splitting
 
     **Common patterns:**
-    - `read_memory()` or `read_memory("")` - Read the root memory file
+    - `read_memory()` or `read_memory("")` - Read the root memory (persona root)
     - `read_memory("projects")` - Read the projects overview
     - `read_memory("projects/silica")` - Read detailed Silica information
     - `read_memory("knowledge/python")` - Read Python knowledge base
 
     Args:
-        path: Path to the memory file to read. Use "" or omit for root memory.
-              Examples: "projects", "projects/silica", "knowledge/python"
+        path: Path to the memory file to read. Use "" or omit for root memory (persona root).
+              Examples: "", "projects", "projects/silica", "knowledge/python"
 
     Returns:
         The content of the memory file as a string.
@@ -87,16 +87,16 @@ def read_memory(context: "AgentContext", path: str = "") -> str:
         Error message if the memory file doesn't exist or cannot be read.
 
     **Tips:**
-    - Start with the root to understand overall structure
+    - Start with the root ("") to understand overall structure
     - Use list_memory_files() to see what paths exist
     - Memory paths are hierarchical: parent/child/grandchild
     - Each path can have both content and sub-paths
+    - Root ("") is the persona-level memory
     """
     storage = _get_storage(context)
 
-    # Handle empty path as root
-    if not path:
-        path = "memory"
+    # Empty path means root (persona directory itself)
+    # No conversion needed - pass through as-is
 
     try:
         content = storage.read(path)
@@ -128,15 +128,15 @@ def write_memory(
     - **Append mode**: Adds to the end of existing content (use sparingly)
 
     **Common patterns:**
-    - `write_memory("Initial thoughts", "")` - Create/update root memory
+    - `write_memory("Initial thoughts", "")` - Create/update root memory (persona root)
     - `write_memory("Project overview", "projects")` - Create projects overview
     - `write_memory("Silica details", "projects/silica")` - Add child node
     - `write_memory("\\nNew insight", "knowledge", append=True)` - Append content
 
     Args:
         content: The content to write. Can be any text, markdown, code, etc.
-        path: Where to write the content. Use "" for root memory.
-              Examples: "projects", "projects/silica", "knowledge/python"
+        path: Where to write the content. Use "" for root memory (persona root).
+              Examples: "", "projects", "projects/silica", "knowledge/python"
         append: If True, append to existing content instead of replacing.
                 Default is False (replace). Use append cautiously.
 
@@ -152,7 +152,7 @@ def write_memory(
 
     **Example workflow:**
     ```
-    # Start simple
+    # Start simple at root
     write_memory("Working on Silica project", "")
 
     # Grow organically as needed
@@ -162,9 +162,8 @@ def write_memory(
     """
     storage = _get_storage(context)
 
-    # Handle empty path as root
-    if not path:
-        path = "memory"
+    # Empty path means root (persona directory)
+    # No conversion needed - pass through as-is
 
     try:
         # Handle append mode
@@ -385,7 +384,7 @@ async def write_memory_agentic(
 
     Args:
         content: New information to incorporate
-        path: Path to memory node. Use "" for root memory.
+        path: Path to memory node. Use "" for root memory (persona root).
         instruction: Optional custom instruction for how to merge content.
                     Default is to incorporate intelligently.
 
@@ -394,6 +393,12 @@ async def write_memory_agentic(
 
     **Examples:**
     ```
+    # Add to root memory
+    write_memory_agentic(
+        "I'm working on the Silica project",
+        ""
+    )
+
     # Add new project information
     write_memory_agentic(
         "Silica now supports memory search with semantic traversal",
@@ -416,9 +421,8 @@ async def write_memory_agentic(
     """
     storage = _get_storage(context)
 
-    # Handle empty path as root
-    if not path:
-        path = "memory"
+    # Empty path means root (persona directory)
+    # No conversion needed - pass through as-is
 
     try:
         # Use agentic write operation
@@ -504,9 +508,8 @@ async def split_memory(context: "AgentContext", path: str = "") -> str:
     """
     storage = _get_storage(context)
 
-    # Handle empty path as root
-    if not path:
-        path = "memory"
+    # Empty path means root (persona directory)
+    # No conversion needed - pass through as-is
 
     # Check if file exists
     if not storage.exists(path):
@@ -628,9 +631,8 @@ async def search_memory(
     """
     storage = _get_storage(context)
 
-    # Handle empty start path
-    if not start_path:
-        start_path = "memory"
+    # Empty start path means root (persona directory)
+    # Keep as-is, don't force conversion
 
     # Validate start path exists
     if not storage.exists(start_path):

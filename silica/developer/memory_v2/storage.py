@@ -168,6 +168,7 @@ class LocalDiskStorage(MemoryStorage):
 
         Args:
             path: Relative path to validate (e.g., "memory", "projects/silica")
+                  Empty string "" means the root (persona directory itself)
 
         Returns:
             Resolved absolute path to the node directory
@@ -175,8 +176,9 @@ class LocalDiskStorage(MemoryStorage):
         Raises:
             MemoryInvalidPathError: If path is invalid or escapes base directory
         """
-        if not path:
-            raise MemoryInvalidPathError("Path cannot be empty")
+        # Empty path means root (the persona directory itself)
+        if not path or path == "":
+            return self.base_path
 
         # Normalize path separators
         path = path.replace("\\", "/")
@@ -294,6 +296,7 @@ class LocalDiskStorage(MemoryStorage):
         List all memory file paths recursively.
 
         Returns relative paths to nodes (not .content files), excluding metadata directory.
+        Includes root (empty string "") if it has content.
         """
         nodes = []
 
@@ -310,10 +313,12 @@ class LocalDiskStorage(MemoryStorage):
             rel_path = node_dir.relative_to(self.base_path)
 
             # Convert to string, handle root case
-            if str(rel_path) == ".":
-                continue  # Skip if somehow at root
-
-            nodes.append(str(rel_path).replace("\\", "/"))
+            path_str = str(rel_path).replace("\\", "/")
+            if path_str == ".":
+                # This is the root (persona directory itself)
+                nodes.append("")
+            else:
+                nodes.append(path_str)
 
         return sorted(nodes)
 

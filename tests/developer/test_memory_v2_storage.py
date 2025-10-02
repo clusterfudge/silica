@@ -24,6 +24,73 @@ def temp_storage():
         yield storage
 
 
+class TestPersonaRoot:
+    """Tests for persona root (empty path) handling."""
+
+    def test_write_and_read_persona_root(self, temp_storage):
+        """Test writing and reading from persona root (empty path)."""
+        # Write to root
+        temp_storage.write("", "Root content for this persona")
+
+        # Read from root
+        content = temp_storage.read("")
+        assert content == "Root content for this persona"
+
+    def test_persona_root_path_validation(self, temp_storage):
+        """Test that empty path is valid and maps to base_path."""
+        # Empty path should be valid
+        assert temp_storage.exists("") is False  # Not created yet
+
+        # Write and verify it exists
+        temp_storage.write("", "Content")
+        assert temp_storage.exists("")
+
+    def test_persona_root_with_children(self, temp_storage):
+        """Test that persona root can have both content and children."""
+        # Write to root
+        temp_storage.write("", "Root overview")
+
+        # Write children
+        temp_storage.write("projects", "Projects content")
+        temp_storage.write("knowledge", "Knowledge content")
+
+        # All should coexist
+        assert temp_storage.exists("")
+        assert temp_storage.exists("projects")
+        assert temp_storage.exists("knowledge")
+
+        # Should be able to read all
+        assert "Root overview" in temp_storage.read("")
+        assert "Projects content" in temp_storage.read("projects")
+        assert "Knowledge content" in temp_storage.read("knowledge")
+
+    def test_list_files_includes_root(self, temp_storage):
+        """Test that list_files includes the root if it has content."""
+        # Write to root and some children
+        temp_storage.write("", "Root content")
+        temp_storage.write("projects", "Projects")
+
+        files = temp_storage.list_files()
+
+        # Should include both root (as "") and children
+        assert "" in files  # Root represented as empty string
+        assert "projects" in files
+        assert len(files) == 2
+
+    def test_persona_root_size_and_metadata(self, temp_storage):
+        """Test getting size and metadata for persona root."""
+        content = "Root content for testing"
+        temp_storage.write("", content)
+
+        # Should be able to get size
+        size = temp_storage.get_size("")
+        assert size == len(content)
+
+        # Should be able to get modified time
+        modified = temp_storage.get_modified_time("")
+        assert modified is not None
+
+
 class TestLocalDiskStorage:
     """Tests for LocalDiskStorage implementation."""
 
@@ -165,9 +232,17 @@ class TestLocalDiskStorage:
             temp_storage.get_modified_time("nonexistent")
 
     def test_path_validation_empty_path(self, temp_storage):
-        """Test that empty path is rejected."""
-        with pytest.raises(MemoryInvalidPathError):
-            temp_storage.read("")
+        """Test that empty path is valid (maps to persona root)."""
+        # Empty path should be valid now - it means the root
+        # Initially doesn't exist
+        assert not temp_storage.exists("")
+
+        # Can write to it
+        temp_storage.write("", "Root content")
+
+        # Now exists and can be read
+        assert temp_storage.exists("")
+        assert temp_storage.read("") == "Root content"
 
     def test_path_validation_absolute_path(self, temp_storage):
         """Test that absolute paths are rejected."""

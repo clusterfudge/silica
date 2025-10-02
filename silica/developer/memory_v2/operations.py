@@ -13,11 +13,6 @@ from silica.developer.context import AgentContext
 from silica.developer.memory_v2.storage import MemoryStorage
 
 
-def memory_prompt(context: AgentContext) -> str:
-    return """You have access to a memory system. This system is populated by your experiences.
-    """
-
-
 @dataclass
 class WriteResult:
     """Result of a write operation."""

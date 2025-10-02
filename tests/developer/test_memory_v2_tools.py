@@ -31,10 +31,10 @@ class TestReadMemory:
     """Tests for read_memory tool."""
 
     def test_read_root_memory(self, temp_context):
-        """Test reading root memory file."""
-        # Setup: create root memory
+        """Test reading root memory file (persona root)."""
+        # Setup: create root memory (empty path = persona root)
         storage = temp_context.memory_manager.storage
-        storage.write("memory", "Root content")
+        storage.write("", "Root content")
 
         # Test: read with empty path
         result = read_memory(temp_context, "")
@@ -59,7 +59,7 @@ class TestReadMemory:
     def test_read_with_default_path(self, temp_context):
         """Test reading with no path argument defaults to root."""
         storage = temp_context.memory_manager.storage
-        storage.write("memory", "Default content")
+        storage.write("", "Default content")
 
         result = read_memory(temp_context)
         assert result == "Default content"
@@ -69,13 +69,13 @@ class TestWriteMemory:
     """Tests for write_memory tool."""
 
     def test_write_root_memory(self, temp_context):
-        """Test writing to root memory."""
+        """Test writing to root memory (persona root)."""
         result = write_memory(temp_context, "Test content", "")
 
         assert "✅" in result
-        assert "memory" in result
+        # Check that write was successful (path shown is empty for root)
         storage = temp_context.memory_manager.storage
-        assert storage.read("memory") == "Test content"
+        assert storage.read("") == "Test content"
 
     def test_write_nested_memory(self, temp_context):
         """Test writing to nested path."""
@@ -156,12 +156,12 @@ class TestWriteMemory:
         assert storage.read("unicode") == content
 
     def test_write_with_default_path(self, temp_context):
-        """Test writing with no path defaults to root."""
+        """Test writing with no path defaults to root (persona root)."""
         result = write_memory(temp_context, "Default content")
 
         assert "✅" in result
         storage = temp_context.memory_manager.storage
-        assert storage.read("memory") == "Default content"
+        assert storage.read("") == "Default content"
 
 
 class TestListMemoryFiles:
@@ -366,3 +366,9 @@ class TestToolIntegration:
         assert "Updated thoughts" in read_memory(temp_context, "memory")
         assert "Project info" in read_memory(temp_context, "memory/projects")
         assert "Knowledge base" in read_memory(temp_context, "memory/knowledge")
+
+    def test_read_with_default_path(self, temp_context):
+        """Test that default path reads root memory (persona root)."""
+        # Setup
+        storage = temp_context.memory_manager.storage
+        storage.write("", "Default content")
