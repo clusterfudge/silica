@@ -4,7 +4,7 @@ Tests for agentic memory V2 migration.
 These tests verify that the migration process:
 1. Extracts salient information (not entire files)
 2. Uses AI to determine appropriate placement
-3. Leverages write_memory_agentic for intelligent integration
+3. Leverages write_memory for intelligent integration
 """
 
 import pytest
@@ -87,19 +87,19 @@ It helps developers by automating code reviews, writing tests, and suggesting im
 async def test_extract_and_store_uses_agentic_write(
     temp_storage, mock_context, sample_v1_file
 ):
-    """Test that migration uses write_memory_agentic for intelligent placement."""
+    """Test that migration uses write_memory for intelligent placement."""
 
     # Mock the run_agent function to simulate AI agent behavior
     with patch("silica.developer.tools.subagent.run_agent") as mock_run_agent:
-        # Simulate agent calling write_memory_agentic with extracted content
+        # Simulate agent calling write_memory with extracted content
         async def mock_agent_run(context, prompt, tool_names, system, model):
-            # Agent should have access to write_memory_agentic
-            assert "write_memory_agentic" in tool_names
+            # Agent should have access to write_memory
+            assert "write_memory" in tool_names
             assert "read_memory" in tool_names
             assert "list_memory_files" in tool_names
 
             # Simulate agent deciding to store in "projects" path
-            # In real execution, this would call write_memory_agentic
+            # In real execution, this would call write_memory
             # For test, we just verify the agent has the right tools
             return "Agent decided to store information"
 
@@ -118,7 +118,7 @@ async def test_extract_and_store_uses_agentic_write(
         mock_run_agent.assert_called_once()
         call_args = mock_run_agent.call_args
         assert call_args.kwargs["tool_names"] == [
-            "write_memory_agentic",
+            "write_memory",
             "read_memory",
             "list_memory_files",
         ]

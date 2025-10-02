@@ -137,101 +137,6 @@ def read_memory(context: "AgentContext", path: str = "") -> str:
 
 
 @tool
-def write_memory(
-    context: "AgentContext", content: str, path: str = "", append: bool = False
-) -> str:
-    """Write or update memory content at a specific path.
-
-    This is the primary way to store information in Memory V2. The system will
-    automatically create the necessary structure and handle file organization.
-    When a file grows beyond 10KB, the system will prompt for splitting.
-
-    **When to use this tool:**
-    - Store new information or insights
-    - Update existing memory with new details
-    - Create new memory locations for organizing information
-    - Document decisions, learnings, or context
-
-    **Writing strategies:**
-    - **Replace (default)**: Overwrites existing content completely
-    - **Append mode**: Adds to the end of existing content (use sparingly)
-
-    **Common patterns:**
-    - `write_memory("Initial thoughts", "")` - Create/update root memory (persona root)
-    - `write_memory("Project overview", "projects")` - Create projects overview
-    - `write_memory("Silica details", "projects/silica")` - Add child node
-    - `write_memory("\\nNew insight", "knowledge", append=True)` - Append content
-
-    Args:
-        content: The content to write. Can be any text, markdown, code, etc.
-        path: Where to write the content. Use "" for root memory (persona root).
-              Examples: "", "projects", "projects/silica", "knowledge/python"
-        append: If True, append to existing content instead of replacing.
-                Default is False (replace). Use append cautiously.
-
-    Returns:
-        Success message with file size information, or error message if write fails.
-
-    **Important notes:**
-    - Files larger than 10KB will trigger a split warning
-    - Each path can have both content AND child paths (organic growth!)
-    - Parent paths are created automatically (e.g., writing to "a/b/c" creates "a" and "a/b")
-    - Prefer replace over append for better content quality
-    - Empty content is allowed (creates placeholder node)
-
-    **Example workflow:**
-    ```
-    # Start simple at root
-    write_memory("Working on Silica project", "")
-
-    # Grow organically as needed
-    write_memory("Python agent framework for autonomous development", "projects")
-    write_memory("Uses pytest for testing, ruff for linting", "projects/silica")
-    ```
-    """
-    storage = _get_storage(context)
-
-    # Empty path means root (persona directory)
-    # No conversion needed - pass through as-is
-
-    try:
-        # Handle append mode
-        if append:
-            try:
-                existing = storage.read(path)
-                content = existing + content
-            except MemoryNotFoundError:
-                # File doesn't exist yet, just write new content
-                pass
-
-        # Write the content
-        storage.write(path, content)
-
-        # Get size and check threshold
-        size = storage.get_size(path)
-        size_kb = size / 1024
-
-        result = f"✅ Memory written successfully to: {path}\n"
-        result += f"📊 Size: {size_kb:.2f} KB ({size} bytes)\n"
-
-        # Warn if approaching or exceeding split threshold (10KB)
-        if size > 10240:
-            result += "\n⚠️  **File exceeds 10KB threshold!**\n"
-            result += (
-                "Consider splitting this content into smaller, more focused nodes.\n"
-            )
-            result += "This will make the memory system more organized and efficient.\n"
-        elif size > 8192:  # Warn at 8KB (80% of threshold)
-            result += "\n💡 File is getting large (>8KB).\n"
-            result += "Consider organizing into child nodes soon.\n"
-
-        return result
-
-    except MemoryStorageError as e:
-        return f"❌ Error writing memory: {e}"
-
-
-@tool
 def list_memory_files(context: "AgentContext") -> str:
     """List all memory files in the system.
 
@@ -382,7 +287,7 @@ def delete_memory(context: "AgentContext", path: str) -> str:
 
 
 @tool
-async def write_memory_agentic(
+async def write_memory(
     context: "AgentContext",
     content: str,
     path: str = "",
@@ -390,8 +295,7 @@ async def write_memory_agentic(
 ) -> str:
     """Write content to memory with intelligent merging of existing information.
 
-    This is an enhanced version of write_memory that uses AI to intelligently
-    incorporate new information into existing content. The AI will:
+    This is the primary way to store information in Memory V2. The AI will:
     - Read and understand existing content
     - Identify overlaps and redundancies
     - Merge information logically
@@ -400,53 +304,58 @@ async def write_memory_agentic(
     - Preserve important context
 
     **When to use this tool:**
-    - Adding information to an existing memory node
-    - Updating or refining previous content
+    - Store new information or insights
+    - Update existing memory with new details
+    - Create new memory locations for organizing information
+    - Document decisions, learnings, or context
     - Building up knowledge over multiple interactions
-    - When you want AI to help organize the information
 
-    **When to use regular write_memory instead:**
-    - Creating brand new content
-    - Completely replacing old content
-    - Simple append operations
-    - When you've already organized the content yourself
-
-    Args:
-        content: New information to incorporate
-        path: Path to memory node. Use "" for root memory (persona root).
-        instruction: Optional custom instruction for how to merge content.
-                    Default is to incorporate intelligently.
-
-    Returns:
-        Success message with size information and split warning if needed.
-
-    **Examples:**
+    **Common patterns:**
     ```
     # Add to root memory
-    write_memory_agentic(
+    write_memory(
         "I'm working on the Silica project",
         ""
     )
 
+    # Create or update projects section
+    write_memory(
+        "Python agent framework for autonomous development",
+        "projects"
+    )
+
     # Add new project information
-    write_memory_agentic(
+    write_memory(
         "Silica now supports memory search with semantic traversal",
         "projects/silica"
     )
 
     # Update with custom instruction
-    write_memory_agentic(
+    write_memory(
         "New insight about Python async patterns",
         "knowledge/python",
         instruction="Add this as a new section about async/await best practices"
     )
     ```
 
+    Args:
+        content: New information to incorporate
+        path: Path to memory node. Use "" for root memory (persona root).
+              Examples: "", "projects", "projects/silica", "knowledge/python"
+        instruction: Optional custom instruction for how to merge content.
+                    Default is to incorporate intelligently.
+
+    Returns:
+        Success message with size information and split warning if needed.
+
     **Important notes:**
-    - This operation may take longer than regular write_memory
-    - The AI tries to be smart about merging, but review results
+    - This operation uses AI for intelligent merging
+    - The AI avoids duplication and updates outdated information
     - Files over 10KB will trigger split warnings
-    - Use for iterative content building, not bulk data dumps
+    - Parent paths are created automatically
+    - Use for iterative content building
+    - First write to a new path creates the file
+    - Subsequent writes intelligently merge with existing content
     """
     storage = _get_storage(context)
 

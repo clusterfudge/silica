@@ -332,7 +332,7 @@ Related: [Connections to other topics/concepts if any]
 
 Now determine WHERE this information belongs in V2 memory:
 
-1. **Use write_memory_agentic** to store the extracted content
+1. **Use write_memory** to store the extracted content
 2. Choose the appropriate path:
    - `""` (root) - For high-level, cross-cutting information or if unsure
    - `"projects"` - For project-specific information
@@ -347,15 +347,15 @@ Now determine WHERE this information belongs in V2 memory:
 - **Summarize, don't dump** - Extract essence, not entire content
 - **Be selective** - Quality over quantity
 - **Choose semantic paths** - Organize by meaning, not by V1 structure
-- **Avoid duplication** - The agentic write will handle merging
+- **Avoid duplication** - The intelligent write will handle merging
 - **One write operation** - Store all extracted content in one appropriate location
-- **Provide context in instruction** - Tell write_memory_agentic how to integrate this
+- **Provide context in instruction** - Tell write_memory how to integrate this
 
 **EXAMPLE:**
 
 If you extract information about the "Silica project architecture":
 ```
-write_memory_agentic(
+write_memory(
     content='''Type: project/technical-reference
 Topic: Silica Memory V2 Architecture
 
@@ -378,12 +378,12 @@ Context: Core architecture for memory system redesign completed Jan 2025''',
 **Now execute the migration for this file. Extract the salient information and store it appropriately.**
 """
 
-    # Run migration agent with write_memory_agentic tool
+    # Run migration agent with write_memory tool
     try:
         await run_agent(
             context=context,
             prompt=migration_prompt,
-            tool_names=["write_memory_agentic", "read_memory", "list_memory_files"],
+            tool_names=["write_memory", "read_memory", "list_memory_files"],
             system=None,
             model="smart",  # Use smart model for analysis and placement
         )

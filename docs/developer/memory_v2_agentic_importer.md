@@ -5,7 +5,7 @@
 The Memory V2 migration system has been redesigned to use fully agentic import, where the AI agent is responsible for:
 1. **Extracting** salient information from V1 files (not dumping entire files)
 2. **Deciding** where to place the extracted information in the V2 memory hierarchy
-3. **Integrating** the information intelligently using `write_memory_agentic`
+3. **Integrating** the information intelligently using `write_memory`
 
 This approach aligns with the Memory V2 philosophy of organic growth and intelligent content management.
 
@@ -24,7 +24,7 @@ The old approach:
 The new approach:
 - `extract_and_store_v1_file()` is a single function that does both extraction AND storage
 - Agent receives the V1 file content along with current V2 structure
-- Agent has access to tools: `write_memory_agentic`, `read_memory`, `list_memory_files`
+- Agent has access to tools: `write_memory`, `read_memory`, `list_memory_files`
 - Agent decides:
   - What information is worth extracting
   - Where in the V2 hierarchy to place it
@@ -63,7 +63,7 @@ Guides the agent to:
 
 The agent:
 - Views the current V2 memory structure (existing paths and root content)
-- Calls `write_memory_agentic` with:
+- Calls `write_memory` with:
   - `content`: The extracted, structured information
   - `path`: Semantic location (e.g., "projects", "knowledge", "")
   - `instruction`: How to integrate with existing content
@@ -120,7 +120,7 @@ Context: Core architecture for memory system redesign completed Jan 2025
 
 **Agent Stores:**
 ```python
-write_memory_agentic(
+write_memory(
     content="[extracted content above]",
     path="projects",  # Agent chose semantic location
     instruction="This is Silica project architecture info from V1 migration. 
@@ -140,7 +140,7 @@ write_memory_agentic(
    - Natural organization emerges
 
 3. **Smart Integration**
-   - `write_memory_agentic` handles merging with existing content
+   - `write_memory` handles merging with existing content
    - Avoids duplication automatically
    - Maintains context and relationships
 
@@ -165,7 +165,7 @@ The new approach is thoroughly tested:
 
 ### Agentic Tests (`test_memory_v2_migration_agentic.py`)
 - 6 tests specifically for agentic import behavior
-- Verifies agent has correct tools (`write_memory_agentic`, `read_memory`, `list_memory_files`)
+- Verifies agent has correct tools (`write_memory`, `read_memory`, `list_memory_files`)
 - Validates prompt emphasizes summarization over dumping
 - Confirms V2 context is provided for placement decisions
 - Tests error handling and content loading
@@ -231,10 +231,10 @@ else:
 
 - **`silica/developer/memory_v2/operations.py`**
   - `agentic_write()` - Intelligent content merging
-  - Used by migration agent via `write_memory_agentic` tool
+  - Used by migration agent via `write_memory` tool
 
 - **`silica/developer/tools/memory_v2_tools.py`**
-  - `write_memory_agentic` - Tool wrapper for agentic writes
+  - `write_memory` - Tool wrapper for agentic writes
   - `read_memory`, `list_memory_files` - Tools for agent exploration
 
 ## Future Enhancements
