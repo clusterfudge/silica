@@ -180,6 +180,8 @@ class CaptureInterface(UserInterface):
         cached_tokens=None,
         conversation_size=None,
         context_window=None,
+        thinking_tokens=None,
+        thinking_cost=None,
     ):
         pass
 
