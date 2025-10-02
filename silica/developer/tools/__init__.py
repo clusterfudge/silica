@@ -28,13 +28,21 @@ from .gmail import (
     find_emails_needing_response,
     gmail_forward,
 )
-from .memory import (
-    get_memory_tree,
-    search_memory,
-    read_memory_entry,
-    write_memory_entry,
-    critique_memory,
-    delete_memory_entry,
+# Old memory tools disabled - using Memory V2
+# from .memory import (
+#     get_memory_tree,
+#     search_memory,
+#     read_memory_entry,
+#     write_memory_entry,
+#     critique_memory,
+#     delete_memory_entry,
+# )
+
+from .memory_v2_tools import (
+    read_memory,
+    write_memory,
+    list_memory_files,
+    delete_memory,
 )
 from .todos import (
     todo_read,
@@ -80,12 +88,12 @@ ALL_TOOLS = (
         calendar_search,
         calendar_setup,
         calendar_list_calendars,
-        get_memory_tree,
-        search_memory,
-        read_memory_entry,
-        write_memory_entry,
-        critique_memory,
-        delete_memory_entry,
+        # Memory V2 tools
+        read_memory,
+        write_memory,
+        list_memory_files,
+        delete_memory,
+        # Todo tools
         todo_read,
         todo_write,
         list_sessions_tool,
