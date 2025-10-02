@@ -129,7 +129,20 @@ class LocalDiskStorage(MemoryStorage):
 
     Stores memory files in a local directory with atomic writes
     and file locking for concurrent access safety.
+
+    Storage Structure:
+    Each memory node is represented as a directory containing a .content file.
+    This allows any node to seamlessly transition from leaf to parent:
+
+    memory/
+        .content          # The actual content of "memory"
+    memory/projects/
+        .content          # The actual content of "memory/projects"
+    memory/projects/silica/
+        .content          # The actual content of "memory/projects/silica"
     """
+
+    CONTENT_FILENAME = ".content"
 
     def __init__(self, base_path: str | Path | None = None):
         """
@@ -154,10 +167,10 @@ class LocalDiskStorage(MemoryStorage):
         Validate and normalize a memory file path.
 
         Args:
-            path: Relative path to validate
+            path: Relative path to validate (e.g., "memory", "projects/silica")
 
         Returns:
-            Resolved absolute path
+            Resolved absolute path to the node directory
 
         Raises:
             MemoryInvalidPathError: If path is invalid or escapes base directory
@@ -175,7 +188,7 @@ class LocalDiskStorage(MemoryStorage):
         if path.startswith("/"):
             raise MemoryInvalidPathError(f"Path must be relative: {path}")
 
-        # Resolve full path
+        # Resolve full path to the node directory
         full_path = (self.base_path / path).resolve()
 
         # Ensure it's within base_path
@@ -186,15 +199,28 @@ class LocalDiskStorage(MemoryStorage):
 
         return full_path
 
+    def _get_content_file_path(self, node_path: Path) -> Path:
+        """
+        Get the path to the .content file for a node.
+
+        Args:
+            node_path: Path to the node directory
+
+        Returns:
+            Path to the .content file
+        """
+        return node_path / self.CONTENT_FILENAME
+
     def read(self, path: str) -> str:
         """Read memory file content with file locking."""
-        full_path = self._validate_path(path)
+        node_path = self._validate_path(path)
+        content_file = self._get_content_file_path(node_path)
 
-        if not full_path.exists():
+        if not content_file.exists():
             raise MemoryNotFoundError(f"Memory file not found: {path}")
 
         try:
-            with open(full_path, "r", encoding="utf-8") as f:
+            with open(content_file, "r", encoding="utf-8") as f:
                 # Acquire shared lock for reading
                 fcntl.flock(f.fileno(), fcntl.LOCK_SH)
                 try:
@@ -212,24 +238,20 @@ class LocalDiskStorage(MemoryStorage):
 
         Uses atomic write (temp file + rename) to ensure consistency
         and exclusive locking to prevent concurrent write conflicts.
-        """
-        full_path = self._validate_path(path)
 
-        # Ensure parent directory exists and is a directory
-        if full_path.parent != self.base_path:
-            # Check if parent path conflicts with existing file
-            if full_path.parent.exists() and not full_path.parent.is_dir():
-                raise MemoryStorageError(
-                    f"Cannot create directory {full_path.parent.relative_to(self.base_path)}: "
-                    f"a file with that name already exists"
-                )
-            full_path.parent.mkdir(parents=True, exist_ok=True)
+        Creates node directory if it doesn't exist, then writes to .content file.
+        """
+        node_path = self._validate_path(path)
+        content_file = self._get_content_file_path(node_path)
+
+        # Create node directory if it doesn't exist
+        node_path.mkdir(parents=True, exist_ok=True)
 
         try:
             # Write to temporary file first
             fd, temp_path = tempfile.mkstemp(
-                dir=full_path.parent,
-                prefix=f".{full_path.name}.",
+                dir=node_path,
+                prefix=f".{self.CONTENT_FILENAME}.",
                 suffix=".tmp",
                 text=True,
             )
@@ -246,7 +268,7 @@ class LocalDiskStorage(MemoryStorage):
                         fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
                 # Atomic rename
-                os.replace(temp_path, full_path)
+                os.replace(temp_path, content_file)
             except Exception:
                 # Clean up temp file on error
                 try:
@@ -259,10 +281,11 @@ class LocalDiskStorage(MemoryStorage):
             raise MemoryStorageError(f"Failed to write {path}: {e}")
 
     def exists(self, path: str) -> bool:
-        """Check if memory file exists."""
+        """Check if memory node exists (has a .content file)."""
         try:
-            full_path = self._validate_path(path)
-            return full_path.exists() and full_path.is_file()
+            node_path = self._validate_path(path)
+            content_file = self._get_content_file_path(node_path)
+            return content_file.exists() and content_file.is_file()
         except MemoryInvalidPathError:
             return False
 
@@ -270,61 +293,78 @@ class LocalDiskStorage(MemoryStorage):
         """
         List all memory file paths recursively.
 
-        Returns relative paths, excluding metadata directory.
+        Returns relative paths to nodes (not .content files), excluding metadata directory.
         """
-        files = []
+        nodes = []
 
-        for full_path in self.base_path.rglob("*"):
-            # Skip directories
-            if not full_path.is_file():
-                continue
-
+        for content_file in self.base_path.rglob(self.CONTENT_FILENAME):
             # Skip metadata directory
             try:
-                full_path.relative_to(self.metadata_path)
+                content_file.relative_to(self.metadata_path)
                 continue  # This is in metadata dir, skip it
             except ValueError:
                 pass  # Not in metadata dir, keep it
 
-            # Get relative path
-            rel_path = full_path.relative_to(self.base_path)
-            files.append(str(rel_path).replace("\\", "/"))
+            # Get the node directory path (parent of .content file)
+            node_dir = content_file.parent
+            rel_path = node_dir.relative_to(self.base_path)
 
-        return sorted(files)
+            # Convert to string, handle root case
+            if str(rel_path) == ".":
+                continue  # Skip if somehow at root
+
+            nodes.append(str(rel_path).replace("\\", "/"))
+
+        return sorted(nodes)
 
     def delete(self, path: str) -> None:
-        """Delete memory file."""
-        full_path = self._validate_path(path)
+        """
+        Delete memory node.
 
-        if not full_path.exists():
+        Removes the .content file. The directory is left in place in case
+        it has children, which allows for partial deletion.
+        """
+        node_path = self._validate_path(path)
+        content_file = self._get_content_file_path(node_path)
+
+        if not content_file.exists():
             raise MemoryNotFoundError(f"Memory file not found: {path}")
 
         try:
-            full_path.unlink()
+            content_file.unlink()
+
+            # Try to remove directory if it's now empty
+            try:
+                node_path.rmdir()
+            except OSError:
+                # Directory not empty (has children), leave it
+                pass
         except Exception as e:
             raise MemoryStorageError(f"Failed to delete {path}: {e}")
 
     def get_size(self, path: str) -> int:
-        """Get file size in bytes."""
-        full_path = self._validate_path(path)
+        """Get content file size in bytes."""
+        node_path = self._validate_path(path)
+        content_file = self._get_content_file_path(node_path)
 
-        if not full_path.exists():
+        if not content_file.exists():
             raise MemoryNotFoundError(f"Memory file not found: {path}")
 
         try:
-            return full_path.stat().st_size
+            return content_file.stat().st_size
         except Exception as e:
             raise MemoryStorageError(f"Failed to get size of {path}: {e}")
 
     def get_modified_time(self, path: str) -> datetime:
-        """Get last modified timestamp."""
-        full_path = self._validate_path(path)
+        """Get last modified timestamp of content file."""
+        node_path = self._validate_path(path)
+        content_file = self._get_content_file_path(node_path)
 
-        if not full_path.exists():
+        if not content_file.exists():
             raise MemoryNotFoundError(f"Memory file not found: {path}")
 
         try:
-            timestamp = full_path.stat().st_mtime
+            timestamp = content_file.stat().st_mtime
             return datetime.fromtimestamp(timestamp)
         except Exception as e:
             raise MemoryStorageError(f"Failed to get modified time of {path}: {e}")

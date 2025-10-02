@@ -12,7 +12,6 @@ import pytest
 from silica.developer.memory_v2 import LocalDiskStorage
 from silica.developer.memory_v2.exceptions import (
     MemoryNotFoundError,
-    MemoryStorageError,
     MemoryInvalidPathError,
 )
 
@@ -290,13 +289,51 @@ class TestLocalDiskStorage:
         files = temp_storage.list_files()
         assert files == sorted(paths)
 
-    def test_file_directory_conflict(self, temp_storage):
-        """Test that having both a file and directory with same name is rejected."""
-        # Create a file
-        temp_storage.write("projects", "content")
+    def test_parent_and_child_nodes(self, temp_storage):
+        """Test that we can have both a parent node and child nodes."""
+        # Create a parent node
+        temp_storage.write("projects", "Overview of all projects")
+        assert temp_storage.exists("projects")
+        assert temp_storage.read("projects") == "Overview of all projects"
 
-        # Try to create a file in a "subdirectory" with same name
-        with pytest.raises(MemoryStorageError) as exc_info:
-            temp_storage.write("projects/silica", "nested content")
+        # Create child nodes - this should work!
+        temp_storage.write("projects/silica", "Silica project details")
+        temp_storage.write("projects/personal", "Personal project details")
 
-        assert "file with that name already exists" in str(exc_info.value)
+        # All should exist and be readable
+        assert temp_storage.exists("projects")
+        assert temp_storage.exists("projects/silica")
+        assert temp_storage.exists("projects/personal")
+
+        assert temp_storage.read("projects") == "Overview of all projects"
+        assert temp_storage.read("projects/silica") == "Silica project details"
+        assert temp_storage.read("projects/personal") == "Personal project details"
+
+        # List should show all nodes
+        files = temp_storage.list_files()
+        assert set(files) == {"projects", "projects/silica", "projects/personal"}
+
+    def test_node_transforms_from_leaf_to_parent(self, temp_storage):
+        """Test organic growth: a leaf node becomes a parent."""
+        # Start as a leaf node
+        temp_storage.write("memory", "Initial thoughts")
+        assert temp_storage.read("memory") == "Initial thoughts"
+
+        # Update the content
+        temp_storage.write("memory", "Updated with more context")
+        assert temp_storage.read("memory") == "Updated with more context"
+
+        # Now it grows children (organic split)
+        temp_storage.write("memory/projects", "Project information")
+        temp_storage.write("memory/knowledge", "Technical knowledge")
+
+        # Parent still exists and is readable
+        assert temp_storage.read("memory") == "Updated with more context"
+
+        # Children exist and are readable
+        assert temp_storage.read("memory/projects") == "Project information"
+        assert temp_storage.read("memory/knowledge") == "Technical knowledge"
+
+        # All show up in list
+        files = temp_storage.list_files()
+        assert set(files) == {"memory", "memory/projects", "memory/knowledge"}

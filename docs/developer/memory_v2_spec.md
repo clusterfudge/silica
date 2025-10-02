@@ -343,14 +343,21 @@ class MemoryStorage(ABC):
 **File Structure:**
 ```
 ~/.silica/memory_v2/
-├── memory                    # Root file
-├── projects                  # Child file
-├── projects/silica          # Nested child
-├── knowledge
+├── memory/
+│   └── .content             # Root content
+├── projects/
+│   ├── .content             # Projects content
+│   └── silica/
+│       └── .content         # Silica content
+├── knowledge/
+│   └── .content             # Knowledge content
 └── .metadata/               # System metadata
     ├── graph.json           # Cached graph structure
     └── index.json           # Search index (optional)
 ```
+
+**Storage Design Note:**
+Each memory node is represented as a directory containing a `.content` file. This design allows any node to seamlessly transition from a leaf to a parent node without file/directory conflicts, enabling true organic growth.
 
 **Implementation Notes:**
 - Use pathlib for cross-platform compatibility
@@ -367,14 +374,16 @@ class MemoryStorage(ABC):
 **S3 Structure:**
 ```
 s3://my-bucket/memory/
-├── memory                    # Root file (object)
-├── projects                  # Child file (object)
-├── projects/silica          # Nested child (object)
-├── knowledge
+├── memory/.content           # Root content (object)
+├── projects/.content         # Projects content (object)
+├── projects/silica/.content  # Silica content (object)
+├── knowledge/.content        # Knowledge content (object)
 └── .metadata/
     ├── graph.json
     └── index.json
 ```
+
+**Note:** S3 doesn't have true directories, but the `.content` naming convention provides the same logical structure and allows parent/child relationships.
 
 **Implementation Notes:**
 - Use boto3 for S3 access
