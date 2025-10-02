@@ -219,7 +219,7 @@ class LocalDiskStorage(MemoryStorage):
         content_file = self._get_content_file_path(node_path)
 
         if not content_file.exists():
-            raise MemoryNotFoundError(f"Memory file not found: {path}")
+            return ""
 
         try:
             with open(content_file, "r", encoding="utf-8") as f:

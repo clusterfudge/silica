@@ -43,7 +43,7 @@ go into memory, as well as what's most important, based on that core.
 
 Here is the current root of your memory -- you have decided that these are the most important facts that you have learned so far!
 ======= MEMORY =======
-{context.memory_manager.storage.read()}
+{context.memory_manager.storage.read("")}
 ======== END MEMORY =======
     """
 
