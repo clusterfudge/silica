@@ -140,15 +140,15 @@ class CaptureInterface(UserInterface):
     def status(
         self, message: str, spinner: str = None, update=False
     ) -> contextlib.AbstractContextManager:
-        if update:
+        if self._status and update:
             self._status.update(message, spinner=spinner or "aesthetic")
-        return self._status
+        return self._status if self._status else contextlib.nullcontext()
 
-    def __init__(self, parent: UserInterface, status: Status) -> None:
+    def __init__(self, parent: UserInterface, status: Status | None) -> None:
         self.output = []
         self.parent = parent
         self._status = status
-        self._prior_renderable = status.renderable
+        self._prior_renderable = status.renderable if status else None
 
     def handle_system_message(self, message, markdown=True, live=None):
         self.output.append(message)
@@ -161,8 +161,9 @@ class CaptureInterface(UserInterface):
 
     def handle_tool_use(self, tool_name, tool_input):
         message = f"Using tool {tool_name} with input {tool_input}"
-        self.bare(self._prior_renderable)
-        self.bare("")
+        if self._prior_renderable is not None:
+            self.bare(self._prior_renderable)
+            self.bare("")
         self._prior_renderable = message
         self.status(message, update=True)
         self.output.append(message)
