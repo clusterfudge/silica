@@ -12,7 +12,7 @@ from silica.developer.memory_v2.migration import (
     scan_v1_memory,
     load_migration_state,
     save_migration_state,
-    extract_information_from_file,
+    extract_and_store_v1_file,
     load_v1_metadata,
 )
 
@@ -332,10 +332,12 @@ class TestMigrationStateIO:
         assert len(loaded.processed_files) == 1
 
 
-class TestExtractInformation:
-    """Tests for extract_information_from_file function."""
+class TestExtractAndStore:
+    """Tests for extract_and_store_v1_file function."""
 
-    async def test_extract_with_mock_context(self, temp_v1_memory):
+    async def test_extract_and_store_with_mock_context(
+        self, temp_v1_memory, temp_v2_storage
+    ):
         from unittest.mock import MagicMock
 
         # Create mock context
@@ -361,9 +363,12 @@ class TestExtractInformation:
         # For testing, we'll just verify it doesn't crash
         # Real extraction would use actual agent
         try:
-            result = await extract_information_from_file(v1_file, mock_context)
-            # Should return something (even if mocked)
-            assert isinstance(result, str)
+            success, message = await extract_and_store_v1_file(
+                v1_file, temp_v2_storage, mock_context
+            )
+            # Should return tuple of (bool, str)
+            assert isinstance(success, bool)
+            assert isinstance(message, str)
         except Exception:
             # Expected if agent not fully available in test
             pass

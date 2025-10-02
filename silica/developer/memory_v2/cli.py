@@ -22,11 +22,12 @@ from silica.developer.memory_v2.migration import (
     scan_v1_memory,
     load_migration_state,
     save_migration_state,
-    extract_information_from_file,
+    extract_and_store_v1_file,
     MigrationState,
 )
 from silica.developer.memory_v2.manager import MemoryManager
-from silica.developer.memory_v2.operations import agentic_write
+
+# Note: No direct operations imports - migration uses extract_and_store_v1_file
 from silica.developer.context import AgentContext
 from silica.developer.user_interface import UserInterface
 from silica.developer.sandbox import SandboxMode
@@ -285,25 +286,14 @@ async def _migrate_async(
             )
 
             try:
-                console.print(f"[dim]Extracting from: {v1_file.path}[/dim]")
+                console.print(f"[dim]Processing: {v1_file.path}[/dim]")
 
-                # Extract information using AI
-                extracted_info = await extract_information_from_file(v1_file, context)
-
-                console.print(f"[dim]Extracted {len(extracted_info)} chars[/dim]")
-
-                # Store using agentic write to root
-                console.print("[dim]Writing to V2 storage...[/dim]")
-                result = await agentic_write(
-                    storage=storage,
-                    path="",  # Root, let organic growth handle organization
-                    new_content=f"# Migrated from V1: {v1_file.path}\n\n{extracted_info}",
-                    context=context,
-                    instruction=f"This is information migrated from the old memory system (file: {v1_file.path}). "
-                    f"Incorporate appropriately, organizing by topic. Avoid duplication.",
+                # Extract and store using AI - agent decides where to place content
+                success, message = await extract_and_store_v1_file(
+                    v1_file, storage, context
                 )
 
-                if result.success:
+                if success:
                     success_count += 1
 
                     # Get usage summary from context to track costs
@@ -330,14 +320,14 @@ async def _migrate_async(
                     state.total_completion_tokens = usage["total_output_tokens"]
                 else:
                     error_count += 1
-                    errors.append(f"{v1_file.path}: Write failed")
-                    console.print(f"[red]✗ Write failed: {v1_file.path}[/red]")
+                    errors.append(f"{v1_file.path}: {message}")
+                    console.print(f"[red]✗ Failed: {v1_file.path} - {message}[/red]")
                     state.processed_files.append(
                         {
                             "path": v1_file.path,
                             "processed_at": datetime.now().isoformat(),
                             "success": False,
-                            "error": "Write failed",
+                            "error": message,
                         }
                     )
 

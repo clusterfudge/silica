@@ -190,24 +190,35 @@ def save_migration_state(storage: MemoryStorage, state: MigrationState) -> None:
         pass
 
 
-async def extract_information_from_file(
-    v1_file: V1MemoryFile, context: AgentContext
-) -> str:
+async def extract_and_store_v1_file(
+    v1_file: V1MemoryFile, storage: MemoryStorage, context: AgentContext
+) -> tuple[bool, str]:
     """
-    Use an AI agent to extract salient information from a V1 memory file.
+    Extract salient information from a V1 file and intelligently store it in V2.
 
-    The agent reads the file and extracts:
-    - Key facts and concepts
-    - Important relationships
+    This is the core migration function that:
+    1. Reads the V1 file content
+    2. Uses AI to extract key facts, concepts, and relationships (not dump entire file)
+    3. Uses AI to determine the best location in V2 memory hierarchy
+    4. Stores the extracted information using agentic write
+
+    The goal is NOT to preserve the entire V1 file structure or content verbatim.
+    Instead, we extract and distill:
+    - Important facts about individuals, projects, technologies
+    - Current project states and decisions
+    - Best practices and learnings
     - Actionable information
-    - Context and metadata
+    - Relevant context
+
+    Trivial, redundant, or outdated information is intentionally discarded.
 
     Args:
         v1_file: V1 memory file to process
-        context: Agent context for sub-agent execution
+        storage: V2 storage backend
+        context: Agent context for AI operations
 
     Returns:
-        Extracted information as formatted text
+        Tuple of (success, message)
     """
     from silica.developer.tools.subagent import run_agent
 
@@ -217,7 +228,7 @@ async def extract_information_from_file(
             with open(v1_file.full_path, "r", encoding="utf-8") as f:
                 v1_file.content = f.read()
         except Exception as e:
-            return f"Error reading file: {e}"
+            return False, f"Error reading file: {e}"
 
     # Format metadata if available
     metadata_section = ""
@@ -251,67 +262,134 @@ async def extract_information_from_file(
         if "version" in v1_file.metadata:
             metadata_section += f"- Version: {v1_file.metadata['version']}\n"
 
-    # Create extraction prompt
-    extraction_prompt = f"""You are migrating information from an old memory system to a new one.
+    # Get current V2 structure to help agent make placement decisions
+    try:
+        existing_files = storage.list_files()
+        root_content = storage.read("") if storage.exists("") else "(empty)"
+    except Exception:
+        existing_files = []
+        root_content = "(empty)"
 
-**File**: {v1_file.path}
+    # Create comprehensive migration prompt for extraction AND placement
+    migration_prompt = f"""You are migrating information from an old memory system (V1) to a new organic memory system (V2).
+
+**Source File**: {v1_file.path}
 **Last Modified**: {v1_file.last_modified.strftime("%Y-%m-%d %H:%M:%S")}
 **Size**: {v1_file.size_bytes} bytes
 {metadata_section}
-**Content**:
+
+**V1 File Content**:
 ```
 {v1_file.content}
 ```
 
-**Your task**: Extract and summarize the salient information from this file.
+**Current V2 Memory Structure**:
+- Existing paths: {', '.join(existing_files) if existing_files else '(none - starting fresh)'}
 
-Focus on:
-1. **Key Facts**: Important information, data, or knowledge
-2. **Concepts**: Ideas, principles, or understanding
-3. **Relationships**: Connections between entities, projects, or topics
-4. **Context**: When, why, or how this information matters
-5. **Actionable Items**: Things to remember or act on
-
-**Guidelines**:
-- Be concise but preserve important details
-- Maintain context and relationships
-- Identify the type of information (project, knowledge, note, etc.)
-- Note any temporal context (if this is time-sensitive)
-- Skip redundant or trivial information
-- Use clear, structured format
-
-**Output format**:
+**Current V2 Root Content**:
 ```
-Type: [project/knowledge/note/reference/etc]
-Topic: [main subject]
-
-Summary:
-[Concise summary of the content]
-
-Key Information:
-- [Important fact 1]
-- [Important fact 2]
-- [etc]
-
-Context: [When/why this matters]
-Related: [Links to other topics/concepts]
+{root_content[:500]}{'...' if len(root_content) > 500 else ''}
 ```
 
-Extract the information now. Be thorough but concise.
+**YOUR TASK - Complete BOTH steps:**
+
+**STEP 1: Extract Salient Information**
+
+Your goal is NOT to preserve the entire file. Instead, extract and distill:
+
+✅ **DO Extract:**
+- Key facts about individuals, projects, companies, technologies
+- Current project states, statuses, and recent decisions
+- Best practices, learnings, and insights
+- Technical details that are reference-worthy (APIs, configs, architectures)
+- Important relationships and connections
+- Actionable information and context
+
+❌ **DON'T Extract:**
+- Redundant information already in V2
+- Trivial details (meeting schedules, old status updates)
+- Outdated information superseded by newer facts
+- Verbose logs or repetitive content
+- Information that provides no future value
+
+**Format your extraction concisely**:
+```
+Type: [project/knowledge/person/company/reference/best-practice/etc]
+Topic: [clear, specific topic]
+
+Summary: [1-3 sentences capturing the essence]
+
+Key Facts:
+- [Specific, valuable fact #1]
+- [Specific, valuable fact #2]
+- [etc - only important facts]
+
+Context: [Why this matters, when it's relevant]
+Related: [Connections to other topics/concepts if any]
+```
+
+**STEP 2: Store in the Right Place**
+
+Now determine WHERE this information belongs in V2 memory:
+
+1. **Use write_memory_agentic** to store the extracted content
+2. Choose the appropriate path:
+   - `""` (root) - For high-level, cross-cutting information or if unsure
+   - `"projects"` - For project-specific information
+   - `"knowledge"` - For technical knowledge and best practices
+   - `"people"` - For information about individuals
+   - `"companies"` or other semantic paths as appropriate
+   - Or create new semantic paths if the content warrants it
+
+3. Let the agentic write handle merging with existing content
+
+**GUIDELINES:**
+- **Summarize, don't dump** - Extract essence, not entire content
+- **Be selective** - Quality over quantity
+- **Choose semantic paths** - Organize by meaning, not by V1 structure
+- **Avoid duplication** - The agentic write will handle merging
+- **One write operation** - Store all extracted content in one appropriate location
+- **Provide context in instruction** - Tell write_memory_agentic how to integrate this
+
+**EXAMPLE:**
+
+If you extract information about the "Silica project architecture":
+```
+write_memory_agentic(
+    content='''Type: project/technical-reference
+Topic: Silica Memory V2 Architecture
+
+Summary: V2 uses organic growth pattern with single root file that splits at 10KB threshold.
+
+Key Facts:
+- Starts with single 'memory' file, grows through AI-driven splitting
+- Storage abstraction supports local disk and S3 backends
+- Agentic operations for write (merge), search (traverse), and split
+- Each node can have both content and children
+
+Context: Core architecture for memory system redesign completed Jan 2025''',
+    
+    path="projects",
+    
+    instruction="This is extracted information about Silica project architecture from V1 migration. If there's existing Silica content, merge with it. If not, create new organized section."
+)
+```
+
+**Now execute the migration for this file. Extract the salient information and store it appropriately.**
 """
 
-    # Run extraction agent with no tools (just analysis)
+    # Run migration agent with write_memory_agentic tool
     try:
-        extracted = await run_agent(
+        await run_agent(
             context=context,
-            prompt=extraction_prompt,
-            tool_names=[],  # No tools needed - pure analysis
+            prompt=migration_prompt,
+            tool_names=["write_memory_agentic", "read_memory", "list_memory_files"],
             system=None,
-            model="smart",  # Use smart model for analysis
+            model="smart",  # Use smart model for analysis and placement
         )
-        return extracted
+        return True, "Successfully extracted and stored information"
     except Exception as e:
-        return f"Error extracting information: {e}"
+        return False, f"Error during migration: {e}"
 
 
 async def migrate_v1_to_v2(
@@ -384,9 +462,6 @@ async def migrate_v1_to_v2(
             "total_files": state.total_files,
         }
 
-    # Import tools for storage
-    from silica.developer.memory_v2.operations import agentic_write
-
     # Process files with progress tracking
     success_count = 0
     error_count = 0
@@ -394,22 +469,12 @@ async def migrate_v1_to_v2(
 
     for i, v1_file in enumerate(files_to_process):
         try:
-            # Extract information using AI
-            extracted_info = await extract_information_from_file(v1_file, context)
-
-            # Store extracted information using agentic write to root
-            # Let the AI decide how to incorporate this information
-            result = await agentic_write(
-                storage=storage,
-                path="",  # Store at root, let organic growth handle organization
-                new_content=f"# Migrated from V1: {v1_file.path}\n\n{extracted_info}",
-                context=context,
-                instruction=f"This is information migrated from the old memory system (file: {v1_file.path}). "
-                f"Incorporate this information appropriately, organizing by topic or theme. "
-                f"Avoid duplication with existing content.",
+            # Extract and store using AI - agent decides where to place content
+            success, message = await extract_and_store_v1_file(
+                v1_file, storage, context
             )
 
-            if result.success:
+            if success:
                 success_count += 1
 
                 # Record in state
@@ -423,11 +488,22 @@ async def migrate_v1_to_v2(
                 )
             else:
                 error_count += 1
-                errors.append(f"{v1_file.path}: Write failed")
+                errors.append(f"{v1_file.path}: {message}")
+
+                # Record in state as attempted
+                state.processed_files.append(
+                    {
+                        "path": v1_file.path,
+                        "processed_at": datetime.now().isoformat(),
+                        "success": False,
+                        "error": message,
+                    }
+                )
 
         except Exception as e:
             error_count += 1
-            errors.append(f"{v1_file.path}: {str(e)}")
+            error_msg = str(e)
+            errors.append(f"{v1_file.path}: {error_msg}")
 
             # Still record in state as attempted
             state.processed_files.append(
@@ -435,7 +511,7 @@ async def migrate_v1_to_v2(
                     "path": v1_file.path,
                     "processed_at": datetime.now().isoformat(),
                     "success": False,
-                    "error": str(e),
+                    "error": error_msg,
                 }
             )
 
