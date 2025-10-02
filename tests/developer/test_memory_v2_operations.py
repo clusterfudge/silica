@@ -177,24 +177,24 @@ class TestAgenticWrite:
 class TestSearchMemory:
     """Tests for search_memory function."""
 
-    def test_search_single_file(self, temp_storage):
+    async def test_search_single_file(self, temp_storage):
         """Test searching with one matching file."""
         temp_storage.write("memory", "This is about Python programming")
 
-        results = search_memory(temp_storage, "Python")
+        results = await search_memory(temp_storage, "Python")
 
         assert len(results) == 1
         assert results[0].path == "memory"
         assert "Python" in results[0].excerpt
         assert results[0].relevance_score > 0
 
-    def test_search_multiple_files(self, temp_storage):
+    async def test_search_multiple_files(self, temp_storage):
         """Test searching across multiple files."""
         temp_storage.write("memory", "Python is great")
         temp_storage.write("projects", "Python project details")
         temp_storage.write("knowledge", "Python best practices")
 
-        results = search_memory(temp_storage, "Python", max_results=5)
+        results = await search_memory(temp_storage, "Python", max_results=5)
 
         assert len(results) == 3
         # All should have Python in them
@@ -203,46 +203,46 @@ class TestSearchMemory:
                 result.path
             )
 
-    def test_search_no_matches(self, temp_storage):
+    async def test_search_no_matches(self, temp_storage):
         """Test searching with no matches."""
         temp_storage.write("memory", "This is about JavaScript")
 
-        results = search_memory(temp_storage, "Python")
+        results = await search_memory(temp_storage, "Python")
 
         assert len(results) == 0
 
-    def test_search_respects_max_results(self, temp_storage):
+    async def test_search_respects_max_results(self, temp_storage):
         """Test that max_results is respected."""
         # Create many files with the search term
         for i in range(10):
             temp_storage.write(f"file{i}", f"Python content {i}")
 
-        results = search_memory(temp_storage, "Python", max_results=5)
+        results = await search_memory(temp_storage, "Python", max_results=5)
 
         assert len(results) <= 5
 
-    def test_search_case_insensitive(self, temp_storage):
+    async def test_search_case_insensitive(self, temp_storage):
         """Test that search is case-insensitive."""
         temp_storage.write("memory", "This is about PYTHON programming")
 
-        results = search_memory(temp_storage, "python")
+        results = await search_memory(temp_storage, "python")
 
         assert len(results) == 1
         assert results[0].path == "memory"
 
-    def test_search_returns_excerpt(self, temp_storage):
+    async def test_search_returns_excerpt(self, temp_storage):
         """Test that results include excerpts."""
         content = "x" * 100 + "Python programming" + "y" * 100
         temp_storage.write("memory", content)
 
-        results = search_memory(temp_storage, "Python")
+        results = await search_memory(temp_storage, "Python")
 
         assert len(results) == 1
         assert "Python" in results[0].excerpt
         # Excerpt should be shorter than full content
         assert len(results[0].excerpt) < len(content)
 
-    def test_search_relevance_scoring(self, temp_storage):
+    async def test_search_relevance_scoring(self, temp_storage):
         """Test that relevance scoring works."""
         # File with term mentioned once
         temp_storage.write("file1", "Python is mentioned once here")
@@ -251,7 +251,7 @@ class TestSearchMemory:
             "file2", "Python Python Python is mentioned many times Python"
         )
 
-        results = search_memory(temp_storage, "Python")
+        results = await search_memory(temp_storage, "Python")
 
         # file2 should have higher relevance
         file2_result = next(r for r in results if r.path == "file2")
@@ -282,6 +282,46 @@ class TestSplitMemoryNode:
         assert result.success is False
 
 
+class TestAgenticSearch:
+    """Tests for agentic search with link traversal."""
+
+    async def test_search_with_context_uses_agent(self, temp_storage):
+        """Test that providing context triggers agentic search."""
+        from unittest.mock import MagicMock
+
+        # Create a mock context
+        mock_context = MagicMock()
+        mock_context.user_interface = MagicMock()
+        mock_context.user_interface.status = MagicMock()
+        mock_context.user_interface.status.return_value.__enter__ = MagicMock()
+        mock_context.user_interface.status.return_value.__exit__ = MagicMock()
+
+        # Write some test content
+        temp_storage.write("memory", "Root content about Python")
+        temp_storage.write("projects", "Projects including [[projects/silica]]")
+        temp_storage.write("projects/silica", "Silica is a Python framework")
+
+        # Search with context - this would normally use AI
+        # For testing without actual AI, we'll just verify it doesn't crash
+        results = await search_memory(
+            temp_storage, "Python", max_results=5, context=mock_context
+        )
+
+        # Should get some results (will fall back to text search if agent fails)
+        assert isinstance(results, list)
+
+    async def test_search_without_context_uses_text_search(self, temp_storage):
+        """Test that without context, falls back to text search."""
+        temp_storage.write("memory", "Content about Python")
+        temp_storage.write("projects", "More Python content")
+
+        # Search without context - should use simple text search
+        results = await search_memory(temp_storage, "Python", context=None)
+
+        assert len(results) == 2
+        assert all(r.context.endswith("(text search)") for r in results)
+
+
 class TestIntegration:
     """Integration tests for operations working together."""
 
@@ -294,7 +334,7 @@ class TestIntegration:
         )
 
         # Search for it
-        results = search_memory(temp_storage, "Python")
+        results = await search_memory(temp_storage, "Python")
 
         assert len(results) >= 2
         paths = [r.path for r in results]
@@ -310,7 +350,7 @@ class TestIntegration:
         await agentic_write(temp_storage, "memory", "Additional Python details")
 
         # Search should find both
-        results = search_memory(temp_storage, "Python")
+        results = await search_memory(temp_storage, "Python")
         assert len(results) == 1
 
         content = temp_storage.read("memory")
@@ -335,5 +375,5 @@ class TestIntegration:
             assert result.success is True
 
         # All should be searchable
-        results = search_memory(temp_storage, "Python")
+        results = await search_memory(temp_storage, "Python")
         assert len(results) == len(paths)

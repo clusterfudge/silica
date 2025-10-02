@@ -13,6 +13,11 @@ from silica.developer.context import AgentContext
 from silica.developer.memory_v2.storage import MemoryStorage
 
 
+def memory_prompt(context: AgentContext) -> str:
+    return """You have access to a memory system. This system is populated by your experiences.
+    """
+
+
 @dataclass
 class WriteResult:
     """Result of a write operation."""
@@ -320,7 +325,7 @@ You have access to: write_memory
         )
 
 
-def search_memory(
+async def search_memory(
     storage: MemoryStorage,
     query: str,
     max_results: int = 10,
@@ -328,27 +333,109 @@ def search_memory(
     context: Optional[AgentContext] = None,
 ) -> List[SearchResult]:
     """
-    Search memory using simple text search or agent-driven traversal.
+    Search memory using agent-driven traversal or simple text search.
 
     The agent will:
     - Start at the specified path
     - Read and assess relevance
-    - Follow promising links
+    - Follow promising links using [[path]] syntax
     - Collect relevant excerpts
-    - Return ranked results
+    - Track visited paths to avoid loops
+    - Return semantically ranked results
 
     Args:
         storage: Storage backend to use
         query: Search query
         max_results: Maximum number of results to return
         start_path: Path to start search from
-        context: AgentContext for sub-agent execution (optional)
+        context: AgentContext for sub-agent execution (optional, falls back to text search)
 
     Returns:
         List of SearchResult objects
     """
-    # For now, implement simple text search across all files
-    # TODO: Implement agent-driven search with link traversal
+    # If no context, fall back to simple text search
+    if context is None:
+        return _simple_text_search(storage, query, max_results)
+
+    try:
+        # Get list of available files for the agent to know the structure
+        available_paths = storage.list_files()
+
+        # Use sub-agent for intelligent search with link traversal
+        from silica.developer.tools.subagent import run_agent
+
+        search_prompt = f"""You are searching through a hierarchical memory system for: "{query}"
+
+**Starting path**: {start_path}
+**Maximum results**: {max_results}
+**Available memory paths**: {', '.join(available_paths[:20])}{'...' if len(available_paths) > 20 else ''}
+
+**Your approach:**
+1. Start by reading the content at the starting path
+2. Assess if the content is relevant to the query
+3. Look for [[path]] links in the content that might lead to relevant information
+4. Follow the most promising links by reading those paths
+5. Track which paths you've visited to avoid loops
+6. Collect relevant excerpts with their paths
+7. Continue until you have {max_results} results or have explored all promising paths
+
+**Tools available:**
+- read_memory: Read content from a memory path
+- list_memory_files: See what paths exist
+
+**Output format:**
+For each relevant result, output exactly in this format:
+```
+RESULT
+PATH: <path>
+RELEVANCE: <score between 0.0 and 1.0>
+EXCERPT: <relevant excerpt from the content>
+CONTEXT: <brief explanation of why this is relevant and how you found it>
+---
+```
+
+**Guidelines:**
+- Prioritize paths that seem semantically related to the query
+- Follow [[links]] that appear promising
+- Higher relevance scores (closer to 1.0) for exact matches and highly relevant content
+- Lower relevance scores (0.3-0.6) for tangentially related content
+- Keep excerpts concise (50-150 characters) and informative
+- Provide context about the path taken to find the result
+- Stop when you have {max_results} results or no more promising paths
+
+Begin your search now. Output only the RESULT blocks, no other commentary.
+"""
+
+        # Run sub-agent with memory tools
+        agent_output = await run_agent(
+            context=context,
+            prompt=search_prompt,
+            tool_names=["read_memory", "list_memory_files"],
+            system=None,
+            model="smart",  # Use smart model for reasoning
+        )
+
+        # Parse the agent's output into SearchResult objects
+        results = _parse_search_results(agent_output)
+
+        # Sort by relevance and limit to max_results
+        results.sort(key=lambda r: r.relevance_score, reverse=True)
+        return results[:max_results]
+
+    except Exception:
+        # Fall back to simple text search on error
+        return _simple_text_search(storage, query, max_results)
+
+
+def _simple_text_search(
+    storage: MemoryStorage,
+    query: str,
+    max_results: int,
+) -> List[SearchResult]:
+    """
+    Simple text-based search across all files.
+    Used as fallback when agent search is not available or fails.
+    """
     results = []
 
     try:
@@ -383,7 +470,7 @@ def search_memory(
                             path=file_path,
                             excerpt=excerpt,
                             relevance_score=relevance,
-                            context=f"Found in {file_path}",
+                            context=f"Found in {file_path} (text search)",
                         )
                     )
 
@@ -401,3 +488,66 @@ def search_memory(
         pass
 
     return results[:max_results]
+
+
+def _parse_search_results(agent_output: str) -> List[SearchResult]:
+    """
+    Parse the agent's search output into SearchResult objects.
+
+    Expected format:
+    RESULT
+    PATH: path/to/file
+    RELEVANCE: 0.85
+    EXCERPT: excerpt text here
+    CONTEXT: context about the result
+    ---
+    """
+    results = []
+
+    # Split by "RESULT" markers
+    blocks = agent_output.split("RESULT")
+
+    for block in blocks:
+        if not block.strip():
+            continue
+
+        try:
+            # Extract fields using simple parsing
+            lines = [line.strip() for line in block.strip().split("\n") if line.strip()]
+
+            path = None
+            relevance = 0.5
+            excerpt = ""
+            context = ""
+
+            for line in lines:
+                if line.startswith("PATH:"):
+                    path = line[5:].strip()
+                elif line.startswith("RELEVANCE:"):
+                    try:
+                        relevance = float(line[10:].strip())
+                    except ValueError:
+                        relevance = 0.5
+                elif line.startswith("EXCERPT:"):
+                    excerpt = line[8:].strip()
+                elif line.startswith("CONTEXT:"):
+                    context = line[8:].strip()
+                elif line == "---":
+                    break
+
+            # Only add if we have at least a path
+            if path:
+                results.append(
+                    SearchResult(
+                        path=path,
+                        excerpt=excerpt or f"Content from {path}",
+                        relevance_score=max(0.0, min(1.0, relevance)),
+                        context=context or f"Found in {path}",
+                    )
+                )
+
+        except Exception:
+            # Skip malformed blocks
+            continue
+
+    return results

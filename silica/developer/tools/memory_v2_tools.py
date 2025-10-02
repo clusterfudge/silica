@@ -555,7 +555,7 @@ async def split_memory(context: "AgentContext", path: str = "") -> str:
 
 
 @tool
-def search_memory(
+async def search_memory(
     context: "AgentContext", query: str, max_results: int = 10, start_path: str = ""
 ) -> str:
     """Search memory using intelligent semantic traversal.
@@ -641,7 +641,7 @@ def search_memory(
 
     try:
         # Perform the search
-        results = search_memory_operation(
+        results = await search_memory_operation(
             storage, query, max_results, start_path, context
         )
 
