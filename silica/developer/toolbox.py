@@ -79,6 +79,12 @@ class Toolbox:
         )
 
         self.register_cli_tool(
+            "info",
+            self._info,
+            "Show statistics about the current session",
+        )
+
+        self.register_cli_tool(
             "view-memory", self._launch_memory_webapp, "Launch memory webapp"
         )
 
@@ -836,6 +842,148 @@ class Toolbox:
 
         # Return the result for display
         return result
+
+    def _info(self, user_interface, sandbox, user_input, *args, **kwargs):
+        """Show statistics about the current session."""
+        from datetime import datetime
+        from pathlib import Path
+
+        # Get session information
+        session_id = self.context.session_id
+        parent_session_id = self.context.parent_session_id
+
+        # Get model information
+        model_spec = self.context.model_spec
+        model_name = model_spec["title"]
+        max_tokens = model_spec["max_tokens"]
+        context_window = model_spec["context_window"]
+
+        # Get thinking mode
+        thinking_mode = self.context.thinking_mode
+        thinking_display = {
+            "off": "Off",
+            "normal": "💭 Normal (8k tokens)",
+            "ultra": "🧠 Ultra (20k tokens)",
+        }.get(thinking_mode, thinking_mode)
+
+        # Get usage summary
+        usage = self.context.usage_summary()
+        total_input_tokens = usage["total_input_tokens"]
+        total_output_tokens = usage["total_output_tokens"]
+        total_thinking_tokens = usage.get("total_thinking_tokens", 0)
+        cached_tokens = usage["cached_tokens"]
+        total_cost = usage["total_cost"]
+        thinking_cost = usage.get("thinking_cost", 0.0)
+
+        # Get message count
+        message_count = len(self.context.chat_history)
+
+        # Calculate conversation size if available
+        conversation_size = getattr(self.context, "_last_conversation_size", None)
+
+        # Get session creation and update times if available
+        history_dir = Path.home() / ".hdev" / "history"
+        context_dir = parent_session_id if parent_session_id else session_id
+        history_file = (
+            history_dir
+            / context_dir
+            / ("root.json" if not parent_session_id else f"{session_id}.json")
+        )
+
+        created_at = None
+        last_updated = None
+        root_dir = None
+
+        if history_file.exists():
+            try:
+                import json
+
+                with open(history_file, "r") as f:
+                    session_data = json.load(f)
+                    metadata = session_data.get("metadata", {})
+                    created_at = metadata.get("created_at")
+                    last_updated = metadata.get("last_updated")
+                    root_dir = metadata.get("root_dir")
+            except Exception:
+                pass
+
+        # Format the output
+        info = "# Session Information\n\n"
+
+        # Session IDs
+        info += f"**Session ID:** `{session_id}`\n\n"
+        if parent_session_id:
+            info += f"**Parent Session ID:** `{parent_session_id}`\n\n"
+
+        # Session timestamps
+        if created_at:
+            try:
+                dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                info += f"**Created:** {dt.strftime('%Y-%m-%d %H:%M:%S %Z')}\n\n"
+            except Exception:
+                info += f"**Created:** {created_at}\n\n"
+
+        if last_updated:
+            try:
+                dt = datetime.fromisoformat(last_updated.replace("Z", "+00:00"))
+                info += f"**Last Updated:** {dt.strftime('%Y-%m-%d %H:%M:%S %Z')}\n\n"
+            except Exception:
+                info += f"**Last Updated:** {last_updated}\n\n"
+
+        # Root directory
+        if root_dir:
+            info += f"**Working Directory:** `{root_dir}`\n\n"
+
+        # Model information
+        info += "## Model Configuration\n\n"
+        info += f"**Model:** {model_name}\n\n"
+        info += f"**Max Tokens:** {max_tokens:,}\n\n"
+        info += f"**Context Window:** {context_window:,} tokens\n\n"
+        info += f"**Thinking Mode:** {thinking_display}\n\n"
+
+        # Conversation statistics
+        info += "## Conversation Statistics\n\n"
+        info += f"**Message Count:** {message_count}\n\n"
+
+        if conversation_size:
+            usage_percentage = (conversation_size / context_window) * 100
+            info += f"**Conversation Size:** {conversation_size:,} tokens ({usage_percentage:.1f}% of context)\n\n"
+
+            # Calculate tokens remaining before compaction threshold (85%)
+            compaction_threshold = int(context_window * 0.85)
+            tokens_remaining = max(0, compaction_threshold - conversation_size)
+            info += f"**Tokens Until Compaction:** {tokens_remaining:,} (threshold: 85%)\n\n"
+
+        # Token usage
+        info += "## Token Usage\n\n"
+        info += f"**Input Tokens:** {total_input_tokens:,}"
+        if cached_tokens > 0:
+            info += f" (cached: {cached_tokens:,})"
+        info += "\n\n"
+        info += f"**Output Tokens:** {total_output_tokens:,}\n\n"
+
+        if total_thinking_tokens > 0:
+            info += f"**Thinking Tokens:** {total_thinking_tokens:,}\n\n"
+
+        total_tokens = total_input_tokens + total_output_tokens + total_thinking_tokens
+        info += f"**Total Tokens:** {total_tokens:,}\n\n"
+
+        # Cost information
+        info += "## Cost Information\n\n"
+        info += f"**Session Cost:** ${total_cost:.4f}\n\n"
+
+        if thinking_cost > 0:
+            info += f"**Thinking Cost:** ${thinking_cost:.4f}\n\n"
+            non_thinking_cost = total_cost - thinking_cost
+            info += f"**Non-Thinking Cost:** ${non_thinking_cost:.4f}\n\n"
+
+        # Cost breakdown by model if multiple models used
+        if len(usage["model_breakdown"]) > 1:
+            info += "### Cost Breakdown by Model\n\n"
+            for model, model_usage in usage["model_breakdown"].items():
+                info += f"- **{model}:** ${model_usage['total_cost']:.4f}\n\n"
+
+        return info
 
     def _model(self, user_interface, sandbox, user_input, *args, **kwargs):
         """Display or change the current AI model"""
