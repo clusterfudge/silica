@@ -680,6 +680,12 @@ def cyclopts_main(
     persona: Annotated[
         str, cyclopts.Parameter(help="Persona to use for the assistant")
     ] = "default",
+    log_requests: Annotated[
+        Optional[str],
+        cyclopts.Parameter(
+            help="Path to log file for JSON request/response logging. If not specified, logging is disabled."
+        ),
+    ] = None,
 ):
     """
     Cyclopts-based reimplementation of the main method for the AI-powered developer assistant.
@@ -724,6 +730,8 @@ def cyclopts_main(
         original_args.extend(["--session-id", session_id])
     if persona:
         original_args.extend(["--persona", persona])
+    if log_requests:
+        original_args.extend(["--log-requests", log_requests])
     if sandbox:
         original_args.extend(sandbox)
 
@@ -830,5 +838,6 @@ def cyclopts_main(
             system_prompt=system_block,
             single_response=bool(initial_prompt),
             enable_compaction=not disable_compaction,
+            log_file_path=log_requests,
         )
     )

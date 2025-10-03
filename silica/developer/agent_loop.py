@@ -343,6 +343,7 @@ async def run(
     tools: list | None = None,
     system_prompt: dict[str, Any] | None = None,
     enable_compaction: bool = True,
+    log_file_path: str | None = None,
 ) -> list[MessageParam]:
     load_dotenv()
     user_interface, model = (
@@ -353,6 +354,11 @@ async def run(
     toolbox = Toolbox(agent_context, tool_names=tool_names, tools=tools)
     if hasattr(user_interface, "set_toolbox"):
         user_interface.set_toolbox(toolbox)
+
+    # Initialize request/response logger if enabled
+    from silica.developer.request_logger import RequestResponseLogger
+
+    logger = RequestResponseLogger(log_file_path)
 
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
@@ -573,6 +579,16 @@ async def run(
                         if thinking_config:
                             api_kwargs["thinking"] = thinking_config
 
+                        # Log the request
+                        logger.log_request(
+                            messages=messages,
+                            system_message=system_message,
+                            model=model["title"],
+                            max_tokens=max_tokens,
+                            tools=toolbox.agent_schema,
+                            thinking_config=thinking_config,
+                        )
+
                         thinking_content = ""
                         with client.messages.stream(**api_kwargs) as stream:
                             for chunk in stream:
@@ -595,11 +611,33 @@ async def run(
 
                             final_message = stream.get_final_message()
 
+                        # Log the response
+                        logger.log_response(
+                            message=final_message,
+                            usage=final_message.usage,
+                            stop_reason=final_message.stop_reason,
+                            thinking_content=thinking_content
+                            if thinking_content
+                            else None,
+                        )
+
                         rate_limiter.update(stream.response.headers)
                         break
                     except anthropic.RateLimitError as e:
                         # Handle rate limit errors specifically
                         backoff_time = rate_limiter.handle_rate_limit_error(e)
+
+                        # Log the error
+                        logger.log_error(
+                            error_type="RateLimitError",
+                            error_message=str(e),
+                            context={
+                                "attempt": attempt + 1,
+                                "max_retries": max_retries,
+                                "backoff_time": backoff_time,
+                            },
+                        )
+
                         if attempt == max_retries - 1:
                             user_interface.handle_system_message(
                                 "[bold red]Rate limit exceeded. Max retries reached. Please try again later.[/bold red]",
@@ -616,6 +654,18 @@ async def run(
 
                     except anthropic.APIStatusError as e:
                         rate_limiter.update(e.response.headers)
+
+                        # Log the error
+                        logger.log_error(
+                            error_type="APIStatusError",
+                            error_message=str(e),
+                            context={
+                                "attempt": attempt + 1,
+                                "max_retries": max_retries,
+                                "status_code": getattr(e, "status_code", None),
+                            },
+                        )
+
                         if attempt == max_retries - 1:
                             raise
                         if "Overloaded" in str(e):
@@ -694,6 +744,14 @@ async def run(
                     # Add all results to buffer and display them
                     for tool_use, result in zip(tool_uses, results):
                         tool_name = getattr(tool_use, "name", "unknown_tool")
+
+                        # Log tool execution
+                        logger.log_tool_execution(
+                            tool_name=tool_name,
+                            tool_input=getattr(tool_use, "input", {}),
+                            tool_result=result,
+                        )
+
                         agent_context.tool_result_buffer.append(result)
                         user_interface.handle_tool_result(tool_name, result)
                 except KeyboardInterrupt:
