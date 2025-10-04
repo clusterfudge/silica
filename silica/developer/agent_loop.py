@@ -257,6 +257,7 @@ def _check_and_apply_compaction(
     model: dict,
     user_interface,
     enable_compaction: bool = True,
+    logger=None,
 ) -> tuple[AgentContext, bool]:
     """Check if compaction is needed and apply it if necessary.
 
@@ -265,6 +266,7 @@ def _check_and_apply_compaction(
         model: Model specification dict
         user_interface: User interface for notifications
         enable_compaction: Whether compaction is enabled
+        logger: RequestResponseLogger instance (optional)
 
     Returns:
         Tuple of (possibly updated agent_context, True if compaction was applied)
@@ -284,7 +286,7 @@ def _check_and_apply_compaction(
     try:
         from silica.developer.compacter import ConversationCompacter
 
-        compacter = ConversationCompacter()
+        compacter = ConversationCompacter(logger=logger)
         model_name = model["title"]
 
         transition = compacter.compact_and_transition(agent_context, model_name)
@@ -388,7 +390,7 @@ async def run(
         try:
             # Check for compaction when conversation state is complete
             agent_context, _ = _check_and_apply_compaction(
-                agent_context, model, user_interface, enable_compaction
+                agent_context, model, user_interface, enable_compaction, logger
             )
 
             if return_to_user_after_interrupt or (
@@ -497,7 +499,11 @@ async def run(
                         # Check for compaction before making API call - this is the critical timing
                         # where we can catch conversations that have grown too large
                         agent_context, compaction_applied = _check_and_apply_compaction(
-                            agent_context, model, user_interface, enable_compaction
+                            agent_context,
+                            model,
+                            user_interface,
+                            enable_compaction,
+                            logger,
                         )
                         if compaction_applied:
                             # If compaction occurred, restart the API request attempt
@@ -514,7 +520,7 @@ async def run(
                                     ConversationCompacter,
                                 )
 
-                                compacter = ConversationCompacter()
+                                compacter = ConversationCompacter(logger=logger)
                                 model_name = model["title"]
 
                                 # Check if conversation has incomplete tool_use before counting tokens
