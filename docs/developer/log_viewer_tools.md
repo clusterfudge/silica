@@ -25,9 +25,10 @@ python scripts/log_viewer.py requests.jsonl
 - Visual interface with syntax highlighting
 - Point-and-click filtering
 - Works great for sharing (run on server, access from browser)
+- RESTful API for programmatic access
 
 **Cons:**
-- Requires Python and Flask
+- Requires Python and FastAPI (already a dependency)
 - Not available over SSH without port forwarding
 
 **Use When:**
@@ -216,8 +217,9 @@ jq 'select(.type == "request" and .model == "claude-3-5-sonnet-20241022")' reque
 ## Installation Quick Reference
 
 ```bash
-# Web viewer (included)
+# Web viewer (included - uses FastAPI)
 # No installation needed - already in scripts/log_viewer.py
+# FastAPI and uvicorn are existing dependencies
 
 # jless (recommended terminal tool)
 brew install jless                    # macOS

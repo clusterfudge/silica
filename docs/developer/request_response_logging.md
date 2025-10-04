@@ -118,7 +118,7 @@ Logged when errors occur (rate limits, API errors, etc.):
 
 ### Built-in Web Viewer
 
-Silica includes a simple web-based log viewer:
+Silica includes a simple web-based log viewer built with FastAPI:
 
 ```bash
 python scripts/log_viewer.py requests.jsonl
@@ -132,6 +132,13 @@ python scripts/log_viewer.py requests.jsonl
 - Keyboard navigation (arrow keys)
 - Statistics dashboard
 - Dark theme optimized for reading JSON
+- RESTful API endpoints for programmatic access
+
+**API Endpoints:**
+- `GET /` - Web interface
+- `GET /api/logs` - Get all logs as JSON
+- `GET /api/stats` - Get log statistics
+- `GET /api/refresh` - Reload logs from file
 
 ### Terminal Tools
 
