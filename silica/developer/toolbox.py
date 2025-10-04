@@ -23,15 +23,47 @@ except ImportError:
 
 
 class Toolbox:
-    def __init__(self, context: AgentContext, tool_names: List[str] | None = None):
+    def __init__(
+        self,
+        context: AgentContext,
+        tool_names: List[str] | None = None,
+        tools: List[Callable] | None = None,
+    ):
+        """
+        Initialize a Toolbox for agent and CLI tools.
+
+        Args:
+            context: AgentContext for the agent
+            tool_names: Optional list of tool names to filter from ALL_TOOLS.
+                       If provided, only tools with matching __name__ will be included.
+            tools: Optional list of concrete tool functions to use directly.
+                  If provided, this takes precedence over tool_names.
+                  If neither tools nor tool_names is provided, uses ALL_TOOLS.
+
+        Examples:
+            # Use all tools
+            toolbox = Toolbox(context)
+
+            # Filter by name
+            toolbox = Toolbox(context, tool_names=["read_file", "write_file"])
+
+            # Use specific tools directly
+            toolbox = Toolbox(context, tools=[read_file, write_file, my_custom_tool])
+        """
         self.context = context
         self.local = {}  # CLI tools
 
-        if tool_names is not None:
+        # Determine which tools to use
+        if tools is not None:
+            # Use provided tools directly
+            self.agent_tools = tools
+        elif tool_names is not None:
+            # Filter ALL_TOOLS by names
             self.agent_tools = [
                 tool for tool in ALL_TOOLS if tool.__name__ in tool_names
             ]
         else:
+            # Default to ALL_TOOLS
             self.agent_tools = ALL_TOOLS
 
         # Register CLI tools

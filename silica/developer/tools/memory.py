@@ -5,7 +5,6 @@ from typing import Optional, Dict, Any
 
 from silica.developer.context import AgentContext
 from silica.developer.tools import agent
-from silica.developer.tools.framework import tool
 from silica.developer.utils import render_tree
 
 
@@ -35,7 +34,7 @@ def _refresh_ripgrep_cache() -> None:
     _RIPGREP_AVAILABLE = None
 
 
-@tool
+# @tool  # DISABLED: Using Memory V2 - see memory_v2_tools.py
 def get_memory_tree(
     context: "AgentContext", prefix: Optional[str] = None, depth: int = -1
 ) -> str:
@@ -67,7 +66,7 @@ def get_memory_tree(
     return "\n".join(lines)
 
 
-@tool
+# @tool  # DISABLED: Using Memory V2 - see memory_v2_tools.py
 async def search_memory(
     context: "AgentContext", query: str, prefix: Optional[str] = None
 ) -> str:
@@ -220,7 +219,7 @@ def _format_entry_as_markdown(entry_data: Dict[str, Any]) -> str:
     return result
 
 
-@tool
+# @tool  # DISABLED: Using Memory V2 - see memory_v2_tools.py
 def read_memory_entry(context: "AgentContext", path: str) -> str:
     """Read a memory entry.
 
@@ -432,7 +431,7 @@ Return only the summary, nothing else."""
         raise Exception(f"Error generating content summary: {str(e)}")
 
 
-@tool
+# @tool  # DISABLED: Using Memory V2 - see memory_v2_tools.py
 async def write_memory_entry(
     context: "AgentContext", content: str, path: str = None
 ) -> str:
@@ -516,7 +515,7 @@ async def write_memory_entry(
                 return _format_write_result_as_markdown(result)
 
 
-@tool
+# @tool  # DISABLED: Using Memory V2 - see memory_v2_tools.py
 async def critique_memory(context: "AgentContext", prefix: str | None = None) -> str:
     """Generate a critique of the current memory organization.
 
@@ -635,7 +634,7 @@ async def critique_memory(context: "AgentContext", prefix: str | None = None) ->
         return f"Error generating critique: {str(e)}"
 
 
-@tool
+# @tool  # DISABLED: Using Memory V2 - see memory_v2_tools.py
 def delete_memory_entry(context: "AgentContext", path: str) -> str:
     """Delete a memory entry.
 

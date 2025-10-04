@@ -54,15 +54,29 @@ async def agent(
 async def run_agent(
     context: "AgentContext",
     prompt: str,
-    tool_names: List[str],
+    tool_names: List[str] | None = None,
+    tools: List[Any] | None = None,
     system: str | None = None,
     model: str = None,
 ):
     from silica.developer.agent_loop import run
 
-    tool_name_str = ",".join(tool_names)
+    # Get tool names for status display
+    if tools is not None:
+        # Use actual tool objects
+        display_names = [t.__name__ for t in tools]
+        tool_name_str = ",".join(display_names)
+    elif tool_names is not None:
+        # Use provided tool names
+        display_names = tool_names
+        tool_name_str = ",".join(tool_names)
+    else:
+        # No filtering - all tools
+        display_names = []
+        tool_name_str = "all"
+
     if len(tool_name_str) > 64:
-        tool_name_str = ",".join(name[:3] for name in tool_names)
+        tool_name_str = ",".join(name[:3] for name in display_names)
 
     with context.user_interface.status(
         f"Initiating sub-agent\\[{tool_name_str}]: {prompt}"
@@ -94,12 +108,14 @@ async def run_agent(
         try:
             system_block = wrap_text_as_content_block(system) if system else None
             # Run the agent with single response mode
+            # Pass either tools or tool_names (tools takes precedence)
             chat_history = await run(
                 agent_context=sub_agent_context,
                 initial_prompt=prompt,
                 system_prompt=system_block,
                 single_response=True,
-                tool_names=tool_names,
+                tools=tools,
+                tool_names=tool_names if tools is None else None,
             )
 
             # Make sure the chat history is flushed in case run() didn't do it
@@ -140,15 +156,15 @@ class CaptureInterface(UserInterface):
     def status(
         self, message: str, spinner: str = None, update=False
     ) -> contextlib.AbstractContextManager:
-        if update:
+        if self._status and update:
             self._status.update(message, spinner=spinner or "aesthetic")
-        return self._status
+        return self._status if self._status else contextlib.nullcontext()
 
-    def __init__(self, parent: UserInterface, status: Status) -> None:
+    def __init__(self, parent: UserInterface, status: Status | None) -> None:
         self.output = []
         self.parent = parent
         self._status = status
-        self._prior_renderable = status.renderable
+        self._prior_renderable = status.renderable if status else None
 
     def handle_system_message(self, message, markdown=True, live=None):
         self.output.append(message)
@@ -161,8 +177,9 @@ class CaptureInterface(UserInterface):
 
     def handle_tool_use(self, tool_name, tool_input):
         message = f"Using tool {tool_name} with input {tool_input}"
-        self.bare(self._prior_renderable)
-        self.bare("")
+        if self._prior_renderable is not None:
+            self.bare(self._prior_renderable)
+            self.bare("")
         self._prior_renderable = message
         self.status(message, update=True)
         self.output.append(message)
@@ -179,6 +196,8 @@ class CaptureInterface(UserInterface):
         cached_tokens=None,
         conversation_size=None,
         context_window=None,
+        thinking_tokens=None,
+        thinking_cost=None,
     ):
         pass
 

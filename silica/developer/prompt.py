@@ -2,6 +2,7 @@ from typing import Any
 
 from silica.developer.context import AgentContext
 from silica.developer.sandbox import Sandbox
+from silica.developer.tools.memory_v2_tools import memory_prompt
 
 
 def build_tree(sandbox: Sandbox, limit=1000):
@@ -107,12 +108,8 @@ def create_system_message(
         system_message += sandbox_content
         system_message += "\nYou can read, write, and list files/directories, as well as execute some bash commands."
         sections.append({"type": "text", "text": system_message})
-    if include_memory and agent_context.memory_manager.get_tree(depth=1):
-        system_message = "\n\nYou have a memory system with which you can interact. Here are the current top-level topics\n\n"
-        system_message += "<memory_topics>\n"
-        for topic in agent_context.memory_manager.get_tree(depth=1)["items"]:
-            system_message += topic + "\n"
-        system_message += "</memory_topics>\n"
+    if include_memory:
+        system_message = memory_prompt(agent_context)
         sections.append({"type": "text", "text": system_message})
 
     # add cache_control

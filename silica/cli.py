@@ -6,11 +6,13 @@ from silica.remote.cli.main import app as remote_app
 from silica.developer.hdev import cyclopts_main as developer_app, attach_tools
 from silica.cron.app import entrypoint as cron_serve
 from silica.cron.cli import cron as cron_commands
+from silica.developer.memory_v2.cli import app as memory_app
 
 app = App(version=__version__)
 app.command(remote_app, name="remote")
 app.command(cron_serve, name="cron-serve")
 app.command(cron_commands, name="cron")
+app.command(memory_app, name="memory-v2")
 attach_tools(app)
 app.default(developer_app)
 
