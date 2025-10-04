@@ -106,6 +106,73 @@ Logged when errors occur (rate limits, API errors, etc.):
 
 ## Analyzing Logs
 
+### Quick Recommendation: Best Tools
+
+**For terminal users:**
+- **jless** - Modern, fast JSON viewer with vim-style navigation (recommended)
+- **fx** - Interactive JSON explorer with mouse support
+- **jq + less** - Classic Unix approach with powerful filtering
+
+**For web interface:**
+- **Built-in log viewer** - Run `python scripts/log_viewer.py requests.jsonl` (included with silica)
+
+### Built-in Web Viewer
+
+Silica includes a simple web-based log viewer:
+
+```bash
+python scripts/log_viewer.py requests.jsonl
+# Open http://localhost:8000
+```
+
+**Features:**
+- Browse logs in sidebar with syntax highlighting
+- Filter by type (request, response, tool_execution, error)
+- Search across all fields
+- Keyboard navigation (arrow keys)
+- Statistics dashboard
+- Dark theme optimized for reading JSON
+
+### Terminal Tools
+
+#### jless (Recommended)
+```bash
+# Install
+brew install jless  # macOS
+cargo install jless  # Linux/other
+
+# Use
+jless requests.jsonl
+
+# Navigation
+# j/k - up/down
+# / - search
+# Space - toggle expand/collapse
+# q - quit
+```
+
+#### fx (Interactive)
+```bash
+# Install
+npm install -g fx
+
+# Convert JSON Lines to array first
+cat requests.jsonl | jq -s '.' > requests.json
+fx requests.json
+
+# Or use with streaming
+cat requests.jsonl | fx
+```
+
+#### jq + less (Classic)
+```bash
+# Pretty-print and page
+jq -C '.' requests.jsonl | less -R
+
+# Filter and navigate
+jq -C 'select(.type == "request")' requests.jsonl | less -R
+```
+
 ### Using jq
 
 Count total requests:
