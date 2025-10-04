@@ -130,11 +130,14 @@ class ConversationCompacter:
             # Log the response if logger is available
             if self.logger:
                 # count_tokens doesn't return a full message, so log what we have
-                token_count = (
-                    response.token_count
-                    if hasattr(response, "token_count")
-                    else response.get("token_count", 0)
-                )
+                if hasattr(response, "token_count"):
+                    token_count = response.token_count
+                elif hasattr(response, "tokens"):
+                    token_count = response.tokens
+                elif isinstance(response, dict):
+                    token_count = response.get("token_count", 0)
+                else:
+                    token_count = 0
                 # Create a simplified response log entry
                 from datetime import datetime
                 import time
