@@ -267,7 +267,7 @@ HTML_TEMPLATE = """
                 <input type="text" id="search" placeholder="Search..." onkeyup="filterLogs()">
             </div>
             <div id="log-list">
-                __LOG_LIST__
+                <!-- Populated by JavaScript -->
             </div>
         </div>
         <div class="content">
@@ -279,9 +279,64 @@ HTML_TEMPLATE = """
     </div>
     
     <script>
-        const logs = __LOGS_JSON__;
+        let logs = [];
         let selectedIndex = null;
         let currentView = 'rendered';
+        
+        // Load logs via API
+        async function loadLogs() {
+            try {
+                const response = await fetch('/api/logs');
+                logs = await response.json();
+                initializeUI();
+            } catch (error) {
+                console.error('Failed to load logs:', error);
+                document.getElementById('detail-view').innerHTML = '<h2>Error loading logs</h2><p>' + error.message + '</p>';
+            }
+        }
+        
+        function initializeUI() {
+            // Build log list
+            const logList = document.getElementById('log-list');
+            logList.innerHTML = '';
+            
+            logs.forEach((log, index) => {
+                const entry = document.createElement('div');
+                entry.className = 'log-entry';
+                entry.setAttribute('data-index', index);
+                entry.setAttribute('data-type', log.type || 'unknown');
+                entry.onclick = () => selectLog(index);
+                
+                const logType = log.type || 'unknown';
+                const timestamp = log.timestamp || '';
+                const model = log.model || '';
+                const toolName = log.tool_name || '';
+                
+                entry.innerHTML = `
+                    <div>
+                        <span class="log-type type-${logType}">${logType}</span>
+                    </div>
+                    <div class="timestamp">${timestamp}</div>
+                    ${model ? `<div class="model-name">${model}</div>` : ''}
+                    ${toolName ? `<div class="model-name">${toolName}</div>` : ''}
+                `;
+                
+                logList.appendChild(entry);
+            });
+            
+            // Update stats
+            const requestCount = logs.filter(log => log.type === 'request').length;
+            const responseCount = logs.filter(log => log.type === 'response').length;
+            
+            document.getElementById('total-count').textContent = logs.length;
+            document.getElementById('request-count').textContent = requestCount;
+            document.getElementById('response-count').textContent = responseCount;
+            
+            // Select first entry by default
+            if (logs.length > 0) {
+                selectLog(0);
+            }
+        }
         
         function syntaxHighlight(json) {
             if (typeof json != 'string') {
@@ -533,17 +588,15 @@ HTML_TEMPLATE = """
                 const response = await fetch('/api/refresh');
                 const data = await response.json();
                 if (data.status === 'ok') {
-                    window.location.reload();
+                    await loadLogs();
                 }
             } catch (error) {
                 console.error('Failed to refresh:', error);
             }
         }
         
-        // Select first entry by default
-        if (logs.length > 0) {
-            selectLog(0);
-        }
+        // Initialize on page load
+        loadLogs();
         
         // Keyboard navigation
         document.addEventListener('keydown', (e) => {
@@ -586,42 +639,11 @@ HTML_TEMPLATE = """
 @app.get("/", response_class=HTMLResponse)
 async def index():
     """Render the log viewer."""
-    # Build log list HTML
-    log_list_html = []
-    for i, log in enumerate(LOGS):
-        log_type = log.get("type", "unknown")
-        timestamp = log.get("timestamp", "")
-        model = log.get("model", "")
-        tool_name = log.get("tool_name", "")
-
-        entry_html = f"""
-        <div class="log-entry" data-index="{i}" data-type="{log_type}" onclick="selectLog({i})">
-            <div>
-                <span class="log-type type-{log_type}">{log_type}</span>
-            </div>
-            <div class="timestamp">{timestamp}</div>
-        """
-
-        if model:
-            entry_html += f'<div class="model-name">{model}</div>'
-        if tool_name:
-            entry_html += f'<div class="model-name">{tool_name}</div>'
-
-        entry_html += "</div>"
-        log_list_html.append(entry_html)
-
-    # Calculate stats
-    total_count = len(LOGS)
-    request_count = sum(1 for log in LOGS if log.get("type") == "request")
-    response_count = sum(1 for log in LOGS if log.get("type") == "response")
-
-    # Build final HTML
+    # Stats will be populated by JavaScript
     html = HTML_TEMPLATE
-    html = html.replace("__TOTAL__", str(total_count))
-    html = html.replace("__REQUEST_COUNT__", str(request_count))
-    html = html.replace("__RESPONSE_COUNT__", str(response_count))
-    html = html.replace("__LOG_LIST__", "\n".join(log_list_html))
-    html = html.replace("__LOGS_JSON__", json.dumps(LOGS))
+    html = html.replace("__TOTAL__", "0")
+    html = html.replace("__REQUEST_COUNT__", "0")
+    html = html.replace("__RESPONSE_COUNT__", "0")
 
     return html
 
