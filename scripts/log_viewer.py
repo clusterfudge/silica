@@ -535,8 +535,8 @@ HTML_TEMPLATE = """
             
             // View toggle buttons
             html += '<div class="view-toggle-group">';
-            html += '<button class="view-toggle-btn ' + (currentView === 'rendered' ? 'active' : '') + '" onclick="switchView(\'rendered\')">Rendered</button>';
-            html += '<button class="view-toggle-btn ' + (currentView === 'raw' ? 'active' : '') + '" onclick="switchView(\'raw\')">Raw JSON</button>';
+            html += '<button class="view-toggle-btn ' + (currentView === 'rendered' ? 'active' : '') + '" onclick="switchView(&quot;rendered&quot;)">Rendered</button>';
+            html += '<button class="view-toggle-btn ' + (currentView === 'raw' ? 'active' : '') + '" onclick="switchView(&quot;raw&quot;)">Raw JSON</button>';
             html += '</div>';
             
             // Rendered view
