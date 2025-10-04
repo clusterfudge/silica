@@ -126,12 +126,22 @@ python scripts/log_viewer.py requests.jsonl
 ```
 
 **Features:**
+- **Dual view modes**: Toggle between Rendered and Raw JSON views
+- **Rendered view**: Structured, readable display with proper formatting
+  - Text content with preserved newlines and wrapping
+  - Markdown rendering for thinking content
+  - Collapsible sections for large arrays
+  - Clear field labels and organization
+- **Raw JSON view**: Syntax-highlighted JSON for debugging
 - Browse logs in sidebar with syntax highlighting
 - Filter by type (request, response, tool_execution, error)
 - Search across all fields
-- Keyboard navigation (arrow keys)
+- Keyboard navigation:
+  - Arrow keys: Navigate between entries
+  - `r`: Switch to Rendered view
+  - `j`: Switch to Raw JSON view
 - Statistics dashboard
-- Dark theme optimized for reading JSON
+- Dark theme optimized for reading
 - RESTful API endpoints for programmatic access
 
 **API Endpoints:**

@@ -20,12 +20,23 @@ Quick reference for choosing the best tool to navigate request/response logs.
 python scripts/log_viewer.py requests.jsonl
 ```
 
+**Key Features:**
+- **Rendered View**: Structured display with proper text formatting
+  - Multi-line content displayed with preserved newlines
+  - Markdown rendering for thinking content
+  - Clear field organization and labels
+- **Raw JSON View**: Full syntax-highlighted JSON
+- Toggle between views with buttons or keyboard (`r`/`j`)
+- Collapsible sections for large data
+
 **Pros:**
 - No installation needed (included with silica)
-- Visual interface with syntax highlighting
+- Dual view modes for both reading and debugging
+- Handles multi-line content much better than JSON alone
 - Point-and-click filtering
 - Works great for sharing (run on server, access from browser)
 - RESTful API for programmatic access
+- Markdown rendering makes thinking content readable
 
 **Cons:**
 - Requires Python and FastAPI (already a dependency)
@@ -33,8 +44,10 @@ python scripts/log_viewer.py requests.jsonl
 
 **Use When:**
 - You want to quickly browse logs locally
+- Reading multi-line content (messages, thinking, tool results)
 - Sharing with non-technical stakeholders
 - Need visual overview of request/response patterns
+- Want to read markdown-formatted content
 
 ---
 
