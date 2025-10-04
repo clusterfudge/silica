@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Request/Response Log Viewer</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <div class="stats">
+                <div class="stat-item">
+                    <span class="stat-label">Total:</span>
+                    <span class="stat-value" id="total-count">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Requests:</span>
+                    <span class="stat-value" id="request-count">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Responses:</span>
+                    <span class="stat-value" id="response-count">0</span>
+                </div>
+                <button class="refresh-btn" onclick="refreshLogs()">Refresh</button>
+            </div>
+            <div class="filters">
+                <select id="type-filter" onchange="filterLogs()">
+                    <option value="all">All Types</option>
+                    <option value="request">Requests</option>
+                    <option value="response">Responses</option>
+                    <option value="tool_execution">Tool Executions</option>
+                    <option value="error">Errors</option>
+                </select>
+                <input type="text" id="search" placeholder="Search..." onkeyup="filterLogs()">
+            </div>
+            <div id="log-list">
+                <!-- Populated by JavaScript -->
+            </div>
+        </div>
+        <div class="content">
+            <div id="detail-view">
+                <h2>Select a log entry</h2>
+                <p>Click on an entry in the sidebar to view details.</p>
+            </div>
+        </div>
+    </div>
+    
+    <script src="app.js"></script>
+</body>
+</html>
