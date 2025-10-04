@@ -11,13 +11,15 @@ import sys
 from pathlib import Path
 from typing import List, Dict, Any
 
-from flask import Flask, render_template_string
-
-app = Flask(__name__)
+from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
+import uvicorn
 
 # Global storage for logs
 LOGS: List[Dict[str, Any]] = []
 LOG_FILE: Path = None
+
+app = FastAPI(title="Log Viewer", description="Request/Response Log Viewer")
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -127,6 +129,18 @@ HTML_TEMPLATE = """
             color: #4ec9b0;
             font-weight: 600;
         }
+        .refresh-btn {
+            background: #0e639c;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .refresh-btn:hover {
+            background: #1177bb;
+        }
     </style>
 </head>
 <body>
@@ -135,16 +149,17 @@ HTML_TEMPLATE = """
             <div class="stats">
                 <div class="stat-item">
                     <span class="stat-label">Total:</span>
-                    <span class="stat-value" id="total-count">{{ logs|length }}</span>
+                    <span class="stat-value" id="total-count">__TOTAL__</span>
                 </div>
                 <div class="stat-item">
                     <span class="stat-label">Requests:</span>
-                    <span class="stat-value">{{ logs|selectattr('type', 'equalto', 'request')|list|length }}</span>
+                    <span class="stat-value" id="request-count">__REQUEST_COUNT__</span>
                 </div>
                 <div class="stat-item">
                     <span class="stat-label">Responses:</span>
-                    <span class="stat-value">{{ logs|selectattr('type', 'equalto', 'response')|list|length }}</span>
+                    <span class="stat-value" id="response-count">__RESPONSE_COUNT__</span>
                 </div>
+                <button class="refresh-btn" onclick="refreshLogs()">Refresh</button>
             </div>
             <div class="filters">
                 <select id="type-filter" onchange="filterLogs()">
@@ -157,20 +172,7 @@ HTML_TEMPLATE = """
                 <input type="text" id="search" placeholder="Search..." onkeyup="filterLogs()">
             </div>
             <div id="log-list">
-                {% for log in logs %}
-                <div class="log-entry" data-index="{{ loop.index0 }}" data-type="{{ log.type }}" onclick="selectLog({{ loop.index0 }})">
-                    <div>
-                        <span class="log-type type-{{ log.type }}">{{ log.type }}</span>
-                    </div>
-                    <div class="timestamp">{{ log.timestamp }}</div>
-                    {% if log.model %}
-                    <div class="model-name">{{ log.model }}</div>
-                    {% endif %}
-                    {% if log.tool_name %}
-                    <div class="model-name">{{ log.tool_name }}</div>
-                    {% endif %}
-                </div>
-                {% endfor %}
+                __LOG_LIST__
             </div>
         </div>
         <div class="content">
@@ -182,7 +184,7 @@ HTML_TEMPLATE = """
     </div>
     
     <script>
-        const logs = {{ logs|tojson|safe }};
+        const logs = __LOGS_JSON__;
         let selectedIndex = null;
         
         function syntaxHighlight(json) {
@@ -212,7 +214,10 @@ HTML_TEMPLATE = """
             document.querySelectorAll('.log-entry').forEach(el => {
                 el.classList.remove('selected');
             });
-            document.querySelector(`[data-index="${index}"]`).classList.add('selected');
+            const selectedEntry = document.querySelector(`[data-index="${index}"]`);
+            if (selectedEntry) {
+                selectedEntry.classList.add('selected');
+            }
             
             // Show detail
             const log = logs[index];
@@ -248,6 +253,18 @@ HTML_TEMPLATE = """
             document.getElementById('total-count').textContent = visibleCount;
         }
         
+        async function refreshLogs() {
+            try {
+                const response = await fetch('/api/refresh');
+                const data = await response.json();
+                if (data.status === 'ok') {
+                    window.location.reload();
+                }
+            } catch (error) {
+                console.error('Failed to refresh:', error);
+            }
+        }
+        
         // Select first entry by default
         if (logs.length > 0) {
             selectLog(0);
@@ -262,14 +279,20 @@ HTML_TEMPLATE = """
                 const next = selectedIndex + 1;
                 if (next < logs.length) {
                     selectLog(next);
-                    document.querySelector(`[data-index="${next}"]`).scrollIntoView({ block: 'nearest' });
+                    const nextEntry = document.querySelector(`[data-index="${next}"]`);
+                    if (nextEntry) {
+                        nextEntry.scrollIntoView({ block: 'nearest' });
+                    }
                 }
             } else if (e.key === 'ArrowUp') {
                 e.preventDefault();
                 const prev = selectedIndex - 1;
                 if (prev >= 0) {
                     selectLog(prev);
-                    document.querySelector(`[data-index="${prev}"]`).scrollIntoView({ block: 'nearest' });
+                    const prevEntry = document.querySelector(`[data-index="${prev}"]`);
+                    if (prevEntry) {
+                        prevEntry.scrollIntoView({ block: 'nearest' });
+                    }
                 }
             }
         });
@@ -279,17 +302,75 @@ HTML_TEMPLATE = """
 """
 
 
-@app.route("/")
-def index():
+@app.get("/", response_class=HTMLResponse)
+async def index():
     """Render the log viewer."""
-    return render_template_string(HTML_TEMPLATE, logs=LOGS)
+    # Build log list HTML
+    log_list_html = []
+    for i, log in enumerate(LOGS):
+        log_type = log.get("type", "unknown")
+        timestamp = log.get("timestamp", "")
+        model = log.get("model", "")
+        tool_name = log.get("tool_name", "")
+
+        entry_html = f"""
+        <div class="log-entry" data-index="{i}" data-type="{log_type}" onclick="selectLog({i})">
+            <div>
+                <span class="log-type type-{log_type}">{log_type}</span>
+            </div>
+            <div class="timestamp">{timestamp}</div>
+        """
+
+        if model:
+            entry_html += f'<div class="model-name">{model}</div>'
+        if tool_name:
+            entry_html += f'<div class="model-name">{tool_name}</div>'
+
+        entry_html += "</div>"
+        log_list_html.append(entry_html)
+
+    # Calculate stats
+    total_count = len(LOGS)
+    request_count = sum(1 for log in LOGS if log.get("type") == "request")
+    response_count = sum(1 for log in LOGS if log.get("type") == "response")
+
+    # Build final HTML
+    html = HTML_TEMPLATE
+    html = html.replace("__TOTAL__", str(total_count))
+    html = html.replace("__REQUEST_COUNT__", str(request_count))
+    html = html.replace("__RESPONSE_COUNT__", str(response_count))
+    html = html.replace("__LOG_LIST__", "\n".join(log_list_html))
+    html = html.replace("__LOGS_JSON__", json.dumps(LOGS))
+
+    return html
 
 
-@app.route("/refresh")
-def refresh():
+@app.get("/api/refresh")
+async def refresh():
     """Reload logs from file."""
     load_logs()
     return {"status": "ok", "count": len(LOGS)}
+
+
+@app.get("/api/logs")
+async def get_logs():
+    """Get logs as JSON."""
+    return LOGS
+
+
+@app.get("/api/stats")
+async def get_stats():
+    """Get log statistics."""
+    stats = {
+        "total": len(LOGS),
+        "by_type": {},
+    }
+
+    for log in LOGS:
+        log_type = log.get("type", "unknown")
+        stats["by_type"][log_type] = stats["by_type"].get(log_type, 0) + 1
+
+    return stats
 
 
 def load_logs():
@@ -332,7 +413,7 @@ def main():
     print("\nStarting web server on http://localhost:8000")
     print("Press Ctrl+C to stop")
 
-    app.run(host="127.0.0.1", port=8000, debug=True)
+    uvicorn.run(app, host="127.0.0.1", port=8000)
 
 
 if __name__ == "__main__":
