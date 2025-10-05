@@ -233,16 +233,11 @@ class Toolbox:
                 ]
 
                 # Execute in parallel with proper cancellation handling
-                try:
-                    parallel_results = await asyncio.gather(
-                        *parallel_coroutines, return_exceptions=True
-                    )
-                except (KeyboardInterrupt, asyncio.CancelledError):
-                    # Cancel all running tasks
-                    for coro in parallel_coroutines:
-                        if hasattr(coro, "cancel"):
-                            coro.cancel()
-                    raise KeyboardInterrupt("Tool execution interrupted by user")
+                # Note: asyncio.gather with return_exceptions=True will not raise exceptions
+                # but will instead return them in the results list
+                parallel_results = await asyncio.gather(
+                    *parallel_coroutines, return_exceptions=True
+                )
 
                 # Handle results and exceptions
                 for tool_use, result in zip(parallel_tools, parallel_results):

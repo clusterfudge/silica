@@ -910,14 +910,15 @@ async def run(
 
             if interrupt_count >= 2:
                 user_interface.handle_system_message(
-                    "[bold red]Double interrupt detected. Exiting...[/bold red]",
+                    "[bold red]Exiting...[/bold red]",
                     markdown=False,
                 )
+                # Clean exit - break from loop to allow proper cleanup
                 break
             else:
                 user_interface.handle_system_message(
                     "[bold yellow]"
-                    "KeyboardInterrupt detected. Press Ctrl+C again to exit, or continue typing to resume."
+                    "Interrupted. Press Ctrl+C again within 1 second to exit, or press Enter to continue."
                     "[/bold yellow]",
                     markdown=False,
                 )
