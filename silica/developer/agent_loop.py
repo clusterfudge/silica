@@ -652,7 +652,7 @@ async def run(
                             raise
 
                         user_interface.handle_system_message(
-                            f"[bold yellow]Rate limit exceeded. Retrying in {backoff_time:.2f} seconds... (Attempt {attempt+1}/{max_retries})[/bold yellow]",
+                            f"[bold yellow]Rate limit exceeded. Retrying in {backoff_time:.2f} seconds... (Attempt {attempt + 1}/{max_retries})[/bold yellow]",
                             markdown=False,
                         )
                         # Wait time is already set in handle_rate_limit_error

@@ -13,7 +13,11 @@ from ..utils import wrap_text_as_content_block
 
 @tool
 async def agent(
-    context: "AgentContext", prompt: str, tool_names: str = None, model: str = None, __tool_use_id__: str = None
+    context: "AgentContext",
+    prompt: str,
+    tool_names: str = None,
+    model: str = None,
+    __tool_use_id__: str = None,
 ):
     """Run a prompt through a sub-agent with a limited set of tools.
     Use an agent when you believe that the action desired will require multiple steps, but you do not
@@ -50,7 +54,14 @@ async def agent(
         else []
     )
 
-    return await run_agent(context, prompt, tool_names_list, system=None, model=model, tool_use_id=__tool_use_id__)
+    return await run_agent(
+        context,
+        prompt,
+        tool_names_list,
+        system=None,
+        model=model,
+        tool_use_id=__tool_use_id__,
+    )
 
 
 async def run_agent(
