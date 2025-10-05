@@ -260,6 +260,12 @@ async def invoke_tool(context: "AgentContext", tool_use, tools: List[Callable] =
         else:
             converted_args[arg_name] = arg_value
 
+    # Inject tool_use_id as a special parameter if the tool accepts it
+    # This allows tools to access their own tool_use_id for session management
+    sig = inspect.signature(tool_func)
+    if "__tool_use_id__" in sig.parameters:
+        converted_args["__tool_use_id__"] = tool_use_id
+
     # Call the tool function with the sandbox and converted arguments
     if inspect.iscoroutinefunction(tool_func):
         result = await tool_func(context, **converted_args)
