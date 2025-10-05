@@ -260,17 +260,24 @@ async def invoke_tool(context: "AgentContext", tool_use, tools: List[Callable] =
         else:
             converted_args[arg_name] = arg_value
 
-    # Inject tool_use_id as a special parameter if the tool accepts it
-    # This allows tools to access their own tool_use_id for session management
-    sig = inspect.signature(tool_func)
-    if "__tool_use_id__" in sig.parameters:
-        converted_args["__tool_use_id__"] = tool_use_id
+    # Store the current tool_use_id on the context temporarily
+    # This allows tools like the agent() tool to access it for sub-agent session management
+    old_tool_use_id = getattr(context, "_current_tool_use_id", None)
+    context._current_tool_use_id = tool_use_id
 
-    # Call the tool function with the sandbox and converted arguments
-    if inspect.iscoroutinefunction(tool_func):
-        result = await tool_func(context, **converted_args)
-    else:
-        result = tool_func(context, **converted_args)
+    try:
+        # Call the tool function with the sandbox and converted arguments
+        if inspect.iscoroutinefunction(tool_func):
+            result = await tool_func(context, **converted_args)
+        else:
+            result = tool_func(context, **converted_args)
+    finally:
+        # Restore the previous tool_use_id (or remove it if there wasn't one)
+        if old_tool_use_id is None:
+            if hasattr(context, "_current_tool_use_id"):
+                delattr(context, "_current_tool_use_id")
+        else:
+            context._current_tool_use_id = old_tool_use_id
 
     return {"type": "tool_result", "tool_use_id": tool_use.id, "content": result}
 

@@ -17,7 +17,6 @@ async def agent(
     prompt: str,
     tool_names: str = None,
     model: str = None,
-    __tool_use_id__: str = None,
 ):
     """Run a prompt through a sub-agent with a limited set of tools.
     Use an agent when you believe that the action desired will require multiple steps, but you do not
@@ -44,8 +43,6 @@ async def agent(
             - "advances": Use Claude 4 Opus - most advanced tasks requiring deeper reasoning, use sparingly.
 
               If not provided or invalid, uses the parent context's model.
-        __tool_use_id__: Internal parameter injected by the framework containing the tool_use ID.
-                         This is used to set the sub-agent's session ID for proper session management.
     """
 
     tool_names_list = (
@@ -54,13 +51,16 @@ async def agent(
         else []
     )
 
+    # Get the tool_use_id from the context (set by invoke_tool in framework.py)
+    tool_use_id = getattr(context, "_current_tool_use_id", None)
+
     return await run_agent(
         context,
         prompt,
         tool_names_list,
         system=None,
         model=model,
-        tool_use_id=__tool_use_id__,
+        tool_use_id=tool_use_id,
     )
 
 
