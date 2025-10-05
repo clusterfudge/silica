@@ -23,7 +23,12 @@ except ImportError:
 
 
 class Toolbox:
-    def __init__(self, context: AgentContext, tool_names: List[str] | None = None):
+    def __init__(
+        self,
+        context: AgentContext,
+        tool_names: List[str] | None = None,
+        tools: List[str] | None = None,
+    ):
         self.context = context
         self.local = {}  # CLI tools
 
