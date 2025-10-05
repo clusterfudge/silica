@@ -257,6 +257,7 @@ def _check_and_apply_compaction(
     model: dict,
     user_interface,
     enable_compaction: bool = True,
+    logger=None,
 ) -> tuple[AgentContext, bool]:
     """Check if compaction is needed and apply it if necessary.
 
@@ -265,6 +266,7 @@ def _check_and_apply_compaction(
         model: Model specification dict
         user_interface: User interface for notifications
         enable_compaction: Whether compaction is enabled
+        logger: RequestResponseLogger instance (optional)
 
     Returns:
         Tuple of (possibly updated agent_context, True if compaction was applied)
@@ -284,7 +286,7 @@ def _check_and_apply_compaction(
     try:
         from silica.developer.compacter import ConversationCompacter
 
-        compacter = ConversationCompacter()
+        compacter = ConversationCompacter(logger=logger)
         model_name = model["title"]
 
         transition = compacter.compact_and_transition(agent_context, model_name)
@@ -340,17 +342,25 @@ async def run(
     initial_prompt: str = None,
     single_response: bool = False,
     tool_names: list[str] | None = None,
+    tools: list | None = None,
     system_prompt: dict[str, Any] | None = None,
     enable_compaction: bool = True,
+    log_file_path: str | None = None,
 ) -> list[MessageParam]:
     load_dotenv()
     user_interface, model = (
         agent_context.user_interface,
         agent_context.model_spec,
     )
-    toolbox = Toolbox(agent_context, tool_names=tool_names)
+    # Create toolbox with either tools or tool_names (tools takes precedence)
+    toolbox = Toolbox(agent_context, tool_names=tool_names, tools=tools)
     if hasattr(user_interface, "set_toolbox"):
         user_interface.set_toolbox(toolbox)
+
+    # Initialize request/response logger if enabled
+    from silica.developer.request_logger import RequestResponseLogger
+
+    logger = RequestResponseLogger(log_file_path)
 
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
@@ -380,7 +390,7 @@ async def run(
         try:
             # Check for compaction when conversation state is complete
             agent_context, _ = _check_and_apply_compaction(
-                agent_context, model, user_interface, enable_compaction
+                agent_context, model, user_interface, enable_compaction, logger
             )
 
             if return_to_user_after_interrupt or (
@@ -489,7 +499,11 @@ async def run(
                         # Check for compaction before making API call - this is the critical timing
                         # where we can catch conversations that have grown too large
                         agent_context, compaction_applied = _check_and_apply_compaction(
-                            agent_context, model, user_interface, enable_compaction
+                            agent_context,
+                            model,
+                            user_interface,
+                            enable_compaction,
+                            logger,
                         )
                         if compaction_applied:
                             # If compaction occurred, restart the API request attempt
@@ -506,7 +520,7 @@ async def run(
                                     ConversationCompacter,
                                 )
 
-                                compacter = ConversationCompacter()
+                                compacter = ConversationCompacter(logger=logger)
                                 model_name = model["title"]
 
                                 # Check if conversation has incomplete tool_use before counting tokens
@@ -571,6 +585,16 @@ async def run(
                         if thinking_config:
                             api_kwargs["thinking"] = thinking_config
 
+                        # Log the request
+                        logger.log_request(
+                            messages=messages,
+                            system_message=system_message,
+                            model=model["title"],
+                            max_tokens=max_tokens,
+                            tools=toolbox.agent_schema,
+                            thinking_config=thinking_config,
+                        )
+
                         thinking_content = ""
                         with client.messages.stream(**api_kwargs) as stream:
                             for chunk in stream:
@@ -593,11 +617,33 @@ async def run(
 
                             final_message = stream.get_final_message()
 
+                        # Log the response
+                        logger.log_response(
+                            message=final_message,
+                            usage=final_message.usage,
+                            stop_reason=final_message.stop_reason,
+                            thinking_content=thinking_content
+                            if thinking_content
+                            else None,
+                        )
+
                         rate_limiter.update(stream.response.headers)
                         break
                     except anthropic.RateLimitError as e:
                         # Handle rate limit errors specifically
                         backoff_time = rate_limiter.handle_rate_limit_error(e)
+
+                        # Log the error
+                        logger.log_error(
+                            error_type="RateLimitError",
+                            error_message=str(e),
+                            context={
+                                "attempt": attempt + 1,
+                                "max_retries": max_retries,
+                                "backoff_time": backoff_time,
+                            },
+                        )
+
                         if attempt == max_retries - 1:
                             user_interface.handle_system_message(
                                 "[bold red]Rate limit exceeded. Max retries reached. Please try again later.[/bold red]",
@@ -614,6 +660,18 @@ async def run(
 
                     except anthropic.APIStatusError as e:
                         rate_limiter.update(e.response.headers)
+
+                        # Log the error
+                        logger.log_error(
+                            error_type="APIStatusError",
+                            error_message=str(e),
+                            context={
+                                "attempt": attempt + 1,
+                                "max_retries": max_retries,
+                                "status_code": getattr(e, "status_code", None),
+                            },
+                        )
+
                         if attempt == max_retries - 1:
                             raise
                         if "Overloaded" in str(e):
@@ -692,6 +750,14 @@ async def run(
                     # Add all results to buffer and display them
                     for tool_use, result in zip(tool_uses, results):
                         tool_name = getattr(tool_use, "name", "unknown_tool")
+
+                        # Log tool execution
+                        logger.log_tool_execution(
+                            tool_name=tool_name,
+                            tool_input=getattr(tool_use, "input", {}),
+                            tool_result=result,
+                        )
+
                         agent_context.tool_result_buffer.append(result)
                         user_interface.handle_tool_result(tool_name, result)
                 except KeyboardInterrupt:

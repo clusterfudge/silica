@@ -45,15 +45,20 @@ class ConversationCompacter:
     """Handles the compaction of long conversations into summaries."""
 
     def __init__(
-        self, threshold_ratio: float = DEFAULT_COMPACTION_THRESHOLD_RATIO, client=None
+        self,
+        threshold_ratio: float = DEFAULT_COMPACTION_THRESHOLD_RATIO,
+        client=None,
+        logger=None,
     ):
         """Initialize the conversation compacter.
 
         Args:
             threshold_ratio: Ratio of model's context window to trigger compaction
             client: Anthropic client instance (optional, for testing)
+            logger: RequestResponseLogger instance (optional, for logging API calls)
         """
         self.threshold_ratio = threshold_ratio
+        self.logger = logger
 
         # Get model context window information
 
@@ -109,7 +114,52 @@ class ConversationCompacter:
                 "tools": context_dict["tools"] if context_dict["tools"] else None,
             }
 
+            # Log the request if logger is available
+            if self.logger:
+                self.logger.log_request(
+                    messages=messages_for_counting,
+                    system_message=context_dict["system"],
+                    model=model,
+                    max_tokens=0,  # count_tokens doesn't use max_tokens
+                    tools=context_dict["tools"] if context_dict["tools"] else [],
+                    thinking_config=None,
+                )
+
             response = self.client.messages.count_tokens(**count_kwargs)
+
+            # Log the response if logger is available
+            if self.logger:
+                # count_tokens doesn't return a full message, so log what we have
+                if hasattr(response, "token_count"):
+                    token_count = response.token_count
+                elif hasattr(response, "tokens"):
+                    token_count = response.tokens
+                elif isinstance(response, dict):
+                    token_count = response.get("token_count", 0)
+                else:
+                    token_count = 0
+                # Create a simplified response log entry
+                from datetime import datetime
+                import time
+
+                log_entry = {
+                    "type": "response",
+                    "timestamp": datetime.now().isoformat(),
+                    "unix_timestamp": time.time(),
+                    "message_id": "count_tokens_response",
+                    "stop_reason": "count_tokens",
+                    "content": [
+                        {"type": "text", "text": f"Token count: {token_count}"}
+                    ],
+                    "usage": {
+                        "input_tokens": 0,
+                        "output_tokens": 0,
+                        "cache_creation_input_tokens": 0,
+                        "cache_read_input_tokens": 0,
+                    },
+                }
+                # Write directly to avoid needing the Message object
+                self.logger._write_log_entry(log_entry)
 
             # Extract token count from response
             if hasattr(response, "token_count"):
@@ -385,12 +435,34 @@ class ConversationCompacter:
         """
 
         # Generate summary using Claude
+        summary_messages = [{"role": "user", "content": conversation_str}]
+
+        # Log the request if logger is available
+        if self.logger:
+            self.logger.log_request(
+                messages=summary_messages,
+                system_message=[{"type": "text", "text": system_prompt}],
+                model=model,
+                max_tokens=4000,
+                tools=[],
+                thinking_config=None,
+            )
+
         response = self.client.messages.create(
             model=model,
             system=system_prompt,
-            messages=[{"role": "user", "content": conversation_str}],
+            messages=summary_messages,
             max_tokens=4000,
         )
+
+        # Log the response if logger is available
+        if self.logger:
+            self.logger.log_response(
+                message=response,
+                usage=response.usage,
+                stop_reason=response.stop_reason,
+                thinking_content=None,
+            )
 
         summary = response.content[0].text
         # For summary token counting, estimate tokens since it's just the summary text
