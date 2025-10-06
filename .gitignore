@@ -40,3 +40,4 @@ silica/_version.py
 logs/
 data/
 .agent-scratchpad/
+/.agent-scratchpad
