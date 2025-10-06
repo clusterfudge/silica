@@ -173,6 +173,28 @@ workspaces:
       args: {}
 ```
 
+## Development
+
+### Running Tests
+
+```bash
+# Run all tests
+pytest
+
+# Run only fast tests (excludes slow integration tests)
+pytest -m "not slow"
+
+# Run with verbose output and show slowest tests
+pytest -v --durations=10
+```
+
+The test suite includes markers for different test types:
+- `slow`: Integration tests that take longer to run (tmux operations, subprocess timeouts)
+- `integration`: Tests requiring external resources
+- `safe`: Tests with no side effects
+
+For faster development iteration, use `pytest -m "not slow"` to run only the fast tests (~43s vs ~82s for the full suite).
+
 ## Compatibility
 
 This update maintains backward compatibility with existing silica workspaces. When you run commands with the updated version:
