@@ -108,10 +108,10 @@ class AgentContext:
         return context
 
     def with_user_interface(
-        self, user_interface: UserInterface, keep_history=False
+        self, user_interface: UserInterface, keep_history=False, session_id: str = None
     ) -> "AgentContext":
         return AgentContext(
-            session_id=str(uuid4()),
+            session_id=session_id if session_id else str(uuid4()),
             parent_session_id=self.session_id,
             model_spec=self.model_spec,
             sandbox=self.sandbox,

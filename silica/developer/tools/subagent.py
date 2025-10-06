@@ -13,7 +13,11 @@ from ..utils import wrap_text_as_content_block
 
 @tool
 async def agent(
-    context: "AgentContext", prompt: str, tool_names: str = None, model: str = None
+    context: "AgentContext",
+    prompt: str,
+    tool_names: str = None,
+    model: str = None,
+    tool_use_id: str = None,
 ):
     """Run a prompt through a sub-agent with a limited set of tools.
     Use an agent when you believe that the action desired will require multiple steps, but you do not
@@ -40,6 +44,7 @@ async def agent(
             - "advances": Use Claude 4 Opus - most advanced tasks requiring deeper reasoning, use sparingly.
 
               If not provided or invalid, uses the parent context's model.
+        tool_use_id: Internal parameter provided by the framework, used as the session ID for the sub-agent.
     """
 
     tool_names_list = (
@@ -48,7 +53,14 @@ async def agent(
         else []
     )
 
-    return await run_agent(context, prompt, tool_names_list, system=None, model=model)
+    return await run_agent(
+        context,
+        prompt,
+        tool_names_list,
+        system=None,
+        model=model,
+        tool_use_id=tool_use_id,
+    )
 
 
 async def run_agent(
@@ -57,6 +69,7 @@ async def run_agent(
     tool_names: List[str],
     system: str | None = None,
     model: str = None,
+    tool_use_id: str = None,
 ):
     from silica.developer.agent_loop import run
 
@@ -70,7 +83,8 @@ async def run_agent(
         ui = CaptureInterface(parent=context.user_interface, status=status)
 
         # Create a sub-agent context with the current context as parent
-        sub_agent_context = context.with_user_interface(ui)
+        # Use the tool_use_id as the session_id if provided
+        sub_agent_context = context.with_user_interface(ui, session_id=tool_use_id)
 
         # Handle the model parameter if provided
         if model:

@@ -99,7 +99,7 @@ def tool(func=None, *, max_concurrency: Optional[int] = None):
             # Process parameters
             sig = inspect.signature(f)
             for param_name, param in sig.parameters.items():
-                if param_name == "context":  # Skip context parameter
+                if param_name in ("context", "tool_use_id"):  # Skip internal parameters
                     continue
 
                 # Check if parameter is optional
@@ -259,6 +259,11 @@ async def invoke_tool(context: "AgentContext", tool_use, tools: List[Callable] =
                 converted_args[arg_name] = arg_value
         else:
             converted_args[arg_name] = arg_value
+
+    # Pass tool_use_id to the tool if it accepts it as a parameter
+    sig = inspect.signature(tool_func)
+    if "tool_use_id" in sig.parameters:
+        converted_args["tool_use_id"] = tool_use_id
 
     # Call the tool function with the sandbox and converted arguments
     if inspect.iscoroutinefunction(tool_func):

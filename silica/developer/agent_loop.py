@@ -652,7 +652,7 @@ async def run(
                             raise
 
                         user_interface.handle_system_message(
-                            f"[bold yellow]Rate limit exceeded. Retrying in {backoff_time:.2f} seconds... (Attempt {attempt+1}/{max_retries})[/bold yellow]",
+                            f"[bold yellow]Rate limit exceeded. Retrying in {backoff_time:.2f} seconds... (Attempt {attempt + 1}/{max_retries})[/bold yellow]",
                             markdown=False,
                         )
                         # Wait time is already set in handle_rate_limit_error
@@ -910,14 +910,15 @@ async def run(
 
             if interrupt_count >= 2:
                 user_interface.handle_system_message(
-                    "[bold red]Double interrupt detected. Exiting...[/bold red]",
+                    "[bold red]Exiting...[/bold red]",
                     markdown=False,
                 )
+                # Clean exit - break from loop to allow proper cleanup
                 break
             else:
                 user_interface.handle_system_message(
                     "[bold yellow]"
-                    "KeyboardInterrupt detected. Press Ctrl+C again to exit, or continue typing to resume."
+                    "Interrupted. Press Ctrl+C again within 1 second to exit, or press Enter to continue."
                     "[/bold yellow]",
                     markdown=False,
                 )
