@@ -29,6 +29,7 @@ class TestPromptScheduler:
         assert scheduler.agent_model == "sonnet"
         assert scheduler.silica_timeout == 600
 
+    @pytest.mark.slow
     @patch("silica.cron.scheduler.SessionLocal")
     def test_start_stop_scheduler(self, mock_session_local):
         """Test starting and stopping the scheduler."""

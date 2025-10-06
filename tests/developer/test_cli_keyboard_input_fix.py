@@ -92,6 +92,7 @@ class MockUserInterface(UserInterface):
         pass
 
 
+@pytest.mark.slow
 class TestCLIKeyboardInputFix:
     """Test suite for CLI keyboard input responsiveness fixes."""
 
