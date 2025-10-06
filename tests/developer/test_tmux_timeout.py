@@ -220,6 +220,7 @@ class TestTimeoutFunctionality:
         assert "Command executed" in message
 
 
+@pytest.mark.slow
 class TestTimeoutToolIntegration:
     """Integration tests for timeout functionality with tool functions."""
 
