@@ -1,0 +1,136 @@
+{
+  "session_id": "test-complex-conversation",
+  "parent_session_id": null,
+  "model_spec": {
+    "title": "claude-3-5-sonnet-latest",
+    "pricing": {
+      "input": 3.0,
+      "output": 15.0
+    },
+    "cache_pricing": {
+      "write": 3.75,
+      "read": 0.3
+    },
+    "context_window": 200000
+  },
+  "usage": [],
+  "messages": [
+    {
+      "role": "user",
+      "content": "Can you help me debug this Python code?"
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "Of course! Let me read the file first."
+        },
+        {
+          "type": "tool_use",
+          "id": "tool_001",
+          "name": "read_file",
+          "input": {
+            "path": "test.py"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "tool_use_id": "tool_001",
+          "content": "def calculate(x, y):\n    return x + y\n\nprint(calculate(2, 2))"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": "The code looks fine, but let me run it to check."
+    },
+    {
+      "role": "user",
+      "content": "What's the result?"
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "Let me execute it."
+        },
+        {
+          "type": "tool_use",
+          "id": "tool_002",
+          "name": "python_repl",
+          "input": {
+            "code": "def calculate(x, y):\n    return x + y\n\nprint(calculate(2, 2))"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "tool_use_id": "tool_002",
+          "content": "4"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": "The code works correctly and outputs 4, which is the expected result of 2 + 2."
+    },
+    {
+      "role": "user",
+      "content": "Great! Can you now modify it to also support multiplication?"
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "I'll update the code to support multiplication as well."
+        },
+        {
+          "type": "tool_use",
+          "id": "tool_003",
+          "name": "write_file",
+          "input": {
+            "path": "test.py",
+            "content": "def calculate(x, y, operation='add'):\n    if operation == 'add':\n        return x + y\n    elif operation == 'multiply':\n        return x * y\n    else:\n        raise ValueError('Unknown operation')\n\nprint(calculate(2, 2, 'add'))\nprint(calculate(2, 2, 'multiply'))"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "tool_use_id": "tool_003",
+          "content": "File written successfully"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": "I've updated the file with support for both addition and multiplication operations."
+    },
+    {
+      "role": "user",
+      "content": "Perfect! Thank you."
+    }
+  ],
+  "thinking_mode": "off",
+  "metadata": {
+    "created_at": "2024-01-01T10:00:00Z",
+    "last_updated": "2024-01-01T10:15:00Z",
+    "root_dir": "/home/test/project",
+    "cli_args": null
+  }
+}
