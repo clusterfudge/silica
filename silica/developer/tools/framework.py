@@ -99,7 +99,7 @@ def tool(func=None, *, max_concurrency: Optional[int] = None):
             # Process parameters
             sig = inspect.signature(f)
             for param_name, param in sig.parameters.items():
-                if param_name == "context":  # Skip context parameter
+                if param_name in ("context", "tool_use_id"):  # Skip internal parameters
                     continue
 
                 # Check if parameter is optional
@@ -260,24 +260,16 @@ async def invoke_tool(context: "AgentContext", tool_use, tools: List[Callable] =
         else:
             converted_args[arg_name] = arg_value
 
-    # Store the current tool_use_id on the context temporarily
-    # This allows tools like the agent() tool to access it for sub-agent session management
-    old_tool_use_id = getattr(context, "_current_tool_use_id", None)
-    context._current_tool_use_id = tool_use_id
+    # Pass tool_use_id to the tool if it accepts it as a parameter
+    sig = inspect.signature(tool_func)
+    if "tool_use_id" in sig.parameters:
+        converted_args["tool_use_id"] = tool_use_id
 
-    try:
-        # Call the tool function with the sandbox and converted arguments
-        if inspect.iscoroutinefunction(tool_func):
-            result = await tool_func(context, **converted_args)
-        else:
-            result = tool_func(context, **converted_args)
-    finally:
-        # Restore the previous tool_use_id (or remove it if there wasn't one)
-        if old_tool_use_id is None:
-            if hasattr(context, "_current_tool_use_id"):
-                delattr(context, "_current_tool_use_id")
-        else:
-            context._current_tool_use_id = old_tool_use_id
+    # Call the tool function with the sandbox and converted arguments
+    if inspect.iscoroutinefunction(tool_func):
+        result = await tool_func(context, **converted_args)
+    else:
+        result = tool_func(context, **converted_args)
 
     return {"type": "tool_result", "tool_use_id": tool_use.id, "content": result}
 
