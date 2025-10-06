@@ -182,8 +182,17 @@ class TestTimeoutFunctionality:
         session = TmuxSession("test", "tmux_test")
         self.manager.sessions["test"] = session
 
-        # Mock successful command execution
-        mock_run_command.return_value = (0, "", "")
+        # Mock command execution and completion check with proper prompt
+        def mock_command_side_effect(cmd):
+            if "send-keys" in cmd:
+                return (0, "", "")
+            elif "capture-pane" in cmd:
+                # Return output with prompt to indicate command completion
+                return (0, "echo hello\nhello\n❯ ", "")
+            else:
+                return (0, "", "")
+
+        mock_run_command.side_effect = mock_command_side_effect
 
         # Valid timeout
         success, message = self.manager.execute_command("test", "echo hello", timeout=5)
