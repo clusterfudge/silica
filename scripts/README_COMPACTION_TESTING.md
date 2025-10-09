@@ -52,6 +52,21 @@ Run compaction but don't save the result:
 python scripts/compaction_tester.py --session-id abc-123-def --no-save
 ```
 
+### Force Compaction
+
+Force compaction even when the conversation is below the threshold (useful for testing on smaller conversations):
+```bash
+python scripts/compaction_tester.py --session-id abc-123-def --force
+```
+
+By default, if a conversation is below the compaction threshold, the tool will ask if you want to force compaction:
+```
+⚠️  Conversation does not need compaction (below threshold)
+Would you like to force compaction anyway? (y/N):
+```
+
+The `--force` flag bypasses this prompt and automatically proceeds with compaction.
+
 ## What It Tests
 
 ### 1. Message Structure Validation
