@@ -356,6 +356,50 @@ class TestConversationCompaction(unittest.TestCase):
             history_file = history_dir / "root.json"
             self.assertTrue(history_file.exists(), "History file wasn't created")
 
+    def test_compact_conversation_force_flag(self):
+        """Test that force parameter bypasses should_compact check."""
+        # Create a small conversation below the threshold
+        small_messages = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi there!"},
+        ]
+
+        # Create agent context
+        ui = MockUserInterface()
+        sandbox = Sandbox(self.test_dir, mode=SandboxMode.ALLOW_ALL)
+        memory_manager = MemoryManager()
+        small_context = AgentContext(
+            parent_session_id=None,
+            session_id="test-session-force",
+            model_spec=self.model_spec,
+            sandbox=sandbox,
+            user_interface=ui,
+            usage=[],
+            memory_manager=memory_manager,
+        )
+        small_context._chat_history = small_messages
+
+        compacter = ConversationCompacter(client=self.mock_client)
+
+        # Verify should_compact returns False (below threshold)
+        self.assertFalse(
+            compacter.should_compact(small_context, "claude-3-5-sonnet-20241022")
+        )
+
+        # Without force, compact_conversation should return None
+        result_messages, summary = compacter.compact_conversation(
+            small_context, "claude-3-5-sonnet-20241022", force=False
+        )
+        self.assertIsNone(summary)
+        self.assertEqual(result_messages, small_context.chat_history)
+
+        # With force, compact_conversation should proceed despite being below threshold
+        result_messages, summary = compacter.compact_conversation(
+            small_context, "claude-3-5-sonnet-20241022", force=True
+        )
+        self.assertIsNotNone(summary)
+        self.assertGreater(len(result_messages), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,9 +6,9 @@ This script allows developers to test and debug compaction on existing
 conversation streams from the history folder.
 
 Usage:
-    python scripts/test_compaction.py --session-id <session_id>
-    python scripts/test_compaction.py --history-file <path_to_root.json>
-    python scripts/test_compaction.py --session-id <session_id> --dry-run
+    python scripts/compaction_tester.py --session-id <session_id>
+    python scripts/compaction_tester.py --history-file <path_to_root.json>
+    python scripts/compaction_tester.py --session-id <session_id> --dry-run
 """
 
 import argparse
@@ -199,13 +199,14 @@ class CompactionTester:
         return context
 
     def run_compaction(
-        self, context: AgentContext, model: str
+        self, context: AgentContext, model: str, force: bool = False
     ) -> tuple[list, Optional[CompactionSummary]]:
         """Run compaction on a conversation.
 
         Args:
             context: AgentContext with conversation to compact
             model: Model name to use for compaction
+            force: If True, force compaction even if under threshold
 
         Returns:
             Tuple of (compacted_messages, CompactionSummary)
@@ -217,10 +218,6 @@ class CompactionTester:
         # Check if compaction is needed
         should_compact = self.compacter.should_compact(context, model)
         print(f"Should compact: {should_compact}")
-
-        if not should_compact:
-            print("⚠️  Conversation does not need compaction (below threshold)")
-            return context.chat_history, None
 
         # Count tokens
         token_count = self.compacter.count_tokens(context, model)
@@ -235,10 +232,27 @@ class CompactionTester:
         )
         print(f"  Utilization: {(token_count / context_window * 100):.1f}%")
 
+        if not should_compact:
+            print("⚠️  Conversation does not need compaction (below threshold)")
+
+            if not force:
+                # Ask user if they want to force compaction
+                response = (
+                    input("Would you like to force compaction anyway? (y/N): ")
+                    .strip()
+                    .lower()
+                )
+                if response != "y":
+                    print("ℹ️  Skipping compaction")
+                    return context.chat_history, None
+                print("✅ Forcing compaction as requested")
+            else:
+                print("✅ Forcing compaction (--force flag enabled)")
+
         # Perform compaction
         print("\n⏳ Generating compaction summary...")
         compacted_messages, summary = self.compacter.compact_conversation(
-            context, model
+            context, model, force=force
         )
 
         if summary:
@@ -367,6 +381,7 @@ class CompactionTester:
         session_path: Path,
         dry_run: bool = False,
         save_output: bool = True,
+        force: bool = False,
     ) -> bool:
         """Test compaction on a session.
 
@@ -374,6 +389,7 @@ class CompactionTester:
             session_path: Path to session root.json
             dry_run: If True, don't actually call the API for compaction
             save_output: If True, save the compacted session
+            force: If True, force compaction even if under threshold
 
         Returns:
             True if test passed, False otherwise
@@ -425,10 +441,10 @@ class CompactionTester:
             # In dry run, just validate what we have
             return not original_report.has_errors()
 
-        compacted_messages, summary = self.run_compaction(context, model)
+        compacted_messages, summary = self.run_compaction(context, model, force=force)
 
         if not summary:
-            print("ℹ️  No compaction performed (conversation below threshold)")
+            print("ℹ️  No compaction performed")
             return True
 
         # Validate compacted result
@@ -469,16 +485,19 @@ def main():
         epilog="""
 Examples:
   # Test compaction on a session by ID
-  python scripts/test_compaction.py --session-id abc-123-def
+  python scripts/compaction_tester.py --session-id abc-123-def
   
   # Test compaction on a specific history file
-  python scripts/test_compaction.py --history-file ~/.hdev/history/abc-123/root.json
+  python scripts/compaction_tester.py --history-file ~/.hdev/history/abc-123/root.json
   
   # Dry run (validate only, no API calls)
-  python scripts/test_compaction.py --session-id abc-123-def --dry-run
+  python scripts/compaction_tester.py --session-id abc-123-def --dry-run
+  
+  # Force compaction even if under threshold
+  python scripts/compaction_tester.py --session-id abc-123-def --force
   
   # Test with verbose output
-  python scripts/test_compaction.py --session-id abc-123-def --verbose
+  python scripts/compaction_tester.py --session-id abc-123-def --verbose
         """,
     )
 
@@ -500,6 +519,12 @@ Examples:
     parser.add_argument(
         "--verbose", "-v", action="store_true", help="Enable verbose output"
     )
+    parser.add_argument(
+        "--force",
+        "-f",
+        action="store_true",
+        help="Force compaction even if under threshold (skip confirmation)",
+    )
 
     args = parser.parse_args()
 
@@ -519,6 +544,7 @@ Examples:
             session_path=session_path,
             dry_run=args.dry_run,
             save_output=not args.no_save,
+            force=args.force,
         )
 
         sys.exit(0 if success else 1)

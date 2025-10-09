@@ -478,20 +478,21 @@ class ConversationCompacter:
         )
 
     def compact_conversation(
-        self, agent_context, model: str
+        self, agent_context, model: str, force: bool = False
     ) -> Tuple[List[MessageParam], CompactionSummary]:
         """Compact a conversation by summarizing it and creating a new conversation.
 
         Args:
             agent_context: AgentContext instance to get full API context from
             model: Model name to use for token counting
+            force: If True, force compaction even if under threshold
 
         Returns:
             Tuple containing:
                 - List of MessageParam: New compacted conversation
                 - CompactionSummary: Summary information about the compaction
         """
-        if not self.should_compact(agent_context, model):
+        if not force and not self.should_compact(agent_context, model):
             return agent_context.chat_history, None
 
         # Generate summary

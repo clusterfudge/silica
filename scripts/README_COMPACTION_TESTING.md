@@ -18,19 +18,19 @@ The compaction testing tool (`test_compaction.py`) allows developers to:
 
 Test compaction on a session by ID:
 ```bash
-python scripts/test_compaction.py --session-id abc-123-def-456
+python scripts/compaction_tester.py --session-id abc-123-def-456
 ```
 
 Test compaction on a specific history file:
 ```bash
-python scripts/test_compaction.py --history-file ~/.hdev/history/abc-123/root.json
+python scripts/compaction_tester.py --history-file ~/.hdev/history/abc-123/root.json
 ```
 
 ### Dry Run Mode
 
 Validate a conversation without actually performing compaction (no API calls):
 ```bash
-python scripts/test_compaction.py --session-id abc-123-def --dry-run
+python scripts/compaction_tester.py --session-id abc-123-def --dry-run
 ```
 
 This is useful for:
@@ -42,14 +42,14 @@ This is useful for:
 
 Enable detailed output including summary text and debugging information:
 ```bash
-python scripts/test_compaction.py --session-id abc-123-def --verbose
+python scripts/compaction_tester.py --session-id abc-123-def --verbose
 ```
 
 ### Don't Save Output
 
 Run compaction but don't save the result:
 ```bash
-python scripts/test_compaction.py --session-id abc-123-def --no-save
+python scripts/compaction_tester.py --session-id abc-123-def --no-save
 ```
 
 ## What It Tests
@@ -95,7 +95,7 @@ The tool provides:
 ## Example Session
 
 ```bash
-$ python scripts/test_compaction.py --session-id abc-123 --verbose
+$ python scripts/compaction_tester.py --session-id abc-123 --verbose
 
 ======================================================================
 SESSION INFORMATION
