@@ -246,6 +246,7 @@ class CompactionTester:
                     print("ℹ️  Skipping compaction")
                     return context.chat_history, None
                 print("✅ Forcing compaction as requested")
+                force = True  # Set force to True since user confirmed
             else:
                 print("✅ Forcing compaction (--force flag enabled)")
 
