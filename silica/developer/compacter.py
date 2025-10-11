@@ -33,10 +33,19 @@ class CompactionSummary:
 
 @dataclass
 class CompactionTransition:
-    """Information about transitioning to a new session after compaction."""
+    """Information about transitioning to a new session after compaction.
 
-    original_session_id: str
-    new_session_id: str
+    The session maintains the same ID across compaction. The original conversation
+    is archived with a timestamp-based filename for reference.
+    """
+
+    session_id: str  # The session ID (remains constant across compaction)
+    original_session_id: (
+        str  # DEPRECATED: For backward compatibility, same as session_id
+    )
+    pre_compaction_archive_name: (
+        str  # Filename for archived pre-compaction conversation
+    )
     compacted_messages: List[MessageParam]
     summary: CompactionSummary
 
@@ -524,6 +533,9 @@ class ConversationCompacter:
     ) -> CompactionTransition | None:
         """Check if compaction is needed and prepare transition info.
 
+        The session ID remains constant across compaction. The original conversation
+        is archived with a timestamp-based filename.
+
         Args:
             agent_context: AgentContext instance to check and potentially compact
             model: Model name to use for token counting
@@ -540,15 +552,19 @@ class ConversationCompacter:
         if summary is None:
             return None
 
-        # Create transition info
-        from uuid import uuid4
+        # Create transition info - reuse the same session ID to maintain continuity
+        from datetime import datetime, timezone
 
-        original_session_id = agent_context.session_id
-        new_session_id = str(uuid4())
+        session_id = agent_context.session_id
+
+        # Create a timestamp-based archive name for the pre-compaction conversation
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        archive_name = f"pre-compaction-{timestamp}.json"
 
         return CompactionTransition(
-            original_session_id=original_session_id,
-            new_session_id=new_session_id,
+            session_id=session_id,
+            original_session_id=session_id,  # For backward compatibility
+            pre_compaction_archive_name=archive_name,
             compacted_messages=compacted_messages,
             summary=summary,
         )

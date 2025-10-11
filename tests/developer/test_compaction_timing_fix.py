@@ -238,8 +238,9 @@ class TestCompactionTimingFix(unittest.TestCase):
         )
 
         transition = CompactionTransition(
-            original_session_id="test-session",
-            new_session_id="new-test-session",
+            session_id="test-session",
+            original_session_id="test-session",  # For backward compatibility
+            pre_compaction_archive_name="pre-compaction-test.json",
             compacted_messages=[{"role": "user", "content": "Summary"}],
             summary=summary,
         )
@@ -260,8 +261,10 @@ class TestCompactionTimingFix(unittest.TestCase):
 
             # Verify compaction was applied
             self.assertTrue(compaction_applied)
-            self.assertEqual(updated_context.session_id, "new-test-session")
-            self.assertEqual(updated_context.parent_session_id, "test-session")
+            # Session ID should remain the same after compaction
+            self.assertEqual(updated_context.session_id, "test-session")
+            # Parent session ID should still be None for root contexts
+            self.assertIsNone(updated_context.parent_session_id)
             self.assertIn("[bold green]Conversation compacted:", ui.system_messages[-1])
 
     @mock.patch("anthropic.Client")

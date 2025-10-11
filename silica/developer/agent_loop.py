@@ -232,16 +232,22 @@ def _apply_compaction_transition(
 ) -> AgentContext:
     """Apply a compaction transition to the agent context.
 
+    The session ID remains constant across compaction. We set metadata to indicate
+    that compaction has occurred and where the pre-compaction archive is stored.
+
     Args:
         agent_context: The current agent context
-        transition: CompactionTransition object with new session info
+        transition: CompactionTransition object with compaction info
 
     Returns:
         Updated agent context with compacted conversation
     """
-    # Update session IDs to reflect the transition
-    agent_context.parent_session_id = transition.original_session_id
-    agent_context.session_id = transition.new_session_id
+    # Session ID stays the same - compaction maintains session continuity
+    # Store compaction metadata for the flush operation to use
+    agent_context._pending_compaction = {
+        "archive_name": transition.pre_compaction_archive_name,
+        "summary": transition.summary,
+    }
 
     # Replace chat history with compacted version
     agent_context._chat_history = transition.compacted_messages.copy()
@@ -295,15 +301,16 @@ def _check_and_apply_compaction(
             # Apply the transition to start using the compacted conversation
             updated_context = _apply_compaction_transition(agent_context, transition)
 
-            # Notify user about the compaction and transition
+            # Notify user about the compaction
             user_interface.handle_system_message(
                 f"[bold green]Conversation compacted: "
                 f"{transition.summary.original_message_count} messages → "
-                f"new session {transition.new_session_id[:8]}[/bold green]",
+                f"{len(transition.compacted_messages)} messages "
+                f"(archived to {transition.pre_compaction_archive_name})[/bold green]",
                 markdown=False,
             )
 
-            # Save both sessions: original (already saved) and new compacted one
+            # Save the compacted session (flush will handle archiving the old conversation)
             updated_context.flush(updated_context.chat_history, compact=False)
             return updated_context, True
 
