@@ -161,8 +161,9 @@ workspaces:
         assert "HTTP 404" in response["error"]
         assert mock_get.call_count == 3  # Initial attempt + 2 retries
 
+    @patch("time.sleep")
     @patch("requests.post")
-    def test_initialize_uses_retries(self, mock_post, antennae_client):
+    def test_initialize_uses_retries(self, mock_post, mock_sleep, antennae_client):
         """Test that initialize method uses retry logic correctly."""
         # First two attempts return 404 (app starting), third succeeds
         mock_response_404 = Mock()
@@ -277,8 +278,9 @@ workspaces:
 
             yield silica_dir
 
+    @patch("time.sleep")
     @patch("requests.post")
-    def test_piku_app_startup_simulation(self, mock_post, temp_silica_dir):
+    def test_piku_app_startup_simulation(self, mock_post, mock_sleep, temp_silica_dir):
         """Simulate a realistic piku app startup scenario."""
         client = get_antennae_client(temp_silica_dir, "test-workspace")
 
@@ -327,8 +329,11 @@ workspaces:
                 "branch": "main",
             }
 
+    @patch("time.sleep")
     @patch("requests.post")
-    def test_piku_app_never_starts_scenario(self, mock_post, temp_silica_dir):
+    def test_piku_app_never_starts_scenario(
+        self, mock_post, mock_sleep, temp_silica_dir
+    ):
         """Simulate scenario where piku app never becomes available."""
         client = get_antennae_client(temp_silica_dir, "test-workspace")
 

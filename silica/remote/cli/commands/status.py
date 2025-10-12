@@ -303,6 +303,7 @@ def print_all_workspaces_summary(statuses: List[Dict[str, Any]]):
     table.add_column("Type", style="magenta")
     table.add_column("Accessible", style="green")
     table.add_column("Repository", style="blue")
+    table.add_column("Branch", style="magenta")
     table.add_column("Agent Session", style="yellow")
     table.add_column("Version", style="bright_black")
     table.add_column("Status", style="red")
@@ -318,6 +319,7 @@ def print_all_workspaces_summary(statuses: List[Dict[str, Any]]):
 
         # Check repository status
         repo_status = "[yellow]Unknown[/yellow]"
+        branch_name = "[dim]N/A[/dim]"
         session_status = "[yellow]Unknown[/yellow]"
         antennae_version = "old"
 
@@ -329,6 +331,9 @@ def print_all_workspaces_summary(statuses: List[Dict[str, Any]]):
 
             if repo_info.get("exists", False):
                 repo_status = "[green]✅[/green]"
+                # Extract branch name if available
+                if repo_info.get("branch"):
+                    branch_name = repo_info["branch"]
             else:
                 repo_status = "[yellow]⚠[/yellow]"
 
@@ -349,6 +354,7 @@ def print_all_workspaces_summary(statuses: List[Dict[str, Any]]):
             workspace_type,
             accessible,
             repo_status,
+            branch_name,
             session_status,
             antennae_version,
             overall_status,

@@ -71,6 +71,7 @@ class MockUserInterface(UserInterface):
         pass
 
 
+@pytest.mark.slow
 class TestInteractiveBashTimeout:
     """Test suite for interactive bash timeout functionality."""
 
