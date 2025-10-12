@@ -235,12 +235,16 @@ class TestCompactionTimingFix(unittest.TestCase):
             compaction_ratio=0.1,
         )
 
-        # Create a mock compacter instance that returns compacted messages and metadata
+        # Create a mock compacter instance that returns metadata and mutates context
         mock_compacter_instance = mock.Mock()
-        mock_compacter_instance.compact_conversation.return_value = (
-            [{"role": "user", "content": "Summary"}],
-            metadata,
-        )
+
+        def mock_compact(ctx, model_name):
+            # Simulate mutation of context in place
+            ctx._chat_history = [{"role": "user", "content": "Summary"}]
+            ctx._tool_result_buffer.clear()
+            return metadata
+
+        mock_compacter_instance.compact_conversation = mock_compact
 
         # Mock the compaction logic to always trigger
         with mock.patch(

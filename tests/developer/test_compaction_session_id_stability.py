@@ -208,8 +208,11 @@ class TestCompactionSessionIDStability(unittest.TestCase):
         self.assertEqual(metadata.compacted_message_count, 3)
         self.assertEqual(metadata.archive_name, "pre-compaction-20250115_100000.json")
 
-    def test_compaction_includes_archive_name(self):
+    @mock.patch("pathlib.Path.home")
+    def test_compaction_includes_archive_name(self, mock_home):
         """Test that compaction includes archive filename in metadata."""
+        mock_home.return_value = Path(self.test_dir)
+
         mock_client = MockAnthropicClient()
         compacter = ConversationCompacter(client=mock_client, threshold_ratio=0.5)
 
@@ -231,19 +234,19 @@ class TestCompactionSessionIDStability(unittest.TestCase):
         # Mock should_compact to return True
         compacter.should_compact = mock.MagicMock(return_value=True)
 
-        # Call compact_conversation
-        compacted_messages, metadata = compacter.compact_conversation(
-            context, "claude-opus-4-20250514"
-        )
+        # Call compact_conversation - mutates context in place and returns metadata
+        metadata = compacter.compact_conversation(context, "claude-opus-4-20250514")
 
         # Verify the result
-        self.assertIsNotNone(compacted_messages)
         self.assertIsNotNone(metadata)
         self.assertIsNotNone(metadata.archive_name)
         self.assertTrue(metadata.archive_name.startswith("pre-compaction-"))
         self.assertTrue(metadata.archive_name.endswith(".json"))
         self.assertEqual(metadata.original_message_count, 4)
         self.assertGreater(metadata.compacted_message_count, 0)
+
+        # Verify context was mutated
+        self.assertGreater(len(context.chat_history), 0)
 
     @mock.patch("pathlib.Path.home")
     def test_compaction_keeps_session_id(self, mock_home):
@@ -335,10 +338,17 @@ class TestCompactionSessionIDStability(unittest.TestCase):
         compacter = ConversationCompacter(client=mock_client)
         compacter.should_compact = mock.MagicMock(return_value=True)
 
-        # Run compaction - this will archive the old conversation
-        compacted_messages, metadata = compacter.compact_conversation(
+        # Run compaction - this will archive the old conversation and mutate context
+        original_session_id = context.session_id
+        metadata = compacter.compact_conversation(
             context, "claude-opus-4-20250514", force=True
         )
+
+        # Verify we got metadata
+        self.assertIsNotNone(metadata)
+
+        # Verify session ID remained the same (context mutated in place)
+        self.assertEqual(context.session_id, original_session_id)
 
         # Verify archiving happened
         archive_file = history_dir / metadata.archive_name
@@ -352,10 +362,9 @@ class TestCompactionSessionIDStability(unittest.TestCase):
         self.assertEqual(len(archived_data["messages"]), 4)
         self.assertEqual(archived_data["messages"], self.sample_messages)
 
-        # Now update context and flush to save compacted version
-        context._chat_history = compacted_messages
+        # Now use the mutated context and flush to save compacted version
         context._compaction_metadata = metadata
-        context.flush(compacted_messages, compact=False)
+        context.flush(context.chat_history, compact=False)
 
         # Verify the new root.json contains the compacted conversation
         with open(root_file, "r") as f:

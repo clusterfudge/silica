@@ -243,6 +243,50 @@ class AgentContext:
 
         return usage_summary
 
+    def rotate(self, archive_suffix: str, new_messages: list[MessageParam]) -> str:
+        """Archive the current conversation and update this context with new messages.
+
+        This method mutates the context in place:
+        1. Archives the current root.json to a timestamped archive file
+        2. Updates this context's chat history with the provided messages
+        3. Clears the tool result buffer
+
+        Args:
+            archive_suffix: Suffix for the archive filename (e.g., "pre-compaction-20250112_140530")
+            new_messages: The new messages to use in the rotated context
+
+        Returns:
+            str: The archive filename
+
+        Raises:
+            ValueError: If called on a sub-agent context (which doesn't have root.json)
+        """
+        if self.parent_session_id is not None:
+            raise ValueError(
+                "rotate() can only be called on root contexts, not sub-agent contexts"
+            )
+
+        # Use the same path logic as flush()
+        history_dir = Path.home() / ".hdev" / "history" / self.session_id
+        root_file = history_dir / "root.json"
+        archive_file = history_dir / f"{archive_suffix}.json"
+
+        # Archive existing root.json if it exists
+        if root_file.exists():
+            try:
+                with open(root_file, "r") as f:
+                    existing_data = json.load(f)
+                with open(archive_file, "w") as f:
+                    json.dump(existing_data, f, indent=2)
+            except (json.JSONDecodeError, FileNotFoundError) as e:
+                raise RuntimeError(f"Failed to archive conversation: {e}") from e
+
+        # Update this context in place
+        self._chat_history = new_messages
+        self._tool_result_buffer.clear()
+
+        return f"{archive_suffix}.json"
+
     def flush(self, chat_history, compact=True):
         """Save the agent context and chat history to a file.
 

@@ -344,10 +344,7 @@ class TestConversationCompaction(unittest.TestCase):
             return_value=True,
         ), mock.patch(
             "silica.developer.compacter.ConversationCompacter.compact_conversation",
-            return_value=(
-                [{"role": "system", "content": "Summary"}],
-                compaction_summary,
-            ),
+            return_value=compaction_summary,
         ), mock.patch("pathlib.Path.home", return_value=Path(self.test_dir)):
             # Flush with compaction
             context.flush(self.sample_messages, compact=True)
@@ -387,18 +384,25 @@ class TestConversationCompaction(unittest.TestCase):
         )
 
         # Without force, compact_conversation should return None
-        result_messages, summary = compacter.compact_conversation(
+        metadata = compacter.compact_conversation(
             small_context, "claude-3-5-sonnet-20241022", force=False
         )
-        self.assertIsNone(summary)
-        self.assertEqual(result_messages, small_context.chat_history)
+        self.assertIsNone(metadata)
 
         # With force, compact_conversation should proceed despite being below threshold
-        result_messages, summary = compacter.compact_conversation(
-            small_context, "claude-3-5-sonnet-20241022", force=True
-        )
-        self.assertIsNotNone(summary)
-        self.assertGreater(len(result_messages), 0)
+        # Need to mock the rotate method and create a temporary home directory
+        with mock.patch("pathlib.Path.home", return_value=Path(self.test_dir)):
+            # Get original message count to verify mutation
+            original_message_count = len(small_context.chat_history)
+
+            metadata = compacter.compact_conversation(
+                small_context, "claude-3-5-sonnet-20241022", force=True
+            )
+            self.assertIsNotNone(metadata)
+            # Verify context was mutated in place
+            self.assertGreater(len(small_context.chat_history), 0)
+            # Messages should have changed
+            self.assertNotEqual(len(small_context.chat_history), original_message_count)
 
 
 if __name__ == "__main__":

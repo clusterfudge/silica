@@ -237,14 +237,14 @@ def _check_and_apply_compaction(
     """Check if compaction is needed and apply it if necessary.
 
     Args:
-        agent_context: The agent context to check
+        agent_context: The agent context to check (mutated in place if compaction occurs)
         model: Model specification dict
         user_interface: User interface for notifications
         enable_compaction: Whether compaction is enabled
         logger: RequestResponseLogger instance (optional)
 
     Returns:
-        Tuple of (possibly updated agent_context, True if compaction was applied)
+        Tuple of (agent_context, True if compaction was applied)
     """
     if not enable_compaction:
         return agent_context, False
@@ -264,16 +264,10 @@ def _check_and_apply_compaction(
         compacter = ConversationCompacter(logger=logger)
         model_name = model["title"]
 
-        # Compact conversation - this does ALL the work including archiving
-        compacted_messages, metadata = compacter.compact_conversation(
-            agent_context, model_name
-        )
+        # Compact conversation - mutates agent_context in place if compaction occurs
+        metadata = compacter.compact_conversation(agent_context, model_name)
 
-        if compacted_messages:
-            # Update context with compacted conversation
-            agent_context._chat_history = compacted_messages
-            agent_context.tool_result_buffer.clear()
-
+        if metadata:
             # Store metadata for flush to include in root.json
             agent_context._compaction_metadata = metadata
 

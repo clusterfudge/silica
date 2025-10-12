@@ -111,7 +111,7 @@ class TestAgentContextRotate(unittest.TestCase):
 
     @mock.patch("pathlib.Path.home")
     def test_rotate_archives_root_json(self, mock_home):
-        """Test that rotate() archives the current root.json."""
+        """Test that rotate() archives the current root.json and returns new context."""
         mock_home.return_value = Path(self.test_dir)
 
         # Create agent context
@@ -142,8 +142,14 @@ class TestAgentContextRotate(unittest.TestCase):
             original_data = json.load(f)
         self.assertEqual(len(original_data["messages"]), 4)
 
-        # Now rotate with a custom suffix
-        archive_name = context.rotate("archive-test-20250112_140530")
+        # Define new messages for the rotated context
+        new_messages = [
+            {"role": "user", "content": "This is a new conversation"},
+            {"role": "assistant", "content": "Yes, this is rotated!"},
+        ]
+
+        # Now rotate with a custom suffix and new messages (mutates context in place)
+        archive_name = context.rotate("archive-test-20250112_140530", new_messages)
 
         # Verify the archive was created with the correct name
         expected_archive = "archive-test-20250112_140530.json"
@@ -162,6 +168,13 @@ class TestAgentContextRotate(unittest.TestCase):
 
         # Verify root.json still exists (rotate doesn't delete it)
         self.assertTrue(root_file.exists())
+
+        # Verify context was mutated in place to have the new messages
+        self.assertEqual(len(context.chat_history), 2)
+        self.assertEqual(context.chat_history, new_messages)
+
+        # Verify tool buffer was cleared
+        self.assertEqual(len(context.tool_result_buffer), 0)
 
     @mock.patch("pathlib.Path.home")
     def test_rotate_on_sub_agent_raises_error(self, mock_home):
@@ -184,7 +197,7 @@ class TestAgentContextRotate(unittest.TestCase):
 
         # Attempting to rotate should raise ValueError
         with self.assertRaises(ValueError) as cm:
-            context.rotate("test-archive")
+            context.rotate("test-archive", [])
 
         self.assertIn("root contexts", str(cm.exception))
         self.assertIn("sub-agent", str(cm.exception))
@@ -215,17 +228,19 @@ class TestAgentContextRotate(unittest.TestCase):
         history_dir = Path(self.test_dir) / ".hdev" / "history" / "test-multi-rotate"
         root_file = history_dir / "root.json"
 
-        # First rotation
-        archive1 = context.rotate("first-archive-20250112_140000")
+        # First rotation (mutates context in place)
+        new_messages1 = [{"role": "user", "content": "Rotated 1"}]
+        archive1 = context.rotate("first-archive-20250112_140000", new_messages1)
         archive1_file = history_dir / archive1
         self.assertTrue(archive1_file.exists())
 
-        # Modify the conversation
+        # Modify the conversation (add a message to the context)
         context._chat_history.append({"role": "user", "content": "New message"})
         context.flush(context.chat_history, compact=False)
 
-        # Second rotation
-        archive2 = context.rotate("second-archive-20250112_150000")
+        # Second rotation (mutates context in place again)
+        new_messages2 = [{"role": "user", "content": "Rotated 2"}]
+        archive2 = context.rotate("second-archive-20250112_150000", new_messages2)
         archive2_file = history_dir / archive2
         self.assertTrue(archive2_file.exists())
 
@@ -239,10 +254,10 @@ class TestAgentContextRotate(unittest.TestCase):
             archive1_data = json.load(f)
         self.assertEqual(len(archive1_data["messages"]), 4)
 
-        # Verify second archive has 5 messages
+        # Verify second archive has 2 messages (from the rotated context)
         with open(archive2_file, "r") as f:
             archive2_data = json.load(f)
-        self.assertEqual(len(archive2_data["messages"]), 5)
+        self.assertEqual(len(archive2_data["messages"]), 2)
 
     @mock.patch("pathlib.Path.home")
     def test_rotate_when_root_json_missing(self, mock_home):
@@ -264,8 +279,9 @@ class TestAgentContextRotate(unittest.TestCase):
         )
 
         # Try to rotate when root.json doesn't exist yet
-        # Should return the archive name but not create the archive file
-        archive_name = context.rotate("test-archive-20250112_140530")
+        # Should return the archive name and mutate context, but not create the archive file
+        new_messages = [{"role": "user", "content": "New conversation"}]
+        archive_name = context.rotate("test-archive-20250112_140530", new_messages)
 
         self.assertEqual(archive_name, "test-archive-20250112_140530.json")
 
@@ -274,6 +290,9 @@ class TestAgentContextRotate(unittest.TestCase):
         if history_dir.exists():
             archive_file = history_dir / archive_name
             self.assertFalse(archive_file.exists())
+
+        # Verify context was mutated to have the new messages
+        self.assertEqual(context.chat_history, new_messages)
 
 
 if __name__ == "__main__":

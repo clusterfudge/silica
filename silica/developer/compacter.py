@@ -8,7 +8,7 @@ and starting a new conversation when they exceed certain token limits.
 
 import os
 import json
-from typing import List, Tuple
+from typing import List
 from dataclasses import dataclass
 import anthropic
 from anthropic.types import MessageParam
@@ -479,68 +479,62 @@ class ConversationCompacter:
             summary=summary,
         )
 
-    def _archive_conversation(self, agent_context) -> str:
-        """Archive the current conversation before compaction.
+    def _archive_and_rotate(
+        self, agent_context, new_messages: List[MessageParam]
+    ) -> str:
+        """Archive the current conversation and update the context with new messages.
+
+        Uses AgentContext.rotate() to maintain consistent file path conventions.
+        This mutates the agent_context in place.
 
         Args:
-            agent_context: AgentContext with the session to archive
+            agent_context: AgentContext to archive and update (mutated in place)
+            new_messages: New messages for the rotated context
 
         Returns:
-            str: The archive filename created
+            str: Archive filename
         """
         from datetime import datetime, timezone
-        from pathlib import Path
 
         # Generate timestamp-based archive name
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        archive_name = f"pre-compaction-{timestamp}.json"
+        archive_suffix = f"pre-compaction-{timestamp}"
 
-        # Determine history directory
-        history_dir = Path.home() / ".hdev" / "history" / agent_context.session_id
-        root_file = history_dir / "root.json"
-        archive_file = history_dir / archive_name
-
-        # Archive existing root.json if it exists
-        if root_file.exists():
-            try:
-                with open(root_file, "r") as f:
-                    existing_data = json.load(f)
-                with open(archive_file, "w") as f:
-                    json.dump(existing_data, f, indent=2)
-            except (json.JSONDecodeError, FileNotFoundError) as e:
-                print(f"Warning: Could not archive pre-compaction session: {e}")
-
-        return archive_name
+        # Use AgentContext.rotate() to handle archiving and update context in place
+        try:
+            archive_name = agent_context.rotate(archive_suffix, new_messages)
+            return archive_name
+        except Exception as e:
+            print(f"Warning: Could not archive pre-compaction session: {e}")
+            # Manually update the context as fallback
+            agent_context._chat_history = new_messages
+            agent_context._tool_result_buffer.clear()
+            return f"{archive_suffix}.json"
 
     def compact_conversation(
         self, agent_context, model: str, force: bool = False
-    ) -> Tuple[List[MessageParam] | None, CompactionMetadata | None]:
-        """Compact a conversation by summarizing it, archiving the original, and creating a new conversation.
+    ) -> CompactionMetadata | None:
+        """Compact a conversation by summarizing it, archiving the original, and updating the context.
 
         This method does ALL compaction work including:
         - Checking if compaction is needed
         - Generating the summary
         - Archiving the original conversation
-        - Creating the compacted message list
+        - Updating the agent_context with compacted messages (mutates in place)
 
         Args:
-            agent_context: AgentContext instance to get full API context from
+            agent_context: AgentContext instance (mutated in place if compaction occurs)
             model: Model name to use for token counting
             force: If True, force compaction even if under threshold
 
         Returns:
-            Tuple containing:
-                - List of MessageParam: New compacted conversation (original messages if no compaction)
-                - CompactionMetadata: Metadata about the compaction (None if no compaction)
+            CompactionMetadata if compaction occurred, None otherwise
         """
         if not force and not self.should_compact(agent_context, model):
-            return agent_context.chat_history, None
+            return None
 
         # Generate summary
         summary = self.generate_summary(agent_context, model)
-
-        # Archive the original conversation NOW
-        archive_name = self._archive_conversation(agent_context)
 
         # Create a new conversation with the summary as the first message
         new_messages = [
@@ -561,6 +555,9 @@ class ConversationCompacter:
         if len(messages_to_use) >= 2:
             new_messages.extend(messages_to_use[-2:])
 
+        # Archive the original conversation and update context in place
+        archive_name = self._archive_and_rotate(agent_context, new_messages)
+
         # Create metadata for the compaction
         metadata = CompactionMetadata(
             archive_name=archive_name,
@@ -571,4 +568,4 @@ class ConversationCompacter:
             compaction_ratio=summary.compaction_ratio,
         )
 
-        return new_messages, metadata
+        return metadata
