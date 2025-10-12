@@ -8,7 +8,6 @@ import tempfile
 import shutil
 import json
 from pathlib import Path
-from unittest import mock
 
 from silica.developer.context import AgentContext
 from silica.developer.sandbox import Sandbox, SandboxMode
@@ -109,12 +108,9 @@ class TestAgentContextRotate(unittest.TestCase):
         """Clean up test environment."""
         shutil.rmtree(self.test_dir)
 
-    @mock.patch("pathlib.Path.home")
-    def test_rotate_archives_root_json(self, mock_home):
+    def test_rotate_archives_root_json(self):
         """Test that rotate() archives the current root.json and returns new context."""
-        mock_home.return_value = Path(self.test_dir)
-
-        # Create agent context
+        # Create agent context with history_base_dir parameter
         ui = MockUserInterface()
         sandbox = Sandbox(self.test_dir, mode=SandboxMode.ALLOW_ALL)
         memory_manager = MemoryManager()
@@ -126,6 +122,7 @@ class TestAgentContextRotate(unittest.TestCase):
             user_interface=ui,
             usage=[],
             memory_manager=memory_manager,
+            history_base_dir=Path(self.test_dir) / ".hdev",
         )
         context._chat_history = self.sample_messages.copy()
 
@@ -179,11 +176,8 @@ class TestAgentContextRotate(unittest.TestCase):
         # Verify tool buffer was cleared
         self.assertEqual(len(context.tool_result_buffer), 0)
 
-    @mock.patch("pathlib.Path.home")
-    def test_rotate_on_sub_agent_raises_error(self, mock_home):
+    def test_rotate_on_sub_agent_raises_error(self):
         """Test that rotate() raises ValueError on sub-agent contexts."""
-        mock_home.return_value = Path(self.test_dir)
-
         # Create a sub-agent context (with parent_session_id)
         ui = MockUserInterface()
         sandbox = Sandbox(self.test_dir, mode=SandboxMode.ALLOW_ALL)
@@ -196,6 +190,7 @@ class TestAgentContextRotate(unittest.TestCase):
             user_interface=ui,
             usage=[],
             memory_manager=memory_manager,
+            history_base_dir=Path(self.test_dir) / ".hdev",
         )
 
         # Attempting to rotate should raise ValueError
@@ -205,12 +200,9 @@ class TestAgentContextRotate(unittest.TestCase):
         self.assertIn("root contexts", str(cm.exception))
         self.assertIn("sub-agent", str(cm.exception))
 
-    @mock.patch("pathlib.Path.home")
-    def test_rotate_multiple_times(self, mock_home):
+    def test_rotate_multiple_times(self):
         """Test that rotate() can be called multiple times with different archives."""
-        mock_home.return_value = Path(self.test_dir)
-
-        # Create agent context
+        # Create agent context with history_base_dir parameter
         ui = MockUserInterface()
         sandbox = Sandbox(self.test_dir, mode=SandboxMode.ALLOW_ALL)
         memory_manager = MemoryManager()
@@ -222,6 +214,7 @@ class TestAgentContextRotate(unittest.TestCase):
             user_interface=ui,
             usage=[],
             memory_manager=memory_manager,
+            history_base_dir=Path(self.test_dir) / ".hdev",
         )
         context._chat_history = self.sample_messages.copy()
 
@@ -262,12 +255,9 @@ class TestAgentContextRotate(unittest.TestCase):
             archive2_data = json.load(f)
         self.assertEqual(len(archive2_data["messages"]), 2)
 
-    @mock.patch("pathlib.Path.home")
-    def test_rotate_when_root_json_missing(self, mock_home):
+    def test_rotate_when_root_json_missing(self):
         """Test that rotate() handles the case when root.json doesn't exist yet."""
-        mock_home.return_value = Path(self.test_dir)
-
-        # Create agent context
+        # Create agent context with history_base_dir parameter
         ui = MockUserInterface()
         sandbox = Sandbox(self.test_dir, mode=SandboxMode.ALLOW_ALL)
         memory_manager = MemoryManager()
@@ -279,6 +269,7 @@ class TestAgentContextRotate(unittest.TestCase):
             user_interface=ui,
             usage=[],
             memory_manager=memory_manager,
+            history_base_dir=Path(self.test_dir) / ".hdev",
         )
 
         # Try to rotate when root.json doesn't exist yet
@@ -299,12 +290,9 @@ class TestAgentContextRotate(unittest.TestCase):
         # Verify context was mutated to have the new messages
         self.assertEqual(context.chat_history, new_messages)
 
-    @mock.patch("pathlib.Path.home")
-    def test_rotate_stores_metadata(self, mock_home):
+    def test_rotate_stores_metadata(self):
         """Test that rotate() stores compaction metadata when provided."""
-        mock_home.return_value = Path(self.test_dir)
-
-        # Create agent context
+        # Create agent context with history_base_dir parameter
         ui = MockUserInterface()
         sandbox = Sandbox(self.test_dir, mode=SandboxMode.ALLOW_ALL)
         memory_manager = MemoryManager()
@@ -316,6 +304,7 @@ class TestAgentContextRotate(unittest.TestCase):
             user_interface=ui,
             usage=[],
             memory_manager=memory_manager,
+            history_base_dir=Path(self.test_dir) / ".hdev",
         )
         context._chat_history = self.sample_messages.copy()
 

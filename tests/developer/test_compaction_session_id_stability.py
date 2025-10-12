@@ -208,15 +208,12 @@ class TestCompactionSessionIDStability(unittest.TestCase):
         self.assertEqual(metadata.compacted_message_count, 3)
         self.assertEqual(metadata.archive_name, "pre-compaction-20250115_100000.json")
 
-    @mock.patch("pathlib.Path.home")
-    def test_compaction_includes_archive_name(self, mock_home):
+    def test_compaction_includes_archive_name(self):
         """Test that compaction includes archive filename in metadata."""
-        mock_home.return_value = Path(self.test_dir)
-
         mock_client = MockAnthropicClient()
         compacter = ConversationCompacter(client=mock_client, threshold_ratio=0.5)
 
-        # Create agent context
+        # Create agent context with history_base_dir parameter
         ui = MockUserInterface()
         sandbox = Sandbox(self.test_dir, mode=SandboxMode.ALLOW_ALL)
         memory_manager = MemoryManager()
@@ -228,6 +225,7 @@ class TestCompactionSessionIDStability(unittest.TestCase):
             user_interface=ui,
             usage=[],
             memory_manager=memory_manager,
+            history_base_dir=Path(self.test_dir) / ".hdev",
         )
         context._chat_history = self.sample_messages
 
@@ -248,12 +246,9 @@ class TestCompactionSessionIDStability(unittest.TestCase):
         # Verify context was mutated
         self.assertGreater(len(context.chat_history), 0)
 
-    @mock.patch("pathlib.Path.home")
-    def test_compaction_keeps_session_id(self, mock_home):
+    def test_compaction_keeps_session_id(self):
         """Test that compaction keeps the session ID constant."""
-        mock_home.return_value = Path(self.test_dir)
-
-        # Create agent context
+        # Create agent context with history_base_dir parameter
         ui = MockUserInterface()
         sandbox = Sandbox(self.test_dir, mode=SandboxMode.ALLOW_ALL)
         memory_manager = MemoryManager()
@@ -265,6 +260,7 @@ class TestCompactionSessionIDStability(unittest.TestCase):
             user_interface=ui,
             usage=[],
             memory_manager=memory_manager,
+            history_base_dir=Path(self.test_dir) / ".hdev",
         )
         context._chat_history = self.sample_messages.copy()
 
@@ -300,12 +296,9 @@ class TestCompactionSessionIDStability(unittest.TestCase):
             "pre-compaction-20250115_120000.json",
         )
 
-    @mock.patch("pathlib.Path.home")
-    def test_compaction_archives_conversation(self, mock_home):
+    def test_compaction_archives_conversation(self):
         """Test that compaction archives the old conversation."""
-        mock_home.return_value = Path(self.test_dir)
-
-        # Create agent context
+        # Create agent context with history_base_dir parameter
         ui = MockUserInterface()
         sandbox = Sandbox(self.test_dir, mode=SandboxMode.ALLOW_ALL)
         memory_manager = MemoryManager()
@@ -317,6 +310,7 @@ class TestCompactionSessionIDStability(unittest.TestCase):
             user_interface=ui,
             usage=[],
             memory_manager=memory_manager,
+            history_base_dir=Path(self.test_dir) / ".hdev",
         )
         context._chat_history = self.sample_messages.copy()
 
