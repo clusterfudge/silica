@@ -37,6 +37,9 @@ class AgentContext:
     memory_manager: "MemoryManager"
     cli_args: list[str] = None
     thinking_mode: str = "off"  # "off", "normal", or "ultra"
+    history_base_dir: Path | None = (
+        None  # Base directory for history (defaults to ~/.hdev)
+    )
     _chat_history: list[MessageParam] = None
     _tool_result_buffer: list[dict] = None
 
@@ -46,6 +49,24 @@ class AgentContext:
             self._chat_history = []
         if self._tool_result_buffer is None:
             self._tool_result_buffer = []
+
+    def _get_history_dir(self) -> Path:
+        """Get the history directory for this context.
+
+        Uses history_base_dir if provided, otherwise defaults to ~/.hdev.
+        For root contexts, returns base/history/{session_id}.
+        For sub-agent contexts, returns base/history/{parent_session_id}.
+
+        Returns:
+            Path to the history directory for this context
+        """
+        base = (
+            self.history_base_dir if self.history_base_dir else (Path.home() / ".hdev")
+        )
+        context_dir = (
+            self.parent_session_id if self.parent_session_id else self.session_id
+        )
+        return base / "history" / context_dir
 
     @property
     def chat_history(self) -> list[MessageParam]:
@@ -119,6 +140,7 @@ class AgentContext:
             usage=self.usage,
             memory_manager=self.memory_manager,
             cli_args=self.cli_args.copy() if self.cli_args else None,
+            history_base_dir=self.history_base_dir,  # Preserve history_base_dir
             _chat_history=self.chat_history.copy() if keep_history else [],
             _tool_result_buffer=self.tool_result_buffer.copy() if keep_history else [],
         )
@@ -273,8 +295,8 @@ class AgentContext:
                 "rotate() can only be called on root contexts, not sub-agent contexts"
             )
 
-        # Use the same path logic as flush()
-        history_dir = Path.home() / ".hdev" / "history" / self.session_id
+        # Use the parameterized history directory
+        history_dir = self._get_history_dir()
         root_file = history_dir / "root.json"
         archive_file = history_dir / f"{archive_suffix}.json"
 
@@ -302,10 +324,12 @@ class AgentContext:
         """Save the agent context and chat history to a file.
 
         For root contexts (parent_session_id is None), saves to:
-            ~/.hdev/history/{session_id}/root.json
+            {history_base_dir}/history/{session_id}/root.json
 
         For sub-agent contexts (parent_session_id is not None), saves to:
-            ~/.hdev/history/{parent_session_id}/{session_id}.json
+            {history_base_dir}/history/{parent_session_id}/{session_id}.json
+
+        Where history_base_dir defaults to ~/.hdev if not specified.
 
         Args:
             chat_history: The chat history to save
@@ -320,15 +344,8 @@ class AgentContext:
         # Note: Compaction is now handled explicitly in the agent loop rather than
         # as a side effect of flush. This allows for proper session transitions.
 
-        # Base history directory
-        history_dir = Path.home() / ".hdev" / "history"
-
-        # For root contexts, use their own session_id
-        # For sub-agent contexts, use the parent_session_id
-        context_dir = (
-            self.parent_session_id if self.parent_session_id else self.session_id
-        )
-        history_dir = history_dir / context_dir
+        # Use the parameterized history directory
+        history_dir = self._get_history_dir()
 
         # Create the directory if it doesn't exist
         history_dir.mkdir(parents=True, exist_ok=True)
@@ -426,7 +443,9 @@ class AgentContext:
 
 
 def load_session_data(
-    session_id: str, base_context: Optional[AgentContext] = None
+    session_id: str,
+    base_context: Optional[AgentContext] = None,
+    history_base_dir: Optional[Path] = None,
 ) -> Optional[AgentContext]:
     """
     Load session data from a file and return an updated AgentContext.
@@ -438,11 +457,13 @@ def load_session_data(
         session_id: The ID of the session to load
         base_context: Optional existing AgentContext to update with session data.
                       If not provided, a new context will be created.
+        history_base_dir: Optional base directory for history (defaults to ~/.hdev)
 
     Returns:
         Updated AgentContext if successful, None if loading failed
     """
-    history_dir = Path.home() / ".hdev" / "history" / session_id
+    base = history_base_dir if history_base_dir else (Path.home() / ".hdev")
+    history_dir = base / "history" / session_id
     root_file = history_dir / "root.json"
 
     if not root_file.exists():
@@ -482,6 +503,7 @@ def load_session_data(
             memory_manager=base_context.memory_manager,
             cli_args=cli_args.copy() if cli_args else None,
             thinking_mode=thinking_mode,
+            history_base_dir=history_base_dir,  # Preserve the history_base_dir
             _chat_history=chat_history,
             _tool_result_buffer=[],  # Always start with empty tool buffer
         )
