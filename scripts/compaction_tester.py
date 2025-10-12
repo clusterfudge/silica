@@ -378,9 +378,6 @@ class CompactionTester:
 
         print(f"✅ Saved compacted session to: {output_path}")
         print(f"   Session ID: {session_id} (unchanged)")
-        print(f"   Archive: {metadata.archive_name}")
-        print("\n📝 Note: In production, the original would be archived to:")
-        print(f"   ~/.hdev/history/{session_id}/{metadata.archive_name}")
 
         return output_path
 
@@ -499,15 +496,11 @@ class CompactionTester:
             # Check that archive was created in temp directory
             archive_file = session_dir / metadata.archive_name
             if archive_file.exists():
-                print(
-                    f"\n✅ Archive created in temp directory: {metadata.archive_name}"
-                )
+                print(f"\n✅ Archive created: {archive_file}")
                 archive_size = archive_file.stat().st_size
-                print(f"   Archive size: {archive_size:,} bytes")
+                print(f"   Size: {archive_size:,} bytes")
             else:
-                print(
-                    f"\n⚠️  Archive file not found in temp directory: {metadata.archive_name}"
-                )
+                print(f"\n⚠️  Archive file not found: {archive_file}")
 
             # Save if requested (to .agent-scratchpad, not temp)
             if save_output:
@@ -532,8 +525,6 @@ class CompactionTester:
                 print(
                     "\n✅ All validations passed - compacted conversation is API compatible"
                 )
-
-            print("\n🔒 Original history files remain unchanged")
 
             return success
 
