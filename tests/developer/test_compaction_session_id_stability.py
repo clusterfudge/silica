@@ -13,14 +13,12 @@ from pathlib import Path
 
 from silica.developer.compacter import (
     ConversationCompacter,
-    CompactionSummary,
-    CompactionTransition,
+    CompactionMetadata,
 )
 from silica.developer.context import AgentContext
 from silica.developer.sandbox import Sandbox, SandboxMode
 from silica.developer.user_interface import UserInterface
 from silica.developer.memory import MemoryManager
-from silica.developer.agent_loop import _apply_compaction_transition
 
 
 class MockAnthropicClient:
@@ -195,31 +193,23 @@ class TestCompactionSessionIDStability(unittest.TestCase):
 
     def test_session_id_remains_constant(self):
         """Test that session ID remains constant across compaction."""
-        # Create a compaction transition
-        summary = CompactionSummary(
+        # Create compaction metadata
+        metadata = CompactionMetadata(
+            archive_name="pre-compaction-20250115_100000.json",
             original_message_count=10,
+            compacted_message_count=3,
             original_token_count=5000,
             summary_token_count=500,
             compaction_ratio=0.1,
-            summary="Test summary",
         )
 
-        compacted_messages = [{"role": "user", "content": "Summary of conversation"}]
+        # Verify metadata is created correctly
+        self.assertEqual(metadata.original_message_count, 10)
+        self.assertEqual(metadata.compacted_message_count, 3)
+        self.assertEqual(metadata.archive_name, "pre-compaction-20250115_100000.json")
 
-        transition = CompactionTransition(
-            session_id="test-session-123",
-            original_session_id="test-session-123",
-            pre_compaction_archive_name="pre-compaction-20250115_100000.json",
-            compacted_messages=compacted_messages,
-            summary=summary,
-        )
-
-        # Verify that session_id and original_session_id are the same
-        self.assertEqual(transition.session_id, transition.original_session_id)
-        self.assertEqual(transition.session_id, "test-session-123")
-
-    def test_transition_includes_archive_name(self):
-        """Test that compaction transition includes archive filename."""
+    def test_compaction_includes_archive_name(self):
+        """Test that compaction includes archive filename in metadata."""
         mock_client = MockAnthropicClient()
         compacter = ConversationCompacter(client=mock_client, threshold_ratio=0.5)
 
@@ -241,22 +231,23 @@ class TestCompactionSessionIDStability(unittest.TestCase):
         # Mock should_compact to return True
         compacter.should_compact = mock.MagicMock(return_value=True)
 
-        # Call compact_and_transition
-        transition = compacter.compact_and_transition(context, "claude-opus-4-20250514")
-
-        # Verify the transition is created with proper fields
-        self.assertIsNotNone(transition)
-        self.assertEqual(transition.session_id, "test-session-456")
-        self.assertEqual(transition.original_session_id, "test-session-456")
-        self.assertIsNotNone(transition.pre_compaction_archive_name)
-        self.assertTrue(
-            transition.pre_compaction_archive_name.startswith("pre-compaction-")
+        # Call compact_conversation
+        compacted_messages, metadata = compacter.compact_conversation(
+            context, "claude-opus-4-20250514"
         )
-        self.assertTrue(transition.pre_compaction_archive_name.endswith(".json"))
+
+        # Verify the result
+        self.assertIsNotNone(compacted_messages)
+        self.assertIsNotNone(metadata)
+        self.assertIsNotNone(metadata.archive_name)
+        self.assertTrue(metadata.archive_name.startswith("pre-compaction-"))
+        self.assertTrue(metadata.archive_name.endswith(".json"))
+        self.assertEqual(metadata.original_message_count, 4)
+        self.assertGreater(metadata.compacted_message_count, 0)
 
     @mock.patch("pathlib.Path.home")
-    def test_apply_transition_keeps_session_id(self, mock_home):
-        """Test that applying transition keeps the session ID constant."""
+    def test_compaction_keeps_session_id(self, mock_home):
+        """Test that compaction keeps the session ID constant."""
         mock_home.return_value = Path(self.test_dir)
 
         # Create agent context
@@ -274,13 +265,14 @@ class TestCompactionSessionIDStability(unittest.TestCase):
         )
         context._chat_history = self.sample_messages.copy()
 
-        # Create a transition
-        summary = CompactionSummary(
+        # Create metadata
+        metadata = CompactionMetadata(
+            archive_name="pre-compaction-20250115_120000.json",
             original_message_count=4,
+            compacted_message_count=2,
             original_token_count=500,
             summary_token_count=100,
             compaction_ratio=0.2,
-            summary="Test summary",
         )
 
         compacted_messages = [
@@ -288,33 +280,26 @@ class TestCompactionSessionIDStability(unittest.TestCase):
             {"role": "assistant", "content": "Continuing from summary..."},
         ]
 
-        transition = CompactionTransition(
-            session_id="test-session-789",
-            original_session_id="test-session-789",
-            pre_compaction_archive_name="pre-compaction-20250115_120000.json",
-            compacted_messages=compacted_messages,
-            summary=summary,
-        )
-
-        # Apply the transition
+        # Simulate what the agent loop does
         original_session_id = context.session_id
-        updated_context = _apply_compaction_transition(context, transition)
+        context._chat_history = compacted_messages
+        context._compaction_metadata = metadata
 
         # Verify session ID didn't change
-        self.assertEqual(updated_context.session_id, original_session_id)
-        self.assertEqual(updated_context.session_id, "test-session-789")
-        self.assertIsNone(updated_context.parent_session_id)
+        self.assertEqual(context.session_id, original_session_id)
+        self.assertEqual(context.session_id, "test-session-789")
+        self.assertIsNone(context.parent_session_id)
 
-        # Verify that the context has pending compaction metadata
-        self.assertTrue(hasattr(updated_context, "_pending_compaction"))
+        # Verify that the context has compaction metadata
+        self.assertTrue(hasattr(context, "_compaction_metadata"))
         self.assertEqual(
-            updated_context._pending_compaction["archive_name"],
+            context._compaction_metadata.archive_name,
             "pre-compaction-20250115_120000.json",
         )
 
     @mock.patch("pathlib.Path.home")
-    def test_flush_archives_pre_compaction_conversation(self, mock_home):
-        """Test that flushing after compaction archives the old conversation."""
+    def test_compaction_archives_conversation(self, mock_home):
+        """Test that compaction archives the old conversation."""
         mock_home.return_value = Path(self.test_dir)
 
         # Create agent context
@@ -345,33 +330,18 @@ class TestCompactionSessionIDStability(unittest.TestCase):
             original_data = json.load(f)
         self.assertEqual(len(original_data["messages"]), 4)
 
-        # Now simulate a compaction
-        summary = CompactionSummary(
-            original_message_count=4,
-            original_token_count=500,
-            summary_token_count=100,
-            compaction_ratio=0.2,
-            summary="Test summary",
+        # Now create a compacter and run compaction (which does archiving)
+        mock_client = MockAnthropicClient()
+        compacter = ConversationCompacter(client=mock_client)
+        compacter.should_compact = mock.MagicMock(return_value=True)
+
+        # Run compaction - this will archive the old conversation
+        compacted_messages, metadata = compacter.compact_conversation(
+            context, "claude-opus-4-20250514", force=True
         )
 
-        compacted_messages = [{"role": "user", "content": "Compacted summary"}]
-
-        transition = CompactionTransition(
-            session_id="test-archive-session",
-            original_session_id="test-archive-session",
-            pre_compaction_archive_name="pre-compaction-test.json",
-            compacted_messages=compacted_messages,
-            summary=summary,
-        )
-
-        # Apply transition
-        updated_context = _apply_compaction_transition(context, transition)
-
-        # Flush the compacted conversation
-        updated_context.flush(compacted_messages, compact=False)
-
-        # Verify the archive was created
-        archive_file = history_dir / "pre-compaction-test.json"
+        # Verify archiving happened
+        archive_file = history_dir / metadata.archive_name
         self.assertTrue(
             archive_file.exists(), f"Archive file not found: {archive_file}"
         )
@@ -382,20 +352,29 @@ class TestCompactionSessionIDStability(unittest.TestCase):
         self.assertEqual(len(archived_data["messages"]), 4)
         self.assertEqual(archived_data["messages"], self.sample_messages)
 
+        # Now update context and flush to save compacted version
+        context._chat_history = compacted_messages
+        context._compaction_metadata = metadata
+        context.flush(compacted_messages, compact=False)
+
         # Verify the new root.json contains the compacted conversation
         with open(root_file, "r") as f:
             new_data = json.load(f)
-        self.assertEqual(len(new_data["messages"]), 1)
-        self.assertEqual(new_data["messages"][0]["content"], "Compacted summary")
+        self.assertGreater(
+            len(new_data["messages"]), 0
+        )  # Has summary + preserved messages
 
         # Verify compaction metadata is present
         self.assertIn("compaction", new_data)
         self.assertTrue(new_data["compaction"]["is_compacted"])
         self.assertEqual(
-            new_data["compaction"]["pre_compaction_archive"], "pre-compaction-test.json"
+            new_data["compaction"]["pre_compaction_archive"], metadata.archive_name
         )
         self.assertEqual(new_data["compaction"]["original_message_count"], 4)
-        self.assertEqual(new_data["compaction"]["compacted_message_count"], 1)
+        self.assertEqual(
+            new_data["compaction"]["compacted_message_count"],
+            metadata.compacted_message_count,
+        )
 
 
 if __name__ == "__main__":

@@ -284,26 +284,8 @@ class AgentContext:
         )
         history_file = history_dir / filename
 
-        # Check if we have a pending compaction that requires archiving
-        pending_compaction = getattr(self, "_pending_compaction", None)
-        if pending_compaction and history_file.exists():
-            # Archive the existing root.json before writing the compacted version
-            archive_file = history_dir / pending_compaction["archive_name"]
-            try:
-                # Read existing file and save as archive
-                with open(history_file, "r") as f:
-                    existing_data = json.load(f)
-                with open(archive_file, "w") as f:
-                    json.dump(existing_data, f, indent=2, cls=PydanticJSONEncoder)
-            except (json.JSONDecodeError, FileNotFoundError) as e:
-                # If we can't read the old file, continue anyway
-                print(f"Warning: Could not archive pre-compaction session: {e}")
-
-            # Clear the pending compaction flag
-            compaction_summary = pending_compaction["summary"]
-            del self._pending_compaction
-        else:
-            compaction_summary = None
+        # Get compaction metadata if present
+        compaction_metadata = getattr(self, "_compaction_metadata", None)
 
         # Get the current time for metadata
         current_time = datetime.now(timezone.utc).isoformat()
@@ -348,20 +330,19 @@ class AgentContext:
         }
 
         # Add compaction metadata if available
-        if compaction_summary:
-            archive_name = (
-                pending_compaction["archive_name"] if pending_compaction else None
-            )
+        if compaction_metadata:
             context_data["compaction"] = {
                 "is_compacted": True,
-                "original_message_count": compaction_summary.original_message_count,
-                "original_token_count": compaction_summary.original_token_count,
-                "compacted_message_count": len(chat_history),
-                "summary_token_count": compaction_summary.summary_token_count,
-                "compaction_ratio": compaction_summary.compaction_ratio,
+                "original_message_count": compaction_metadata.original_message_count,
+                "original_token_count": compaction_metadata.original_token_count,
+                "compacted_message_count": compaction_metadata.compacted_message_count,
+                "summary_token_count": compaction_metadata.summary_token_count,
+                "compaction_ratio": compaction_metadata.compaction_ratio,
                 "timestamp": current_time,
-                "pre_compaction_archive": archive_name,
+                "pre_compaction_archive": compaction_metadata.archive_name,
             }
+            # Clear the metadata after using it
+            del self._compaction_metadata
 
         # If the file already exists, read it to preserve the original created_at time
         if os.path.exists(history_file):

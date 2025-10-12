@@ -227,37 +227,6 @@ def _inline_latest_file_mentions(
     return results
 
 
-def _apply_compaction_transition(
-    agent_context: AgentContext, transition
-) -> AgentContext:
-    """Apply a compaction transition to the agent context.
-
-    The session ID remains constant across compaction. We set metadata to indicate
-    that compaction has occurred and where the pre-compaction archive is stored.
-
-    Args:
-        agent_context: The current agent context
-        transition: CompactionTransition object with compaction info
-
-    Returns:
-        Updated agent context with compacted conversation
-    """
-    # Session ID stays the same - compaction maintains session continuity
-    # Store compaction metadata for the flush operation to use
-    agent_context._pending_compaction = {
-        "archive_name": transition.pre_compaction_archive_name,
-        "summary": transition.summary,
-    }
-
-    # Replace chat history with compacted version
-    agent_context._chat_history = transition.compacted_messages.copy()
-
-    # Clear tool result buffer for clean state
-    agent_context.tool_result_buffer.clear()
-
-    return agent_context
-
-
 def _check_and_apply_compaction(
     agent_context: AgentContext,
     model: dict,
@@ -295,24 +264,31 @@ def _check_and_apply_compaction(
         compacter = ConversationCompacter(logger=logger)
         model_name = model["title"]
 
-        transition = compacter.compact_and_transition(agent_context, model_name)
+        # Compact conversation - this does ALL the work including archiving
+        compacted_messages, metadata = compacter.compact_conversation(
+            agent_context, model_name
+        )
 
-        if transition:
-            # Apply the transition to start using the compacted conversation
-            updated_context = _apply_compaction_transition(agent_context, transition)
+        if compacted_messages:
+            # Update context with compacted conversation
+            agent_context._chat_history = compacted_messages
+            agent_context.tool_result_buffer.clear()
+
+            # Store metadata for flush to include in root.json
+            agent_context._compaction_metadata = metadata
 
             # Notify user about the compaction
             user_interface.handle_system_message(
                 f"[bold green]Conversation compacted: "
-                f"{transition.summary.original_message_count} messages → "
-                f"{len(transition.compacted_messages)} messages "
-                f"(archived to {transition.pre_compaction_archive_name})[/bold green]",
+                f"{metadata.original_message_count} messages → "
+                f"{metadata.compacted_message_count} messages "
+                f"(archived to {metadata.archive_name})[/bold green]",
                 markdown=False,
             )
 
-            # Save the compacted session (flush will handle archiving the old conversation)
-            updated_context.flush(updated_context.chat_history, compact=False)
-            return updated_context, True
+            # Save the compacted session
+            agent_context.flush(agent_context.chat_history, compact=False)
+            return agent_context, True
 
     except Exception as e:
         # Log compaction errors but continue normally

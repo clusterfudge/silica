@@ -32,22 +32,15 @@ class CompactionSummary:
 
 
 @dataclass
-class CompactionTransition:
-    """Information about transitioning to a new session after compaction.
+class CompactionMetadata:
+    """Metadata about a compaction operation."""
 
-    The session maintains the same ID across compaction. The original conversation
-    is archived with a timestamp-based filename for reference.
-    """
-
-    session_id: str  # The session ID (remains constant across compaction)
-    original_session_id: (
-        str  # DEPRECATED: For backward compatibility, same as session_id
-    )
-    pre_compaction_archive_name: (
-        str  # Filename for archived pre-compaction conversation
-    )
-    compacted_messages: List[MessageParam]
-    summary: CompactionSummary
+    archive_name: str
+    original_message_count: int
+    compacted_message_count: int
+    original_token_count: int
+    summary_token_count: int
+    compaction_ratio: float
 
 
 class ConversationCompacter:
@@ -486,10 +479,49 @@ class ConversationCompacter:
             summary=summary,
         )
 
+    def _archive_conversation(self, agent_context) -> str:
+        """Archive the current conversation before compaction.
+
+        Args:
+            agent_context: AgentContext with the session to archive
+
+        Returns:
+            str: The archive filename created
+        """
+        from datetime import datetime, timezone
+        from pathlib import Path
+
+        # Generate timestamp-based archive name
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        archive_name = f"pre-compaction-{timestamp}.json"
+
+        # Determine history directory
+        history_dir = Path.home() / ".hdev" / "history" / agent_context.session_id
+        root_file = history_dir / "root.json"
+        archive_file = history_dir / archive_name
+
+        # Archive existing root.json if it exists
+        if root_file.exists():
+            try:
+                with open(root_file, "r") as f:
+                    existing_data = json.load(f)
+                with open(archive_file, "w") as f:
+                    json.dump(existing_data, f, indent=2)
+            except (json.JSONDecodeError, FileNotFoundError) as e:
+                print(f"Warning: Could not archive pre-compaction session: {e}")
+
+        return archive_name
+
     def compact_conversation(
         self, agent_context, model: str, force: bool = False
-    ) -> Tuple[List[MessageParam], CompactionSummary]:
-        """Compact a conversation by summarizing it and creating a new conversation.
+    ) -> Tuple[List[MessageParam] | None, CompactionMetadata | None]:
+        """Compact a conversation by summarizing it, archiving the original, and creating a new conversation.
+
+        This method does ALL compaction work including:
+        - Checking if compaction is needed
+        - Generating the summary
+        - Archiving the original conversation
+        - Creating the compacted message list
 
         Args:
             agent_context: AgentContext instance to get full API context from
@@ -498,8 +530,8 @@ class ConversationCompacter:
 
         Returns:
             Tuple containing:
-                - List of MessageParam: New compacted conversation
-                - CompactionSummary: Summary information about the compaction
+                - List of MessageParam: New compacted conversation (original messages if no compaction)
+                - CompactionMetadata: Metadata about the compaction (None if no compaction)
         """
         if not force and not self.should_compact(agent_context, model):
             return agent_context.chat_history, None
@@ -507,7 +539,10 @@ class ConversationCompacter:
         # Generate summary
         summary = self.generate_summary(agent_context, model)
 
-        # Create a new conversation with the summary as the system message
+        # Archive the original conversation NOW
+        archive_name = self._archive_conversation(agent_context)
+
+        # Create a new conversation with the summary as the first message
         new_messages = [
             {
                 "role": "user",
@@ -526,45 +561,14 @@ class ConversationCompacter:
         if len(messages_to_use) >= 2:
             new_messages.extend(messages_to_use[-2:])
 
-        return new_messages, summary
-
-    def compact_and_transition(
-        self, agent_context, model: str
-    ) -> CompactionTransition | None:
-        """Check if compaction is needed and prepare transition info.
-
-        The session ID remains constant across compaction. The original conversation
-        is archived with a timestamp-based filename.
-
-        Args:
-            agent_context: AgentContext instance to check and potentially compact
-            model: Model name to use for token counting
-
-        Returns:
-            CompactionTransition if compaction occurred, None otherwise
-        """
-        if not self.should_compact(agent_context, model):
-            return None
-
-        # Generate compacted conversation
-        compacted_messages, summary = self.compact_conversation(agent_context, model)
-
-        if summary is None:
-            return None
-
-        # Create transition info - reuse the same session ID to maintain continuity
-        from datetime import datetime, timezone
-
-        session_id = agent_context.session_id
-
-        # Create a timestamp-based archive name for the pre-compaction conversation
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        archive_name = f"pre-compaction-{timestamp}.json"
-
-        return CompactionTransition(
-            session_id=session_id,
-            original_session_id=session_id,  # For backward compatibility
-            pre_compaction_archive_name=archive_name,
-            compacted_messages=compacted_messages,
-            summary=summary,
+        # Create metadata for the compaction
+        metadata = CompactionMetadata(
+            archive_name=archive_name,
+            original_message_count=summary.original_message_count,
+            compacted_message_count=len(new_messages),
+            original_token_count=summary.original_token_count,
+            summary_token_count=summary.summary_token_count,
+            compaction_ratio=summary.compaction_ratio,
         )
+
+        return new_messages, metadata
