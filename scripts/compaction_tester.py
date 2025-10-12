@@ -200,16 +200,18 @@ class CompactionTester:
 
     def run_compaction(
         self, context: AgentContext, model: str, force: bool = False
-    ) -> tuple[list, Optional[CompactionMetadata]]:
+    ) -> Optional[CompactionMetadata]:
         """Run compaction on a conversation.
 
+        Note: This method mutates the context in place if compaction occurs.
+
         Args:
-            context: AgentContext with conversation to compact
+            context: AgentContext with conversation to compact (mutated in place)
             model: Model name to use for compaction
             force: If True, force compaction even if under threshold
 
         Returns:
-            Tuple of (compacted_messages, CompactionMetadata)
+            CompactionMetadata if compaction occurred, None otherwise
         """
         print("\n" + "=" * 70)
         print("RUNNING COMPACTION")
@@ -252,9 +254,7 @@ class CompactionTester:
 
         # Perform compaction
         print("\n⏳ Generating compaction summary...")
-        compacted_messages, metadata = self.compacter.compact_conversation(
-            context, model, force=force
-        )
+        metadata = self.compacter.compact_conversation(context, model, force=force)
 
         if metadata:
             print("\n✅ Compaction complete!")
@@ -270,7 +270,7 @@ class CompactionTester:
                 f"\n📁 Pre-compaction conversation archived to: {metadata.archive_name}"
             )
 
-        return compacted_messages, metadata
+        return metadata
 
     def validate_compacted_result(
         self, compacted_messages: list, original_messages: list
@@ -378,6 +378,7 @@ class CompactionTester:
         dry_run: bool = False,
         save_output: bool = True,
         force: bool = False,
+        auto_confirm: bool = False,
     ) -> bool:
         """Test compaction on a session.
 
@@ -386,6 +387,7 @@ class CompactionTester:
             dry_run: If True, don't actually call the API for compaction
             save_output: If True, save the compacted session
             force: If True, force compaction even if under threshold
+            auto_confirm: If True, automatically confirm all prompts
 
         Returns:
             True if test passed, False otherwise
@@ -407,23 +409,30 @@ class CompactionTester:
         original_report = self.validate_session(messages)
         if original_report.has_errors():
             print("\n⚠️  Original conversation has validation errors!")
-            response = input("Continue anyway? (y/N): ").strip().lower()
-            if response != "y":
-                return False
+            if not auto_confirm:
+                response = input("Continue anyway? (y/N): ").strip().lower()
+                if response != "y":
+                    return False
+            else:
+                print("✅ Auto-confirming (--yes flag enabled)")
 
         # Prompt user before compaction
         if not dry_run:
             print("\n" + "=" * 70)
-            response = (
-                input(
-                    "Proceed with compaction? This will call the Anthropic API. (y/N): "
+            if not auto_confirm:
+                response = (
+                    input(
+                        "Proceed with compaction? This will call the Anthropic API. (y/N): "
+                    )
+                    .strip()
+                    .lower()
                 )
-                .strip()
-                .lower()
-            )
-            if response != "y":
-                print("❌ Compaction cancelled by user")
-                return False
+                if response != "y":
+                    print("❌ Compaction cancelled by user")
+                    return False
+            else:
+                print("✅ Proceeding with compaction (--yes flag enabled)")
+                print("=" * 70)
 
         # Create mock context
         context = self.create_mock_context(session_data)
@@ -437,18 +446,21 @@ class CompactionTester:
             # In dry run, just validate what we have
             return not original_report.has_errors()
 
-        compacted_messages, summary = self.run_compaction(context, model, force=force)
+        metadata = self.run_compaction(context, model, force=force)
 
-        if not summary:
+        if not metadata:
             print("ℹ️  No compaction performed")
             return True
+
+        # Get compacted messages from context (which was mutated in place)
+        compacted_messages = context.chat_history
 
         # Validate compacted result
         validation_report = self.validate_compacted_result(compacted_messages, messages)
 
         # Save if requested
         if save_output:
-            self.save_compacted_session(compacted_messages, session_data, summary)
+            self.save_compacted_session(compacted_messages, session_data, metadata)
 
         # Final summary
         print("\n" + "=" * 70)
@@ -521,6 +533,12 @@ Examples:
         action="store_true",
         help="Force compaction even if under threshold (skip confirmation)",
     )
+    parser.add_argument(
+        "--yes",
+        "-y",
+        action="store_true",
+        help="Auto-confirm all prompts (non-interactive mode)",
+    )
 
     args = parser.parse_args()
 
@@ -541,6 +559,7 @@ Examples:
             dry_run=args.dry_run,
             save_output=not args.no_save,
             force=args.force,
+            auto_confirm=args.yes,
         )
 
         sys.exit(0 if success else 1)
