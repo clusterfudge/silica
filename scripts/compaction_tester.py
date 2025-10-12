@@ -21,7 +21,7 @@ from uuid import uuid4
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from silica.developer.compacter import ConversationCompacter, CompactionSummary
+from silica.developer.compacter import ConversationCompacter, CompactionMetadata
 from silica.developer.compaction_validation import (
     validate_message_structure,
     validate_compacted_messages,
@@ -200,7 +200,7 @@ class CompactionTester:
 
     def run_compaction(
         self, context: AgentContext, model: str, force: bool = False
-    ) -> tuple[list, Optional[CompactionSummary]]:
+    ) -> tuple[list, Optional[CompactionMetadata]]:
         """Run compaction on a conversation.
 
         Args:
@@ -209,7 +209,7 @@ class CompactionTester:
             force: If True, force compaction even if under threshold
 
         Returns:
-            Tuple of (compacted_messages, CompactionSummary)
+            Tuple of (compacted_messages, CompactionMetadata)
         """
         print("\n" + "=" * 70)
         print("RUNNING COMPACTION")
@@ -252,26 +252,25 @@ class CompactionTester:
 
         # Perform compaction
         print("\n⏳ Generating compaction summary...")
-        compacted_messages, summary = self.compacter.compact_conversation(
+        compacted_messages, metadata = self.compacter.compact_conversation(
             context, model, force=force
         )
 
-        if summary:
+        if metadata:
             print("\n✅ Compaction complete!")
-            print("\nCompaction Summary:")
-            print(f"  Original messages: {summary.original_message_count}")
-            print(f"  Original tokens: {summary.original_token_count:,}")
-            print(f"  Summary tokens: {summary.summary_token_count:,}")
-            print(f"  Compression ratio: {summary.compaction_ratio:.2%}")
-            print(f"  Token reduction: {(1 - summary.compaction_ratio) * 100:.1f}%")
+            print("\nCompaction Results:")
+            print(f"  Archive name: {metadata.archive_name}")
+            print(f"  Original messages: {metadata.original_message_count}")
+            print(f"  Compacted messages: {metadata.compacted_message_count}")
+            print(f"  Original tokens: {metadata.original_token_count:,}")
+            print(f"  Summary tokens: {metadata.summary_token_count:,}")
+            print(f"  Compression ratio: {metadata.compaction_ratio:.2%}")
+            print(f"  Token reduction: {(1 - metadata.compaction_ratio) * 100:.1f}%")
+            print(
+                f"\n📁 Pre-compaction conversation archived to: {metadata.archive_name}"
+            )
 
-            if self.verbose:
-                print("\n📝 Summary Text:")
-                print("-" * 70)
-                print(summary.summary)
-                print("-" * 70)
-
-        return compacted_messages, summary
+        return compacted_messages, metadata
 
     def validate_compacted_result(
         self, compacted_messages: list, original_messages: list
@@ -309,15 +308,18 @@ class CompactionTester:
         self,
         compacted_messages: list,
         original_session_data: Dict[str, Any],
-        summary: CompactionSummary,
+        metadata: CompactionMetadata,
         output_dir: Optional[Path] = None,
     ) -> Path:
-        """Save the compacted session to a new file.
+        """Save the compacted session to a file.
+
+        Note: With the new compaction behavior, the session ID remains constant.
+        The original conversation is archived with a timestamped filename.
 
         Args:
             compacted_messages: Compacted message list
             original_session_data: Original session data
-            summary: CompactionSummary from compaction
+            metadata: CompactionMetadata from compaction
             output_dir: Optional output directory (default: create in same location)
 
         Returns:
@@ -327,44 +329,35 @@ class CompactionTester:
         print("SAVING COMPACTED SESSION")
         print("=" * 70)
 
-        # Generate new session ID
-        new_session_id = str(uuid4())
-        original_session_id = original_session_data.get("session_id")
+        # Session ID remains the same after compaction
+        session_id = original_session_data.get("session_id")
 
-        # Create new session data
+        # Create new session data with compaction metadata
         new_session_data = {
-            "session_id": new_session_id,
-            "parent_session_id": original_session_id,  # Link to original
+            "session_id": session_id,
+            "parent_session_id": original_session_data.get("parent_session_id"),
             "model_spec": original_session_data.get("model_spec"),
-            "usage": [],  # Reset usage for new session
+            "usage": [],  # Reset usage for compacted session
             "messages": compacted_messages,
             "thinking_mode": original_session_data.get("thinking_mode", "off"),
-            "metadata": {
-                "created_at": original_session_data.get("metadata", {}).get(
-                    "created_at"
-                ),
-                "last_updated": original_session_data.get("metadata", {}).get(
-                    "last_updated"
-                ),
-                "root_dir": original_session_data.get("metadata", {}).get("root_dir"),
-                "cli_args": original_session_data.get("metadata", {}).get("cli_args"),
-                "compacted_from": original_session_id,
-            },
+            "metadata": original_session_data.get("metadata", {}),
             "compaction": {
-                "original_session_id": original_session_id,
-                "original_message_count": summary.original_message_count,
-                "original_token_count": summary.original_token_count,
-                "summary_token_count": summary.summary_token_count,
-                "compaction_ratio": summary.compaction_ratio,
+                "is_compacted": True,
+                "pre_compaction_archive": metadata.archive_name,
+                "original_message_count": metadata.original_message_count,
+                "compacted_message_count": metadata.compacted_message_count,
+                "original_token_count": metadata.original_token_count,
+                "summary_token_count": metadata.summary_token_count,
+                "compaction_ratio": metadata.compaction_ratio,
             },
         }
 
         # Determine output location
         if output_dir:
-            output_path = output_dir / f"{new_session_id}_compacted.json"
+            output_path = output_dir / f"{session_id}_compacted.json"
         else:
             # Save in .agent-scratchpad
-            output_path = Path(".agent-scratchpad") / f"{new_session_id}_compacted.json"
+            output_path = Path(".agent-scratchpad") / f"{session_id}_compacted.json"
             output_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Write the file
@@ -372,8 +365,10 @@ class CompactionTester:
             json.dump(new_session_data, f, indent=2)
 
         print(f"✅ Saved compacted session to: {output_path}")
-        print(f"   New Session ID: {new_session_id}")
-        print(f"   Original Session ID: {original_session_id}")
+        print(f"   Session ID: {session_id} (unchanged)")
+        print(f"   Archive: {metadata.archive_name}")
+        print("\n📝 Note: In production, the original would be archived to:")
+        print(f"   ~/.hdev/history/{session_id}/{metadata.archive_name}")
 
         return output_path
 

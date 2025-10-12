@@ -67,6 +67,35 @@ Would you like to force compaction anyway? (y/N):
 
 The `--force` flag bypasses this prompt and automatically proceeds with compaction.
 
+## Archive File Naming
+
+When compaction occurs, the original conversation is automatically archived with a timestamp-based filename:
+
+```
+pre-compaction-YYYYMMDD_HHMMSS.json
+```
+
+For example:
+- `pre-compaction-20250112_140530.json` - Archived on Jan 12, 2025 at 14:05:30 UTC
+
+This naming scheme:
+- ✅ Prevents collisions across multiple compactions
+- ✅ Makes the archive purpose immediately clear
+- ✅ Provides temporal ordering
+- ✅ Allows multiple archives for the same session (if compacted multiple times)
+
+### Directory Structure After Compaction
+
+```
+~/.hdev/history/
+└── abc-123-def-456/
+    ├── root.json (compacted conversation)
+    ├── pre-compaction-20250112_140530.json (archived original)
+    └── pre-compaction-20250115_093215.json (second compaction archive, if applicable)
+```
+
+The session ID remains constant across all compactions, maintaining continuity.
+
 ## What It Tests
 
 ### 1. Message Structure Validation
@@ -89,9 +118,9 @@ The `--force` flag bypasses this prompt and automatically proceeds with compacti
 - Summary message present
 
 ### 4. Session Management
-- New session ID generation
-- Parent session linking
-- Metadata preservation
+- Session ID stability (remains constant after compaction)
+- Archive file creation with timestamp-based naming
+- Metadata preservation and compaction tracking
 
 ## Output
 
@@ -152,12 +181,16 @@ Token Analysis:
 
 ✅ Compaction complete!
 
-Compaction Summary:
+Compaction Results:
+  Archive name: pre-compaction-20250112_140530.json
   Original messages: 38
+  Compacted messages: 3
   Original tokens: 45,234
   Summary tokens: 1,523
   Compression ratio: 3.37%
   Token reduction: 96.6%
+
+📁 Pre-compaction conversation archived to: pre-compaction-20250112_140530.json
 
 ======================================================================
 VALIDATING COMPACTED CONVERSATION
@@ -168,9 +201,12 @@ Validation Status: VALID
 ======================================================================
 SAVING COMPACTED SESSION
 ======================================================================
-✅ Saved compacted session to: .agent-scratchpad/xyz-789-new.json
-   New Session ID: xyz-789-new
-   Original Session ID: abc-123-def-456
+✅ Saved compacted session to: .agent-scratchpad/abc-123-def-456_compacted.json
+   Session ID: abc-123-def-456 (unchanged)
+   Archive: pre-compaction-20250112_140530.json
+
+📝 Note: In production, the original would be archived to:
+   ~/.hdev/history/abc-123-def-456/pre-compaction-20250112_140530.json
 
 ======================================================================
 TEST SUMMARY
