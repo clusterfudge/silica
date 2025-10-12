@@ -265,12 +265,10 @@ def _check_and_apply_compaction(
         model_name = model["title"]
 
         # Compact conversation - mutates agent_context in place if compaction occurs
+        # This includes updating messages, clearing buffers, AND setting metadata
         metadata = compacter.compact_conversation(agent_context, model_name)
 
         if metadata:
-            # Store metadata for flush to include in root.json
-            agent_context._compaction_metadata = metadata
-
             # Notify user about the compaction
             user_interface.handle_system_message(
                 f"[bold green]Conversation compacted: "
@@ -281,6 +279,7 @@ def _check_and_apply_compaction(
             )
 
             # Save the compacted session
+            # Metadata was already set by rotate(), flush() will use it
             agent_context.flush(agent_context.chat_history, compact=False)
             return agent_context, True
 

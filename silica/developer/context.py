@@ -243,17 +243,24 @@ class AgentContext:
 
         return usage_summary
 
-    def rotate(self, archive_suffix: str, new_messages: list[MessageParam]) -> str:
+    def rotate(
+        self,
+        archive_suffix: str,
+        new_messages: list[MessageParam],
+        compaction_metadata: dict | None = None,
+    ) -> str:
         """Archive the current conversation and update this context with new messages.
 
         This method mutates the context in place:
         1. Archives the current root.json to a timestamped archive file
         2. Updates this context's chat history with the provided messages
         3. Clears the tool result buffer
+        4. Optionally stores compaction metadata for flush()
 
         Args:
             archive_suffix: Suffix for the archive filename (e.g., "pre-compaction-20250112_140530")
             new_messages: The new messages to use in the rotated context
+            compaction_metadata: Optional metadata about compaction (stored for next flush())
 
         Returns:
             str: The archive filename
@@ -284,6 +291,10 @@ class AgentContext:
         # Update this context in place
         self._chat_history = new_messages
         self._tool_result_buffer.clear()
+
+        # Store compaction metadata if provided
+        if compaction_metadata:
+            self._compaction_metadata = compaction_metadata
 
         return f"{archive_suffix}.json"
 

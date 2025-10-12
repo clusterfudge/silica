@@ -149,7 +149,10 @@ class TestAgentContextRotate(unittest.TestCase):
         ]
 
         # Now rotate with a custom suffix and new messages (mutates context in place)
-        archive_name = context.rotate("archive-test-20250112_140530", new_messages)
+        # No metadata provided in this test
+        archive_name = context.rotate(
+            "archive-test-20250112_140530", new_messages, None
+        )
 
         # Verify the archive was created with the correct name
         expected_archive = "archive-test-20250112_140530.json"
@@ -197,7 +200,7 @@ class TestAgentContextRotate(unittest.TestCase):
 
         # Attempting to rotate should raise ValueError
         with self.assertRaises(ValueError) as cm:
-            context.rotate("test-archive", [])
+            context.rotate("test-archive", [], None)
 
         self.assertIn("root contexts", str(cm.exception))
         self.assertIn("sub-agent", str(cm.exception))
@@ -230,7 +233,7 @@ class TestAgentContextRotate(unittest.TestCase):
 
         # First rotation (mutates context in place)
         new_messages1 = [{"role": "user", "content": "Rotated 1"}]
-        archive1 = context.rotate("first-archive-20250112_140000", new_messages1)
+        archive1 = context.rotate("first-archive-20250112_140000", new_messages1, None)
         archive1_file = history_dir / archive1
         self.assertTrue(archive1_file.exists())
 
@@ -240,7 +243,7 @@ class TestAgentContextRotate(unittest.TestCase):
 
         # Second rotation (mutates context in place again)
         new_messages2 = [{"role": "user", "content": "Rotated 2"}]
-        archive2 = context.rotate("second-archive-20250112_150000", new_messages2)
+        archive2 = context.rotate("second-archive-20250112_150000", new_messages2, None)
         archive2_file = history_dir / archive2
         self.assertTrue(archive2_file.exists())
 
@@ -281,7 +284,9 @@ class TestAgentContextRotate(unittest.TestCase):
         # Try to rotate when root.json doesn't exist yet
         # Should return the archive name and mutate context, but not create the archive file
         new_messages = [{"role": "user", "content": "New conversation"}]
-        archive_name = context.rotate("test-archive-20250112_140530", new_messages)
+        archive_name = context.rotate(
+            "test-archive-20250112_140530", new_messages, None
+        )
 
         self.assertEqual(archive_name, "test-archive-20250112_140530.json")
 
@@ -293,6 +298,74 @@ class TestAgentContextRotate(unittest.TestCase):
 
         # Verify context was mutated to have the new messages
         self.assertEqual(context.chat_history, new_messages)
+
+    @mock.patch("pathlib.Path.home")
+    def test_rotate_stores_metadata(self, mock_home):
+        """Test that rotate() stores compaction metadata when provided."""
+        mock_home.return_value = Path(self.test_dir)
+
+        # Create agent context
+        ui = MockUserInterface()
+        sandbox = Sandbox(self.test_dir, mode=SandboxMode.ALLOW_ALL)
+        memory_manager = MemoryManager()
+        context = AgentContext(
+            parent_session_id=None,
+            session_id="test-metadata-storage",
+            model_spec=self.model_spec,
+            sandbox=sandbox,
+            user_interface=ui,
+            usage=[],
+            memory_manager=memory_manager,
+        )
+        context._chat_history = self.sample_messages.copy()
+
+        # First, flush to create the root.json
+        context.flush(context.chat_history, compact=False)
+
+        # Create sample metadata
+        from silica.developer.compacter import CompactionMetadata
+
+        metadata = CompactionMetadata(
+            archive_name="test-archive.json",
+            original_message_count=4,
+            compacted_message_count=2,
+            original_token_count=1000,
+            summary_token_count=200,
+            compaction_ratio=0.2,
+        )
+
+        # Rotate with metadata
+        new_messages = [
+            {"role": "user", "content": "Summary message"},
+        ]
+        context.rotate("test-archive", new_messages, metadata)
+
+        # Verify metadata was stored in the context
+        self.assertTrue(hasattr(context, "_compaction_metadata"))
+        self.assertEqual(context._compaction_metadata, metadata)
+
+        # Flush the context - this should include the metadata in root.json
+        context.flush(context.chat_history, compact=False)
+
+        # Read the root.json and verify metadata is present
+        history_dir = (
+            Path(self.test_dir) / ".hdev" / "history" / "test-metadata-storage"
+        )
+        root_file = history_dir / "root.json"
+
+        with open(root_file, "r") as f:
+            root_data = json.load(f)
+
+        self.assertIn("compaction", root_data)
+        self.assertEqual(root_data["compaction"]["is_compacted"], True)
+        self.assertEqual(root_data["compaction"]["original_message_count"], 4)
+        self.assertEqual(root_data["compaction"]["compacted_message_count"], 2)
+        self.assertEqual(root_data["compaction"]["original_token_count"], 1000)
+        self.assertEqual(root_data["compaction"]["summary_token_count"], 200)
+        self.assertEqual(root_data["compaction"]["compaction_ratio"], 0.2)
+
+        # Verify metadata was cleared after flush
+        self.assertFalse(hasattr(context, "_compaction_metadata"))
 
 
 if __name__ == "__main__":

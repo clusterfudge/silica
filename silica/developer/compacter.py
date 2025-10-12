@@ -14,6 +14,7 @@ import anthropic
 from anthropic.types import MessageParam
 from dotenv import load_dotenv
 
+from silica.developer.context import AgentContext
 from silica.developer.models import model_names, get_model
 
 # Default threshold ratio of model's context window to trigger compaction
@@ -480,16 +481,20 @@ class ConversationCompacter:
         )
 
     def _archive_and_rotate(
-        self, agent_context, new_messages: List[MessageParam]
+        self,
+        agent_context: AgentContext,
+        new_messages: List[MessageParam],
+        metadata: CompactionMetadata,
     ) -> str:
         """Archive the current conversation and update the context with new messages.
 
         Uses AgentContext.rotate() to maintain consistent file path conventions.
-        This mutates the agent_context in place.
+        This mutates the agent_context in place, including setting compaction metadata.
 
         Args:
             agent_context: AgentContext to archive and update (mutated in place)
             new_messages: New messages for the rotated context
+            metadata: Compaction metadata to store in the context
 
         Returns:
             str: Archive filename
@@ -500,16 +505,9 @@ class ConversationCompacter:
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         archive_suffix = f"pre-compaction-{timestamp}"
 
-        # Use AgentContext.rotate() to handle archiving and update context in place
-        try:
-            archive_name = agent_context.rotate(archive_suffix, new_messages)
-            return archive_name
-        except Exception as e:
-            print(f"Warning: Could not archive pre-compaction session: {e}")
-            # Manually update the context as fallback
-            agent_context._chat_history = new_messages
-            agent_context._tool_result_buffer.clear()
-            return f"{archive_suffix}.json"
+        # Use AgentContext.rotate() to handle archiving, update context, and store metadata
+        archive_name = agent_context.rotate(archive_suffix, new_messages, metadata)
+        return archive_name
 
     def compact_conversation(
         self, agent_context, model: str, force: bool = False
@@ -519,8 +517,9 @@ class ConversationCompacter:
         This method does ALL compaction work including:
         - Checking if compaction is needed
         - Generating the summary
+        - Creating metadata
         - Archiving the original conversation
-        - Updating the agent_context with compacted messages (mutates in place)
+        - Updating the agent_context with compacted messages AND metadata (mutates in place)
 
         Args:
             agent_context: AgentContext instance (mutated in place if compaction occurs)
@@ -555,17 +554,20 @@ class ConversationCompacter:
         if len(messages_to_use) >= 2:
             new_messages.extend(messages_to_use[-2:])
 
-        # Archive the original conversation and update context in place
-        archive_name = self._archive_and_rotate(agent_context, new_messages)
-
-        # Create metadata for the compaction
+        # Create metadata for the compaction (archive_name will be set by rotate())
         metadata = CompactionMetadata(
-            archive_name=archive_name,
+            archive_name="",  # Will be updated by _archive_and_rotate
             original_message_count=summary.original_message_count,
             compacted_message_count=len(new_messages),
             original_token_count=summary.original_token_count,
             summary_token_count=summary.summary_token_count,
             compaction_ratio=summary.compaction_ratio,
         )
+
+        # Archive the original conversation, update context in place, and store metadata
+        archive_name = self._archive_and_rotate(agent_context, new_messages, metadata)
+
+        # Update metadata with the actual archive name
+        metadata.archive_name = archive_name
 
         return metadata
