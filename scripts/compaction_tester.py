@@ -5,6 +5,10 @@ Manual integration testing tool for conversation compaction.
 This script allows developers to test and debug compaction on existing
 conversation streams from the history folder.
 
+IMPORTANT: This tool creates a temporary copy of the session for testing
+and does NOT modify the original history files. All compaction operations
+are performed in a temporary directory to ensure data safety.
+
 Usage:
     python scripts/compaction_tester.py --session-id <session_id>
     python scripts/compaction_tester.py --history-file <path_to_root.json>
@@ -14,6 +18,7 @@ Usage:
 import argparse
 import json
 import sys
+import tempfile
 from pathlib import Path
 from typing import Optional, Dict, Any
 from uuid import uuid4
@@ -145,14 +150,20 @@ class CompactionTester:
 
         return report
 
-    def create_mock_context(self, session_data: Dict[str, Any]) -> AgentContext:
+    def create_mock_context(
+        self, session_data: Dict[str, Any], temp_base_dir: Path
+    ) -> AgentContext:
         """Create a mock AgentContext for compaction.
+
+        IMPORTANT: Uses a temporary directory for all file operations to avoid
+        modifying the user's actual history files.
 
         Args:
             session_data: Session data dictionary
+            temp_base_dir: Temporary base directory for history files
 
         Returns:
-            AgentContext instance
+            AgentContext instance configured to use temp directory
         """
         # Create minimal mock objects
         sandbox = Sandbox(".", mode=SandboxMode.ALLOW_ALL)
@@ -193,6 +204,7 @@ class CompactionTester:
             usage=session_data.get("usage", []),
             memory_manager=memory_manager,
             thinking_mode=session_data.get("thinking_mode", "off"),
+            history_base_dir=temp_base_dir,  # Use temp directory!
             _chat_history=session_data.get("messages", []),
         )
 
@@ -382,6 +394,10 @@ class CompactionTester:
     ) -> bool:
         """Test compaction on a session.
 
+        IMPORTANT: This method creates a temporary copy of the session for testing
+        and does NOT modify the original history files. All compaction operations
+        are performed in a temporary directory.
+
         Args:
             session_path: Path to session root.json
             dry_run: If True, don't actually call the API for compaction
@@ -434,55 +450,92 @@ class CompactionTester:
                 print("✅ Proceeding with compaction (--yes flag enabled)")
                 print("=" * 70)
 
-        # Create mock context
-        context = self.create_mock_context(session_data)
-        model = session_data.get("model_spec", {}).get(
-            "title", "claude-3-5-sonnet-latest"
-        )
-
         # Run compaction (or simulate if dry run)
         if dry_run:
             print("\n🔍 DRY RUN - Skipping actual compaction")
             # In dry run, just validate what we have
             return not original_report.has_errors()
 
-        metadata = self.run_compaction(context, model, force=force)
+        # Create a temporary directory for testing
+        # This ensures we don't modify the user's actual history files
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_base = Path(temp_dir)
+            session_id = session_data.get("session_id", str(uuid4()))
 
-        if not metadata:
-            print("ℹ️  No compaction performed")
-            return True
+            print("\n🔒 Using temporary directory for safe testing:")
+            print(f"   {temp_base}")
+            print("   (Original files will NOT be modified)")
 
-        # Get compacted messages from context (which was mutated in place)
-        compacted_messages = context.chat_history
+            # Create the session directory structure in temp
+            session_dir = temp_base / "history" / session_id
+            session_dir.mkdir(parents=True, exist_ok=True)
 
-        # Validate compacted result
-        validation_report = self.validate_compacted_result(compacted_messages, messages)
+            # Write the original session to the temp directory
+            temp_root_file = session_dir / "root.json"
+            with open(temp_root_file, "w") as f:
+                json.dump(session_data, f, indent=2)
 
-        # Save if requested
-        if save_output:
-            self.save_compacted_session(compacted_messages, session_data, metadata)
-
-        # Final summary
-        print("\n" + "=" * 70)
-        print("TEST SUMMARY")
-        print("=" * 70)
-
-        success = not validation_report.has_errors()
-        status = "✅ PASSED" if success else "❌ FAILED"
-        print(f"Status: {status}")
-
-        if validation_report.has_errors():
-            print(
-                "\n⚠️  Validation errors found - compacted conversation may not be API compatible"
-            )
-        elif validation_report.has_warnings():
-            print("\n⚠️  Validation warnings found - review recommended")
-        else:
-            print(
-                "\n✅ All validations passed - compacted conversation is API compatible"
+            # Create mock context with temp directory
+            context = self.create_mock_context(session_data, temp_base)
+            model = session_data.get("model_spec", {}).get(
+                "title", "claude-3-5-sonnet-latest"
             )
 
-        return success
+            # Run compaction (this will create archive in temp directory)
+            metadata = self.run_compaction(context, model, force=force)
+
+            if not metadata:
+                print("ℹ️  No compaction performed")
+                return True
+
+            # Get compacted messages from context (which was mutated in place)
+            compacted_messages = context.chat_history
+
+            # Validate compacted result
+            validation_report = self.validate_compacted_result(
+                compacted_messages, messages
+            )
+
+            # Check that archive was created in temp directory
+            archive_file = session_dir / metadata.archive_name
+            if archive_file.exists():
+                print(
+                    f"\n✅ Archive created in temp directory: {metadata.archive_name}"
+                )
+                archive_size = archive_file.stat().st_size
+                print(f"   Archive size: {archive_size:,} bytes")
+            else:
+                print(
+                    f"\n⚠️  Archive file not found in temp directory: {metadata.archive_name}"
+                )
+
+            # Save if requested (to .agent-scratchpad, not temp)
+            if save_output:
+                self.save_compacted_session(compacted_messages, session_data, metadata)
+
+            # Final summary
+            print("\n" + "=" * 70)
+            print("TEST SUMMARY")
+            print("=" * 70)
+
+            success = not validation_report.has_errors()
+            status = "✅ PASSED" if success else "❌ FAILED"
+            print(f"Status: {status}")
+
+            if validation_report.has_errors():
+                print(
+                    "\n⚠️  Validation errors found - compacted conversation may not be API compatible"
+                )
+            elif validation_report.has_warnings():
+                print("\n⚠️  Validation warnings found - review recommended")
+            else:
+                print(
+                    "\n✅ All validations passed - compacted conversation is API compatible"
+                )
+
+            print("\n🔒 Original history files remain unchanged")
+
+            return success
 
 
 def main():
