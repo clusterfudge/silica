@@ -229,7 +229,7 @@ def _inline_latest_file_mentions(
 
 def _check_and_apply_compaction(
     agent_context: AgentContext,
-    model: dict,
+    model: ModelSpec,
     user_interface,
     enable_compaction: bool = True,
     logger=None,
