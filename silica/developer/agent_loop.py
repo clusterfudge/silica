@@ -227,34 +227,9 @@ def _inline_latest_file_mentions(
     return results
 
 
-def _apply_compaction_transition(
-    agent_context: AgentContext, transition
-) -> AgentContext:
-    """Apply a compaction transition to the agent context.
-
-    Args:
-        agent_context: The current agent context
-        transition: CompactionTransition object with new session info
-
-    Returns:
-        Updated agent context with compacted conversation
-    """
-    # Update session IDs to reflect the transition
-    agent_context.parent_session_id = transition.original_session_id
-    agent_context.session_id = transition.new_session_id
-
-    # Replace chat history with compacted version
-    agent_context._chat_history = transition.compacted_messages.copy()
-
-    # Clear tool result buffer for clean state
-    agent_context.tool_result_buffer.clear()
-
-    return agent_context
-
-
 def _check_and_apply_compaction(
     agent_context: AgentContext,
-    model: dict,
+    model: ModelSpec,
     user_interface,
     enable_compaction: bool = True,
     logger=None,
@@ -262,14 +237,14 @@ def _check_and_apply_compaction(
     """Check if compaction is needed and apply it if necessary.
 
     Args:
-        agent_context: The agent context to check
+        agent_context: The agent context to check (mutated in place if compaction occurs)
         model: Model specification dict
         user_interface: User interface for notifications
         enable_compaction: Whether compaction is enabled
         logger: RequestResponseLogger instance (optional)
 
     Returns:
-        Tuple of (possibly updated agent_context, True if compaction was applied)
+        Tuple of (agent_context, True if compaction was applied)
     """
     if not enable_compaction:
         return agent_context, False
@@ -289,23 +264,24 @@ def _check_and_apply_compaction(
         compacter = ConversationCompacter(logger=logger)
         model_name = model["title"]
 
-        transition = compacter.compact_and_transition(agent_context, model_name)
+        # Compact conversation - mutates agent_context in place if compaction occurs
+        # This includes updating messages, clearing buffers, AND setting metadata
+        metadata = compacter.compact_conversation(agent_context, model_name)
 
-        if transition:
-            # Apply the transition to start using the compacted conversation
-            updated_context = _apply_compaction_transition(agent_context, transition)
-
-            # Notify user about the compaction and transition
+        if metadata:
+            # Notify user about the compaction
             user_interface.handle_system_message(
                 f"[bold green]Conversation compacted: "
-                f"{transition.summary.original_message_count} messages → "
-                f"new session {transition.new_session_id[:8]}[/bold green]",
+                f"{metadata.original_message_count} messages → "
+                f"{metadata.compacted_message_count} messages "
+                f"(archived to {metadata.archive_name})[/bold green]",
                 markdown=False,
             )
 
-            # Save both sessions: original (already saved) and new compacted one
-            updated_context.flush(updated_context.chat_history, compact=False)
-            return updated_context, True
+            # Save the compacted session
+            # Metadata was already set by rotate(), flush() will use it
+            agent_context.flush(agent_context.chat_history, compact=False)
+            return agent_context, True
 
     except Exception as e:
         # Log compaction errors but continue normally

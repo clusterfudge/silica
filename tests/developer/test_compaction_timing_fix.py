@@ -223,30 +223,28 @@ class TestCompactionTimingFix(unittest.TestCase):
         )
         context._chat_history = self.sample_messages.copy()
 
-        # Create a mock transition
-        from silica.developer.compacter import (
-            CompactionTransition,
-            CompactionSummary,
-        )
+        # Create mock metadata
+        from silica.developer.compacter import CompactionMetadata
 
-        summary = CompactionSummary(
+        metadata = CompactionMetadata(
+            archive_name="pre-compaction-test.json",
             original_message_count=len(self.sample_messages),
+            compacted_message_count=1,
             original_token_count=5000,
             summary_token_count=500,
             compaction_ratio=0.1,
-            summary="Test summary",
         )
 
-        transition = CompactionTransition(
-            original_session_id="test-session",
-            new_session_id="new-test-session",
-            compacted_messages=[{"role": "user", "content": "Summary"}],
-            summary=summary,
-        )
-
-        # Create a mock compacter instance that returns our transition
+        # Create a mock compacter instance that returns metadata and mutates context
         mock_compacter_instance = mock.Mock()
-        mock_compacter_instance.compact_and_transition.return_value = transition
+
+        def mock_compact(ctx, model_name):
+            # Simulate mutation of context in place
+            ctx._chat_history = [{"role": "user", "content": "Summary"}]
+            ctx._tool_result_buffer.clear()
+            return metadata
+
+        mock_compacter_instance.compact_conversation = mock_compact
 
         # Mock the compaction logic to always trigger
         with mock.patch(
@@ -260,8 +258,10 @@ class TestCompactionTimingFix(unittest.TestCase):
 
             # Verify compaction was applied
             self.assertTrue(compaction_applied)
-            self.assertEqual(updated_context.session_id, "new-test-session")
-            self.assertEqual(updated_context.parent_session_id, "test-session")
+            # Session ID should remain the same after compaction
+            self.assertEqual(updated_context.session_id, "test-session")
+            # Parent session ID should still be None for root contexts
+            self.assertIsNone(updated_context.parent_session_id)
             self.assertIn("[bold green]Conversation compacted:", ui.system_messages[-1])
 
     @mock.patch("anthropic.Client")

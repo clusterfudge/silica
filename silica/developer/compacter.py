@@ -8,12 +8,13 @@ and starting a new conversation when they exceed certain token limits.
 
 import os
 import json
-from typing import List, Tuple
+from typing import List
 from dataclasses import dataclass
 import anthropic
 from anthropic.types import MessageParam
 from dotenv import load_dotenv
 
+from silica.developer.context import AgentContext
 from silica.developer.models import model_names, get_model
 
 # Default threshold ratio of model's context window to trigger compaction
@@ -32,13 +33,15 @@ class CompactionSummary:
 
 
 @dataclass
-class CompactionTransition:
-    """Information about transitioning to a new session after compaction."""
+class CompactionMetadata:
+    """Metadata about a compaction operation."""
 
-    original_session_id: str
-    new_session_id: str
-    compacted_messages: List[MessageParam]
-    summary: CompactionSummary
+    archive_name: str
+    original_message_count: int
+    compacted_message_count: int
+    original_token_count: int
+    summary_token_count: int
+    compaction_ratio: float
 
 
 class ConversationCompacter:
@@ -477,27 +480,62 @@ class ConversationCompacter:
             summary=summary,
         )
 
-    def compact_conversation(
-        self, agent_context, model: str
-    ) -> Tuple[List[MessageParam], CompactionSummary]:
-        """Compact a conversation by summarizing it and creating a new conversation.
+    def _archive_and_rotate(
+        self,
+        agent_context: AgentContext,
+        new_messages: List[MessageParam],
+        metadata: CompactionMetadata,
+    ) -> str:
+        """Archive the current conversation and update the context with new messages.
+
+        Uses AgentContext.rotate() to maintain consistent file path conventions.
+        This mutates the agent_context in place, including setting compaction metadata.
 
         Args:
-            agent_context: AgentContext instance to get full API context from
-            model: Model name to use for token counting
+            agent_context: AgentContext to archive and update (mutated in place)
+            new_messages: New messages for the rotated context
+            metadata: Compaction metadata to store in the context
 
         Returns:
-            Tuple containing:
-                - List of MessageParam: New compacted conversation
-                - CompactionSummary: Summary information about the compaction
+            str: Archive filename
         """
-        if not self.should_compact(agent_context, model):
-            return agent_context.chat_history, None
+        from datetime import datetime, timezone
+
+        # Generate timestamp-based archive name
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        archive_suffix = f"pre-compaction-{timestamp}"
+
+        # Use AgentContext.rotate() to handle archiving, update context, and store metadata
+        archive_name = agent_context.rotate(archive_suffix, new_messages, metadata)
+        return archive_name
+
+    def compact_conversation(
+        self, agent_context, model: str, force: bool = False
+    ) -> CompactionMetadata | None:
+        """Compact a conversation by summarizing it, archiving the original, and updating the context.
+
+        This method does ALL compaction work including:
+        - Checking if compaction is needed
+        - Generating the summary
+        - Creating metadata
+        - Archiving the original conversation
+        - Updating the agent_context with compacted messages AND metadata (mutates in place)
+
+        Args:
+            agent_context: AgentContext instance (mutated in place if compaction occurs)
+            model: Model name to use for token counting
+            force: If True, force compaction even if under threshold
+
+        Returns:
+            CompactionMetadata if compaction occurred, None otherwise
+        """
+        if not force and not self.should_compact(agent_context, model):
+            return None
 
         # Generate summary
         summary = self.generate_summary(agent_context, model)
 
-        # Create a new conversation with the summary as the system message
+        # Create a new conversation with the summary as the first message
         new_messages = [
             {
                 "role": "user",
@@ -516,38 +554,20 @@ class ConversationCompacter:
         if len(messages_to_use) >= 2:
             new_messages.extend(messages_to_use[-2:])
 
-        return new_messages, summary
-
-    def compact_and_transition(
-        self, agent_context, model: str
-    ) -> CompactionTransition | None:
-        """Check if compaction is needed and prepare transition info.
-
-        Args:
-            agent_context: AgentContext instance to check and potentially compact
-            model: Model name to use for token counting
-
-        Returns:
-            CompactionTransition if compaction occurred, None otherwise
-        """
-        if not self.should_compact(agent_context, model):
-            return None
-
-        # Generate compacted conversation
-        compacted_messages, summary = self.compact_conversation(agent_context, model)
-
-        if summary is None:
-            return None
-
-        # Create transition info
-        from uuid import uuid4
-
-        original_session_id = agent_context.session_id
-        new_session_id = str(uuid4())
-
-        return CompactionTransition(
-            original_session_id=original_session_id,
-            new_session_id=new_session_id,
-            compacted_messages=compacted_messages,
-            summary=summary,
+        # Create metadata for the compaction (archive_name will be set by rotate())
+        metadata = CompactionMetadata(
+            archive_name="",  # Will be updated by _archive_and_rotate
+            original_message_count=summary.original_message_count,
+            compacted_message_count=len(new_messages),
+            original_token_count=summary.original_token_count,
+            summary_token_count=summary.summary_token_count,
+            compaction_ratio=summary.compaction_ratio,
         )
+
+        # Archive the original conversation, update context in place, and store metadata
+        archive_name = self._archive_and_rotate(agent_context, new_messages, metadata)
+
+        # Update metadata with the actual archive name
+        metadata.archive_name = archive_name
+
+        return metadata

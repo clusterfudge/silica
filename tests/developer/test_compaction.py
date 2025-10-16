@@ -344,10 +344,7 @@ class TestConversationCompaction(unittest.TestCase):
             return_value=True,
         ), mock.patch(
             "silica.developer.compacter.ConversationCompacter.compact_conversation",
-            return_value=(
-                [{"role": "system", "content": "Summary"}],
-                compaction_summary,
-            ),
+            return_value=compaction_summary,
         ), mock.patch("pathlib.Path.home", return_value=Path(self.test_dir)):
             # Flush with compaction
             context.flush(self.sample_messages, compact=True)
@@ -355,6 +352,57 @@ class TestConversationCompaction(unittest.TestCase):
             # Check that the file was created
             history_file = history_dir / "root.json"
             self.assertTrue(history_file.exists(), "History file wasn't created")
+
+    def test_compact_conversation_force_flag(self):
+        """Test that force parameter bypasses should_compact check."""
+        # Create a small conversation below the threshold
+        small_messages = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi there!"},
+        ]
+
+        # Create agent context
+        ui = MockUserInterface()
+        sandbox = Sandbox(self.test_dir, mode=SandboxMode.ALLOW_ALL)
+        memory_manager = MemoryManager()
+        small_context = AgentContext(
+            parent_session_id=None,
+            session_id="test-session-force",
+            model_spec=self.model_spec,
+            sandbox=sandbox,
+            user_interface=ui,
+            usage=[],
+            memory_manager=memory_manager,
+        )
+        small_context._chat_history = small_messages
+
+        compacter = ConversationCompacter(client=self.mock_client)
+
+        # Verify should_compact returns False (below threshold)
+        self.assertFalse(
+            compacter.should_compact(small_context, "claude-3-5-sonnet-20241022")
+        )
+
+        # Without force, compact_conversation should return None
+        metadata = compacter.compact_conversation(
+            small_context, "claude-3-5-sonnet-20241022", force=False
+        )
+        self.assertIsNone(metadata)
+
+        # With force, compact_conversation should proceed despite being below threshold
+        # Need to mock the rotate method and create a temporary home directory
+        with mock.patch("pathlib.Path.home", return_value=Path(self.test_dir)):
+            # Get original message count to verify mutation
+            original_message_count = len(small_context.chat_history)
+
+            metadata = compacter.compact_conversation(
+                small_context, "claude-3-5-sonnet-20241022", force=True
+            )
+            self.assertIsNotNone(metadata)
+            # Verify context was mutated in place
+            self.assertGreater(len(small_context.chat_history), 0)
+            # Messages should have changed
+            self.assertNotEqual(len(small_context.chat_history), original_message_count)
 
 
 if __name__ == "__main__":

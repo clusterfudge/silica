@@ -193,6 +193,8 @@ class CaptureInterface(UserInterface):
         cached_tokens=None,
         conversation_size=None,
         context_window=None,
+        thinking_tokens: int | None = None,
+        thinking_cost: float | None = None,
     ):
         pass
 

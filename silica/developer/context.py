@@ -37,6 +37,9 @@ class AgentContext:
     memory_manager: "MemoryManager"
     cli_args: list[str] = None
     thinking_mode: str = "off"  # "off", "normal", or "ultra"
+    history_base_dir: Path | None = (
+        None  # Base directory for history (defaults to ~/.hdev)
+    )
     _chat_history: list[MessageParam] = None
     _tool_result_buffer: list[dict] = None
 
@@ -46,6 +49,24 @@ class AgentContext:
             self._chat_history = []
         if self._tool_result_buffer is None:
             self._tool_result_buffer = []
+
+    def _get_history_dir(self) -> Path:
+        """Get the history directory for this context.
+
+        Uses history_base_dir if provided, otherwise defaults to ~/.hdev.
+        For root contexts, returns base/history/{session_id}.
+        For sub-agent contexts, returns base/history/{parent_session_id}.
+
+        Returns:
+            Path to the history directory for this context
+        """
+        base = (
+            self.history_base_dir if self.history_base_dir else (Path.home() / ".hdev")
+        )
+        context_dir = (
+            self.parent_session_id if self.parent_session_id else self.session_id
+        )
+        return base / "history" / context_dir
 
     @property
     def chat_history(self) -> list[MessageParam]:
@@ -119,6 +140,7 @@ class AgentContext:
             usage=self.usage,
             memory_manager=self.memory_manager,
             cli_args=self.cli_args.copy() if self.cli_args else None,
+            history_base_dir=self.history_base_dir,  # Preserve history_base_dir
             _chat_history=self.chat_history.copy() if keep_history else [],
             _tool_result_buffer=self.tool_result_buffer.copy() if keep_history else [],
         )
@@ -243,14 +265,71 @@ class AgentContext:
 
         return usage_summary
 
+    def rotate(
+        self,
+        archive_suffix: str,
+        new_messages: list[MessageParam],
+        compaction_metadata: dict | None = None,
+    ) -> str:
+        """Archive the current conversation and update this context with new messages.
+
+        This method mutates the context in place:
+        1. Archives the current root.json to a timestamped archive file
+        2. Updates this context's chat history with the provided messages
+        3. Clears the tool result buffer
+        4. Optionally stores compaction metadata for flush()
+
+        Args:
+            archive_suffix: Suffix for the archive filename (e.g., "pre-compaction-20250112_140530")
+            new_messages: The new messages to use in the rotated context
+            compaction_metadata: Optional metadata about compaction (stored for next flush())
+
+        Returns:
+            str: The archive filename
+
+        Raises:
+            ValueError: If called on a sub-agent context (which doesn't have root.json)
+        """
+        if self.parent_session_id is not None:
+            raise ValueError(
+                "rotate() can only be called on root contexts, not sub-agent contexts"
+            )
+
+        # Use the parameterized history directory
+        history_dir = self._get_history_dir()
+        root_file = history_dir / "root.json"
+        archive_file = history_dir / f"{archive_suffix}.json"
+
+        # Archive existing root.json if it exists
+        if root_file.exists():
+            try:
+                with open(root_file, "r") as f:
+                    existing_data = json.load(f)
+                with open(archive_file, "w") as f:
+                    json.dump(existing_data, f, indent=2)
+            except (json.JSONDecodeError, FileNotFoundError) as e:
+                raise RuntimeError(f"Failed to archive conversation: {e}") from e
+
+        # Update this context in place
+        self._chat_history = new_messages
+        self._tool_result_buffer.clear()
+
+        # Store compaction metadata if provided
+        if compaction_metadata:
+            self._compaction_metadata = compaction_metadata
+
+        return f"{archive_suffix}.json"
+
     def flush(self, chat_history, compact=True):
         """Save the agent context and chat history to a file.
 
         For root contexts (parent_session_id is None), saves to:
-            ~/.hdev/history/{session_id}/root.json
+            {history_base_dir}/history/{session_id}/root.json
 
         For sub-agent contexts (parent_session_id is not None), saves to:
-            ~/.hdev/history/{parent_session_id}/{session_id}.json
+            {history_base_dir}/history/{parent_session_id}/{session_id}.json
+
+        Where history_base_dir defaults to ~/.hdev if not specified.
 
         Args:
             chat_history: The chat history to save
@@ -264,17 +343,9 @@ class AgentContext:
 
         # Note: Compaction is now handled explicitly in the agent loop rather than
         # as a side effect of flush. This allows for proper session transitions.
-        compaction_summary = None
 
-        # Base history directory
-        history_dir = Path.home() / ".hdev" / "history"
-
-        # For root contexts, use their own session_id
-        # For sub-agent contexts, use the parent_session_id
-        context_dir = (
-            self.parent_session_id if self.parent_session_id else self.session_id
-        )
-        history_dir = history_dir / context_dir
+        # Use the parameterized history directory
+        history_dir = self._get_history_dir()
 
         # Create the directory if it doesn't exist
         history_dir.mkdir(parents=True, exist_ok=True)
@@ -284,6 +355,9 @@ class AgentContext:
             "root.json" if self.parent_session_id is None else f"{self.session_id}.json"
         )
         history_file = history_dir / filename
+
+        # Get compaction metadata if present
+        compaction_metadata = getattr(self, "_compaction_metadata", None)
 
         # Get the current time for metadata
         current_time = datetime.now(timezone.utc).isoformat()
@@ -328,19 +402,19 @@ class AgentContext:
         }
 
         # Add compaction metadata if available
-        if compaction_summary:
+        if compaction_metadata:
             context_data["compaction"] = {
-                "original_session_id": self.parent_session_id,
-                "original_message_count": compaction_summary.original_message_count,
-                "original_token_count": compaction_summary.original_token_count,
-                "summary_token_count": compaction_summary.summary_token_count,
-                "compaction_ratio": compaction_summary.compaction_ratio,
-                "timestamp": str(
-                    Path(history_file).stat().st_mtime
-                    if Path(history_file).exists()
-                    else None
-                ),
+                "is_compacted": True,
+                "original_message_count": compaction_metadata.original_message_count,
+                "original_token_count": compaction_metadata.original_token_count,
+                "compacted_message_count": compaction_metadata.compacted_message_count,
+                "summary_token_count": compaction_metadata.summary_token_count,
+                "compaction_ratio": compaction_metadata.compaction_ratio,
+                "timestamp": current_time,
+                "pre_compaction_archive": compaction_metadata.archive_name,
             }
+            # Clear the metadata after using it
+            del self._compaction_metadata
 
         # If the file already exists, read it to preserve the original created_at time
         if os.path.exists(history_file):
@@ -369,7 +443,9 @@ class AgentContext:
 
 
 def load_session_data(
-    session_id: str, base_context: Optional[AgentContext] = None
+    session_id: str,
+    base_context: Optional[AgentContext] = None,
+    history_base_dir: Optional[Path] = None,
 ) -> Optional[AgentContext]:
     """
     Load session data from a file and return an updated AgentContext.
@@ -381,11 +457,13 @@ def load_session_data(
         session_id: The ID of the session to load
         base_context: Optional existing AgentContext to update with session data.
                       If not provided, a new context will be created.
+        history_base_dir: Optional base directory for history (defaults to ~/.hdev)
 
     Returns:
         Updated AgentContext if successful, None if loading failed
     """
-    history_dir = Path.home() / ".hdev" / "history" / session_id
+    base = history_base_dir if history_base_dir else (Path.home() / ".hdev")
+    history_dir = base / "history" / session_id
     root_file = history_dir / "root.json"
 
     if not root_file.exists():
@@ -425,6 +503,7 @@ def load_session_data(
             memory_manager=base_context.memory_manager,
             cli_args=cli_args.copy() if cli_args else None,
             thinking_mode=thinking_mode,
+            history_base_dir=history_base_dir,  # Preserve the history_base_dir
             _chat_history=chat_history,
             _tool_result_buffer=[],  # Always start with empty tool buffer
         )
