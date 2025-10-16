@@ -68,9 +68,10 @@ class TestGetBrowserCapabilities:
             return_value=(True, None),
         ):
             result = get_browser_capabilities(mock_context)
-            assert "Screenshot Tool: Available" in result
-            assert "Browser Automation: Available" in result
+            assert "Browser Tools: Available" in result
             assert "Playwright installed and browser ready" in result
+            assert "screenshot_webpage available" in result
+            assert "browser_interact available" in result
 
     def test_capabilities_no_playwright(self, mock_context):
         """Test capabilities report when Playwright is not available."""
@@ -80,29 +81,15 @@ class TestGetBrowserCapabilities:
             return_value=(False, error_msg),
         ):
             result = get_browser_capabilities(mock_context)
-            assert "Screenshot Tool: Not Available" in result
-            assert "Browser Automation: Not Available" in result
+            assert "Browser Tools: Not Available" in result
             assert "Setup Instructions" in result
-
-    def test_capabilities_with_api_fallback(self, mock_context):
-        """Test capabilities report when API fallback is configured."""
-        with patch(
-            "silica.developer.tools.browser._check_playwright_available",
-            return_value=(False, "Not installed"),
-        ):
-            with patch.dict(
-                os.environ, {"SCREENSHOT_API_URL": "https://example.com/screenshot"}
-            ):
-                result = get_browser_capabilities(mock_context)
-                assert "Screenshot Tool: Available" in result
-                assert "API fallback configured" in result
 
 
 class TestScreenshotWebpage:
     """Tests for screenshot_webpage tool."""
 
-    def test_screenshot_no_playwright_no_api(self, mock_context, scratchpad_dir):
-        """Test screenshot fails gracefully when nothing is available."""
+    def test_screenshot_no_playwright(self, mock_context, scratchpad_dir):
+        """Test screenshot fails gracefully when Playwright is not available."""
         with patch(
             "silica.developer.tools.browser._check_playwright_available",
             return_value=(
@@ -113,23 +100,6 @@ class TestScreenshotWebpage:
             result = screenshot_webpage(mock_context, "http://example.com")
             assert "Browser tools not available" in result
             assert "pip install playwright" in result
-
-    def test_screenshot_with_api_fallback(self, mock_context, scratchpad_dir, tmp_path):
-        """Test screenshot uses API fallback when Playwright unavailable."""
-        mock_response = Mock()
-        mock_response.content = b"fake_image_data"
-
-        with patch(
-            "silica.developer.tools.browser._check_playwright_available",
-            return_value=(False, "Not installed"),
-        ):
-            with patch.dict(
-                os.environ, {"SCREENSHOT_API_URL": "https://example.com/screenshot"}
-            ):
-                with patch("httpx.post", return_value=mock_response):
-                    result = screenshot_webpage(mock_context, "http://example.com")
-                    assert "Screenshot saved to" in result
-                    assert "External API" in result
 
 
 class TestBrowserInteract:

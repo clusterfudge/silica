@@ -8,7 +8,7 @@ The browser tools solve a critical limitation: agents being "blind" when creatin
 
 1. **Screenshot capabilities** - Capture visual representations of web pages
 2. **Browser automation** - Interact with web applications (click, type, test)
-3. **Graceful degradation** - Works in headless environments with API fallbacks
+3. **Headless operation** - Runs in headless environments with Playwright
 
 ## Tools
 
@@ -135,19 +135,19 @@ print(result)
 **Output:**
 ```
 === Browser Tool Capabilities ===
-Screenshot Tool: Available
-Browser Automation: Available
+Browser Tools: Available
 
 === Details ===
   ✓ Playwright installed and browser ready
-  ✗ No screenshot API configured
+  ✓ screenshot_webpage available
+  ✓ browser_interact available
 ```
 
 ## Installation
 
-### Local Development (Full Features)
+### Standard Installation
 
-Install Playwright for full browser automation:
+Install Playwright for browser automation:
 
 ```bash
 pip install 'pysilica[browser]'
@@ -160,19 +160,6 @@ Or manually:
 pip install playwright
 playwright install chromium
 ```
-
-### Headless/Resource-Constrained Environments
-
-**Option 1: Skip browser tools**
-- Tools will report as unavailable
-- Agent can still develop web apps, but won't be able to visualize them
-
-**Option 2: Use API fallback for screenshots**
-```bash
-export SCREENSHOT_API_URL="https://your-screenshot-service.com/api"
-```
-
-The tool will automatically use the API service when Playwright is unavailable.
 
 ### Docker Deployment
 
@@ -187,35 +174,37 @@ WORKDIR /app
 RUN pip install -e '.[browser]'
 ```
 
+### System Dependencies
+
+On Linux systems, you may need to install system dependencies:
+
+```bash
+playwright install-deps
+```
+
 ## Architecture
 
-### Local Browser (Playwright)
+### Playwright-Based
 
-When Playwright is installed:
+The tools use Playwright for browser automation:
 - Launches headless Chromium browser
 - Renders pages locally
 - Full automation capabilities
 - No external dependencies
 
-### API Fallback
-
-When Playwright is unavailable:
-- Screenshots: Falls back to external API (if configured)
-- Automation: Not available (requires local browser)
-
 ### Environment Detection
 
-The tools automatically detect the environment:
+The tools automatically detect if Playwright is available:
 
 ```python
 # Check at runtime
 playwright_available, error = _check_playwright_available()
 
-if playwright_available:
-    # Use local browser
-else:
-    # Use API fallback or report unavailable
+if not playwright_available:
+    return f"Browser tools not available:\n{error}"
 ```
+
+If Playwright is not installed, tools provide clear installation instructions.
 
 ## File Management
 
@@ -325,17 +314,14 @@ Or add explicit waits:
 
 ### Memory Issues (Resource-Constrained)
 
-Consider using an external screenshot API:
-```bash
-export SCREENSHOT_API_URL="https://your-service.com/screenshot"
-```
+Playwright's headless Chromium is lightweight but still requires ~200MB. For very constrained environments (e.g., Raspberry Pi Zero), consider running browser tools on a different machine and accessing via network.
 
 ## Security Considerations
 
 1. **Local URLs Only for Sensitive Data**: When testing local development servers, ensure they're not exposed publicly
 2. **Screenshot Storage**: Screenshots are stored in `.agent-scratchpad/` - ensure this directory isn't committed to version control
-3. **API Fallback**: If using an external screenshot API, be aware that you're sending URLs to a third party
-4. **XSS/JavaScript Execution**: The `evaluate` action executes arbitrary JavaScript - only use with trusted content
+3. **XSS/JavaScript Execution**: The `evaluate` action executes arbitrary JavaScript - only use with trusted content
+4. **Browser Isolation**: Each tool invocation runs in an isolated browser instance for security
 
 ## Performance Tips
 

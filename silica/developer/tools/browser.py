@@ -5,7 +5,6 @@ browser interactions. It uses Playwright for local browser automation with
 optional fallback to external screenshot services for headless environments.
 """
 
-import os
 import base64
 import json
 from pathlib import Path
@@ -67,8 +66,7 @@ def screenshot_webpage(
     """Take a screenshot of a webpage.
 
     This tool captures a visual representation of a webpage, allowing you to see
-    what you've built. It supports both local Playwright-based screenshots and
-    fallback to external APIs for headless environments.
+    what you've built. Requires Playwright to be installed.
 
     Args:
         url: The URL to screenshot (can be local like http://localhost:8000 or remote)
@@ -79,36 +77,21 @@ def screenshot_webpage(
         wait_for: CSS selector to wait for before taking screenshot, or "networkidle"
         output_format: Image format - "png" or "jpeg" (default: png)
     """
-    # Check for API fallback
-    api_url = os.getenv("SCREENSHOT_API_URL")
-
     # Check if Playwright is available
     playwright_available, error_msg = _check_playwright_available()
 
-    if not playwright_available and not api_url:
-        return (
-            f"Browser tools not available:\n{error_msg}\n\n"
-            "Alternatively, set SCREENSHOT_API_URL environment variable to use an external service."
-        )
+    if not playwright_available:
+        return f"Browser tools not available:\n{error_msg}"
 
-    # Use Playwright if available, otherwise fall back to API
-    if playwright_available:
-        return _screenshot_local(
-            url=url,
-            viewport_width=viewport_width,
-            viewport_height=viewport_height,
-            selector=selector,
-            full_page=full_page,
-            wait_for=wait_for,
-            output_format=output_format,
-        )
-    else:
-        return _screenshot_api(
-            url=url,
-            api_url=api_url,
-            viewport_width=viewport_width,
-            viewport_height=viewport_height,
-        )
+    return _screenshot_local(
+        url=url,
+        viewport_width=viewport_width,
+        viewport_height=viewport_height,
+        selector=selector,
+        full_page=full_page,
+        wait_for=wait_for,
+        output_format=output_format,
+    )
 
 
 def _screenshot_local(
@@ -178,54 +161,6 @@ def _screenshot_local(
 
     except Exception as e:
         return f"Error taking screenshot: {str(e)}"
-
-
-def _screenshot_api(
-    url: str, api_url: str, viewport_width: int, viewport_height: int
-) -> str:
-    """Take a screenshot using an external API service."""
-    import httpx
-
-    scratchpad = _ensure_scratchpad()
-
-    # Generate filename
-    from datetime import datetime
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"screenshot_{timestamp}.png"
-    filepath = scratchpad / filename
-
-    try:
-        # Make request to API (customize based on your API's format)
-        response = httpx.post(
-            api_url,
-            json={
-                "url": url,
-                "viewport": {"width": viewport_width, "height": viewport_height},
-            },
-            timeout=30.0,
-        )
-        response.raise_for_status()
-
-        # Save image
-        with open(filepath, "wb") as f:
-            f.write(response.content)
-
-        # Encode as base64
-        base64_data = base64.b64encode(response.content).decode("utf-8")
-
-        return (
-            f"Screenshot saved to: {filepath}\n"
-            f"Size: {len(response.content)} bytes\n"
-            f"Viewport: {viewport_width}x{viewport_height}\n"
-            f"URL: {url}\n"
-            f"Source: External API ({api_url})\n\n"
-            f"Base64 encoded image:\n{base64_data[:100]}... (truncated for display)\n\n"
-            f"You can view the full image at: {filepath.absolute()}"
-        )
-
-    except Exception as e:
-        return f"Error taking screenshot via API: {str(e)}"
 
 
 @tool
@@ -420,15 +355,13 @@ def browser_interact(
 def get_browser_capabilities(context: AgentContext) -> str:
     """Check what browser tools are available in the current environment.
 
-    Returns information about whether Playwright is installed, browser binaries
-    are available, and what screenshot services are configured.
+    Returns information about whether Playwright is installed and browser binaries
+    are available.
     """
     capabilities = {
         "playwright_installed": False,
         "browser_available": False,
-        "screenshot_available": False,
-        "automation_available": False,
-        "api_fallback_configured": False,
+        "tools_available": False,
         "details": [],
     }
 
@@ -438,9 +371,10 @@ def get_browser_capabilities(context: AgentContext) -> str:
     if playwright_available:
         capabilities["playwright_installed"] = True
         capabilities["browser_available"] = True
-        capabilities["screenshot_available"] = True
-        capabilities["automation_available"] = True
+        capabilities["tools_available"] = True
         capabilities["details"].append("✓ Playwright installed and browser ready")
+        capabilities["details"].append("✓ screenshot_webpage available")
+        capabilities["details"].append("✓ browser_interact available")
     else:
         if "not installed" in error_msg:
             capabilities["details"].append("✗ Playwright not installed")
@@ -451,34 +385,18 @@ def get_browser_capabilities(context: AgentContext) -> str:
         else:
             capabilities["details"].append(f"✗ Playwright error: {error_msg}")
 
-    # Check API fallback
-    api_url = os.getenv("SCREENSHOT_API_URL")
-    if api_url:
-        capabilities["api_fallback_configured"] = True
-        capabilities["screenshot_available"] = True
-        capabilities["details"].append(f"✓ API fallback configured: {api_url}")
-    else:
-        capabilities["details"].append("✗ No screenshot API configured")
-
     # Build response
     response = ["=== Browser Tool Capabilities ===\n"]
     response.append(
-        f"Screenshot Tool: {'Available' if capabilities['screenshot_available'] else 'Not Available'}\n"
-    )
-    response.append(
-        f"Browser Automation: {'Available' if capabilities['automation_available'] else 'Not Available'}\n"
+        f"Browser Tools: {'Available' if capabilities['tools_available'] else 'Not Available'}\n"
     )
     response.append("\n=== Details ===\n")
     response.extend([f"  {d}\n" for d in capabilities["details"]])
 
-    if not capabilities["screenshot_available"]:
+    if not capabilities["tools_available"]:
         response.append("\n=== Setup Instructions ===\n")
         response.append("To enable browser tools, install Playwright:\n")
         response.append("  pip install playwright\n")
         response.append("  playwright install chromium\n")
-        response.append("\nOr configure an external API:\n")
-        response.append(
-            "  export SCREENSHOT_API_URL='https://your-service.com/screenshot'\n"
-        )
 
     return "".join(response)
