@@ -271,7 +271,25 @@ async def invoke_tool(context: "AgentContext", tool_use, tools: List[Callable] =
     else:
         result = tool_func(context, **converted_args)
 
-    return {"type": "tool_result", "tool_use_id": tool_use.id, "content": result}
+    # Check if result is already a properly formatted content block
+    # Tools can return:
+    # 1. A string (legacy) - wrap in text content block
+    # 2. A list of content blocks (new) - use directly
+    # 3. A dict with "type" key (single content block) - wrap in list
+    if isinstance(result, str):
+        # Legacy string return - wrap in text block
+        content = result
+    elif isinstance(result, list):
+        # Already a list of content blocks - use directly
+        content = result
+    elif isinstance(result, dict) and "type" in result:
+        # Single content block - wrap in list
+        content = [result]
+    else:
+        # Unknown format - convert to string
+        content = str(result)
+
+    return {"type": "tool_result", "tool_use_id": tool_use.id, "content": content}
 
 
 def _call_anthropic_with_retry(

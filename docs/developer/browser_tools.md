@@ -14,7 +14,7 @@ The browser tools solve a critical limitation: agents being "blind" when creatin
 
 ### 1. `screenshot_webpage`
 
-Captures a screenshot of a web page, allowing you to see what you've built.
+Captures a screenshot of a web page and **returns the actual image** that Claude can view directly.
 
 **Parameters:**
 - `url` (required): URL to screenshot (local or remote)
@@ -62,8 +62,8 @@ screenshot_webpage(
 
 **Output:**
 - Screenshot saved to `.agent-scratchpad/screenshot_TIMESTAMP.png`
-- Returns file path and base64-encoded image data
-- Includes viewport dimensions and URL
+- **Returns the actual image** for Claude to view directly
+- Includes text summary with file path, viewport dimensions, and URL
 
 ### 2. `browser_interact`
 
@@ -116,7 +116,7 @@ result = browser_interact(
 
 **Output:**
 - List of actions performed with results
-- Screenshots saved to `.agent-scratchpad/screenshot_TIMESTAMP_actionN.png`
+- **All captured screenshots returned as images** for Claude to view
 - Console logs (if enabled)
 - JavaScript evaluation results
 

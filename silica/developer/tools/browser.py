@@ -150,14 +150,28 @@ def _screenshot_local(
             image_data = f.read()
             base64_data = base64.b64encode(image_data).decode("utf-8")
 
-        return (
-            f"Screenshot saved to: {filepath}\n"
-            f"Size: {len(image_data)} bytes\n"
-            f"Viewport: {viewport_width}x{viewport_height}\n"
-            f"URL: {url}\n\n"
-            f"Base64 encoded image:\n{base64_data[:100]}... (truncated for display)\n\n"
-            f"You can view the full image at: {filepath.absolute()}"
-        )
+        # Return both text description and image
+        # Claude can view the image directly!
+        return [
+            {
+                "type": "text",
+                "text": (
+                    f"Screenshot captured successfully!\n"
+                    f"URL: {url}\n"
+                    f"Viewport: {viewport_width}x{viewport_height}\n"
+                    f"Size: {len(image_data)} bytes\n"
+                    f"Saved to: {filepath.absolute()}"
+                ),
+            },
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": f"image/{output_format}",
+                    "data": base64_data,
+                },
+            },
+        ]
 
     except Exception as e:
         return f"Error taking screenshot: {str(e)}"
@@ -329,23 +343,45 @@ def browser_interact(
 
             browser.close()
 
-        # Build response
-        response_parts = [
+        # Build text summary
+        text_parts = [
             "Browser automation completed successfully!\n",
             "\n=== Actions Performed ===\n",
         ]
-        response_parts.extend([f"  {r}\n" for r in results])
-
-        if screenshots:
-            response_parts.append("\n=== Screenshots Captured ===\n")
-            response_parts.extend([f"  {s}\n" for s in screenshots])
+        text_parts.extend([f"  {r}\n" for r in results])
 
         if console_logs:
-            response_parts.append("\n=== Console Logs ===\n")
+            text_parts.append("\n=== Console Logs ===\n")
             for log in console_logs:
-                response_parts.append(f"  [{log['type']}] {log['text']}\n")
+                text_parts.append(f"  [{log['type']}] {log['text']}\n")
 
-        return "".join(response_parts)
+        # Build content blocks - text first, then images
+        content_blocks = [{"type": "text", "text": "".join(text_parts)}]
+
+        # Add screenshot images if captured
+        if screenshots:
+            text_parts.append(
+                f"\n=== {len(screenshots)} Screenshots Captured (shown below) ===\n"
+            )
+            for screenshot_path in screenshots:
+                try:
+                    with open(screenshot_path, "rb") as f:
+                        image_data = f.read()
+                        base64_data = base64.b64encode(image_data).decode("utf-8")
+                        content_blocks.append(
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/png",
+                                    "data": base64_data,
+                                },
+                            }
+                        )
+                except Exception as e:
+                    text_parts.append(f"  Error loading {screenshot_path}: {e}\n")
+
+        return content_blocks
 
     except Exception as e:
         return f"Error during browser automation: {str(e)}"
