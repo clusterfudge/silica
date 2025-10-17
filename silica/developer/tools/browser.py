@@ -20,21 +20,21 @@ def _ensure_scratchpad() -> Path:
     return scratchpad
 
 
-def _check_playwright_available() -> tuple[bool, Optional[str]]:
+async def _check_playwright_available() -> tuple[bool, Optional[str]]:
     """Check if Playwright is available and installed.
 
     Returns:
         Tuple of (available: bool, error_message: Optional[str])
     """
     try:
-        from playwright.sync_api import sync_playwright
+        from playwright.async_api import async_playwright
 
         # Try to launch a browser to verify it's installed
-        with sync_playwright() as p:
+        async with async_playwright() as p:
             # Check if chromium is installed
             try:
-                browser = p.chromium.launch(headless=True)
-                browser.close()
+                browser = await p.chromium.launch(headless=True)
+                await browser.close()
                 return True, None
             except Exception as e:
                 if "Executable doesn't exist" in str(e):
@@ -53,7 +53,7 @@ def _check_playwright_available() -> tuple[bool, Optional[str]]:
 
 
 @tool
-def screenshot_webpage(
+async def screenshot_webpage(
     context: AgentContext,
     url: str,
     viewport_width: int = 1920,
@@ -62,7 +62,7 @@ def screenshot_webpage(
     full_page: bool = False,
     wait_for: Optional[str] = None,
     output_format: str = "png",
-) -> str:
+) -> list:
     """Take a screenshot of a webpage.
 
     This tool captures a visual representation of a webpage, allowing you to see
@@ -78,12 +78,12 @@ def screenshot_webpage(
         output_format: Image format - "png" or "jpeg" (default: png)
     """
     # Check if Playwright is available
-    playwright_available, error_msg = _check_playwright_available()
+    playwright_available, error_msg = await _check_playwright_available()
 
     if not playwright_available:
         return f"Browser tools not available:\n{error_msg}"
 
-    return _screenshot_local(
+    return await _screenshot_local(
         url=url,
         viewport_width=viewport_width,
         viewport_height=viewport_height,
@@ -94,7 +94,7 @@ def screenshot_webpage(
     )
 
 
-def _screenshot_local(
+async def _screenshot_local(
     url: str,
     viewport_width: int,
     viewport_height: int,
@@ -102,9 +102,9 @@ def _screenshot_local(
     full_page: bool,
     wait_for: Optional[str],
     output_format: str,
-) -> str:
+) -> list:
     """Take a screenshot using local Playwright browser."""
-    from playwright.sync_api import sync_playwright
+    from playwright.async_api import async_playwright
 
     scratchpad = _ensure_scratchpad()
 
@@ -116,21 +116,21 @@ def _screenshot_local(
     filepath = scratchpad / filename
 
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page = browser.new_page(
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page(
                 viewport={"width": viewport_width, "height": viewport_height}
             )
 
             # Navigate to URL
-            page.goto(url, wait_until="domcontentloaded")
+            await page.goto(url, wait_until="domcontentloaded")
 
             # Wait for specific condition if requested
             if wait_for:
                 if wait_for == "networkidle":
-                    page.wait_for_load_state("networkidle", timeout=30000)
+                    await page.wait_for_load_state("networkidle", timeout=30000)
                 else:
-                    page.wait_for_selector(wait_for, timeout=30000)
+                    await page.wait_for_selector(wait_for, timeout=30000)
 
             # Take screenshot
             screenshot_options = {"path": str(filepath), "type": output_format}
@@ -139,11 +139,11 @@ def _screenshot_local(
 
             if selector:
                 element = page.locator(selector)
-                element.screenshot(**screenshot_options)
+                await element.screenshot(**screenshot_options)
             else:
-                page.screenshot(**screenshot_options)
+                await page.screenshot(**screenshot_options)
 
-            browser.close()
+            await browser.close()
 
         # Read the file and encode as base64
         with open(filepath, "rb") as f:
@@ -178,7 +178,7 @@ def _screenshot_local(
 
 
 @tool
-def browser_interact(
+async def browser_interact(
     context: AgentContext,
     url: str,
     actions: str,
@@ -187,7 +187,7 @@ def browser_interact(
     capture_screenshots: bool = True,
     capture_console: bool = True,
     timeout: int = 30000,
-) -> str:
+) -> list:
     """Automate browser interactions and test web applications.
 
     This tool allows you to interact with web pages: click buttons, fill forms,
@@ -204,7 +204,7 @@ def browser_interact(
         timeout: Default timeout for actions in milliseconds (default: 30000)
     """
     # Check if Playwright is available (no API fallback for interaction)
-    playwright_available, error_msg = _check_playwright_available()
+    playwright_available, error_msg = await _check_playwright_available()
 
     if not playwright_available:
         return (
@@ -220,7 +220,7 @@ def browser_interact(
     except json.JSONDecodeError as e:
         return f"Error: Invalid JSON in actions parameter: {str(e)}"
 
-    from playwright.sync_api import sync_playwright
+    from playwright.async_api import async_playwright
 
     scratchpad = _ensure_scratchpad()
     console_logs = []
@@ -228,9 +228,9 @@ def browser_interact(
     results = []
 
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page = browser.new_page(
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page(
                 viewport={"width": viewport_width, "height": viewport_height}
             )
 
@@ -244,7 +244,7 @@ def browser_interact(
                 )
 
             # Navigate to URL
-            page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+            await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
             results.append(f"Navigated to: {url}")
 
             # Initial screenshot
@@ -254,7 +254,7 @@ def browser_interact(
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 filename = f"screenshot_{timestamp}_initial.png"
                 filepath = scratchpad / filename
-                page.screenshot(path=str(filepath))
+                await page.screenshot(path=str(filepath))
                 screenshots.append(str(filepath.absolute()))
 
             # Execute actions
@@ -265,13 +265,13 @@ def browser_interact(
                 try:
                     if action_type == "click":
                         selector = action.get("selector")
-                        page.click(selector, timeout=timeout)
+                        await page.click(selector, timeout=timeout)
                         results.append(f"Action {action_num}: Clicked {selector}")
 
                     elif action_type == "type":
                         selector = action.get("selector")
                         text = action.get("text", "")
-                        page.fill(selector, text, timeout=timeout)
+                        await page.fill(selector, text, timeout=timeout)
                         results.append(
                             f"Action {action_num}: Typed '{text}' into {selector}"
                         )
@@ -279,26 +279,26 @@ def browser_interact(
                     elif action_type == "select":
                         selector = action.get("selector")
                         value = action.get("value")
-                        page.select_option(selector, value, timeout=timeout)
+                        await page.select_option(selector, value, timeout=timeout)
                         results.append(
                             f"Action {action_num}: Selected '{value}' in {selector}"
                         )
 
                     elif action_type == "hover":
                         selector = action.get("selector")
-                        page.hover(selector, timeout=timeout)
+                        await page.hover(selector, timeout=timeout)
                         results.append(f"Action {action_num}: Hovered over {selector}")
 
                     elif action_type == "wait":
                         wait_selector = action.get("selector")
                         wait_ms = action.get("ms")
                         if wait_selector:
-                            page.wait_for_selector(wait_selector, timeout=timeout)
+                            await page.wait_for_selector(wait_selector, timeout=timeout)
                             results.append(
                                 f"Action {action_num}: Waited for {wait_selector}"
                             )
                         elif wait_ms:
-                            page.wait_for_timeout(wait_ms)
+                            await page.wait_for_timeout(wait_ms)
                             results.append(f"Action {action_num}: Waited {wait_ms}ms")
                         else:
                             results.append(
@@ -308,7 +308,7 @@ def browser_interact(
                     elif action_type == "scroll":
                         x = action.get("x", 0)
                         y = action.get("y", 0)
-                        page.evaluate(f"window.scrollTo({x}, {y})")
+                        await page.evaluate(f"window.scrollTo({x}, {y})")
                         results.append(f"Action {action_num}: Scrolled to ({x}, {y})")
 
                     elif action_type == "screenshot":
@@ -317,7 +317,7 @@ def browser_interact(
 
                     elif action_type == "evaluate":
                         script = action.get("script", "")
-                        result = page.evaluate(script)
+                        result = await page.evaluate(script)
                         results.append(
                             f"Action {action_num}: Evaluated script, result: {result}"
                         )
@@ -335,13 +335,13 @@ def browser_interact(
                         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
                         filename = f"screenshot_{timestamp}_action{action_num}.png"
                         filepath = scratchpad / filename
-                        page.screenshot(path=str(filepath))
+                        await page.screenshot(path=str(filepath))
                         screenshots.append(str(filepath.absolute()))
 
                 except Exception as e:
                     results.append(f"Action {action_num}: ERROR - {str(e)}")
 
-            browser.close()
+            await browser.close()
 
         # Build text summary
         text_parts = [
@@ -388,7 +388,7 @@ def browser_interact(
 
 
 @tool
-def get_browser_capabilities(context: AgentContext) -> str:
+async def get_browser_capabilities(context: AgentContext) -> str:
     """Check what browser tools are available in the current environment.
 
     Returns information about whether Playwright is installed and browser binaries
@@ -402,7 +402,7 @@ def get_browser_capabilities(context: AgentContext) -> str:
     }
 
     # Check Playwright
-    playwright_available, error_msg = _check_playwright_available()
+    playwright_available, error_msg = await _check_playwright_available()
 
     if playwright_available:
         capabilities["playwright_installed"] = True
