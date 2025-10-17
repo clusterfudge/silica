@@ -145,25 +145,16 @@ Browser Tools: Available
 
 ## Installation
 
-### Standard Installation
-
-Install Playwright for browser automation:
+Playwright is included as a core dependency of Silica. After installing Silica, you just need to install the browser binaries:
 
 ```bash
-pip install 'pysilica[browser]'
-playwright install chromium
-```
-
-Or manually:
-
-```bash
-pip install playwright
+pip install pysilica
 playwright install chromium
 ```
 
 ### Docker Deployment
 
-Use the Playwright Docker image as a base:
+Use the Playwright Docker image as a base (browser binaries already included):
 
 ```dockerfile
 FROM mcr.microsoft.com/playwright/python:v1.40.0
@@ -171,7 +162,7 @@ FROM mcr.microsoft.com/playwright/python:v1.40.0
 # Install your application
 COPY . /app
 WORKDIR /app
-RUN pip install -e '.[browser]'
+RUN pip install -e .
 ```
 
 ### System Dependencies
