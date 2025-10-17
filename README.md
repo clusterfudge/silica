@@ -11,9 +11,11 @@ For systems with Python 3.11+:
 ```bash
 # Using uv (recommended)
 uv pip install pysilica
+playwright install chromium  # Install browser for web development tools
 
 # Using pip
 pip install pysilica
+playwright install chromium  # Install browser for web development tools
 ```
 
 ### Raspberry Pi Deployment
@@ -34,6 +36,7 @@ For detailed deployment information, see the [Raspberry Pi Deployment Guide](doc
 
 - **Python**: 3.11 or higher (required)
 - **Package Manager**: `uv` (recommended) or `pip`
+- **Playwright Browser**: Required for web development tools (installed via `playwright install chromium`)
 - **ripgrep**: Optional but recommended for enhanced file search performance
 
 For complete installation instructions, see [docs/INSTALLATION.md](docs/remote/INSTALLATION.md).

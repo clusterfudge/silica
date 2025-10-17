@@ -12,6 +12,11 @@ from .shell import (
     shell_session_set_timeout,
 )
 from .web import web_search, safe_curl
+from .browser import (
+    screenshot_webpage,
+    browser_interact,
+    get_browser_capabilities,
+)
 from .gcal import (
     calendar_setup,
     calendar_list_events,
@@ -60,6 +65,10 @@ ALL_TOOLS = (
         agent,
         safe_curl,
         python_repl,
+        # Browser tools
+        screenshot_webpage,
+        browser_interact,
+        get_browser_capabilities,
         # Shell tools (dual architecture)
         shell_execute,
         shell_session_create,
