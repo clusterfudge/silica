@@ -324,13 +324,57 @@ class CLIUserInterface(UserInterface):
         # Create the header section with command name only (parameters section removed)
         header = Group(Text("Command:", style="bold blue"), Text(f"  {name}"))
 
-        # Create the result section - treat content as markdown for code blocks, etc.
+        # Create the result section - handle content blocks or plain text
         result_header = Text("Result:", style="bold green")
-        result_content = (
-            Markdown(content)
-            if isinstance(content, str) and markdown
-            else Text(str(content))
-        )
+
+        # Check if content is a list of content blocks (new format with images)
+        if isinstance(content, list):
+            result_parts = []
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    # Text block - render as markdown
+                    text_content = block.get("text", "")
+                    if markdown and text_content:
+                        result_parts.append(Markdown(text_content))
+                    else:
+                        result_parts.append(Text(text_content))
+                elif isinstance(block, dict) and block.get("type") == "image":
+                    # Image block - show summary instead of raw base64
+                    source = block.get("source", {})
+                    if source.get("type") == "base64":
+                        data = source.get("data", "")
+                        media_type = source.get("media_type", "image/unknown")
+
+                        # Calculate approximate size in KB
+                        # Base64 encoding increases size by ~33%, so decode size is roughly size * 0.75
+                        base64_size_kb = len(data) * 0.75 / 1024
+
+                        # Create a nice summary
+                        image_summary = Text.assemble(
+                            ("📷 ", "cyan"),
+                            ("Image ", "bold cyan"),
+                            (f"({media_type}, ~{base64_size_kb:.1f} KB)", "dim"),
+                        )
+                        result_parts.append(image_summary)
+                    else:
+                        result_parts.append(
+                            Text(
+                                f"[Image: {source.get('type', 'unknown')}]",
+                                style="cyan",
+                            )
+                        )
+                else:
+                    # Unknown block type - show as text
+                    result_parts.append(Text(str(block)))
+
+            result_content = Group(*result_parts) if result_parts else Text("")
+        else:
+            # Legacy string content
+            result_content = (
+                Markdown(content)
+                if isinstance(content, str) and markdown
+                else Text(str(content))
+            )
 
         # Group all components together
         display_group = Group(header, Text(""), result_header, result_content)
