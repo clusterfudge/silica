@@ -244,7 +244,7 @@ class TestCompactionCommands(unittest.TestCase):
     @mock.patch("anthropic.Client")
     def test_micro_compact_command_default(self, mock_client_class):
         """Test the /mc command with default (3 turns)."""
-        # Setup mock
+        # Setup mock client
         mock_client = MockAnthropicClient(summary_text="Summary of first 3 turns")
         mock_client_class.return_value = mock_client
 
@@ -287,7 +287,7 @@ class TestCompactionCommands(unittest.TestCase):
     @mock.patch("anthropic.Client")
     def test_micro_compact_command_custom_turns(self, mock_client_class):
         """Test the /mc command with custom number of turns."""
-        # Setup mock
+        # Setup mock client
         mock_client = MockAnthropicClient(summary_text="Summary of first 2 turns")
         mock_client_class.return_value = mock_client
 
@@ -326,7 +326,7 @@ class TestCompactionCommands(unittest.TestCase):
     @mock.patch("anthropic.Client")
     def test_micro_compact_command_insufficient_messages(self, mock_client_class):
         """Test /mc with too few messages for the requested turns."""
-        # Setup mock
+        # Setup mock client
         mock_client = MockAnthropicClient()
         mock_client_class.return_value = mock_client
 
@@ -364,7 +364,7 @@ class TestCompactionCommands(unittest.TestCase):
     @mock.patch("anthropic.Client")
     def test_micro_compact_command_invalid_input(self, mock_client_class):
         """Test /mc with invalid input."""
-        # Setup mock
+        # Setup mock client
         mock_client = MockAnthropicClient()
         mock_client_class.return_value = mock_client
 
