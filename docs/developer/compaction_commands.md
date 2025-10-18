@@ -47,17 +47,23 @@ Explicitly trigger full conversation compaction, regardless of the current token
 
 ### `/mc [N]` - Micro-Compact
 
-Micro-compact the conversation by summarizing only the first N turns (where 1 turn = user message + assistant response) and keeping the rest of the conversation intact.
+Micro-compact the conversation by summarizing only the first N turns and keeping the rest of the conversation intact.
+
+**Note on turns:** A turn must end with a user message (API requirement):
+- Turn 1 = 1 message (user)
+- Turn 2 = 3 messages (user, assistant, user)
+- Turn 3 = 5 messages (user, assistant, user, assistant, user)
+- Turn N = (2N - 1) messages
 
 **Usage:**
 ```
-/mc           # Summarizes first 3 turns (default)
-/mc 5         # Summarizes first 5 turns
-/mc 10        # Summarizes first 10 turns
+/mc           # Summarizes first 3 turns (5 messages)
+/mc 5         # Summarizes first 5 turns (9 messages)
+/mc 10        # Summarizes first 10 turns (19 messages)
 ```
 
 **What it does:**
-- Takes the first N conversation turns (N×2 messages)
+- Takes the first N conversation turns ((2N-1) messages)
 - Generates a summary of just those turns
 - Keeps all remaining messages as-is
 - Updates the conversation to start with the summary, followed by the remaining messages
@@ -66,13 +72,13 @@ Micro-compact the conversation by summarizing only the first N turns (where 1 tu
 ```
 ✓ Micro-compaction completed!
 
-**Compacted:** First 3 turns (6 messages)
+**Compacted:** First 3 turns (5 messages)
 
-**Kept:** 8 messages from the rest of the conversation
+**Kept:** 9 messages from the rest of the conversation
 
-**Final message count:** 9 (was 14)
+**Final message count:** 10 (was 14)
 
-**Estimated compression:** 6 messages → ~500 tokens
+**Estimated compression:** 5 messages → ~450 tokens
 ```
 
 **When to use:**
@@ -89,7 +95,7 @@ Micro-compact the conversation by summarizing only the first N turns (where 1 tu
 
 **Requirements:**
 - Must have more messages than you're trying to compact
-- Example: To compact 3 turns (6 messages), you need at least 7 messages total
+- Example: To compact 3 turns (5 messages), you need at least 6 messages total
 
 ---
 
@@ -176,10 +182,10 @@ User: /mc
 System: Micro-compacting first 3 turns (this may take a moment)...
 
 ✓ Micro-compaction completed!
-**Compacted:** First 3 turns (6 messages)
-**Kept:** 14 messages from the rest of the conversation
-**Final message count:** 15 (was 20)
-**Estimated compression:** 6 messages → ~450 tokens
+**Compacted:** First 3 turns (5 messages)
+**Kept:** 15 messages from the rest of the conversation
+**Final message count:** 16 (was 20)
+**Estimated compression:** 5 messages → ~400 tokens
 ```
 
 ### Example 3: Micro-Compact with Custom Amount
@@ -188,10 +194,10 @@ User: /mc 8
 System: Micro-compacting first 8 turns (this may take a moment)...
 
 ✓ Micro-compaction completed!
-**Compacted:** First 8 turns (16 messages)
-**Kept:** 24 messages from the rest of the conversation
-**Final message count:** 25 (was 40)
-**Estimated compression:** 16 messages → ~1,200 tokens
+**Compacted:** First 8 turns (15 messages)
+**Kept:** 25 messages from the rest of the conversation
+**Final message count:** 26 (was 40)
+**Estimated compression:** 15 messages → ~1,100 tokens
 ```
 
 ## Error Handling
@@ -215,7 +221,7 @@ Error: Number of turns must be at least 1
 ```
 User: /mc 10
 Error: Not enough conversation history to micro-compact 10 turns 
-(need more than 20 messages, have 12)
+(need more than 19 messages, have 12)
 ```
 
 ## See Also
@@ -223,3 +229,53 @@ Error: Not enough conversation history to micro-compact 10 turns
 - [Compaction Improvements](compaction_improvements.md) - Details on automatic compaction
 - [Session Management](session_management.md) - Managing and resuming sessions
 - `/help` command - List all available CLI commands
+
+#### `/mc [N]` Command
+```python
+def _micro_compact(self, user_interface, sandbox, user_input, *args, **kwargs):
+    """Micro-compact: summarize first N turns and keep the rest."""
+```
+
+Features:
+- Compacts only the first N conversation turns (default 3)
+- A turn must end with a user message (API requirement)
+  - Turn 1 = 1 message (user)
+  - Turn 2 = 3 messages (user, assistant, user)
+  - Turn 3 = 5 messages (user, assistant, user, assistant, user)
+  - Turn N = (2N - 1) messages
+- Generates summary of compacted portion only
+#### Micro-Compaction (Default)
+```bash
+> /mc
+Micro-compacting first 3 turns (this may take a moment)...
+
+✓ Micro-compaction completed!
+**Compacted:** First 3 turns (5 messages)
+**Kept:** 9 messages from the rest of the conversation
+**Final message count:** 10 (was 14)
+```
+
+Note: Turn N = (2N - 1) messages because:
+- Turn 1 = 1 message (user)
+- Turn 2 = 3 messages (user, assistant, user)
+- Turn 3 = 5 messages (user, assistant, user, assistant, user)
+
+#### Micro-Compaction (Custom)
+```bash
+> /mc 5
+Micro-compacting first 5 turns (this may take a moment)...
+
+✓ Micro-compaction completed!
+**Compacted:** First 5 turns (9 messages)
+**Kept:** 21 messages from the rest of the conversation
+**Final message count:** 22 (was 30)
+```
+| Aspect | `/compact` | `/mc [N]` |
+|--------|-----------|-----------|
+| **Scope** | Entire conversation | First N turns only |
+| **Archives** | Yes (timestamped) | No |
+| **Recent Context** | Last 2 turns preserved | All remaining messages preserved |
+| **Use Case** | Major reset/topic change | Incremental optimization |
+| **Compression** | Maximum | Moderate (adjustable) |
+| **API Calls** | 1 (full summary) | 1 (partial summary) |
+| **Turn Definition** | - | Turn N = (2N-1) messages |

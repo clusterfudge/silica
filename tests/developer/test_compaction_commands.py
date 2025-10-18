@@ -274,11 +274,12 @@ class TestCompactionCommands(unittest.TestCase):
         self.assertIn("Micro-compaction completed", result)
         self.assertIn("Compacted:", result)
         self.assertIn("3 turns", result)
-        self.assertIn("6 messages", result)  # 3 turns = 6 messages
+        self.assertIn("5 messages", result)  # 3 turns = (3*2)-1 = 5 messages
 
         # Verify context was modified correctly
-        # Should have: 1 summary message + 2 remaining messages (4th turn)
-        self.assertEqual(len(context.chat_history), 3)
+        # Should have: 1 summary message + 3 remaining messages (from original 8)
+        # Original 8 - 5 compacted = 3 remaining + 1 summary = 4 total
+        self.assertEqual(len(context.chat_history), 4)
 
         # Verify first message is the summary
         self.assertIn("Micro-Compacted Summary", context.chat_history[0]["content"])
@@ -315,11 +316,12 @@ class TestCompactionCommands(unittest.TestCase):
         # Verify micro-compaction occurred
         self.assertIn("Micro-compaction completed", result)
         self.assertIn("2 turns", result)
-        self.assertIn("4 messages", result)  # 2 turns = 4 messages
+        self.assertIn("3 messages", result)  # 2 turns = (2*2)-1 = 3 messages
 
         # Verify context was modified correctly
-        # Should have: 1 summary message + 4 remaining messages (3rd and 4th turn)
-        self.assertEqual(len(context.chat_history), 5)
+        # Should have: 1 summary message + 5 remaining messages (from original 8)
+        # Original 8 - 3 compacted = 5 remaining + 1 summary = 6 total
+        self.assertEqual(len(context.chat_history), 6)
 
     @mock.patch("anthropic.Client")
     def test_micro_compact_command_insufficient_messages(self, mock_client_class):

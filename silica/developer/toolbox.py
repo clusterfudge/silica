@@ -1142,8 +1142,13 @@ class Toolbox:
             except ValueError:
                 return f"Error: Invalid number '{user_input.strip()}'. Please provide an integer."
 
-        # Calculate number of messages (2 messages per turn: user + assistant)
-        messages_to_compact = turns_to_compact * 2
+        # Calculate number of messages for N turns
+        # Turn structure: must start with user and end with user
+        # Turn 1: 1 message (user)
+        # Turn 2: 3 messages (user, assistant, user)
+        # Turn 3: 5 messages (user, assistant, user, assistant, user)
+        # Turn N: (2N - 1) messages
+        messages_to_compact = (turns_to_compact * 2) - 1
 
         # Check if there's enough conversation to compact
         if len(self.context.chat_history) <= messages_to_compact:
