@@ -1,1 +1,1 @@
-web: uv run silica remote antennae --port $PORT
+web: uv cache clean pysilica && uv sync --upgrade && uv run silica remote antennae --port $PORT
