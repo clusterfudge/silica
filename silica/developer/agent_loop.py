@@ -389,7 +389,7 @@ async def run(
                 # This ensures we have the complete conversation state including tool interactions
                 from silica.developer.compacter import ConversationCompacter
 
-                compacter = ConversationCompacter(logger=logger)
+                compacter = ConversationCompacter(client=client, logger=logger)
                 agent_context, _ = compacter.check_and_apply_compaction(
                     agent_context, model["title"], user_interface, enable_compaction
                 )
@@ -421,7 +421,9 @@ async def run(
                                     ConversationCompacter,
                                 )
 
-                                compacter = ConversationCompacter(logger=logger)
+                                compacter = ConversationCompacter(
+                                    client=client, logger=logger
+                                )
                                 model_name = model["title"]
 
                                 # Check if conversation has incomplete tool_use before counting tokens

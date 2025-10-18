@@ -1085,13 +1085,22 @@ class Toolbox:
     def _compact(self, user_interface, sandbox, user_input, *args, **kwargs):
         """Explicitly trigger full conversation compaction."""
         from silica.developer.compacter import ConversationCompacter
+        import anthropic
+        import os
+        from dotenv import load_dotenv
 
         # Check if there's enough conversation to compact
         if len(self.context.chat_history) <= 2:
             return "Error: Not enough conversation history to compact (need more than 2 messages)"
 
-        # Create compacter instance
-        compacter = ConversationCompacter()
+        # Create Anthropic client and compacter instance
+        load_dotenv()
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            return "Error: ANTHROPIC_API_KEY environment variable not set"
+
+        client = anthropic.Client(api_key=api_key)
+        compacter = ConversationCompacter(client=client)
         model_name = self.context.model_spec["title"]
 
         try:
@@ -1159,8 +1168,18 @@ class Toolbox:
         messages_to_summarize = self.context.chat_history[:messages_to_compact]
         messages_to_keep = self.context.chat_history[messages_to_compact:]
 
-        # Create compacter instance
-        compacter = ConversationCompacter()
+        # Create Anthropic client and compacter instance
+        import anthropic
+        import os
+        from dotenv import load_dotenv
+
+        load_dotenv()
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            return "Error: ANTHROPIC_API_KEY environment variable not set"
+
+        client = anthropic.Client(api_key=api_key)
+        compacter = ConversationCompacter(client=client)
         model_name = self.context.model_spec["title"]
 
         try:

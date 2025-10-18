@@ -12,7 +12,6 @@ from typing import List
 from dataclasses import dataclass
 import anthropic
 from anthropic.types import MessageParam
-from dotenv import load_dotenv
 
 from silica.developer.context import AgentContext
 from silica.developer.models import model_names, get_model
@@ -49,15 +48,15 @@ class ConversationCompacter:
 
     def __init__(
         self,
+        client: anthropic.Client,
         threshold_ratio: float = DEFAULT_COMPACTION_THRESHOLD_RATIO,
-        client=None,
         logger=None,
     ):
         """Initialize the conversation compacter.
 
         Args:
+            client: Anthropic client instance (required)
             threshold_ratio: Ratio of model's context window to trigger compaction
-            client: Anthropic client instance (optional, for testing)
             logger: RequestResponseLogger instance (optional, for logging API calls)
         """
         # Allow threshold to be configured via environment variable
@@ -80,36 +79,13 @@ class ConversationCompacter:
 
         self.threshold_ratio = threshold_ratio
         self.logger = logger
+        self.client = client
 
         # Get model context window information
-
         self.model_context_windows = {
             model_data["title"]: model_data.get("context_window", 100000)
             for model_data in [get_model(ms) for ms in model_names()]
         }
-
-        if client:
-            self.client = client
-        else:
-            # Defer client creation until it's actually needed
-            # This allows tests to mock methods without requiring an API key
-            self.client = None
-            self.api_key = None
-
-    def _ensure_client(self):
-        """Ensure the Anthropic client is initialized.
-
-        Called lazily when the client is first needed. This allows tests to mock
-        methods without requiring an API key to be set.
-        """
-        if self.client is None:
-            load_dotenv()
-            self.api_key = os.getenv("ANTHROPIC_API_KEY")
-
-            if not self.api_key:
-                raise ValueError("ANTHROPIC_API_KEY environment variable not set")
-
-            self.client = anthropic.Client(api_key=self.api_key)
 
     def count_tokens(self, agent_context, model: str) -> int:
         """Count tokens for the complete context sent to the API.
@@ -124,8 +100,6 @@ class ConversationCompacter:
         Returns:
             int: Number of tokens for the complete context
         """
-        self._ensure_client()
-
         try:
             # Get the full context that would be sent to the API
             context_dict = agent_context.get_api_context()
@@ -453,8 +427,6 @@ class ConversationCompacter:
         Returns:
             CompactionSummary: Summary of the compacted conversation
         """
-        self._ensure_client()
-
         # Get original token count using accurate method
         original_token_count = self.count_tokens(agent_context, model)
 

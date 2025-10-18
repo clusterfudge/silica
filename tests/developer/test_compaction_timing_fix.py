@@ -239,8 +239,8 @@ class TestCompactionTimingFix(unittest.TestCase):
         with mock.patch.object(
             ConversationCompacter, "compact_conversation", return_value=metadata
         ):
-            # Create real compacter instance and test the method
-            compacter = ConversationCompacter()
+            # Create real compacter instance with mock client and test the method
+            compacter = ConversationCompacter(client=mock_client)
             updated_context, compaction_applied = compacter.check_and_apply_compaction(
                 context, self.model_spec["title"], ui, enable_compaction=True
             )
@@ -276,7 +276,7 @@ class TestCompactionTimingFix(unittest.TestCase):
         context._chat_history = self.sample_messages.copy()
 
         # Test with compaction disabled - use model title string, not dict
-        compacter = ConversationCompacter()
+        compacter = ConversationCompacter(client=mock_client)
         updated_context, compaction_applied = compacter.check_and_apply_compaction(
             context, self.model_spec["title"], ui, enable_compaction=False
         )
@@ -311,7 +311,7 @@ class TestCompactionTimingFix(unittest.TestCase):
         context.tool_result_buffer.append({"type": "text", "text": "Pending result"})
 
         # Test with pending tool results - use model title string, not dict
-        compacter = ConversationCompacter()
+        compacter = ConversationCompacter(client=mock_client)
         updated_context, compaction_applied = compacter.check_and_apply_compaction(
             context, self.model_spec["title"], ui, enable_compaction=True
         )
