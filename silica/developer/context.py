@@ -320,6 +320,7 @@ class AgentContext:
         # Update this context in place
         self._chat_history = new_messages
         self._tool_result_buffer.clear()
+        self.flush(new_messages, compact=False)
 
         # Store compaction metadata if provided
         if compaction_metadata:

@@ -586,8 +586,11 @@ class ConversationCompacter:
         # This is configurable - here we're adding the last user/assistant exchange
         context_dict = agent_context.get_api_context()
         messages_to_use = context_dict["messages"]
-        if len(messages_to_use) >= 2:
-            new_messages.extend(messages_to_use[-2:])
+        preserver_message_count = 2
+        if len(messages_to_use) >= preserver_message_count:
+            if messages_to_use[-1]["role"] == "assistant":
+                preserver_message_count = 1
+            new_messages.extend(messages_to_use[-preserver_message_count:])
 
         # Create metadata for the compaction (archive_name will be set by rotate())
         metadata = CompactionMetadata(

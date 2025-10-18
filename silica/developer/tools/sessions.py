@@ -306,29 +306,29 @@ def resume_session(session_id: str) -> bool:
         if stored_cli_args:
             # CLI args should be stored as a list
             if isinstance(stored_cli_args, list):
-                hdev_command = _reconstruct_command_from_list(stored_cli_args)
+                silica_command = _reconstruct_command_from_list(stored_cli_args)
             else:
                 # Fallback to basic command for unexpected format
                 console.print(
                     f"Unexpected CLI args format, using basic command with model: {model}",
                     style="yellow",
                 )
-                hdev_command = ["hdev", "--model", model]
+                silica_command = ["silica", "--model", model]
         else:
             # Fallback for sessions without stored CLI args (backward compatibility)
             console.print(
                 f"No stored CLI args found, using basic command with model: {model}",
                 style="yellow",
             )
-            hdev_command = ["hdev", "--model", model]
+            silica_command = ["silica", "--model", model]
 
         # Launch hdev with environment variable to resume the session
-        os.environ["HEARE_DEVELOPER_SESSION_ID"] = full_session_id
+        os.environ["SILICA_DEVELOPER_SESSION_ID"] = full_session_id
 
-        console.print(f"Executing: {' '.join(hdev_command)}", style="blue")
+        console.print(f"Executing: {' '.join(silica_command)}", style="blue")
 
         # Execute command (replace current process)
-        os.execvp("hdev", hdev_command)
+        os.execvp("silica", silica_command)
 
         return True
     except Exception as e:
@@ -347,7 +347,7 @@ def _reconstruct_command_from_list(original_args: list[str]) -> list[str]:
     Returns:
         List of command line arguments
     """
-    command = ["hdev"]
+    command = ["silica"]
 
     # Skip the first argument (program name) and filter out inappropriate arguments
     i = 1

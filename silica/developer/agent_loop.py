@@ -512,20 +512,6 @@ async def run(
                     try:
                         await rate_limiter.check_and_wait(user_interface)
 
-                        # Check for compaction before making API call - this is the critical timing
-                        # where we can catch conversations that have grown too large
-                        agent_context, compaction_applied = _check_and_apply_compaction(
-                            agent_context,
-                            model,
-                            user_interface,
-                            enable_compaction,
-                            logger,
-                        )
-                        if compaction_applied:
-                            # If compaction occurred, restart the API request attempt
-                            # with the newly compacted conversation
-                            continue
-
                         # Calculate conversation size before sending the next request
                         # This ensures we have a complete conversation state for accurate counting
                         conversation_size_for_display = None
