@@ -16,6 +16,7 @@ from .browser import (
     screenshot_webpage,
     browser_interact,
     get_browser_capabilities,
+    inspect_dom,
 )
 from .gcal import (
     calendar_setup,
@@ -69,6 +70,7 @@ ALL_TOOLS = (
         screenshot_webpage,
         browser_interact,
         get_browser_capabilities,
+        inspect_dom,
         # Shell tools (dual architecture)
         shell_execute,
         shell_session_create,
