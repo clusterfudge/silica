@@ -18,6 +18,16 @@ from .browser import (
     get_browser_capabilities,
     inspect_dom,
 )
+from .browser_session_tools import (
+    browser_session_create,
+    browser_session_navigate,
+    browser_session_interact,
+    browser_session_inspect,
+    browser_session_screenshot,
+    browser_session_list,
+    browser_session_destroy,
+    browser_session_get_info,
+)
 from .gcal import (
     calendar_setup,
     calendar_list_events,
@@ -66,11 +76,20 @@ ALL_TOOLS = (
         agent,
         safe_curl,
         python_repl,
-        # Browser tools
+        # Browser tools (one-off operations)
         screenshot_webpage,
         browser_interact,
         get_browser_capabilities,
         inspect_dom,
+        # Browser session tools (stateful operations)
+        browser_session_create,
+        browser_session_navigate,
+        browser_session_interact,
+        browser_session_inspect,
+        browser_session_screenshot,
+        browser_session_list,
+        browser_session_destroy,
+        browser_session_get_info,
         # Shell tools (dual architecture)
         shell_execute,
         shell_session_create,
