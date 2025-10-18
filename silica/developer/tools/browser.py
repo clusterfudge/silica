@@ -417,7 +417,7 @@ async def inspect_dom(
         JSON string with information about matching elements including:
         - count: number of elements found
         - elements: list of element details (tag, text, attributes, innerHTML)
-    
+
     Note: Either selector or element_id must be provided (not both).
     """
     # Validate parameters
@@ -429,7 +429,7 @@ async def inspect_dom(
             },
             indent=2,
         )
-    
+
     if selector and element_id:
         return json.dumps(
             {
@@ -438,11 +438,11 @@ async def inspect_dom(
             },
             indent=2,
         )
-    
+
     # If element_id is provided, convert it to a selector
     if element_id:
         selector = f"#{element_id}"
-    
+
     # Check if Playwright is available
     playwright_available, error_msg = await _check_playwright_available()
 
@@ -495,7 +495,7 @@ async def inspect_dom(
                     tag_name = await element.evaluate("el => el.tagName.toLowerCase()")
                     text_content = await element.text_content()
                     inner_html = await element.inner_html()
-                    
+
                     # Get all attributes
                     attributes = await element.evaluate(
                         """el => {
@@ -509,17 +509,24 @@ async def inspect_dom(
 
                     # Get computed styles for visibility
                     is_visible = await element.is_visible()
-                    is_enabled = await element.is_enabled() if tag_name in ["button", "input", "select", "textarea"] else None
+                    is_enabled = (
+                        await element.is_enabled()
+                        if tag_name in ["button", "input", "select", "textarea"]
+                        else None
+                    )
 
                     element_info = {
                         "index": i,
                         "tag": tag_name,
                         "text": text_content.strip() if text_content else "",
                         "attributes": attributes,
-                        "innerHTML": inner_html[:200] + ("..." if len(inner_html) > 200 else ""),  # Truncate long HTML
+                        "innerHTML": inner_html[:200]
+                        + (
+                            "..." if len(inner_html) > 200 else ""
+                        ),  # Truncate long HTML
                         "visible": is_visible,
                     }
-                    
+
                     if is_enabled is not None:
                         element_info["enabled"] = is_enabled
 
