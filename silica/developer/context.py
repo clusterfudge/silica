@@ -60,9 +60,16 @@ class AgentContext:
         Returns:
             Path to the history directory for this context
         """
-        base = (
-            self.history_base_dir if self.history_base_dir else (Path.home() / ".hdev")
-        )
+        # Ensure history_base_dir is a Path object
+        if self.history_base_dir:
+            base = (
+                Path(self.history_base_dir)
+                if not isinstance(self.history_base_dir, Path)
+                else self.history_base_dir
+            )
+        else:
+            base = Path.home() / ".hdev"
+
         context_dir = (
             self.parent_session_id if self.parent_session_id else self.session_id
         )

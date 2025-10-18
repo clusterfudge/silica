@@ -18,7 +18,9 @@ from silica.developer.context import AgentContext
 from silica.developer.models import model_names, get_model
 
 # Default threshold ratio of model's context window to trigger compaction
-DEFAULT_COMPACTION_THRESHOLD_RATIO = 0.85  # Trigger compaction at 85% of context window
+# Lowered from 0.85 to 0.65 to trigger compaction earlier (at ~130K tokens for 200K context)
+# This prevents conversations from growing too large before compaction
+DEFAULT_COMPACTION_THRESHOLD_RATIO = 0.65  # Trigger compaction at 65% of context window
 
 
 @dataclass
@@ -60,6 +62,24 @@ class ConversationCompacter:
             client: Anthropic client instance (optional, for testing)
             logger: RequestResponseLogger instance (optional, for logging API calls)
         """
+        # Allow threshold to be configured via environment variable
+        env_threshold = os.getenv("SILICA_COMPACTION_THRESHOLD")
+        if env_threshold:
+            try:
+                threshold_ratio = float(env_threshold)
+                if not 0.0 < threshold_ratio < 1.0:
+                    print(
+                        f"Warning: SILICA_COMPACTION_THRESHOLD must be between 0 and 1, "
+                        f"got {threshold_ratio}. Using default {DEFAULT_COMPACTION_THRESHOLD_RATIO}"
+                    )
+                    threshold_ratio = DEFAULT_COMPACTION_THRESHOLD_RATIO
+            except ValueError:
+                print(
+                    f"Warning: Invalid SILICA_COMPACTION_THRESHOLD value '{env_threshold}'. "
+                    f"Using default {DEFAULT_COMPACTION_THRESHOLD_RATIO}"
+                )
+                threshold_ratio = DEFAULT_COMPACTION_THRESHOLD_RATIO
+
         self.threshold_ratio = threshold_ratio
         self.logger = logger
 
@@ -376,12 +396,13 @@ class ConversationCompacter:
         words = len(text.split())
         return int(words / 0.75)
 
-    def should_compact(self, agent_context, model: str) -> bool:
+    def should_compact(self, agent_context, model: str, debug: bool = False) -> bool:
         """Check if a conversation should be compacted.
 
         Args:
             agent_context: AgentContext instance to get full API context from
             model: Model name to use for token counting
+            debug: If True, print debug information about the compaction check
 
         Returns:
             bool: True if the conversation should be compacted
@@ -395,7 +416,20 @@ class ConversationCompacter:
         # Calculate threshold based on context window and threshold ratio
         token_threshold = int(context_window * self.threshold_ratio)
 
-        return token_count > token_threshold
+        should_compact = token_count > token_threshold
+
+        # Print debug information if requested
+        if debug:
+            print("\n[Compaction Check]")
+            print(f"  Model: {model}")
+            print(f"  Context window: {context_window:,}")
+            print(f"  Threshold ratio: {self.threshold_ratio:.0%}")
+            print(f"  Token threshold: {token_threshold:,}")
+            print(f"  Current tokens: {token_count:,}")
+            print(f"  Usage: {token_count / context_window:.1%}")
+            print(f"  Should compact: {should_compact}")
+
+        return should_compact
 
     def generate_summary(self, agent_context, model: str) -> CompactionSummary:
         """Generate a summary of the conversation.
@@ -532,6 +566,7 @@ class ConversationCompacter:
         if not force and not self.should_compact(agent_context, model):
             return None
 
+        print("Initiating compaction...")
         # Generate summary
         summary = self.generate_summary(agent_context, model)
 

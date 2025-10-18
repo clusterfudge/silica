@@ -246,16 +246,35 @@ def _check_and_apply_compaction(
     Returns:
         Tuple of (agent_context, True if compaction was applied)
     """
+    # Check if debug mode is enabled
+    debug_compaction = os.getenv("SILICA_DEBUG_COMPACTION", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
     if not enable_compaction:
+        if debug_compaction:
+            print("[Compaction] Disabled via enable_compaction=False")
         return agent_context, False
 
     # Only check compaction when conversation state is complete
     # (no pending tool results and conversation has actual content)
-    if (
-        agent_context.tool_result_buffer
-        or not agent_context.chat_history
-        or len(agent_context.chat_history) <= 2
-    ):
+    if agent_context.tool_result_buffer:
+        if debug_compaction:
+            print("[Compaction] Skipped: pending tool results")
+        return agent_context, False
+
+    if not agent_context.chat_history:
+        if debug_compaction:
+            print("[Compaction] Skipped: no chat history")
+        return agent_context, False
+
+    if len(agent_context.chat_history) <= 2:
+        if debug_compaction:
+            print(
+                f"[Compaction] Skipped: only {len(agent_context.chat_history)} messages"
+            )
         return agent_context, False
 
     try:
@@ -263,6 +282,16 @@ def _check_and_apply_compaction(
 
         compacter = ConversationCompacter(logger=logger)
         model_name = model["title"]
+
+        if debug_compaction:
+            print("[Compaction] Checking if compaction needed...")
+            # Call should_compact with debug flag to see detailed info
+            should_compact = compacter.should_compact(
+                agent_context, model_name, debug=True
+            )
+            if not should_compact:
+                print("[Compaction] Not needed yet")
+                return agent_context, False
 
         # Compact conversation - mutates agent_context in place if compaction occurs
         # This includes updating messages, clearing buffers, AND setting metadata
@@ -285,10 +314,21 @@ def _check_and_apply_compaction(
 
     except Exception as e:
         # Log compaction errors but continue normally
+        import traceback
+
+        error_details = traceback.format_exc()
+
+        # Show user-friendly error message
         user_interface.handle_system_message(
             f"[yellow]Compaction check failed: {e}[/yellow]",
             markdown=False,
         )
+
+        # Print detailed error to stderr for debugging
+        import sys
+
+        print("\n[Compaction Error Details]", file=sys.stderr)
+        print(error_details, file=sys.stderr)
 
     return agent_context, False
 

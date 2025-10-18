@@ -104,6 +104,18 @@ class Toolbox:
             "resume", self._resume_session, "Resume a previous developer session"
         )
 
+        # Register compaction CLI tools
+        self.register_cli_tool(
+            "compact",
+            self._compact,
+            "Explicitly trigger full conversation compaction",
+        )
+        self.register_cli_tool(
+            "mc",
+            self._micro_compact,
+            "Micro-compact: summarize first N turns and keep the rest (default N=3)",
+        )
+
         # Register Google Auth CLI tools
         for name, tool_info in GOOGLE_AUTH_CLI_TOOLS.items():
             self.register_cli_tool(
@@ -330,6 +342,10 @@ class Toolbox:
         help_text = "## Available commands:\n"
         help_text += "- **/restart** - Clear chat history and start over\n"
         help_text += "- **/quit** - Quit the chat\n"
+        help_text += (
+            "- **/compact** - Explicitly trigger full conversation compaction\n"
+        )
+        help_text += "- **/mc [N]** - Micro-compact: summarize first N turns (default 3) and keep the rest\n"
 
         displayed_tools = set()
         for tool_name, spec in self.local.items():
@@ -383,6 +399,12 @@ class Toolbox:
 * Use `/sessions` to list previous chat sessions
 * Use `/resume <session-id>` to continue where you left off
 * Session history is automatically saved and organized by directory
+
+**Conversation Compaction:**
+* Use `/compact` to manually compress the entire conversation
+* Use `/mc [N]` to micro-compact just the first N turns (default 3) while keeping the rest
+* Compaction helps manage token usage in long conversations
+* Automatic compaction triggers at 65% of context window
 
 **Efficiency Tips:**
 * The AI can work with multiple files simultaneously
@@ -1059,6 +1081,152 @@ class Toolbox:
                 error_msg += f"  - {name}\n"
 
             return error_msg
+
+    def _compact(self, user_interface, sandbox, user_input, *args, **kwargs):
+        """Explicitly trigger full conversation compaction."""
+        from silica.developer.compacter import ConversationCompacter
+
+        # Check if there's enough conversation to compact
+        if len(self.context.chat_history) <= 2:
+            return "Error: Not enough conversation history to compact (need more than 2 messages)"
+
+        # Create compacter instance
+        compacter = ConversationCompacter()
+        model_name = self.context.model_spec["title"]
+
+        try:
+            # Force compaction
+            user_interface.handle_system_message(
+                "Compacting conversation (this may take a moment)...", markdown=False
+            )
+
+            metadata = compacter.compact_conversation(
+                self.context, model_name, force=True
+            )
+
+            if metadata:
+                # Build result message
+                result = "✓ Conversation compacted successfully!\n\n"
+                result += f"**Original:** {metadata.original_message_count} messages ({metadata.original_token_count:,} tokens)\n\n"
+                result += f"**Compacted:** {metadata.compacted_message_count} messages ({metadata.summary_token_count:,} tokens)\n\n"
+                result += f"**Compression ratio:** {metadata.compaction_ratio:.1%}\n\n"
+                result += f"**Archive:** {metadata.archive_name}\n\n"
+
+                # Flush the compacted context
+                self.context.flush(self.context.chat_history, compact=False)
+
+                return result
+            else:
+                return "Error: Compaction failed to generate metadata"
+
+        except Exception as e:
+            import traceback
+
+            error_details = traceback.format_exc()
+            user_interface.handle_system_message(
+                f"Compaction failed: {e}\n\n{error_details}", markdown=False
+            )
+            return f"Error: Compaction failed - {e}"
+
+    def _micro_compact(self, user_interface, sandbox, user_input, *args, **kwargs):
+        """Micro-compact: summarize first N turns and keep the rest."""
+        from silica.developer.compacter import ConversationCompacter
+
+        # Parse the number of turns from user_input
+        turns_to_compact = 3  # default
+        if user_input.strip():
+            try:
+                turns_to_compact = int(user_input.strip())
+                if turns_to_compact < 1:
+                    return "Error: Number of turns must be at least 1"
+            except ValueError:
+                return f"Error: Invalid number '{user_input.strip()}'. Please provide an integer."
+
+        # Calculate number of messages (2 messages per turn: user + assistant)
+        messages_to_compact = turns_to_compact * 2
+
+        # Check if there's enough conversation to compact
+        if len(self.context.chat_history) <= messages_to_compact:
+            return f"Error: Not enough conversation history to micro-compact {turns_to_compact} turns (need more than {messages_to_compact} messages, have {len(self.context.chat_history)})"
+
+        # Separate messages to compact from messages to keep
+        messages_to_summarize = self.context.chat_history[:messages_to_compact]
+        messages_to_keep = self.context.chat_history[messages_to_compact:]
+
+        # Create compacter instance
+        compacter = ConversationCompacter()
+        model_name = self.context.model_spec["title"]
+
+        try:
+            user_interface.handle_system_message(
+                f"Micro-compacting first {turns_to_compact} turns (this may take a moment)...",
+                markdown=False,
+            )
+
+            # Convert messages to string for summarization
+            conversation_str = compacter._messages_to_string(
+                messages_to_summarize, for_summary=True
+            )
+
+            # Generate summary using Claude
+            system_prompt = f"""
+Summarize the following conversation turns for continuity.
+Include:
+1. Key points and decisions from these {turns_to_compact} turns
+2. Important context that will be needed for the rest of the conversation
+3. Any outstanding questions or tasks from these turns
+
+Be concise but comprehensive. This summary will be used to start the next part of the conversation.
+"""
+
+            summary_messages = [{"role": "user", "content": conversation_str}]
+
+            response = compacter.client.messages.create(
+                model=model_name,
+                system=system_prompt,
+                messages=summary_messages,
+                max_tokens=2000,
+            )
+
+            summary = response.content[0].text
+
+            # Count tokens in the original messages and summary
+            compacter.count_tokens(self.context, model_name)
+            summary_token_count = compacter._estimate_token_count(summary)
+
+            # Create new message history with summary + kept messages
+            new_messages = [
+                {
+                    "role": "user",
+                    "content": f"### Micro-Compacted Summary (first {turns_to_compact} turns)\n\n{summary}\n\n---\n\nContinuing with remaining conversation...",
+                }
+            ]
+            new_messages.extend(messages_to_keep)
+
+            # Update the context in place
+            self.context._chat_history = new_messages
+            self.context._tool_result_buffer.clear()
+
+            # Flush the updated context
+            self.context.flush(self.context.chat_history, compact=False)
+
+            # Build result message
+            result = "✓ Micro-compaction completed!\n\n"
+            result += f"**Compacted:** First {turns_to_compact} turns ({messages_to_compact} messages)\n\n"
+            result += f"**Kept:** {len(messages_to_keep)} messages from the rest of the conversation\n\n"
+            result += f"**Final message count:** {len(new_messages)} (was {len(self.context.chat_history) + messages_to_compact})\n\n"
+            result += f"**Estimated compression:** {messages_to_compact} messages → ~{summary_token_count:,} tokens\n\n"
+
+            return result
+
+        except Exception as e:
+            import traceback
+
+            error_details = traceback.format_exc()
+            user_interface.handle_system_message(
+                f"Micro-compaction failed: {e}\n\n{error_details}", markdown=False
+            )
+            return f"Error: Micro-compaction failed - {e}"
 
     def schemas(self, enable_caching: bool = True) -> List[dict]:
         """Generate schemas for all tools in the toolbox.
