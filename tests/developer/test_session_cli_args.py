@@ -128,7 +128,7 @@ class TestSessionCliArgs(unittest.TestCase):
         # Test basic command reconstruction
         original_args = ["hdev", "--model", "sonnet", "--dwr"]
         reconstructed = _reconstruct_command_from_list(original_args)
-        expected = ["hdev", "--model", "sonnet", "--dwr"]
+        expected = ["silica", "--model", "sonnet", "--dwr"]
         self.assertEqual(reconstructed, expected)
 
         # Test filtering out session-specific arguments
@@ -142,7 +142,7 @@ class TestSessionCliArgs(unittest.TestCase):
             "Hello",
         ]
         reconstructed = _reconstruct_command_from_list(original_args)
-        expected = ["hdev", "--model", "sonnet"]
+        expected = ["silica", "--model", "sonnet"]
         self.assertEqual(reconstructed, expected)
 
         # Test with persona and sandbox mode
@@ -157,7 +157,7 @@ class TestSessionCliArgs(unittest.TestCase):
         ]
         reconstructed = _reconstruct_command_from_list(original_args)
         expected = [
-            "hdev",
+            "silica",
             "--model",
             "sonnet",
             "--persona",
@@ -170,7 +170,7 @@ class TestSessionCliArgs(unittest.TestCase):
         # Test with positional arguments
         original_args = ["hdev", "--model", "sonnet", "path1", "path2"]
         reconstructed = _reconstruct_command_from_list(original_args)
-        expected = ["hdev", "--model", "sonnet", "path1", "path2"]
+        expected = ["silica", "--model", "sonnet", "path1", "path2"]
         self.assertEqual(reconstructed, expected)
 
     def test_agent_context_create_with_cli_args(self):

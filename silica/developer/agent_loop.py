@@ -227,72 +227,6 @@ def _inline_latest_file_mentions(
     return results
 
 
-def _check_and_apply_compaction(
-    agent_context: AgentContext,
-    model: ModelSpec,
-    user_interface,
-    enable_compaction: bool = True,
-    logger=None,
-) -> tuple[AgentContext, bool]:
-    """Check if compaction is needed and apply it if necessary.
-
-    Args:
-        agent_context: The agent context to check (mutated in place if compaction occurs)
-        model: Model specification dict
-        user_interface: User interface for notifications
-        enable_compaction: Whether compaction is enabled
-        logger: RequestResponseLogger instance (optional)
-
-    Returns:
-        Tuple of (agent_context, True if compaction was applied)
-    """
-    if not enable_compaction:
-        return agent_context, False
-
-    # Only check compaction when conversation state is complete
-    # (no pending tool results and conversation has actual content)
-    if (
-        agent_context.tool_result_buffer
-        or not agent_context.chat_history
-        or len(agent_context.chat_history) <= 2
-    ):
-        return agent_context, False
-
-    try:
-        from silica.developer.compacter import ConversationCompacter
-
-        compacter = ConversationCompacter(logger=logger)
-        model_name = model["title"]
-
-        # Compact conversation - mutates agent_context in place if compaction occurs
-        # This includes updating messages, clearing buffers, AND setting metadata
-        metadata = compacter.compact_conversation(agent_context, model_name)
-
-        if metadata:
-            # Notify user about the compaction
-            user_interface.handle_system_message(
-                f"[bold green]Conversation compacted: "
-                f"{metadata.original_message_count} messages → "
-                f"{metadata.compacted_message_count} messages "
-                f"(archived to {metadata.archive_name})[/bold green]",
-                markdown=False,
-            )
-
-            # Save the compacted session
-            # Metadata was already set by rotate(), flush() will use it
-            agent_context.flush(agent_context.chat_history, compact=False)
-            return agent_context, True
-
-    except Exception as e:
-        # Log compaction errors but continue normally
-        user_interface.handle_system_message(
-            f"[yellow]Compaction check failed: {e}[/yellow]",
-            markdown=False,
-        )
-
-    return agent_context, False
-
-
 def _continuation_message(final_message: MessageParam) -> MessageParam | None:
     continue_message = {
         "type": "text",
@@ -364,11 +298,6 @@ async def run(
 
     while True:
         try:
-            # Check for compaction when conversation state is complete
-            agent_context, _ = _check_and_apply_compaction(
-                agent_context, model, user_interface, enable_compaction, logger
-            )
-
             if return_to_user_after_interrupt or (
                 not agent_context.tool_result_buffer
                 and not single_response
@@ -453,8 +382,18 @@ async def run(
                     agent_context.tool_result_buffer.clear()
                     agent_context.flush(
                         agent_context.chat_history,
-                        compact=False,  # Compaction handled explicitly above
+                        compact=False,  # Compaction handled explicitly below
                     )
+
+                # Check for compaction after tool results are converted to messages
+                # This ensures we have the complete conversation state including tool interactions
+                from silica.developer.compacter import ConversationCompacter
+
+                compacter = ConversationCompacter(client=client, logger=logger)
+                agent_context, _ = compacter.check_and_apply_compaction(
+                    agent_context, model["title"], user_interface, enable_compaction
+                )
+
                 initial_prompt = None
 
             system_message = create_system_message(
@@ -472,20 +411,6 @@ async def run(
                     try:
                         await rate_limiter.check_and_wait(user_interface)
 
-                        # Check for compaction before making API call - this is the critical timing
-                        # where we can catch conversations that have grown too large
-                        agent_context, compaction_applied = _check_and_apply_compaction(
-                            agent_context,
-                            model,
-                            user_interface,
-                            enable_compaction,
-                            logger,
-                        )
-                        if compaction_applied:
-                            # If compaction occurred, restart the API request attempt
-                            # with the newly compacted conversation
-                            continue
-
                         # Calculate conversation size before sending the next request
                         # This ensures we have a complete conversation state for accurate counting
                         conversation_size_for_display = None
@@ -496,7 +421,9 @@ async def run(
                                     ConversationCompacter,
                                 )
 
-                                compacter = ConversationCompacter(logger=logger)
+                                compacter = ConversationCompacter(
+                                    client=client, logger=logger
+                                )
                                 model_name = model["title"]
 
                                 # Check if conversation has incomplete tool_use before counting tokens

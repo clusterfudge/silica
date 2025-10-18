@@ -9,8 +9,8 @@ from unittest import mock
 import tempfile
 import shutil
 
-from silica.developer.agent_loop import _check_and_apply_compaction
 from silica.developer.context import AgentContext
+from silica.developer.compacter import ConversationCompacter
 from silica.developer.sandbox import Sandbox, SandboxMode
 from silica.developer.user_interface import UserInterface
 from silica.developer.memory import MemoryManager
@@ -203,7 +203,7 @@ class TestCompactionTimingFix(unittest.TestCase):
 
     @mock.patch("anthropic.Client")
     def test_compaction_check_function(self, mock_client_class):
-        """Test that the _check_and_apply_compaction function works correctly."""
+        """Test that check_and_apply_compaction method works correctly."""
         # Setup mock with compaction response
         mock_client = MockAnthropicClient()
         mock_client_class.return_value = mock_client
@@ -235,25 +235,14 @@ class TestCompactionTimingFix(unittest.TestCase):
             compaction_ratio=0.1,
         )
 
-        # Create a mock compacter instance that returns metadata and mutates context
-        mock_compacter_instance = mock.Mock()
-
-        def mock_compact(ctx, model_name):
-            # Simulate mutation of context in place
-            ctx._chat_history = [{"role": "user", "content": "Summary"}]
-            ctx._tool_result_buffer.clear()
-            return metadata
-
-        mock_compacter_instance.compact_conversation = mock_compact
-
-        # Mock the compaction logic to always trigger
-        with mock.patch(
-            "silica.developer.compacter.ConversationCompacter",
-            return_value=mock_compacter_instance,
+        # Mock the compact_conversation method to return metadata
+        with mock.patch.object(
+            ConversationCompacter, "compact_conversation", return_value=metadata
         ):
-            # Test the function
-            updated_context, compaction_applied = _check_and_apply_compaction(
-                context, self.model_spec, ui, enable_compaction=True
+            # Create real compacter instance with mock client and test the method
+            compacter = ConversationCompacter(client=mock_client)
+            updated_context, compaction_applied = compacter.check_and_apply_compaction(
+                context, self.model_spec["title"], ui, enable_compaction=True
             )
 
             # Verify compaction was applied
@@ -286,9 +275,10 @@ class TestCompactionTimingFix(unittest.TestCase):
         )
         context._chat_history = self.sample_messages.copy()
 
-        # Test with compaction disabled
-        updated_context, compaction_applied = _check_and_apply_compaction(
-            context, self.model_spec, ui, enable_compaction=False
+        # Test with compaction disabled - use model title string, not dict
+        compacter = ConversationCompacter(client=mock_client)
+        updated_context, compaction_applied = compacter.check_and_apply_compaction(
+            context, self.model_spec["title"], ui, enable_compaction=False
         )
 
         # Verify no compaction occurred
@@ -320,9 +310,10 @@ class TestCompactionTimingFix(unittest.TestCase):
         # Add pending tool results
         context.tool_result_buffer.append({"type": "text", "text": "Pending result"})
 
-        # Test with pending tool results
-        updated_context, compaction_applied = _check_and_apply_compaction(
-            context, self.model_spec, ui, enable_compaction=True
+        # Test with pending tool results - use model title string, not dict
+        compacter = ConversationCompacter(client=mock_client)
+        updated_context, compaction_applied = compacter.check_and_apply_compaction(
+            context, self.model_spec["title"], ui, enable_compaction=True
         )
 
         # Verify no compaction occurred due to pending tools

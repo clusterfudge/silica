@@ -12,13 +12,12 @@ from typing import List
 from dataclasses import dataclass
 import anthropic
 from anthropic.types import MessageParam
-from dotenv import load_dotenv
 
 from silica.developer.context import AgentContext
 from silica.developer.models import model_names, get_model
 
 # Default threshold ratio of model's context window to trigger compaction
-DEFAULT_COMPACTION_THRESHOLD_RATIO = 0.85  # Trigger compaction at 85% of context window
+DEFAULT_COMPACTION_THRESHOLD_RATIO = 0.80  # Trigger compaction at 80% of context window
 
 
 @dataclass
@@ -49,37 +48,44 @@ class ConversationCompacter:
 
     def __init__(
         self,
+        client: anthropic.Client,
         threshold_ratio: float = DEFAULT_COMPACTION_THRESHOLD_RATIO,
-        client=None,
         logger=None,
     ):
         """Initialize the conversation compacter.
 
         Args:
+            client: Anthropic client instance (required)
             threshold_ratio: Ratio of model's context window to trigger compaction
-            client: Anthropic client instance (optional, for testing)
             logger: RequestResponseLogger instance (optional, for logging API calls)
         """
+        # Allow threshold to be configured via environment variable
+        env_threshold = os.getenv("SILICA_COMPACTION_THRESHOLD")
+        if env_threshold:
+            try:
+                threshold_ratio = float(env_threshold)
+                if not 0.0 < threshold_ratio < 1.0:
+                    print(
+                        f"Warning: SILICA_COMPACTION_THRESHOLD must be between 0 and 1, "
+                        f"got {threshold_ratio}. Using default {DEFAULT_COMPACTION_THRESHOLD_RATIO}"
+                    )
+                    threshold_ratio = DEFAULT_COMPACTION_THRESHOLD_RATIO
+            except ValueError:
+                print(
+                    f"Warning: Invalid SILICA_COMPACTION_THRESHOLD value '{env_threshold}'. "
+                    f"Using default {DEFAULT_COMPACTION_THRESHOLD_RATIO}"
+                )
+                threshold_ratio = DEFAULT_COMPACTION_THRESHOLD_RATIO
+
         self.threshold_ratio = threshold_ratio
         self.logger = logger
+        self.client = client
 
         # Get model context window information
-
         self.model_context_windows = {
             model_data["title"]: model_data.get("context_window", 100000)
             for model_data in [get_model(ms) for ms in model_names()]
         }
-
-        if client:
-            self.client = client
-        else:
-            load_dotenv()
-            self.api_key = os.getenv("ANTHROPIC_API_KEY")
-
-            if not self.api_key:
-                raise ValueError("ANTHROPIC_API_KEY environment variable not set")
-
-            self.client = anthropic.Client(api_key=self.api_key)
 
     def count_tokens(self, agent_context, model: str) -> int:
         """Count tokens for the complete context sent to the API.
@@ -376,12 +382,13 @@ class ConversationCompacter:
         words = len(text.split())
         return int(words / 0.75)
 
-    def should_compact(self, agent_context, model: str) -> bool:
+    def should_compact(self, agent_context, model: str, debug: bool = False) -> bool:
         """Check if a conversation should be compacted.
 
         Args:
             agent_context: AgentContext instance to get full API context from
             model: Model name to use for token counting
+            debug: If True, print debug information about the compaction check
 
         Returns:
             bool: True if the conversation should be compacted
@@ -395,7 +402,20 @@ class ConversationCompacter:
         # Calculate threshold based on context window and threshold ratio
         token_threshold = int(context_window * self.threshold_ratio)
 
-        return token_count > token_threshold
+        should_compact = token_count > token_threshold
+
+        # Print debug information if requested
+        if debug:
+            print("\n[Compaction Check]")
+            print(f"  Model: {model}")
+            print(f"  Context window: {context_window:,}")
+            print(f"  Threshold ratio: {self.threshold_ratio:.0%}")
+            print(f"  Token threshold: {token_threshold:,}")
+            print(f"  Current tokens: {token_count:,}")
+            print(f"  Usage: {token_count / context_window:.1%}")
+            print(f"  Should compact: {should_compact}")
+
+        return should_compact
 
     def generate_summary(self, agent_context, model: str) -> CompactionSummary:
         """Generate a summary of the conversation.
@@ -532,6 +552,7 @@ class ConversationCompacter:
         if not force and not self.should_compact(agent_context, model):
             return None
 
+        print("Initiating compaction...")
         # Generate summary
         summary = self.generate_summary(agent_context, model)
 
@@ -551,8 +572,11 @@ class ConversationCompacter:
         # This is configurable - here we're adding the last user/assistant exchange
         context_dict = agent_context.get_api_context()
         messages_to_use = context_dict["messages"]
-        if len(messages_to_use) >= 2:
-            new_messages.extend(messages_to_use[-2:])
+        preserve_message_count = 2
+        if len(messages_to_use) >= preserve_message_count:
+            if messages_to_use[-1]["role"] == "assistant":
+                preserve_message_count = 1
+            new_messages.extend(messages_to_use[-preserve_message_count:])
 
         # Create metadata for the compaction (archive_name will be set by rotate())
         metadata = CompactionMetadata(
@@ -571,3 +595,97 @@ class ConversationCompacter:
         metadata.archive_name = archive_name
 
         return metadata
+
+    def check_and_apply_compaction(
+        self, agent_context, model: str, user_interface, enable_compaction: bool = True
+    ) -> tuple:
+        """Check if compaction is needed and apply it if necessary.
+
+        Args:
+            agent_context: The agent context to check (mutated in place if compaction occurs)
+            model: Model name (string, not ModelSpec dict)
+            user_interface: User interface for notifications
+            enable_compaction: Whether compaction is enabled
+
+        Returns:
+            Tuple of (agent_context, True if compaction was applied)
+        """
+        import os
+
+        # Check if debug mode is enabled
+        debug_compaction = os.getenv("SILICA_DEBUG_COMPACTION", "").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+
+        if not enable_compaction:
+            if debug_compaction:
+                print("[Compaction] Disabled via enable_compaction=False")
+            return agent_context, False
+
+        # Only check compaction when conversation state is complete
+        # (no pending tool results and conversation has actual content)
+        if agent_context.tool_result_buffer:
+            if debug_compaction:
+                print("[Compaction] Skipped: pending tool results")
+            return agent_context, False
+
+        if not agent_context.chat_history:
+            if debug_compaction:
+                print("[Compaction] Skipped: no chat history")
+            return agent_context, False
+
+        if len(agent_context.chat_history) <= 2:
+            if debug_compaction:
+                print(
+                    f"[Compaction] Skipped: only {len(agent_context.chat_history)} messages"
+                )
+            return agent_context, False
+
+        try:
+            if debug_compaction:
+                print("[Compaction] Checking if compaction needed...")
+                # Call should_compact with debug flag to see detailed info
+                should_compact = self.should_compact(agent_context, model, debug=True)
+                if not should_compact:
+                    print("[Compaction] Not needed yet")
+                    return agent_context, False
+
+            # Compact conversation - mutates agent_context in place if compaction occurs
+            # This includes updating messages, clearing buffers, AND setting metadata
+            metadata = self.compact_conversation(agent_context, model)
+
+            if metadata:
+                # Notify user about the compaction
+                user_interface.handle_system_message(
+                    f"[bold green]Conversation compacted: "
+                    f"{metadata.original_message_count} messages → "
+                    f"{metadata.compacted_message_count} messages "
+                    f"(archived to {metadata.archive_name})[/bold green]",
+                    markdown=False,
+                )
+
+                # Save the compacted session
+                # Metadata was already set by rotate(), flush() will use it
+                agent_context.flush(agent_context.chat_history, compact=False)
+                return agent_context, True
+
+        except Exception as e:
+            # Log compaction errors but continue normally
+            import traceback
+            import sys
+
+            error_details = traceback.format_exc()
+
+            # Show user-friendly error message
+            user_interface.handle_system_message(
+                f"[yellow]Compaction check failed: {e}[/yellow]",
+                markdown=False,
+            )
+
+            # Print detailed error to stderr for debugging
+            print("\n[Compaction Error Details]", file=sys.stderr)
+            print(error_details, file=sys.stderr)
+
+        return agent_context, False

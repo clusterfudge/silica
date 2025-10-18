@@ -808,8 +808,8 @@ def cyclopts_main(
         return
 
     # Check for session ID in environment variable if not specified in args
-    if not session_id and "silica_DEVELOPER_SESSION_ID" in os.environ:
-        session_id = os.environ.get("silica_DEVELOPER_SESSION_ID")
+    if not session_id and "SILICA_DEVELOPER_SESSION_ID" in os.environ:
+        session_id = os.environ.get("SILICA_DEVELOPER_SESSION_ID")
 
     # Initialize console and user interface (identical to original)
     console = Console()
