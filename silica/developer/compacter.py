@@ -607,3 +607,97 @@ class ConversationCompacter:
         metadata.archive_name = archive_name
 
         return metadata
+
+    def check_and_apply_compaction(
+        self, agent_context, model: str, user_interface, enable_compaction: bool = True
+    ) -> tuple:
+        """Check if compaction is needed and apply it if necessary.
+
+        Args:
+            agent_context: The agent context to check (mutated in place if compaction occurs)
+            model: Model name (string, not ModelSpec dict)
+            user_interface: User interface for notifications
+            enable_compaction: Whether compaction is enabled
+
+        Returns:
+            Tuple of (agent_context, True if compaction was applied)
+        """
+        import os
+
+        # Check if debug mode is enabled
+        debug_compaction = os.getenv("SILICA_DEBUG_COMPACTION", "").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+
+        if not enable_compaction:
+            if debug_compaction:
+                print("[Compaction] Disabled via enable_compaction=False")
+            return agent_context, False
+
+        # Only check compaction when conversation state is complete
+        # (no pending tool results and conversation has actual content)
+        if agent_context.tool_result_buffer:
+            if debug_compaction:
+                print("[Compaction] Skipped: pending tool results")
+            return agent_context, False
+
+        if not agent_context.chat_history:
+            if debug_compaction:
+                print("[Compaction] Skipped: no chat history")
+            return agent_context, False
+
+        if len(agent_context.chat_history) <= 2:
+            if debug_compaction:
+                print(
+                    f"[Compaction] Skipped: only {len(agent_context.chat_history)} messages"
+                )
+            return agent_context, False
+
+        try:
+            if debug_compaction:
+                print("[Compaction] Checking if compaction needed...")
+                # Call should_compact with debug flag to see detailed info
+                should_compact = self.should_compact(agent_context, model, debug=True)
+                if not should_compact:
+                    print("[Compaction] Not needed yet")
+                    return agent_context, False
+
+            # Compact conversation - mutates agent_context in place if compaction occurs
+            # This includes updating messages, clearing buffers, AND setting metadata
+            metadata = self.compact_conversation(agent_context, model)
+
+            if metadata:
+                # Notify user about the compaction
+                user_interface.handle_system_message(
+                    f"[bold green]Conversation compacted: "
+                    f"{metadata.original_message_count} messages → "
+                    f"{metadata.compacted_message_count} messages "
+                    f"(archived to {metadata.archive_name})[/bold green]",
+                    markdown=False,
+                )
+
+                # Save the compacted session
+                # Metadata was already set by rotate(), flush() will use it
+                agent_context.flush(agent_context.chat_history, compact=False)
+                return agent_context, True
+
+        except Exception as e:
+            # Log compaction errors but continue normally
+            import traceback
+            import sys
+
+            error_details = traceback.format_exc()
+
+            # Show user-friendly error message
+            user_interface.handle_system_message(
+                f"[yellow]Compaction check failed: {e}[/yellow]",
+                markdown=False,
+            )
+
+            # Print detailed error to stderr for debugging
+            print("\n[Compaction Error Details]", file=sys.stderr)
+            print(error_details, file=sys.stderr)
+
+        return agent_context, False
