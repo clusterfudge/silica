@@ -391,13 +391,14 @@ async def browser_interact(
 async def inspect_dom(
     context: AgentContext,
     url: str,
-    selector: str,
+    selector: Optional[str] = None,
+    element_id: Optional[str] = None,
     viewport_width: int = 1920,
     viewport_height: int = 1080,
     wait_for: Optional[str] = None,
     timeout: int = 30000,
 ) -> str:
-    """Inspect DOM elements on a webpage using CSS selectors.
+    """Inspect DOM elements on a webpage using CSS selectors or element ID.
 
     This tool allows you to query and inspect DOM elements to understand the
     structure and content of a webpage. Useful for debugging, testing, and
@@ -406,6 +407,7 @@ async def inspect_dom(
     Args:
         url: The URL to inspect
         selector: CSS selector to query (e.g., "button", ".class-name", "#id")
+        element_id: Element ID to look up directly (alternative to selector)
         viewport_width: Width of the browser viewport in pixels (default: 1920)
         viewport_height: Height of the browser viewport in pixels (default: 1080)
         wait_for: CSS selector to wait for before inspecting, or "networkidle"
@@ -415,7 +417,32 @@ async def inspect_dom(
         JSON string with information about matching elements including:
         - count: number of elements found
         - elements: list of element details (tag, text, attributes, innerHTML)
+    
+    Note: Either selector or element_id must be provided (not both).
     """
+    # Validate parameters
+    if not selector and not element_id:
+        return json.dumps(
+            {
+                "error": "Either 'selector' or 'element_id' parameter must be provided",
+                "url": url,
+            },
+            indent=2,
+        )
+    
+    if selector and element_id:
+        return json.dumps(
+            {
+                "error": "Only one of 'selector' or 'element_id' can be provided, not both",
+                "url": url,
+            },
+            indent=2,
+        )
+    
+    # If element_id is provided, convert it to a selector
+    if element_id:
+        selector = f"#{element_id}"
+    
     # Check if Playwright is available
     playwright_available, error_msg = await _check_playwright_available()
 

@@ -223,6 +223,88 @@ async def test_inspect_dom_limits_to_50_elements(mock_context):
 
 
 @pytest.mark.asyncio
+async def test_inspect_dom_with_element_id(mock_context):
+    """Test DOM inspection using element_id parameter."""
+    
+    mock_element = AsyncMock()
+    mock_element.count = AsyncMock(return_value=1)
+    mock_element.nth = Mock()  # nth() is not async in Playwright
+    
+    mock_first = AsyncMock()
+    mock_first.evaluate = AsyncMock(side_effect=[
+        "div",  # tag name
+        {"id": "my-element", "class": "content"}  # attributes
+    ])
+    mock_first.text_content = AsyncMock(return_value="Element content")
+    mock_first.inner_html = AsyncMock(return_value="Element content")
+    mock_first.is_visible = AsyncMock(return_value=True)
+    
+    mock_element.nth.return_value = mock_first
+    
+    mock_page = AsyncMock()
+    mock_page.goto = AsyncMock()
+    mock_page.locator = Mock(return_value=mock_element)
+    
+    mock_browser = AsyncMock()
+    mock_browser.new_page = AsyncMock(return_value=mock_page)
+    mock_browser.close = AsyncMock()
+    
+    mock_playwright = AsyncMock()
+    mock_playwright.__aenter__ = AsyncMock(return_value=mock_playwright)
+    mock_playwright.__aexit__ = AsyncMock()
+    mock_playwright.chromium.launch = AsyncMock(return_value=mock_browser)
+    
+    with patch("silica.developer.tools.browser._check_playwright_available", return_value=(True, None)):
+        with patch("playwright.async_api.async_playwright", return_value=mock_playwright):
+            result = await inspect_dom(
+                mock_context,
+                url="http://localhost:8000",
+                element_id="my-element"
+            )
+    
+    # Verify the locator was called with the correct selector (#my-element)
+    mock_page.locator.assert_called_once_with("#my-element")
+    
+    result_data = json.loads(result)
+    assert result_data["count"] == 1
+    assert result_data["selector"] == "#my-element"
+
+
+@pytest.mark.asyncio
+async def test_inspect_dom_requires_selector_or_id(mock_context):
+    """Test that either selector or element_id must be provided."""
+    
+    with patch("silica.developer.tools.browser._check_playwright_available", return_value=(True, None)):
+        # No selector or element_id
+        result = await inspect_dom(
+            mock_context,
+            url="http://localhost:8000"
+        )
+    
+    result_data = json.loads(result)
+    assert "error" in result_data
+    assert "must be provided" in result_data["error"]
+
+
+@pytest.mark.asyncio
+async def test_inspect_dom_not_both_selector_and_id(mock_context):
+    """Test that both selector and element_id cannot be provided together."""
+    
+    with patch("silica.developer.tools.browser._check_playwright_available", return_value=(True, None)):
+        # Both selector and element_id
+        result = await inspect_dom(
+            mock_context,
+            url="http://localhost:8000",
+            selector="button",
+            element_id="my-button"
+        )
+    
+    result_data = json.loads(result)
+    assert "error" in result_data
+    assert "not both" in result_data["error"].lower()
+
+
+@pytest.mark.asyncio
 async def test_inspect_dom_handles_element_errors(mock_context):
     """Test that DOM inspection handles errors gracefully for individual elements."""
     
