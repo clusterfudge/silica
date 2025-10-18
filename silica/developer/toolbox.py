@@ -1131,6 +1131,7 @@ class Toolbox:
     def _micro_compact(self, user_interface, sandbox, user_input, *args, **kwargs):
         """Micro-compact: summarize first N turns and keep the rest."""
         from silica.developer.compacter import ConversationCompacter
+        from silica.developer.context import AgentContext
 
         # Parse the number of turns from user_input
         turns_to_compact = 3  # default
@@ -1168,36 +1169,23 @@ class Toolbox:
                 markdown=False,
             )
 
-            # Convert messages to string for summarization
-            conversation_str = compacter._messages_to_string(
-                messages_to_summarize, for_summary=True
+            # Create a temporary context with just the messages to summarize
+            # This allows us to reuse the existing generate_summary method
+            temp_context = AgentContext(
+                parent_session_id=self.context.parent_session_id,
+                session_id=self.context.session_id,
+                model_spec=self.context.model_spec,
+                sandbox=self.context.sandbox,
+                user_interface=self.context.user_interface,
+                usage=self.context.usage,
+                memory_manager=self.context.memory_manager,
+                history_base_dir=self.context.history_base_dir,
             )
+            temp_context._chat_history = messages_to_summarize
 
-            # Generate summary using Claude
-            system_prompt = f"""
-Summarize the following conversation turns for continuity.
-Include:
-1. Key points and decisions from these {turns_to_compact} turns
-2. Important context that will be needed for the rest of the conversation
-3. Any outstanding questions or tasks from these turns
-
-Be concise but comprehensive. This summary will be used to start the next part of the conversation.
-"""
-
-            summary_messages = [{"role": "user", "content": conversation_str}]
-
-            response = compacter.client.messages.create(
-                model=model_name,
-                system=system_prompt,
-                messages=summary_messages,
-                max_tokens=2000,
-            )
-
-            summary = response.content[0].text
-
-            # Count tokens in the original messages and summary
-            compacter.count_tokens(self.context, model_name)
-            summary_token_count = compacter._estimate_token_count(summary)
+            # Use the existing generate_summary method
+            summary_obj = compacter.generate_summary(temp_context, model_name)
+            summary = summary_obj.summary
 
             # Create new message history with summary + kept messages
             new_messages = [
@@ -1220,7 +1208,7 @@ Be concise but comprehensive. This summary will be used to start the next part o
             result += f"**Compacted:** First {turns_to_compact} turns ({messages_to_compact} messages)\n\n"
             result += f"**Kept:** {len(messages_to_keep)} messages from the rest of the conversation\n\n"
             result += f"**Final message count:** {len(new_messages)} (was {len(self.context.chat_history) + messages_to_compact})\n\n"
-            result += f"**Estimated compression:** {messages_to_compact} messages → ~{summary_token_count:,} tokens\n\n"
+            result += f"**Estimated compression:** {messages_to_compact} messages → ~{summary_obj.summary_token_count:,} tokens\n\n"
 
             return result
 

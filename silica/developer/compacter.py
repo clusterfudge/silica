@@ -18,9 +18,7 @@ from silica.developer.context import AgentContext
 from silica.developer.models import model_names, get_model
 
 # Default threshold ratio of model's context window to trigger compaction
-# Lowered from 0.85 to 0.65 to trigger compaction earlier (at ~130K tokens for 200K context)
-# This prevents conversations from growing too large before compaction
-DEFAULT_COMPACTION_THRESHOLD_RATIO = 0.65  # Trigger compaction at 65% of context window
+DEFAULT_COMPACTION_THRESHOLD_RATIO = 0.80  # Trigger compaction at 80% of context window
 
 
 @dataclass
@@ -586,11 +584,11 @@ class ConversationCompacter:
         # This is configurable - here we're adding the last user/assistant exchange
         context_dict = agent_context.get_api_context()
         messages_to_use = context_dict["messages"]
-        preserver_message_count = 2
-        if len(messages_to_use) >= preserver_message_count:
+        preserve_message_count = 2
+        if len(messages_to_use) >= preserve_message_count:
             if messages_to_use[-1]["role"] == "assistant":
-                preserver_message_count = 1
-            new_messages.extend(messages_to_use[-preserver_message_count:])
+                preserve_message_count = 1
+            new_messages.extend(messages_to_use[-preserve_message_count:])
 
         # Create metadata for the compaction (archive_name will be set by rotate())
         metadata = CompactionMetadata(

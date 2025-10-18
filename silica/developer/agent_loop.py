@@ -404,11 +404,6 @@ async def run(
 
     while True:
         try:
-            # Check for compaction when conversation state is complete
-            agent_context, _ = _check_and_apply_compaction(
-                agent_context, model, user_interface, enable_compaction, logger
-            )
-
             if return_to_user_after_interrupt or (
                 not agent_context.tool_result_buffer
                 and not single_response
@@ -493,8 +488,15 @@ async def run(
                     agent_context.tool_result_buffer.clear()
                     agent_context.flush(
                         agent_context.chat_history,
-                        compact=False,  # Compaction handled explicitly above
+                        compact=False,  # Compaction handled explicitly below
                     )
+
+                # Check for compaction after tool results are converted to messages
+                # This ensures we have the complete conversation state including tool interactions
+                agent_context, _ = _check_and_apply_compaction(
+                    agent_context, model, user_interface, enable_compaction, logger
+                )
+
                 initial_prompt = None
 
             system_message = create_system_message(

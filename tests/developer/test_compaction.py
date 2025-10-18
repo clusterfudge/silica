@@ -393,7 +393,7 @@ class TestConversationCompaction(unittest.TestCase):
         # Need to mock the rotate method and create a temporary home directory
         with mock.patch("pathlib.Path.home", return_value=Path(self.test_dir)):
             # Get original message count to verify mutation
-            original_message_count = len(small_context.chat_history)
+            len(small_context.chat_history)
 
             metadata = compacter.compact_conversation(
                 small_context, "claude-3-5-sonnet-20241022", force=True
@@ -401,8 +401,11 @@ class TestConversationCompaction(unittest.TestCase):
             self.assertIsNotNone(metadata)
             # Verify context was mutated in place
             self.assertGreater(len(small_context.chat_history), 0)
-            # Messages should have changed
-            self.assertNotEqual(len(small_context.chat_history), original_message_count)
+            # With 2 messages [user, assistant], we get 1 summary + 1 preserved (last assistant) = 2 messages
+            # So the count stays the same, but the content has changed (now includes summary)
+            self.assertEqual(len(small_context.chat_history), 2)
+            # Verify the first message is now the summary
+            self.assertIn("Summary", small_context.chat_history[0]["content"])
 
 
 if __name__ == "__main__":
