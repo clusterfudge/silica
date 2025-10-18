@@ -167,6 +167,7 @@ class TestCompactionCommands(unittest.TestCase):
         shutil.rmtree(self.test_dir)
 
     @mock.patch("anthropic.Client")
+    @mock.patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"})
     def test_compact_command(self, mock_client_class):
         """Test the /compact command."""
         # Setup mock
@@ -242,6 +243,7 @@ class TestCompactionCommands(unittest.TestCase):
         self.assertIn("Not enough conversation history", result)
 
     @mock.patch("anthropic.Client")
+    @mock.patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"})
     def test_micro_compact_command_default(self, mock_client_class):
         """Test the /mc command with default (3 turns)."""
         # Setup mock client
@@ -285,6 +287,7 @@ class TestCompactionCommands(unittest.TestCase):
         self.assertIn("Micro-Compacted Summary", context.chat_history[0]["content"])
 
     @mock.patch("anthropic.Client")
+    @mock.patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"})
     def test_micro_compact_command_custom_turns(self, mock_client_class):
         """Test the /mc command with custom number of turns."""
         # Setup mock client
