@@ -388,6 +388,151 @@ async def browser_interact(
 
 
 @tool
+async def inspect_dom(
+    context: AgentContext,
+    url: str,
+    selector: str,
+    viewport_width: int = 1920,
+    viewport_height: int = 1080,
+    wait_for: Optional[str] = None,
+    timeout: int = 30000,
+) -> str:
+    """Inspect DOM elements on a webpage using CSS selectors.
+
+    This tool allows you to query and inspect DOM elements to understand the
+    structure and content of a webpage. Useful for debugging, testing, and
+    understanding what elements are present.
+
+    Args:
+        url: The URL to inspect
+        selector: CSS selector to query (e.g., "button", ".class-name", "#id")
+        viewport_width: Width of the browser viewport in pixels (default: 1920)
+        viewport_height: Height of the browser viewport in pixels (default: 1080)
+        wait_for: CSS selector to wait for before inspecting, or "networkidle"
+        timeout: Timeout for page load and wait operations in milliseconds (default: 30000)
+
+    Returns:
+        JSON string with information about matching elements including:
+        - count: number of elements found
+        - elements: list of element details (tag, text, attributes, innerHTML)
+    """
+    # Check if Playwright is available
+    playwright_available, error_msg = await _check_playwright_available()
+
+    if not playwright_available:
+        return f"Browser tools not available:\n{error_msg}"
+
+    from playwright.async_api import async_playwright
+
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page(
+                viewport={"width": viewport_width, "height": viewport_height}
+            )
+
+            # Navigate to URL
+            await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+
+            # Wait for specific condition if requested
+            if wait_for:
+                if wait_for == "networkidle":
+                    await page.wait_for_load_state("networkidle", timeout=timeout)
+                else:
+                    await page.wait_for_selector(wait_for, timeout=timeout)
+
+            # Query elements using the selector
+            elements = page.locator(selector)
+            count = await elements.count()
+
+            if count == 0:
+                await browser.close()
+                return json.dumps(
+                    {
+                        "url": url,
+                        "selector": selector,
+                        "count": 0,
+                        "message": "No elements found matching selector",
+                    },
+                    indent=2,
+                )
+
+            # Extract information about each element (limit to first 50 to avoid huge responses)
+            max_elements = min(count, 50)
+            element_data = []
+
+            for i in range(max_elements):
+                element = elements.nth(i)
+                try:
+                    # Get element information
+                    tag_name = await element.evaluate("el => el.tagName.toLowerCase()")
+                    text_content = await element.text_content()
+                    inner_html = await element.inner_html()
+                    
+                    # Get all attributes
+                    attributes = await element.evaluate(
+                        """el => {
+                            const attrs = {};
+                            for (let attr of el.attributes) {
+                                attrs[attr.name] = attr.value;
+                            }
+                            return attrs;
+                        }"""
+                    )
+
+                    # Get computed styles for visibility
+                    is_visible = await element.is_visible()
+                    is_enabled = await element.is_enabled() if tag_name in ["button", "input", "select", "textarea"] else None
+
+                    element_info = {
+                        "index": i,
+                        "tag": tag_name,
+                        "text": text_content.strip() if text_content else "",
+                        "attributes": attributes,
+                        "innerHTML": inner_html[:200] + ("..." if len(inner_html) > 200 else ""),  # Truncate long HTML
+                        "visible": is_visible,
+                    }
+                    
+                    if is_enabled is not None:
+                        element_info["enabled"] = is_enabled
+
+                    element_data.append(element_info)
+
+                except Exception as e:
+                    element_data.append(
+                        {
+                            "index": i,
+                            "error": f"Could not extract data: {str(e)}",
+                        }
+                    )
+
+            await browser.close()
+
+            result = {
+                "url": url,
+                "selector": selector,
+                "count": count,
+                "showing": max_elements,
+                "elements": element_data,
+            }
+
+            if count > max_elements:
+                result["message"] = f"Showing first {max_elements} of {count} elements"
+
+            return json.dumps(result, indent=2)
+
+    except Exception as e:
+        return json.dumps(
+            {
+                "error": f"Error inspecting DOM: {str(e)}",
+                "url": url,
+                "selector": selector,
+            },
+            indent=2,
+        )
+
+
+@tool
 async def get_browser_capabilities(context: AgentContext) -> str:
     """Check what browser tools are available in the current environment.
 
