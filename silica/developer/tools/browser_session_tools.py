@@ -207,7 +207,12 @@ async def browser_session_interact(
             {"type": "hover", "selector": ".menu-item"},
             {"type": "wait", "selector": ".loading", "ms": 1000},
             {"type": "scroll", "x": 0, "y": 500},
-            {"type": "evaluate", "script": "document.title"}
+            {"type": "evaluate", "script": "document.title"},
+            {"type": "keyboard", "action": "press", "key": "Enter"},
+            {"type": "keyboard", "action": "type", "text": "typed text"},
+            {"type": "keyboard", "action": "down", "key": "Shift"},
+            {"type": "keyboard", "action": "up", "key": "Shift"},
+            {"type": "keyboard", "action": "insertText", "text": "pasted"}
         ]
 
     Returns:
@@ -288,6 +293,64 @@ async def browser_session_interact(
                     results.append(
                         f"Action {action_num}: Evaluated script, result: {result}"
                     )
+
+                elif action_type == "keyboard":
+                    keyboard_action = action.get("action")
+                    key = action.get("key", "")
+                    text = action.get("text", "")
+
+                    if keyboard_action == "press":
+                        if not key:
+                            results.append(
+                                f"Action {action_num}: Keyboard press missing 'key'"
+                            )
+                        else:
+                            await page.keyboard.press(key)
+                            results.append(
+                                f"Action {action_num}: Pressed key '{key}'"
+                            )
+                    elif keyboard_action == "type":
+                        if not text:
+                            results.append(
+                                f"Action {action_num}: Keyboard type missing 'text'"
+                            )
+                        else:
+                            await page.keyboard.type(text)
+                            results.append(
+                                f"Action {action_num}: Typed '{text}'"
+                            )
+                    elif keyboard_action == "down":
+                        if not key:
+                            results.append(
+                                f"Action {action_num}: Keyboard down missing 'key'"
+                            )
+                        else:
+                            await page.keyboard.down(key)
+                            results.append(
+                                f"Action {action_num}: Key down '{key}'"
+                            )
+                    elif keyboard_action == "up":
+                        if not key:
+                            results.append(
+                                f"Action {action_num}: Keyboard up missing 'key'"
+                            )
+                        else:
+                            await page.keyboard.up(key)
+                            results.append(f"Action {action_num}: Key up '{key}'")
+                    elif keyboard_action == "insertText":
+                        if not text:
+                            results.append(
+                                f"Action {action_num}: Keyboard insertText missing 'text'"
+                            )
+                        else:
+                            await page.keyboard.insert_text(text)
+                            results.append(
+                                f"Action {action_num}: Inserted text '{text}'"
+                            )
+                    else:
+                        results.append(
+                            f"Action {action_num}: Unknown keyboard action '{keyboard_action}'"
+                        )
 
                 else:
                     results.append(
