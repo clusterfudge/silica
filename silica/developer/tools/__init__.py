@@ -12,10 +12,8 @@ from .shell import (
     shell_session_set_timeout,
 )
 from .web import web_search, safe_curl
-from .browser import (
-    get_browser_capabilities,
-)
 from .browser_session_tools import (
+    get_browser_capabilities,
     browser_session_create,
     browser_session_navigate,
     browser_session_interact,

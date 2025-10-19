@@ -51,6 +51,56 @@ async def _check_playwright_available() -> tuple[bool, Optional[str]]:
 
 
 @tool
+async def get_browser_capabilities(context: AgentContext) -> str:
+    """Check what browser tools are available in the current environment.
+
+    Returns information about whether Playwright is installed and browser binaries
+    are available.
+    """
+    capabilities = {
+        "playwright_installed": False,
+        "browser_available": False,
+        "tools_available": False,
+        "details": [],
+    }
+
+    # Check Playwright
+    playwright_available, error_msg = await _check_playwright_available()
+
+    if playwright_available:
+        capabilities["playwright_installed"] = True
+        capabilities["browser_available"] = True
+        capabilities["tools_available"] = True
+        capabilities["details"].append("✓ Playwright installed and browser ready")
+        capabilities["details"].append("✓ Browser session tools available")
+    else:
+        if "not installed" in error_msg:
+            capabilities["details"].append("✗ Playwright not installed")
+        elif "binaries are missing" in error_msg:
+            capabilities["playwright_installed"] = True
+            capabilities["details"].append("✓ Playwright installed")
+            capabilities["details"].append("✗ Browser binaries missing")
+        else:
+            capabilities["details"].append(f"✗ Playwright error: {error_msg}")
+
+    # Build response
+    response = ["=== Browser Tool Capabilities ===\n"]
+    response.append(
+        f"Browser Tools: {'Available' if capabilities['tools_available'] else 'Not Available'}\n"
+    )
+    response.append("\n=== Details ===\n")
+    response.extend([f"  {d}\n" for d in capabilities["details"]])
+
+    if not capabilities["tools_available"]:
+        response.append("\n=== Setup Instructions ===\n")
+        response.append("To enable browser tools, install Playwright:\n")
+        response.append("  pip install playwright\n")
+        response.append("  playwright install chromium\n")
+
+    return "".join(response)
+
+
+@tool
 async def browser_session_create(
     context: AgentContext,
     session_name: str,
