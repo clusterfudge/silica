@@ -12,10 +12,16 @@ from .shell import (
     shell_session_set_timeout,
 )
 from .web import web_search, safe_curl
-from .browser import (
-    screenshot_webpage,
-    browser_interact,
+from .browser_session_tools import (
     get_browser_capabilities,
+    browser_session_create,
+    browser_session_navigate,
+    browser_session_interact,
+    browser_session_inspect,
+    browser_session_screenshot,
+    browser_session_list,
+    browser_session_destroy,
+    browser_session_get_info,
 )
 from .gcal import (
     calendar_setup,
@@ -66,9 +72,16 @@ ALL_TOOLS = (
         safe_curl,
         python_repl,
         # Browser tools
-        screenshot_webpage,
-        browser_interact,
         get_browser_capabilities,
+        # Browser session tools
+        browser_session_create,
+        browser_session_navigate,
+        browser_session_interact,
+        browser_session_inspect,
+        browser_session_screenshot,
+        browser_session_list,
+        browser_session_destroy,
+        browser_session_get_info,
         # Shell tools (dual architecture)
         shell_execute,
         shell_session_create,
