@@ -13,10 +13,7 @@ from .shell import (
 )
 from .web import web_search, safe_curl
 from .browser import (
-    screenshot_webpage,
-    browser_interact,
     get_browser_capabilities,
-    inspect_dom,
 )
 from .browser_session_tools import (
     browser_session_create,
@@ -76,12 +73,9 @@ ALL_TOOLS = (
         agent,
         safe_curl,
         python_repl,
-        # Browser tools (one-off operations)
-        screenshot_webpage,
-        browser_interact,
+        # Browser tools
         get_browser_capabilities,
-        inspect_dom,
-        # Browser session tools (stateful operations)
+        # Browser session tools
         browser_session_create,
         browser_session_navigate,
         browser_session_interact,
