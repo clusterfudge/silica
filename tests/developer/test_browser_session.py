@@ -482,3 +482,32 @@ class TestBrowserSessionTools:
         assert result_data["page_title"] == "Test Page"
 
         await manager.destroy_session("test")
+
+    @pytest.mark.asyncio
+    async def test_browser_session_keyboard_action(self, mock_context, mock_playwright):
+        """Test keyboard action support in browser_session_interact."""
+        manager = get_browser_session_manager()
+        manager.sessions.clear()
+
+        # Add keyboard mock to playwright mock
+        mock_keyboard = AsyncMock()
+        mock_keyboard.press = AsyncMock()
+
+        with patch(
+            "playwright.async_api.async_playwright",
+            return_value=mock_playwright,
+        ):
+            await manager.create_session("test")
+
+            # Add keyboard to the session's page
+            session = manager.get_session("test")
+            session.page.keyboard = mock_keyboard
+
+            # Test keyboard press
+            actions = json.dumps([{"type": "keyboard", "action": "press", "key": "Enter"}])
+            result = await browser_session_interact(mock_context, "test", actions)
+
+            assert "Pressed key 'Enter'" in result
+            mock_keyboard.press.assert_called_once_with("Enter")
+
+        await manager.destroy_session("test")
