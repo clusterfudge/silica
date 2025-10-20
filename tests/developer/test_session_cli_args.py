@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
+import pytest
 
 from silica.developer.context import AgentContext
 from silica.developer.sandbox import SandboxMode
@@ -16,6 +17,11 @@ from silica.developer.tools.sessions import (
 
 
 class TestSessionCliArgs(unittest.TestCase):
+    @pytest.fixture(autouse=True)
+    def setup_fixture(self, persona_base_dir):
+        """Inject persona_base_dir fixture for unittest-style tests."""
+        self.persona_base_dir = persona_base_dir
+
     def setUp(self):
         # Create a temporary directory for test files
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -201,6 +207,7 @@ class TestSessionCliArgs(unittest.TestCase):
             sandbox_contents=[],
             user_interface=mock_ui,
             cli_args=test_cli_args,
+            persona_base_directory=self.persona_base_dir,
         )
 
         # Verify CLI args are stored

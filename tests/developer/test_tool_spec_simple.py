@@ -49,7 +49,7 @@ async def test_invoke_tool_with_empty_toolspec():
     print("✅ Test with MagicMock missing attributes passed")
 
 
-async def test_toolbox_invoke_agent_tool():
+async def test_toolbox_invoke_agent_tool(persona_base_dir):
     """Test Toolbox.invoke_agent_tool with invalid tool specs"""
     print("Testing Toolbox.invoke_agent_tool with invalid tool specs...")
 
@@ -63,6 +63,7 @@ async def test_toolbox_invoke_agent_tool():
         },
         sandbox_mode=SandboxMode.ALLOW_ALL,
         user_interface=user_interface,
+        persona_base_directory=persona_base_dir,
         sandbox_contents=[],  # Empty list for sandbox contents
     )
 

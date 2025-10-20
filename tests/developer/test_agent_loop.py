@@ -185,13 +185,14 @@ def mock_toolbox():
 
 
 @pytest.fixture
-def agent_context(model_config):
+def agent_context(model_config, persona_base_dir):
     ui = MockUserInterface()
     ctx = AgentContext.create(
         model_spec=model_config,
         sandbox_mode=SandboxMode.REMEMBER_PER_RESOURCE,
         sandbox_contents=[],
         user_interface=ui,
+        persona_base_directory=persona_base_dir,
     )
     ctx.flush = Mock()
     return ctx

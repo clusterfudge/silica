@@ -12,7 +12,7 @@ from rich.console import Console
 class TestTipsCommand:
     """Test the /tips command functionality"""
 
-    def test_tips_command_registration(self):
+    def test_tips_command_registration(self, persona_base_dir):
         """Test that the /tips command is properly registered"""
         console = Console()
 
@@ -26,6 +26,7 @@ class TestTipsCommand:
             sandbox_mode=SandboxMode.ALLOW_ALL,
             sandbox_contents=[],
             user_interface=CLIUserInterface(console, SandboxMode.ALLOW_ALL),
+            persona_base_directory=persona_base_dir,
         )
 
         toolbox = Toolbox(context)
@@ -44,7 +45,7 @@ class TestTipsCommand:
         tips_func = toolbox.local["tips"]["invoke"]
         assert callable(tips_func), "Tips function is not callable"
 
-    def test_tips_command_content(self):
+    def test_tips_command_content(self, persona_base_dir):
         """Test that the tips command contains expected content"""
         console = Console()
 
@@ -58,6 +59,7 @@ class TestTipsCommand:
             sandbox_mode=SandboxMode.ALLOW_ALL,
             sandbox_contents=[],
             user_interface=CLIUserInterface(console, SandboxMode.ALLOW_ALL),
+            persona_base_directory=persona_base_dir,
         )
 
         toolbox = Toolbox(context)
@@ -110,7 +112,7 @@ class TestTipsCommand:
         for tip in moved_tips:
             assert tip in tips_output, f"Expected tip '{tip}' not found in tips output"
 
-    def test_help_command_still_works(self):
+    def test_help_command_still_works(self, persona_base_dir):
         """Test that the help command still works after adding tips"""
         console = Console()
 
@@ -124,6 +126,7 @@ class TestTipsCommand:
             sandbox_mode=SandboxMode.ALLOW_ALL,
             sandbox_contents=[],
             user_interface=CLIUserInterface(console, SandboxMode.ALLOW_ALL),
+            persona_base_directory=persona_base_dir,
         )
 
         toolbox = Toolbox(context)

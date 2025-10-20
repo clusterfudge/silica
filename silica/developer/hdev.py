@@ -3,6 +3,7 @@ import asyncio
 import io
 import os
 import re
+from pathlib import Path
 from typing import Dict, Any, Annotated, Optional
 
 import cyclopts
@@ -32,7 +33,6 @@ from silica.developer.user_interface import UserInterface
 from silica.developer.toolbox import Toolbox
 from prompt_toolkit.completion import Completer, WordCompleter, Completion
 
-from silica.developer.utils import wrap_text_as_content_block
 
 SANDBOX_MODE_MAP = {mode.name.lower(): mode for mode in SandboxMode}
 SANDBOX_MODE_MAP["dwr"] = SandboxMode.ALLOW_ALL
@@ -673,6 +673,7 @@ def attach_tools(app):
         sandbox_mode=SandboxMode.ALLOW_ALL,
         sandbox_contents=[],
         user_interface=CLIUserInterface(console, sandbox.mode),
+        persona_base_directory=Path("~/.silica/personas/default").expanduser(),
     )
     toolbox = Toolbox(context)
 
@@ -855,6 +856,9 @@ def cyclopts_main(
     if not initial_prompt and not session_id:
         user_interface.display_welcome_message()
 
+    # Setup system prompt/persona (identical to original)
+    persona = personas.for_name(persona)
+
     # Create agent context (identical to original)
     context = AgentContext.create(
         model_spec=get_model(model),
@@ -863,22 +867,18 @@ def cyclopts_main(
         user_interface=user_interface,
         session_id=session_id,
         cli_args=original_args,
+        persona_base_directory=persona.base_directory,
     )
 
     # Set the agent context reference in the UI for keyboard shortcuts
     user_interface.agent_context = context
-
-    # Setup system prompt/persona (identical to original)
-    system_block: dict[str, Any] | None = (
-        wrap_text_as_content_block(personas.for_name(persona)) if persona else None
-    )
 
     # Run the agent loop (identical to original)
     asyncio.run(
         run(
             agent_context=context,
             initial_prompt=initial_prompt,
-            system_prompt=system_block,
+            system_prompt=persona.system_block,
             single_response=bool(initial_prompt),
             enable_compaction=not disable_compaction,
             log_file_path=log_requests,

@@ -78,7 +78,7 @@ class TestTimeoutFunctionality:
             session_prefix="test_timeout", max_sessions=5, global_default_timeout=30
         )
 
-    def test_timeout_initialization(self):
+    def test_timeout_initialization(self, persona_base_dir):
         """Test timeout initialization and configuration."""
         # Test global timeout
         assert self.manager.global_default_timeout == 30
@@ -90,7 +90,7 @@ class TestTimeoutFunctionality:
         self.manager.sessions["test"] = session
         assert self.manager.sessions["test"].default_timeout == 60
 
-    def test_set_session_timeout(self):
+    def test_set_session_timeout(self, persona_base_dir):
         """Test setting session-specific timeouts."""
         # Create a mock session
         from silica.developer.tools.tmux_session import TmuxSession
@@ -110,7 +110,7 @@ class TestTimeoutFunctionality:
         assert "Disabled" in message
         assert self.manager.sessions["test"].default_timeout is None
 
-    def test_determine_effective_timeout(self):
+    def test_determine_effective_timeout(self, persona_base_dir):
         """Test timeout precedence logic."""
         from silica.developer.tools.tmux_session import TmuxSession
 
@@ -130,7 +130,7 @@ class TestTimeoutFunctionality:
         timeout = self.manager._determine_effective_timeout("test", None)
         assert timeout == 30
 
-    def test_is_command_complete(self):
+    def test_is_command_complete(self, persona_base_dir):
         """Test command completion detection."""
         # Command completed with prompt
         assert self.manager._is_command_complete("output\n❯ ") is True
@@ -145,7 +145,7 @@ class TestTimeoutFunctionality:
         assert self.manager._is_command_complete('echo "test\ndquote>') is False
 
     @patch("silica.developer.tools.tmux_session.TmuxSessionManager._run_tmux_command")
-    def test_handle_command_timeout_interrupt(self, mock_run_command):
+    def test_handle_command_timeout_interrupt(self, mock_run_command, persona_base_dir):
         """Test timeout handling with interrupt action."""
         mock_run_command.return_value = (0, "", "")
 
@@ -164,7 +164,9 @@ class TestTimeoutFunctionality:
     @patch(
         "silica.developer.tools.tmux_session.TmuxSessionManager._kill_session_processes"
     )
-    def test_handle_command_timeout_kill(self, mock_kill_processes, mock_run_command):
+    def test_handle_command_timeout_kill(
+        self, mock_kill_processes, mock_run_command, persona_base_dir
+    ):
         """Test timeout handling with kill action."""
         mock_kill_processes.return_value = (True, "Processes killed")
 
@@ -175,7 +177,9 @@ class TestTimeoutFunctionality:
         mock_kill_processes.assert_called_once_with("test_session")
 
     @patch("silica.developer.tools.tmux_session.TmuxSessionManager._run_tmux_command")
-    def test_execute_command_with_timeout_validation(self, mock_run_command):
+    def test_execute_command_with_timeout_validation(
+        self, mock_run_command, persona_base_dir
+    ):
         """Test command execution with timeout parameter validation."""
         from silica.developer.tools.tmux_session import TmuxSession
 
@@ -206,7 +210,9 @@ class TestTimeoutFunctionality:
         # The timeout validation happens in the tool function, not the manager
 
     @patch("silica.developer.tools.tmux_session.TmuxSessionManager._run_tmux_command")
-    def test_execute_command_with_timeout_quick_completion(self, mock_run_command):
+    def test_execute_command_with_timeout_quick_completion(
+        self, mock_run_command, persona_base_dir
+    ):
         """Test command execution that completes before timeout."""
         from silica.developer.tools.tmux_session import TmuxSession
 
@@ -233,7 +239,7 @@ class TestTimeoutFunctionality:
 class TestTimeoutToolIntegration:
     """Integration tests for timeout functionality with tool functions."""
 
-    def create_test_context(self):
+    def create_test_context(self, persona_base_dir):
         """Create a test context."""
         ui = MockUserInterface()
         return AgentContext.create(
@@ -241,6 +247,7 @@ class TestTimeoutToolIntegration:
             sandbox_mode=SandboxMode.ALLOW_ALL,
             sandbox_contents=[],
             user_interface=ui,
+            persona_base_directory=persona_base_dir,
         )
 
     @pytest.fixture(autouse=True)
@@ -249,9 +256,9 @@ class TestTimeoutToolIntegration:
         if not _check_tmux_available():
             pytest.skip("tmux not available")
 
-    def test_timeout_parameter_validation(self):
+    def test_timeout_parameter_validation(self, persona_base_dir):
         """Test timeout parameter validation in tool functions."""
-        context = self.create_test_context()
+        context = self.create_test_context(persona_base_dir)
 
         # Invalid timeout values
         result = tmux_execute_command(context, "test_session", "echo hello", timeout=-1)
@@ -266,9 +273,9 @@ class TestTimeoutToolIntegration:
         )
         assert "must be one of" in result
 
-    def test_set_session_timeout_tool(self):
+    def test_set_session_timeout_tool(self, persona_base_dir):
         """Test the session timeout configuration tool."""
-        context = self.create_test_context()
+        context = self.create_test_context(persona_base_dir)
 
         try:
             # Create session first
@@ -293,9 +300,9 @@ class TestTimeoutToolIntegration:
             except Exception:
                 pass
 
-    def test_command_execution_with_timeout(self):
+    def test_command_execution_with_timeout(self, persona_base_dir):
         """Test actual command execution with timeout."""
-        context = self.create_test_context()
+        context = self.create_test_context(persona_base_dir)
 
         try:
             # Create session
@@ -320,9 +327,9 @@ class TestTimeoutToolIntegration:
             except Exception:
                 pass
 
-    def test_session_timeout_inheritance(self):
+    def test_session_timeout_inheritance(self, persona_base_dir):
         """Test that commands inherit session-level timeouts."""
-        context = self.create_test_context()
+        context = self.create_test_context(persona_base_dir)
 
         try:
             # Create session

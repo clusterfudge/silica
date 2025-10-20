@@ -82,7 +82,7 @@ class TestTmuxToolHelpers:
     """Test helper functions."""
 
     @patch("subprocess.run")
-    def test_check_tmux_available_success(self, mock_run):
+    def test_check_tmux_available_success(self, mock_run, persona_base_dir):
         """Test tmux availability check when tmux is available."""
         mock_result = Mock()
         mock_result.returncode = 0
@@ -91,13 +91,13 @@ class TestTmuxToolHelpers:
         assert _check_tmux_available() is True
 
     @patch("subprocess.run")
-    def test_check_tmux_available_failure(self, mock_run):
+    def test_check_tmux_available_failure(self, mock_run, persona_base_dir):
         """Test tmux availability check when tmux is not available."""
         mock_run.side_effect = FileNotFoundError()
 
         assert _check_tmux_available() is False
 
-    def test_validate_command_safety(self):
+    def test_validate_command_safety(self, persona_base_dir):
         """Test command safety validation."""
         # Safe commands
         assert _validate_command_safety("echo hello") is True
@@ -113,7 +113,7 @@ class TestTmuxToolHelpers:
 class TestTmuxToolFunctions:
     """Test tmux tool functions."""
 
-    def create_test_context(self, permission_responses=None):
+    def create_test_context(self, persona_base_dir, permission_responses=None):
         """Create a test context with mock UI."""
         ui = MockUserInterface()
         if permission_responses:
@@ -126,23 +126,24 @@ class TestTmuxToolFunctions:
             sandbox_mode=SandboxMode.ALLOW_ALL,
             sandbox_contents=[],
             user_interface=ui,
+            persona_base_directory=persona_base_dir,
         )
 
     @patch("silica.developer.tools.tmux_tool._check_tmux_available")
-    def test_tmux_create_session_no_tmux(self, mock_check_tmux):
+    def test_tmux_create_session_no_tmux(self, mock_check_tmux, persona_base_dir):
         """Test session creation when tmux is not available."""
         mock_check_tmux.return_value = False
-        context = self.create_test_context()
+        context = self.create_test_context(persona_base_dir)
 
         result = tmux_create_session(context, "test_session")
 
         assert "tmux is not available" in result
 
     @patch("silica.developer.tools.tmux_tool._check_tmux_available")
-    def test_tmux_create_session_invalid_name(self, mock_check_tmux):
+    def test_tmux_create_session_invalid_name(self, mock_check_tmux, persona_base_dir):
         """Test session creation with invalid name."""
         mock_check_tmux.return_value = True
-        context = self.create_test_context()
+        context = self.create_test_context(persona_base_dir)
 
         result = tmux_create_session(context, "invalid name")
 
@@ -150,7 +151,9 @@ class TestTmuxToolFunctions:
 
     @patch("silica.developer.tools.tmux_tool._check_tmux_available")
     @patch("silica.developer.tools.tmux_tool.get_session_manager")
-    def test_tmux_create_session_success(self, mock_get_manager, mock_check_tmux):
+    def test_tmux_create_session_success(
+        self, mock_get_manager, mock_check_tmux, persona_base_dir
+    ):
         """Test successful session creation."""
         mock_check_tmux.return_value = True
         mock_manager = Mock()
@@ -160,7 +163,7 @@ class TestTmuxToolFunctions:
         )
         mock_get_manager.return_value = mock_manager
 
-        context = self.create_test_context()
+        context = self.create_test_context(persona_base_dir)
 
         result = tmux_create_session(context, "test_session")
 
@@ -169,7 +172,9 @@ class TestTmuxToolFunctions:
 
     @patch("silica.developer.tools.tmux_tool._check_tmux_available")
     @patch("silica.developer.tools.tmux_tool.get_session_manager")
-    def test_tmux_create_session_with_command(self, mock_get_manager, mock_check_tmux):
+    def test_tmux_create_session_with_command(
+        self, mock_get_manager, mock_check_tmux, persona_base_dir
+    ):
         """Test session creation with initial command."""
         mock_check_tmux.return_value = True
         mock_manager = Mock()
@@ -179,7 +184,7 @@ class TestTmuxToolFunctions:
         )
         mock_get_manager.return_value = mock_manager
 
-        context = self.create_test_context()
+        context = self.create_test_context(persona_base_dir)
 
         result = tmux_create_session(context, "test_session", "echo hello")
 
@@ -189,10 +194,12 @@ class TestTmuxToolFunctions:
         )
 
     @patch("silica.developer.tools.tmux_tool._check_tmux_available")
-    def test_tmux_create_session_dangerous_command(self, mock_check_tmux):
+    def test_tmux_create_session_dangerous_command(
+        self, mock_check_tmux, persona_base_dir
+    ):
         """Test session creation with dangerous initial command."""
         mock_check_tmux.return_value = True
-        context = self.create_test_context()
+        context = self.create_test_context(persona_base_dir)
 
         result = tmux_create_session(context, "test_session", "sudo rm -rf /")
 
@@ -200,14 +207,16 @@ class TestTmuxToolFunctions:
 
     @patch("silica.developer.tools.tmux_tool._check_tmux_available")
     @patch("silica.developer.tools.tmux_tool.get_session_manager")
-    def test_tmux_list_sessions_empty(self, mock_get_manager, mock_check_tmux):
+    def test_tmux_list_sessions_empty(
+        self, mock_get_manager, mock_check_tmux, persona_base_dir
+    ):
         """Test listing sessions when no sessions exist."""
         mock_check_tmux.return_value = True
         mock_manager = Mock()
         mock_manager.list_sessions.return_value = []
         mock_get_manager.return_value = mock_manager
 
-        context = self.create_test_context()
+        context = self.create_test_context(persona_base_dir)
 
         result = tmux_list_sessions(context)
 
@@ -215,7 +224,9 @@ class TestTmuxToolFunctions:
 
     @patch("silica.developer.tools.tmux_tool._check_tmux_available")
     @patch("silica.developer.tools.tmux_tool.get_session_manager")
-    def test_tmux_list_sessions_with_data(self, mock_get_manager, mock_check_tmux):
+    def test_tmux_list_sessions_with_data(
+        self, mock_get_manager, mock_check_tmux, persona_base_dir
+    ):
         """Test listing sessions with data."""
         mock_check_tmux.return_value = True
         mock_manager = Mock()
@@ -237,7 +248,7 @@ class TestTmuxToolFunctions:
         ]
         mock_get_manager.return_value = mock_manager
 
-        context = self.create_test_context()
+        context = self.create_test_context(persona_base_dir)
 
         result = tmux_list_sessions(context)
 
@@ -248,7 +259,9 @@ class TestTmuxToolFunctions:
 
     @patch("silica.developer.tools.tmux_tool._check_tmux_available")
     @patch("silica.developer.tools.tmux_tool.get_session_manager")
-    def test_tmux_execute_command_success(self, mock_get_manager, mock_check_tmux):
+    def test_tmux_execute_command_success(
+        self, mock_get_manager, mock_check_tmux, persona_base_dir
+    ):
         """Test successful command execution."""
         mock_check_tmux.return_value = True
         mock_manager = Mock()
@@ -256,7 +269,7 @@ class TestTmuxToolFunctions:
         mock_manager.capture_session_output.return_value = (True, "output captured")
         mock_get_manager.return_value = mock_manager
 
-        context = self.create_test_context()
+        context = self.create_test_context(persona_base_dir)
 
         result = tmux_execute_command(context, "test_session", "echo hello")
 
@@ -271,10 +284,10 @@ class TestTmuxToolFunctions:
         )
 
     @patch("silica.developer.tools.tmux_tool._check_tmux_available")
-    def test_tmux_execute_command_dangerous(self, mock_check_tmux):
+    def test_tmux_execute_command_dangerous(self, mock_check_tmux, persona_base_dir):
         """Test command execution with dangerous command."""
         mock_check_tmux.return_value = True
-        context = self.create_test_context()
+        context = self.create_test_context(persona_base_dir)
 
         result = tmux_execute_command(context, "test_session", "sudo rm -rf /")
 
@@ -282,14 +295,16 @@ class TestTmuxToolFunctions:
 
     @patch("silica.developer.tools.tmux_tool._check_tmux_available")
     @patch("silica.developer.tools.tmux_tool.get_session_manager")
-    def test_tmux_execute_command_no_capture(self, mock_get_manager, mock_check_tmux):
+    def test_tmux_execute_command_no_capture(
+        self, mock_get_manager, mock_check_tmux, persona_base_dir
+    ):
         """Test command execution without output capture."""
         mock_check_tmux.return_value = True
         mock_manager = Mock()
         mock_manager.execute_command.return_value = (True, "Command executed")
         mock_get_manager.return_value = mock_manager
 
-        context = self.create_test_context()
+        context = self.create_test_context(persona_base_dir)
 
         result = tmux_execute_command(
             context, "test_session", "echo hello", capture_output=False
@@ -301,14 +316,16 @@ class TestTmuxToolFunctions:
 
     @patch("silica.developer.tools.tmux_tool._check_tmux_available")
     @patch("silica.developer.tools.tmux_tool.get_session_manager")
-    def test_tmux_get_output_success(self, mock_get_manager, mock_check_tmux):
+    def test_tmux_get_output_success(
+        self, mock_get_manager, mock_check_tmux, persona_base_dir
+    ):
         """Test successful output retrieval."""
         mock_check_tmux.return_value = True
         mock_manager = Mock()
         mock_manager.capture_session_output.return_value = (True, "session output")
         mock_get_manager.return_value = mock_manager
 
-        context = self.create_test_context()
+        context = self.create_test_context(persona_base_dir)
 
         result = tmux_get_output(context, "test_session", lines=25)
 
@@ -318,14 +335,16 @@ class TestTmuxToolFunctions:
 
     @patch("silica.developer.tools.tmux_tool._check_tmux_available")
     @patch("silica.developer.tools.tmux_tool.get_session_manager")
-    def test_tmux_get_output_failure(self, mock_get_manager, mock_check_tmux):
+    def test_tmux_get_output_failure(
+        self, mock_get_manager, mock_check_tmux, persona_base_dir
+    ):
         """Test output retrieval failure."""
         mock_check_tmux.return_value = True
         mock_manager = Mock()
         mock_manager.capture_session_output.return_value = (False, "Session not found")
         mock_get_manager.return_value = mock_manager
 
-        context = self.create_test_context()
+        context = self.create_test_context(persona_base_dir)
 
         result = tmux_get_output(context, "nonexistent_session")
 
@@ -333,14 +352,16 @@ class TestTmuxToolFunctions:
 
     @patch("silica.developer.tools.tmux_tool._check_tmux_available")
     @patch("silica.developer.tools.tmux_tool.get_session_manager")
-    def test_tmux_destroy_session_success(self, mock_get_manager, mock_check_tmux):
+    def test_tmux_destroy_session_success(
+        self, mock_get_manager, mock_check_tmux, persona_base_dir
+    ):
         """Test successful session destruction."""
         mock_check_tmux.return_value = True
         mock_manager = Mock()
         mock_manager.destroy_session.return_value = (True, "Session destroyed")
         mock_get_manager.return_value = mock_manager
 
-        context = self.create_test_context()
+        context = self.create_test_context(persona_base_dir)
 
         result = tmux_destroy_session(context, "test_session")
 
@@ -349,7 +370,9 @@ class TestTmuxToolFunctions:
 
     @patch("silica.developer.tools.tmux_tool._check_tmux_available")
     @patch("silica.developer.tools.tmux_tool.get_session_manager")
-    def test_tmux_destroy_all_sessions_success(self, mock_get_manager, mock_check_tmux):
+    def test_tmux_destroy_all_sessions_success(
+        self, mock_get_manager, mock_check_tmux, persona_base_dir
+    ):
         """Test successful destruction of all sessions."""
         mock_check_tmux.return_value = True
         mock_manager = Mock()
@@ -363,7 +386,7 @@ class TestTmuxToolFunctions:
         ]
         mock_get_manager.return_value = mock_manager
 
-        context = self.create_test_context()
+        context = self.create_test_context(persona_base_dir)
 
         result = tmux_destroy_all_sessions(context)
 
@@ -372,14 +395,16 @@ class TestTmuxToolFunctions:
 
     @patch("silica.developer.tools.tmux_tool._check_tmux_available")
     @patch("silica.developer.tools.tmux_tool.get_session_manager")
-    def test_tmux_destroy_all_sessions_empty(self, mock_get_manager, mock_check_tmux):
+    def test_tmux_destroy_all_sessions_empty(
+        self, mock_get_manager, mock_check_tmux, persona_base_dir
+    ):
         """Test destruction of all sessions when none exist."""
         mock_check_tmux.return_value = True
         mock_manager = Mock()
         mock_manager.list_sessions.return_value = []
         mock_get_manager.return_value = mock_manager
 
-        context = self.create_test_context()
+        context = self.create_test_context(persona_base_dir)
 
         result = tmux_destroy_all_sessions(context)
 
@@ -388,7 +413,7 @@ class TestTmuxToolFunctions:
     @patch("silica.developer.tools.tmux_tool._check_tmux_available")
     @patch("silica.developer.tools.tmux_tool.get_session_manager")
     def test_tmux_destroy_all_sessions_with_errors(
-        self, mock_get_manager, mock_check_tmux
+        self, mock_get_manager, mock_check_tmux, persona_base_dir
     ):
         """Test destruction with some failures."""
         mock_check_tmux.return_value = True
@@ -403,7 +428,7 @@ class TestTmuxToolFunctions:
         ]
         mock_get_manager.return_value = mock_manager
 
-        context = self.create_test_context()
+        context = self.create_test_context(persona_base_dir)
 
         result = tmux_destroy_all_sessions(context)
 
@@ -411,7 +436,7 @@ class TestTmuxToolFunctions:
         assert "Errors:" in result
         assert "Session 2 failed" in result
 
-    def test_permission_denied_create_session(self):
+    def test_permission_denied_create_session(self, persona_base_dir):
         """Test permission denied for session creation."""
         ui = MockUserInterface()
         ui.set_permission_response("tmux_create_session", "test_session", False)
@@ -421,6 +446,7 @@ class TestTmuxToolFunctions:
             sandbox_mode=SandboxMode.REQUEST_EVERY_TIME,
             sandbox_contents=[],
             user_interface=ui,
+            persona_base_directory=persona_base_dir,
         )
 
         with patch(
@@ -431,7 +457,7 @@ class TestTmuxToolFunctions:
 
         assert "Permission denied" in result
 
-    def test_permission_denied_command_execution(self):
+    def test_permission_denied_command_execution(self, persona_base_dir):
         """Test permission denied for command execution."""
         ui = MockUserInterface()
         ui.set_permission_response("shell", "echo hello", False)
@@ -441,6 +467,7 @@ class TestTmuxToolFunctions:
             sandbox_mode=SandboxMode.REQUEST_EVERY_TIME,
             sandbox_contents=[],
             user_interface=ui,
+            persona_base_directory=persona_base_dir,
         )
 
         with patch(
@@ -451,9 +478,9 @@ class TestTmuxToolFunctions:
 
         assert "Permission denied" in result
 
-    def test_do_something_else_error(self):
+    def test_do_something_else_error(self, persona_base_dir):
         """Test DoSomethingElseError propagation."""
-        context = self.create_test_context()
+        context = self.create_test_context(persona_base_dir)
 
         # Mock the sandbox to raise DoSomethingElseError
         with patch.object(context.sandbox, "check_permissions") as mock_check:
@@ -471,7 +498,7 @@ class TestTmuxToolFunctions:
 class TestTmuxToolIntegration:
     """Integration tests for tmux tool functions."""
 
-    def create_test_context(self):
+    def create_test_context(self, persona_base_dir):
         """Create a test context for integration tests."""
         ui = MockUserInterface()
         return AgentContext.create(
@@ -479,6 +506,7 @@ class TestTmuxToolIntegration:
             sandbox_mode=SandboxMode.ALLOW_ALL,
             sandbox_contents=[],
             user_interface=ui,
+            persona_base_directory=persona_base_dir,
         )
 
     @pytest.fixture(autouse=True)
@@ -487,9 +515,9 @@ class TestTmuxToolIntegration:
         if not _check_tmux_available():
             pytest.skip("tmux not available")
 
-    def test_full_session_workflow(self):
+    def test_full_session_workflow(self, persona_base_dir):
         """Test complete session workflow with real tmux."""
-        context = self.create_test_context()
+        context = self.create_test_context(persona_base_dir)
 
         # Create session
         result = tmux_create_session(context, "integration_test")
@@ -511,9 +539,9 @@ class TestTmuxToolIntegration:
         result = tmux_destroy_session(context, "integration_test")
         assert "destroyed" in result or "Session destroyed" in result
 
-    def test_session_with_background_process(self):
+    def test_session_with_background_process(self, persona_base_dir):
         """Test session with a background process."""
-        context = self.create_test_context()
+        context = self.create_test_context(persona_base_dir)
 
         # Create session with background process
         result = tmux_create_session(
