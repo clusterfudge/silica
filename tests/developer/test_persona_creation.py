@@ -224,7 +224,7 @@ class TestEnsurePersonaExists:
         persona_name = "from_template"
         console = MagicMock()
 
-        # Mock user saying 'y' to template, then choosing option 1
+        # Mock user saying 'y' to template, then choosing option 1 (basic_agent)
         console.input.return_value = "y"
         mock_prompt.return_value = "1"
 
@@ -236,11 +236,15 @@ class TestEnsurePersonaExists:
         persona_dir = temp_persona_dir / persona_name
         assert persona_dir.exists()
 
-        # But persona.md should NOT exist for template-based personas
+        # persona.md SHOULD exist with the built-in prompt content
         persona_file = persona_dir / "persona.md"
-        assert not persona_file.exists()
+        assert persona_file.exists()
 
-        # The built-in template will be used via for_name()
+        # Check that file contains the basic_agent prompt
+        with open(persona_file) as f:
+            content = f.read()
+        assert len(content) > 0
+        assert "helpful assistant" in content.lower()
 
     @patch("silica.developer.hdev.pt_prompt")
     def test_create_blank_from_template_menu(self, mock_prompt, temp_persona_dir):
@@ -323,4 +327,3 @@ class TestPersonaIntegration:
         history_dir.mkdir(exist_ok=True)
 
         assert memory_dir.exists()
-        assert history_dir.exists()
