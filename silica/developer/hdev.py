@@ -70,8 +70,6 @@ def ensure_persona_exists(persona_name: str, console: Console) -> bool:
         console.print("\n[red]Cancelled[/red]")
         return False
 
-    base_prompt = ""
-
     if use_template == "y":
         # Show available templates
         console.print("\n[bold cyan]Available persona templates:[/bold cyan]")
@@ -113,27 +111,52 @@ def ensure_persona_exists(persona_name: str, console: Console) -> bool:
         # Get the selected template
         if choice <= len(builtin_names):
             selected_name = builtin_names[choice - 1]
-            base_prompt = personas.get_builtin_prompt(selected_name)
             console.print(
-                f"\n[green]Creating persona '{persona_name}' based on '{selected_name}'[/green]"
+                f"\n[green]Creating persona '{persona_name}' using '{selected_name}' template[/green]"
+            )
+            # For template-based personas, just create the directory
+            # The built-in prompt will be used automatically
+            from silica.developer.personas import _PERSONAS_BASE_DIRECTORY
+
+            persona_dir = _PERSONAS_BASE_DIRECTORY / persona_name
+            persona_dir.mkdir(parents=True, exist_ok=True)
+
+            console.print(f"[green]✓ Created persona directory: {persona_dir}[/green]")
+            console.print(
+                f"[dim]Using built-in '{selected_name}' prompt. "
+                f"Create {persona_dir / 'persona.md'} to customize.[/dim]"
             )
         else:
             console.print(f"\n[green]Creating blank persona '{persona_name}'[/green]")
+            # For blank personas, create directory with empty persona.md
+            from silica.developer.personas import _PERSONAS_BASE_DIRECTORY
+
+            persona_dir = _PERSONAS_BASE_DIRECTORY / persona_name
+            persona_dir.mkdir(parents=True, exist_ok=True)
+            persona_file = persona_dir / "persona.md"
+            with open(persona_file, "w") as f:
+                f.write("")
+
+            console.print(f"[green]✓ Created persona directory: {persona_dir}[/green]")
+            console.print(
+                f"[green]✓ Created empty persona file: {persona_file}[/green]"
+            )
+            console.print(
+                f"[dim]Edit {persona_file} to add your custom persona prompt.[/dim]"
+            )
     else:
         console.print(f"\n[green]Creating blank persona '{persona_name}'[/green]")
+        # User declined template - create blank persona
+        from silica.developer.personas import _PERSONAS_BASE_DIRECTORY
 
-    # Create the persona directory and file
-    persona_dir = personas.create_persona_directory(persona_name, base_prompt)
-    persona_file = persona_dir / "persona.md"
+        persona_dir = _PERSONAS_BASE_DIRECTORY / persona_name
+        persona_dir.mkdir(parents=True, exist_ok=True)
+        persona_file = persona_dir / "persona.md"
+        with open(persona_file, "w") as f:
+            f.write("")
 
-    console.print(f"[green]✓ Created persona directory: {persona_dir}[/green]")
-    console.print(f"[green]✓ Created persona file: {persona_file}[/green]")
-
-    if base_prompt:
-        console.print(
-            f"[dim]You can edit {persona_file} to customize your persona.[/dim]"
-        )
-    else:
+        console.print(f"[green]✓ Created persona directory: {persona_dir}[/green]")
+        console.print(f"[green]✓ Created empty persona file: {persona_file}[/green]")
         console.print(
             f"[dim]Edit {persona_file} to add your custom persona prompt.[/dim]"
         )

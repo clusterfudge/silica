@@ -36,15 +36,46 @@ class Persona(object):
 
 
 def for_name(name: str | None) -> Persona:
-    persona_prompt = _personas.get(name.lower(), None)
+    """Get a persona by name, loading from persona.md if it exists.
 
-    system_block: dict[str, Any] | None = (
-        wrap_text_as_content_block(persona_prompt) if persona_prompt else None
-    )
-    name: str = name or DEFAULT_PERSONA_NAME
-    return Persona(
-        system_block=system_block, base_directory=_PERSONAS_BASE_DIRECTORY / name
-    )
+    Args:
+        name: Name of the persona (None uses DEFAULT_PERSONA_NAME)
+
+    Returns:
+        Persona object with system_block and base_directory
+
+    Priority:
+        1. Load from persona.md if file exists
+        2. Use built-in template if available
+        3. Use None (no custom system prompt)
+    """
+    name = name or DEFAULT_PERSONA_NAME
+    base_directory = _PERSONAS_BASE_DIRECTORY / name
+    persona_file = base_directory / "persona.md"
+
+    # Try to load from persona.md first
+    if persona_file.exists():
+        try:
+            with open(persona_file, "r") as f:
+                persona_content = f.read().strip()
+            # Only create system_block if file has content
+            system_block = (
+                wrap_text_as_content_block(persona_content) if persona_content else None
+            )
+        except (IOError, OSError):
+            # Fall back to built-in if file read fails
+            persona_prompt = _personas.get(name.lower(), None)
+            system_block = (
+                wrap_text_as_content_block(persona_prompt) if persona_prompt else None
+            )
+    else:
+        # No persona.md - use built-in if available
+        persona_prompt = _personas.get(name.lower(), None)
+        system_block = (
+            wrap_text_as_content_block(persona_prompt) if persona_prompt else None
+        )
+
+    return Persona(system_block=system_block, base_directory=base_directory)
 
 
 def names():
@@ -94,17 +125,21 @@ def create_persona_directory(name: str, base_prompt: str = "") -> Path:
 
 
 def persona_exists(name: str) -> bool:
-    """Check if a persona directory and persona.md file exist.
+    """Check if a persona directory exists (regardless of persona.md).
 
     Args:
         name: Name of the persona
 
     Returns:
-        True if both the directory and persona.md file exist
+        True if the persona directory exists
+
+    Note:
+        A persona is considered to exist if its directory exists, even without
+        persona.md. The system will use built-in templates or custom persona.md
+        as appropriate via for_name().
     """
     persona_dir = _PERSONAS_BASE_DIRECTORY / name
-    persona_file = persona_dir / "persona.md"
-    return persona_dir.exists() and persona_file.exists()
+    return persona_dir.exists()
 
 
 # List of all available personas

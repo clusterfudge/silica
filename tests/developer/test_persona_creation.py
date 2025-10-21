@@ -80,6 +80,55 @@ class TestPersonaModule:
             content = f.read()
         assert content == prompt_text
 
+    def test_for_name_loads_persona_md(self, temp_persona_dir):
+        """Test that for_name loads from persona.md when it exists."""
+        persona_name = "custom_persona"
+        custom_prompt = "This is my custom persona prompt."
+
+        # Create persona with custom prompt
+        persona_dir = temp_persona_dir / persona_name
+        persona_dir.mkdir(parents=True)
+        persona_file = persona_dir / "persona.md"
+        with open(persona_file, "w") as f:
+            f.write(custom_prompt)
+
+        # Load the persona
+        persona = personas.for_name(persona_name)
+
+        # Verify it loaded the custom prompt
+        assert persona.system_block is not None
+        assert persona.system_block["type"] == "text"
+        assert custom_prompt in persona.system_block["text"]
+
+    def test_for_name_uses_builtin_without_persona_md(self, temp_persona_dir):
+        """Test that for_name uses built-in when no persona.md exists."""
+        # Create directory without persona.md
+        persona_name = "basic_agent"
+        persona_dir = temp_persona_dir / persona_name
+        persona_dir.mkdir(parents=True)
+
+        # Load the persona
+        persona = personas.for_name(persona_name)
+
+        # Should use built-in basic_agent
+        assert persona.system_block is not None
+        assert "helpful assistant" in persona.system_block["text"].lower()
+
+    def test_for_name_empty_persona_md(self, temp_persona_dir):
+        """Test that for_name handles empty persona.md."""
+        persona_name = "empty_persona"
+        persona_dir = temp_persona_dir / persona_name
+        persona_dir.mkdir(parents=True)
+        persona_file = persona_dir / "persona.md"
+        with open(persona_file, "w") as f:
+            f.write("")  # Empty file
+
+        # Load the persona
+        persona = personas.for_name(persona_name)
+
+        # Should have no system_block for empty file
+        assert persona.system_block is None
+
     def test_create_persona_directory_blank(self, temp_persona_dir):
         """Test creating a blank persona directory."""
         persona_name = "blank_persona"
@@ -127,13 +176,13 @@ class TestPersonaModule:
         # Should exist now
         assert personas.persona_exists(persona_name)
 
-        # Test with missing persona.md
-        incomplete_name = "incomplete"
-        incomplete_dir = temp_persona_dir / incomplete_name
-        incomplete_dir.mkdir()
+        # Test with directory but no persona.md (template-based)
+        template_name = "template_persona"
+        template_dir = temp_persona_dir / template_name
+        template_dir.mkdir()
 
-        # Should not exist (missing persona.md)
-        assert not personas.persona_exists(incomplete_name)
+        # Should exist (directory is sufficient)
+        assert personas.persona_exists(template_name)
 
 
 class TestEnsurePersonaExists:
@@ -182,14 +231,16 @@ class TestEnsurePersonaExists:
         result = ensure_persona_exists(persona_name, console)
 
         assert result is True
-        assert personas.persona_exists(persona_name)
 
-        # Check that file contains the basic_agent prompt
-        persona_file = temp_persona_dir / persona_name / "persona.md"
-        with open(persona_file) as f:
-            content = f.read()
-        assert len(content) > 0
-        assert "helpful assistant" in content.lower()
+        # Directory should exist
+        persona_dir = temp_persona_dir / persona_name
+        assert persona_dir.exists()
+
+        # But persona.md should NOT exist for template-based personas
+        persona_file = persona_dir / "persona.md"
+        assert not persona_file.exists()
+
+        # The built-in template will be used via for_name()
 
     @patch("silica.developer.hdev.pt_prompt")
     def test_create_blank_from_template_menu(self, mock_prompt, temp_persona_dir):
@@ -207,8 +258,9 @@ class TestEnsurePersonaExists:
         assert result is True
         assert personas.persona_exists(persona_name)
 
-        # Check that file is blank
+        # Check that empty persona.md was created
         persona_file = temp_persona_dir / persona_name / "persona.md"
+        assert persona_file.exists()
         with open(persona_file) as f:
             content = f.read()
         assert content == ""
