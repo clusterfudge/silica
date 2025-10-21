@@ -8,10 +8,8 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import pytest
-from rich.console import Console
 
 from silica.developer import personas
-from silica.developer.hdev import ensure_persona_exists
 
 
 @pytest.fixture
@@ -185,119 +183,6 @@ class TestPersonaModule:
         assert personas.persona_exists(template_name)
 
 
-class TestEnsurePersonaExists:
-    """Tests for the ensure_persona_exists function."""
-
-    def test_existing_persona(self, temp_persona_dir):
-        """Test with an already existing persona."""
-        persona_name = "existing"
-        personas.create_persona_directory(persona_name, "Test prompt")
-
-        console = Console()
-        result = ensure_persona_exists(persona_name, console)
-
-        assert result is True
-
-    @patch("silica.developer.hdev.pt_prompt")
-    def test_create_blank_persona_no_template(self, mock_prompt, temp_persona_dir):
-        """Test creating a blank persona when user declines template."""
-        persona_name = "new_blank"
-        console = MagicMock()
-
-        # Mock user saying 'n' to template question
-        console.input.return_value = "n"
-
-        result = ensure_persona_exists(persona_name, console)
-
-        assert result is True
-        assert personas.persona_exists(persona_name)
-
-        # Check that file is blank
-        persona_file = temp_persona_dir / persona_name / "persona.md"
-        with open(persona_file) as f:
-            content = f.read()
-        assert content == ""
-
-    @patch("silica.developer.hdev.pt_prompt")
-    def test_create_persona_from_template(self, mock_prompt, temp_persona_dir):
-        """Test creating a persona from a built-in template."""
-        persona_name = "from_template"
-        console = MagicMock()
-
-        # Mock user saying 'y' to template, then choosing option 1 (basic_agent)
-        console.input.return_value = "y"
-        mock_prompt.return_value = "1"
-
-        result = ensure_persona_exists(persona_name, console)
-
-        assert result is True
-
-        # Directory should exist
-        persona_dir = temp_persona_dir / persona_name
-        assert persona_dir.exists()
-
-        # persona.md SHOULD exist with the built-in prompt content
-        persona_file = persona_dir / "persona.md"
-        assert persona_file.exists()
-
-        # Check that file contains the basic_agent prompt
-        with open(persona_file) as f:
-            content = f.read()
-        assert len(content) > 0
-        assert "helpful assistant" in content.lower()
-
-    @patch("silica.developer.hdev.pt_prompt")
-    def test_create_blank_from_template_menu(self, mock_prompt, temp_persona_dir):
-        """Test creating blank persona by selecting blank option from menu."""
-        persona_name = "blank_from_menu"
-        console = MagicMock()
-
-        # Mock user saying 'y' to template, then choosing the blank option (4)
-        console.input.return_value = "y"
-        builtin_count = len(personas.get_builtin_descriptions())
-        mock_prompt.return_value = str(builtin_count + 1)
-
-        result = ensure_persona_exists(persona_name, console)
-
-        assert result is True
-        assert personas.persona_exists(persona_name)
-
-        # Check that empty persona.md was created
-        persona_file = temp_persona_dir / persona_name / "persona.md"
-        assert persona_file.exists()
-        with open(persona_file) as f:
-            content = f.read()
-        assert content == ""
-
-    def test_cancel_on_template_question(self, temp_persona_dir):
-        """Test cancelling during template question."""
-        persona_name = "cancelled"
-        console = MagicMock()
-
-        # Mock user pressing Ctrl+C
-        console.input.side_effect = KeyboardInterrupt()
-
-        result = ensure_persona_exists(persona_name, console)
-
-        assert result is False
-        assert not personas.persona_exists(persona_name)
-
-    @patch("silica.developer.hdev.pt_prompt")
-    def test_cancel_on_choice_prompt(self, mock_prompt, temp_persona_dir):
-        """Test cancelling during choice selection."""
-        persona_name = "cancelled_choice"
-        console = MagicMock()
-
-        # Mock user saying 'y' to template, then Ctrl+C on choice
-        console.input.return_value = "y"
-        mock_prompt.side_effect = KeyboardInterrupt()
-
-        result = ensure_persona_exists(persona_name, console)
-
-        assert result is False
-        assert not personas.persona_exists(persona_name)
-
-
 class TestPersonaIntegration:
     """Integration tests for persona creation workflow."""
 
@@ -327,3 +212,87 @@ class TestPersonaIntegration:
         history_dir.mkdir(exist_ok=True)
 
         assert memory_dir.exists()
+
+
+class TestGetOrCreate:
+    """Tests for the get_or_create function."""
+
+    def test_existing_persona_non_interactive(self, temp_persona_dir):
+        """Test loading an existing persona in non-interactive mode."""
+        persona_name = "existing"
+        personas.create_persona_directory(persona_name, "Test prompt")
+
+        result = personas.get_or_create(persona_name, interactive=False)
+
+        assert isinstance(result, personas.Persona)
+        assert result.base_directory == temp_persona_dir / persona_name
+        assert result.system_block is not None
+
+    def test_nonexistent_persona_non_interactive_raises(self, temp_persona_dir):
+        """Test that non-existent persona raises error in non-interactive mode."""
+        persona_name = "doesnotexist"
+
+        with pytest.raises(ValueError, match="does not exist"):
+            personas.get_or_create(persona_name, interactive=False)
+
+    @patch("rich.console.Console")
+    def test_create_blank_persona_interactive(
+        self, mock_console_class, temp_persona_dir
+    ):
+        """Test creating a blank persona interactively."""
+        persona_name = "new_blank"
+        mock_console = MagicMock()
+        mock_console_class.return_value = mock_console
+        mock_console.input.return_value = "n"  # Decline template
+
+        result = personas.get_or_create(persona_name, interactive=True)
+
+        assert isinstance(result, personas.Persona)
+        assert personas.persona_exists(persona_name)
+
+        # Check that blank persona.md was created
+        persona_file = temp_persona_dir / persona_name / "persona.md"
+        assert persona_file.exists()
+        with open(persona_file) as f:
+            content = f.read()
+        assert content == ""
+
+    @patch("prompt_toolkit.prompt")
+    @patch("rich.console.Console")
+    def test_create_from_template_interactive(
+        self, mock_console_class, mock_pt_prompt, temp_persona_dir
+    ):
+        """Test creating a persona from template interactively."""
+        persona_name = "from_template"
+        mock_console = MagicMock()
+        mock_console_class.return_value = mock_console
+        mock_console.input.return_value = "y"  # Accept template
+        mock_pt_prompt.return_value = "1"  # Choose first template
+
+        result = personas.get_or_create(persona_name, interactive=True)
+
+        assert isinstance(result, personas.Persona)
+        assert personas.persona_exists(persona_name)
+
+        # Check that persona.md contains built-in prompt
+        persona_file = temp_persona_dir / persona_name / "persona.md"
+        assert persona_file.exists()
+        with open(persona_file) as f:
+            content = f.read()
+        assert len(content) > 0
+        # First template should be basic_agent
+        assert "helpful assistant" in content.lower()
+
+    @patch("rich.console.Console")
+    def test_cancel_during_creation(self, mock_console_class, temp_persona_dir):
+        """Test that cancellation raises KeyboardInterrupt."""
+        persona_name = "cancelled"
+        mock_console = MagicMock()
+        mock_console_class.return_value = mock_console
+        mock_console.input.side_effect = KeyboardInterrupt()
+
+        with pytest.raises(KeyboardInterrupt):
+            personas.get_or_create(persona_name, interactive=True)
+
+        # Persona should not be created
+        assert not personas.persona_exists(persona_name)
