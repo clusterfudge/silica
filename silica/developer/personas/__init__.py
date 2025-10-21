@@ -20,6 +20,12 @@ _personas = {
     "autonomous_engineer": AUTONOMOUS_ENGINEER,
 }
 
+_persona_descriptions = {
+    "basic_agent": "General purpose assistant with access to various tools",
+    "deep_research_agent": "Research and comprehensive document creation specialist",
+    "autonomous_engineer": "Autonomous software engineering and development agent",
+}
+
 _PERSONAS_BASE_DIRECTORY: Path = Path("~/.silica/personas").expanduser()
 
 
@@ -45,5 +51,67 @@ def names():
     return list(_personas.keys())
 
 
+def get_builtin_descriptions() -> dict[str, str]:
+    """Get descriptions of all built-in personas.
+
+    Returns:
+        Dictionary mapping persona names to their descriptions
+    """
+    return _persona_descriptions.copy()
+
+
+def get_builtin_prompt(name: str) -> str:
+    """Get the prompt text for a built-in persona.
+
+    Args:
+        name: Name of the built-in persona
+
+    Returns:
+        The persona prompt text, or empty string if not found
+    """
+    return _personas.get(name, "")
+
+
+def create_persona_directory(name: str, base_prompt: str = "") -> Path:
+    """Create a new persona directory with persona.md file.
+
+    Args:
+        name: Name of the persona
+        base_prompt: Optional prompt text to write to persona.md
+
+    Returns:
+        Path to the created persona directory
+    """
+    persona_dir = _PERSONAS_BASE_DIRECTORY / name
+    persona_dir.mkdir(parents=True, exist_ok=True)
+
+    persona_file = persona_dir / "persona.md"
+    if not persona_file.exists():
+        with open(persona_file, "w") as f:
+            f.write(base_prompt)
+
+    return persona_dir
+
+
+def persona_exists(name: str) -> bool:
+    """Check if a persona directory and persona.md file exist.
+
+    Args:
+        name: Name of the persona
+
+    Returns:
+        True if both the directory and persona.md file exist
+    """
+    persona_dir = _PERSONAS_BASE_DIRECTORY / name
+    persona_file = persona_dir / "persona.md"
+    return persona_dir.exists() and persona_file.exists()
+
+
 # List of all available personas
-__all__ = [for_name]
+__all__ = [
+    for_name,
+    get_builtin_descriptions,
+    get_builtin_prompt,
+    create_persona_directory,
+    persona_exists,
+]

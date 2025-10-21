@@ -32,10 +32,115 @@ from silica.developer.tools.sessions import (
 from silica.developer.user_interface import UserInterface
 from silica.developer.toolbox import Toolbox
 from prompt_toolkit.completion import Completer, WordCompleter, Completion
+from prompt_toolkit import prompt as pt_prompt
+from prompt_toolkit.validation import Validator, ValidationError
 
 
 SANDBOX_MODE_MAP = {mode.name.lower(): mode for mode in SandboxMode}
 SANDBOX_MODE_MAP["dwr"] = SandboxMode.ALLOW_ALL
+
+
+def ensure_persona_exists(persona_name: str, console: Console) -> bool:
+    """Ensure a persona exists, prompting user to create it if needed.
+
+    Args:
+        persona_name: Name of the persona to check/create
+        console: Rich console for output
+
+    Returns:
+        True if persona was ensured to exist, False if user cancelled
+    """
+    # Check if persona already exists
+    if personas.persona_exists(persona_name):
+        return True
+
+    # Persona doesn't exist - prompt user
+    console.print(f"\n[yellow]The persona '{persona_name}' doesn't exist yet.[/yellow]")
+
+    # Ask if they want to use a template
+    try:
+        use_template = (
+            console.input(
+                "[bold cyan]Would you like to base it on a built-in persona template? [y/n]: [/bold cyan]"
+            )
+            .strip()
+            .lower()
+        )
+    except (KeyboardInterrupt, EOFError):
+        console.print("\n[red]Cancelled[/red]")
+        return False
+
+    base_prompt = ""
+
+    if use_template == "y":
+        # Show available templates
+        console.print("\n[bold cyan]Available persona templates:[/bold cyan]")
+        builtin_descriptions = personas.get_builtin_descriptions()
+        builtin_names = list(builtin_descriptions.keys())
+
+        for idx, name in enumerate(builtin_names, 1):
+            description = builtin_descriptions[name]
+            console.print(f"  [cyan]{idx}.[/cyan] {name} - {description}")
+        console.print(
+            f"  [cyan]{len(builtin_names) + 1}.[/cyan] blank - Start with no template"
+        )
+
+        # Get user's choice
+        class ChoiceValidator(Validator):
+            def validate(self, document):
+                text = document.text.strip()
+                if not text:
+                    raise ValidationError(message="Please enter a choice")
+                try:
+                    choice = int(text)
+                    if choice < 1 or choice > len(builtin_names) + 1:
+                        raise ValidationError(
+                            message=f"Please enter a number between 1 and {len(builtin_names) + 1}"
+                        )
+                except ValueError:
+                    raise ValidationError(message="Please enter a valid number")
+
+        try:
+            choice_str = pt_prompt(
+                ANSI(f"\n\033[1;36mChoice [1-{len(builtin_names) + 1}]: \033[0m"),
+                validator=ChoiceValidator(),
+            ).strip()
+            choice = int(choice_str)
+        except (KeyboardInterrupt, EOFError):
+            console.print("\n[red]Cancelled[/red]")
+            return False
+
+        # Get the selected template
+        if choice <= len(builtin_names):
+            selected_name = builtin_names[choice - 1]
+            base_prompt = personas.get_builtin_prompt(selected_name)
+            console.print(
+                f"\n[green]Creating persona '{persona_name}' based on '{selected_name}'[/green]"
+            )
+        else:
+            console.print(f"\n[green]Creating blank persona '{persona_name}'[/green]")
+    else:
+        console.print(f"\n[green]Creating blank persona '{persona_name}'[/green]")
+
+    # Create the persona directory and file
+    persona_dir = personas.create_persona_directory(persona_name, base_prompt)
+    persona_file = persona_dir / "persona.md"
+
+    console.print(f"[green]✓ Created persona directory: {persona_dir}[/green]")
+    console.print(f"[green]✓ Created persona file: {persona_file}[/green]")
+
+    if base_prompt:
+        console.print(
+            f"[dim]You can edit {persona_file} to customize your persona.[/dim]"
+        )
+    else:
+        console.print(
+            f"[dim]Edit {persona_file} to add your custom persona prompt.[/dim]"
+        )
+
+    console.print()  # Empty line for spacing
+
+    return True
 
 
 def parse_sandbox_mode(value: str) -> SandboxMode:
@@ -800,20 +905,28 @@ def cyclopts_main(
     if dwr:
         parsed_sandbox_mode = SandboxMode.ALLOW_ALL
 
+    # Initialize console early for validation messages
+    console = Console()
+
     # Validate persona if specified
     if persona and persona not in available_personas:
-        console = Console()
         console.print(
             f"[red]Error: Invalid persona '{persona}'. Available personas: {', '.join(available_personas)}[/red]"
         )
+        return
+
+    # Ensure persona exists (prompt to create if needed)
+    # Use "default" if no persona specified
+    persona_name = persona or "default"
+    if not ensure_persona_exists(persona_name, console):
+        # User cancelled persona creation
         return
 
     # Check for session ID in environment variable if not specified in args
     if not session_id and "SILICA_DEVELOPER_SESSION_ID" in os.environ:
         session_id = os.environ.get("SILICA_DEVELOPER_SESSION_ID")
 
-    # Initialize console and user interface (identical to original)
-    console = Console()
+    # Initialize user interface
     user_interface = CLIUserInterface(console, parsed_sandbox_mode)
 
     # Handle prompt loading from file or direct input (identical to original)
