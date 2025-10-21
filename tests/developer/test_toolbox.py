@@ -56,13 +56,14 @@ class MockUserInterface(UserInterface):
         pass
 
 
-def test_schemas_are_consistent():
+def test_schemas_are_consistent(persona_base_dir):
     """Test that schemas() returns consistent results and matches expected format"""
     context = AgentContext.create(
         model_spec={},
         sandbox_mode=SandboxMode.ALLOW_ALL,
         sandbox_contents=[],
         user_interface=MockUserInterface(),
+        persona_base_directory=persona_base_dir,
     )
     toolbox = Toolbox(context)
 
@@ -93,13 +94,14 @@ def test_schemas_are_consistent():
             assert req_prop in input_schema["properties"]
 
 
-def test_agent_schema_matches_schemas():
+def test_agent_schema_matches_schemas(persona_base_dir):
     """Test that agent_schema matches schemas()"""
     context = AgentContext.create(
         model_spec={},
         sandbox_mode=SandboxMode.ALLOW_ALL,
         sandbox_contents=[],
         user_interface=MockUserInterface(),
+        persona_base_directory=persona_base_dir,
     )
     toolbox = Toolbox(context)
 
@@ -108,13 +110,14 @@ def test_agent_schema_matches_schemas():
     ), "agent_schema should be identical to schemas()"
 
 
-def test_schemas_match_tools():
+def test_schemas_match_tools(persona_base_dir):
     """Test that schemas() generates a schema for each tool"""
     context = AgentContext.create(
         model_spec={},
         sandbox_mode=SandboxMode.ALLOW_ALL,
         sandbox_contents=[],
         user_interface=MockUserInterface(),
+        persona_base_directory=persona_base_dir,
     )
     toolbox = Toolbox(context)
 

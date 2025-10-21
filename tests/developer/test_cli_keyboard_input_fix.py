@@ -96,7 +96,9 @@ class MockUserInterface(UserInterface):
 class TestCLIKeyboardInputFix:
     """Test suite for CLI keyboard input responsiveness fixes."""
 
-    def create_test_context(self, input_responses=None, simulate_delay=False):
+    def create_test_context(
+        self, persona_base_dir, input_responses=None, simulate_delay=False
+    ):
         """Create a test context with mock UI."""
         ui = MockUserInterface(input_responses, simulate_delay)
         context = AgentContext.create(
@@ -104,13 +106,14 @@ class TestCLIKeyboardInputFix:
             sandbox_mode=SandboxMode.ALLOW_ALL,
             sandbox_contents=[],
             user_interface=ui,
+            persona_base_directory=persona_base_dir,
         )
         return context, ui
 
     @pytest.mark.asyncio
-    async def test_keyboard_responsiveness_during_timeout(self):
+    async def test_keyboard_responsiveness_during_timeout(self, persona_base_dir):
         """Test that keyboard input remains responsive during timeout scenarios."""
-        context, ui = self.create_test_context(input_responses=["K"])
+        context, ui = self.create_test_context(persona_base_dir, input_responses=["K"])
 
         # Run a command that will trigger timeout
         start_time = time.time()
@@ -128,23 +131,25 @@ class TestCLIKeyboardInputFix:
         assert len(ui.user_input_calls) > 0, "User input should have been requested"
 
     @pytest.mark.asyncio
-    async def test_kill_choice_works(self):
+    async def test_kill_choice_works(self, persona_base_dir):
         """Test that Kill choice (K) works with responsive input."""
-        context, ui = self.create_test_context(input_responses=["K"])
+        context, ui = self.create_test_context(persona_base_dir, input_responses=["K"])
         result = await shell_execute(context, "sleep 5", timeout=1)
         assert "Command was killed by user" in result
         assert ui.input_responsive
 
     @pytest.mark.asyncio
-    async def test_continue_then_kill_works(self):
+    async def test_continue_then_kill_works(self, persona_base_dir):
         """Test that Continue choice (C) then Kill works with responsive input."""
-        context, ui = self.create_test_context(input_responses=["C", "K"])
+        context, ui = self.create_test_context(
+            persona_base_dir, input_responses=["C", "K"]
+        )
         result = await shell_execute(context, "sleep 5", timeout=1)
         assert "Command was killed by user" in result  # Should eventually be killed
         assert ui.input_responsive
 
     @pytest.mark.asyncio
-    async def test_background_choice_works(self):
+    async def test_background_choice_works(self, persona_base_dir):
         """Test that Background choice (B) works with responsive input.
 
         Note: This test may produce a resource warning due to the inherent
@@ -160,7 +165,9 @@ class TestCLIKeyboardInputFix:
                 message="subprocess .* is still running",
                 category=ResourceWarning,
             )
-            context, ui = self.create_test_context(input_responses=["B"])
+            context, ui = self.create_test_context(
+                persona_base_dir, input_responses=["B"]
+            )
 
             # Run a command that will definitely timeout and be backgrounded
             result = await shell_execute(context, "sleep 2", timeout=0.1)
@@ -197,7 +204,7 @@ class TestCLIKeyboardInputFix:
                     pass
 
     @pytest.mark.asyncio
-    async def test_process_completion_during_user_input(self):
+    async def test_process_completion_during_user_input(self, persona_base_dir):
         """Test that process completion is detected even during user input wait."""
 
         class SlowInputUI(MockUserInterface):
@@ -214,6 +221,7 @@ class TestCLIKeyboardInputFix:
             sandbox_mode=SandboxMode.ALLOW_ALL,
             sandbox_contents=[],
             user_interface=ui,
+            persona_base_directory=persona_base_dir,
         )
 
         # Command will complete in 0.2s, but timeout is 0.1s and user responds in 0.3s
@@ -225,7 +233,7 @@ class TestCLIKeyboardInputFix:
         assert ui.input_responsive
 
     @pytest.mark.asyncio
-    async def test_stdin_isolation_prevents_capture(self):
+    async def test_stdin_isolation_prevents_capture(self, persona_base_dir):
         """Test that background processes don't capture stdin from CLI."""
         import subprocess
 
@@ -265,9 +273,11 @@ class TestCLIKeyboardInputFix:
             process.stderr.close()
 
     @pytest.mark.asyncio
-    async def test_normal_commands_still_work(self):
+    async def test_normal_commands_still_work(self, persona_base_dir):
         """Test that normal command execution still works after the fix."""
-        context, ui = self.create_test_context()
+        context, ui = self.create_test_context(
+            persona_base_dir,
+        )
 
         # Test quick command
         result = await shell_execute(context, "echo 'hello world'")
@@ -284,7 +294,7 @@ class TestCLIKeyboardInputFix:
         ), "Quick commands should not prompt for timeout"
 
     @pytest.mark.asyncio
-    async def test_concurrent_processes_dont_interfere(self):
+    async def test_concurrent_processes_dont_interfere(self, persona_base_dir):
         """Test that multiple concurrent processes don't interfere with input."""
 
         async def run_timeout_command(context):
@@ -292,7 +302,8 @@ class TestCLIKeyboardInputFix:
 
         # Create multiple contexts that will all timeout and need user input
         contexts_and_uis = [
-            self.create_test_context(input_responses=["K"]) for _ in range(3)
+            self.create_test_context(persona_base_dir, input_responses=["K"])
+            for _ in range(3)
         ]
 
         # Run them concurrently
@@ -313,15 +324,17 @@ class TestInputResponsivenessRegression:
     """Regression tests to ensure the fix doesn't break anything."""
 
     @pytest.mark.asyncio
-    async def test_dangerous_commands_still_blocked(self):
+    async def test_dangerous_commands_still_blocked(self, persona_base_dir):
         """Ensure dangerous command blocking still works."""
-        context, ui = TestCLIKeyboardInputFix().create_test_context()
+        context, ui = TestCLIKeyboardInputFix().create_test_context(
+            persona_base_dir,
+        )
 
         result = await shell_execute(context, "sudo rm -rf /")
         assert "Error: This command is not allowed for safety reasons" in result
 
     @pytest.mark.asyncio
-    async def test_permission_system_still_works(self):
+    async def test_permission_system_still_works(self, persona_base_dir):
         """Ensure permission system integration still works."""
 
         class DenyingUI(MockUserInterface):
@@ -340,15 +353,18 @@ class TestInputResponsivenessRegression:
             sandbox_mode=SandboxMode.REMEMBER_PER_RESOURCE,
             sandbox_contents=[],
             user_interface=ui,
+            persona_base_directory=persona_base_dir,
         )
 
         result = await shell_execute(context, "echo 'test'")
         assert "Error: Operator denied permission" in result
 
     @pytest.mark.asyncio
-    async def test_output_capture_still_works(self):
+    async def test_output_capture_still_works(self, persona_base_dir):
         """Ensure output capture still works correctly."""
-        context, ui = TestCLIKeyboardInputFix().create_test_context()
+        context, ui = TestCLIKeyboardInputFix().create_test_context(
+            persona_base_dir,
+        )
 
         # Test stdout capture
         result = await shell_execute(context, "echo 'stdout test'")

@@ -50,7 +50,7 @@ class MockUserInterface(UserInterface):
         pass
 
 
-def test_sandbox_debug_basic_functionality():
+def test_sandbox_debug_basic_functionality(persona_base_dir):
     """Test that sandbox_debug returns comprehensive debug information."""
     with tempfile.TemporaryDirectory() as tmp_dir:
         # Create a test context with a temporary directory as sandbox
@@ -59,6 +59,7 @@ def test_sandbox_debug_basic_functionality():
             sandbox_mode=SandboxMode.ALLOW_ALL,
             sandbox_contents=[tmp_dir],
             user_interface=MockUserInterface(),
+            persona_base_directory=persona_base_dir,
         )
 
         result = sandbox_debug(context)
@@ -84,7 +85,7 @@ def test_sandbox_debug_basic_functionality():
         assert tmp_dir in result
 
 
-def test_sandbox_debug_path_validation():
+def test_sandbox_debug_path_validation(persona_base_dir):
     """Test that sandbox_debug properly validates different paths."""
     with tempfile.TemporaryDirectory() as tmp_dir:
         context = AgentContext.create(
@@ -92,6 +93,7 @@ def test_sandbox_debug_path_validation():
             sandbox_mode=SandboxMode.REMEMBER_PER_RESOURCE,
             sandbox_contents=[tmp_dir],
             user_interface=MockUserInterface(),
+            persona_base_directory=persona_base_dir,
         )
 
         result = sandbox_debug(context)
@@ -103,13 +105,14 @@ def test_sandbox_debug_path_validation():
         assert "Path '/' in sandbox: False" in result
 
 
-def test_sandbox_debug_with_current_directory():
+def test_sandbox_debug_with_current_directory(persona_base_dir):
     """Test sandbox_debug when using current directory as sandbox."""
     context = AgentContext.create(
         model_spec={},
         sandbox_mode=SandboxMode.REQUEST_EVERY_TIME,
         sandbox_contents=[],  # This should use current directory
         user_interface=MockUserInterface(),
+        persona_base_directory=persona_base_dir,
     )
 
     result = sandbox_debug(context)
@@ -121,13 +124,14 @@ def test_sandbox_debug_with_current_directory():
     assert "REQUEST_EVERY_TIME" in result
 
 
-def test_sandbox_debug_environment_variables():
+def test_sandbox_debug_environment_variables(persona_base_dir):
     """Test that sandbox_debug includes relevant environment variables."""
     context = AgentContext.create(
         model_spec={},
         sandbox_mode=SandboxMode.ALLOW_ALL,
         sandbox_contents=[],
         user_interface=MockUserInterface(),
+        persona_base_directory=persona_base_dir,
     )
 
     result = sandbox_debug(context)
@@ -140,7 +144,7 @@ def test_sandbox_debug_environment_variables():
 
 
 @patch("os.listdir")
-def test_sandbox_debug_handles_listing_errors(mock_listdir):
+def test_sandbox_debug_handles_listing_errors(mock_listdir, persona_base_dir):
     """Test that sandbox_debug gracefully handles directory listing errors."""
     # Make listdir raise an exception
     mock_listdir.side_effect = PermissionError("Access denied")
@@ -150,6 +154,7 @@ def test_sandbox_debug_handles_listing_errors(mock_listdir):
         sandbox_mode=SandboxMode.ALLOW_ALL,
         sandbox_contents=[],
         user_interface=MockUserInterface(),
+        persona_base_directory=persona_base_dir,
     )
 
     result = sandbox_debug(context)
@@ -159,7 +164,7 @@ def test_sandbox_debug_handles_listing_errors(mock_listdir):
     assert "Access denied" in result
 
 
-def test_sandbox_debug_gitignore_patterns():
+def test_sandbox_debug_gitignore_patterns(persona_base_dir):
     """Test that sandbox_debug reports gitignore pattern count."""
     with tempfile.TemporaryDirectory() as tmp_dir:
         # Create a .gitignore file
@@ -172,6 +177,7 @@ def test_sandbox_debug_gitignore_patterns():
             sandbox_mode=SandboxMode.ALLOW_ALL,
             sandbox_contents=[tmp_dir],
             user_interface=MockUserInterface(),
+            persona_base_directory=persona_base_dir,
         )
 
         result = sandbox_debug(context)
@@ -184,7 +190,7 @@ def test_sandbox_debug_gitignore_patterns():
         )  # Could vary by implementation
 
 
-def test_sandbox_debug_permissions_cache():
+def test_sandbox_debug_permissions_cache(persona_base_dir):
     """Test that sandbox_debug correctly reports permissions cache status."""
     # Test with cache enabled mode
     context_with_cache = AgentContext.create(
@@ -192,6 +198,7 @@ def test_sandbox_debug_permissions_cache():
         sandbox_mode=SandboxMode.REMEMBER_PER_RESOURCE,
         sandbox_contents=[],
         user_interface=MockUserInterface(),
+        persona_base_directory=persona_base_dir,
     )
 
     result_with_cache = sandbox_debug(context_with_cache)
@@ -203,6 +210,7 @@ def test_sandbox_debug_permissions_cache():
         sandbox_mode=SandboxMode.ALLOW_ALL,
         sandbox_contents=[],
         user_interface=MockUserInterface(),
+        persona_base_directory=persona_base_dir,
     )
 
     result_without_cache = sandbox_debug(context_without_cache)

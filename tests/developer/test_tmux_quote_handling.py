@@ -74,7 +74,7 @@ class TestQuoteHandling:
         """Set up test fixtures."""
         self.manager = TmuxSessionManager(session_prefix="test_quote", max_sessions=5)
 
-    def test_check_quote_balance(self):
+    def test_check_quote_balance(self, persona_base_dir):
         """Test quote balance checking."""
         # Balanced quotes
         assert self.manager._check_quote_balance('echo "hello world"') is True
@@ -86,7 +86,7 @@ class TestQuoteHandling:
         assert self.manager._check_quote_balance("echo 'unbalanced quote") is False
         assert self.manager._check_quote_balance("echo \"mixed ' quote") is False
 
-    def test_has_complex_quotes(self):
+    def test_has_complex_quotes(self, persona_base_dir):
         """Test detection of complex quote scenarios."""
         # Simple quotes (not complex)
         assert self.manager._has_complex_quotes('echo "hello"') is False
@@ -97,7 +97,7 @@ class TestQuoteHandling:
         assert self.manager._has_complex_quotes('echo "He said \\"hello\\""') is True
         assert self.manager._has_complex_quotes("echo 'multi\nline'") is True
 
-    def test_sanitize_complex_command(self):
+    def test_sanitize_complex_command(self, persona_base_dir):
         """Test command sanitization for complex quote scenarios."""
         # Single quote with escaped single quote
         result = self.manager._sanitize_complex_command("echo 'It\\'s working'")
@@ -107,7 +107,7 @@ class TestQuoteHandling:
         result = self.manager._sanitize_complex_command("echo 'line1\nline2'")
         assert "\\n" in result
 
-    def test_detect_shell_stuck_state(self):
+    def test_detect_shell_stuck_state(self, persona_base_dir):
         """Test detection of stuck shell states."""
         # Normal output
         assert self.manager._detect_shell_stuck_state("❯ echo hello\nhello\n❯") is None
@@ -123,7 +123,7 @@ class TestQuoteHandling:
         )
 
     @patch("silica.developer.tools.tmux_session.TmuxSessionManager._run_tmux_command")
-    def test_recover_from_stuck_state(self, mock_run_command):
+    def test_recover_from_stuck_state(self, mock_run_command, persona_base_dir):
         """Test recovery from stuck shell states."""
         mock_run_command.return_value = (0, "", "")
 
@@ -137,7 +137,7 @@ class TestQuoteHandling:
         assert mock_run_command.call_count >= 1
 
     @patch("silica.developer.tools.tmux_session.TmuxSessionManager._run_tmux_command")
-    def test_validate_and_sanitize_command(self, mock_run_command):
+    def test_validate_and_sanitize_command(self, mock_run_command, persona_base_dir):
         """Test command validation and sanitization."""
         # Valid simple command
         is_valid, result = self.manager._validate_and_sanitize_command("echo hello")
@@ -162,7 +162,7 @@ class TestQuoteHandling:
 class TestTmuxQuoteIntegration:
     """Integration tests for quote handling with real tmux."""
 
-    def create_test_context(self):
+    def create_test_context(self, persona_base_dir):
         """Create a test context."""
         ui = MockUserInterface()
         return AgentContext.create(
@@ -170,6 +170,7 @@ class TestTmuxQuoteIntegration:
             sandbox_mode=SandboxMode.ALLOW_ALL,
             sandbox_contents=[],
             user_interface=ui,
+            persona_base_directory=persona_base_dir,
         )
 
     @pytest.fixture(autouse=True)
@@ -178,9 +179,9 @@ class TestTmuxQuoteIntegration:
         if not _check_tmux_available():
             pytest.skip("tmux not available")
 
-    def test_quote_handling_integration(self):
+    def test_quote_handling_integration(self, persona_base_dir):
         """Test quote handling with real tmux sessions."""
-        context = self.create_test_context()
+        context = self.create_test_context(persona_base_dir)
 
         # Test cases that should work after the fix
         test_cases = [
@@ -214,9 +215,9 @@ class TestTmuxQuoteIntegration:
                 except Exception:
                     pass
 
-    def test_unbalanced_quote_rejection(self):
+    def test_unbalanced_quote_rejection(self, persona_base_dir):
         """Test that unbalanced quotes are properly rejected."""
-        context = self.create_test_context()
+        context = self.create_test_context(persona_base_dir)
 
         try:
             # Create session
@@ -237,9 +238,9 @@ class TestTmuxQuoteIntegration:
             except Exception:
                 pass
 
-    def test_recovery_mechanism(self):
+    def test_recovery_mechanism(self, persona_base_dir):
         """Test that recovery mechanism works for stuck shells."""
-        context = self.create_test_context()
+        context = self.create_test_context(persona_base_dir)
 
         try:
             # Create session

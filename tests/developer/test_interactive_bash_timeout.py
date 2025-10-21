@@ -75,7 +75,7 @@ class MockUserInterface(UserInterface):
 class TestInteractiveBashTimeout:
     """Test suite for interactive bash timeout functionality."""
 
-    def create_test_context(self, responses=None):
+    def create_test_context(self, persona_base_dir, responses=None):
         """Create a test context with mock UI."""
         ui = MockUserInterface(responses)
         return AgentContext.create(
@@ -83,12 +83,13 @@ class TestInteractiveBashTimeout:
             sandbox_mode=SandboxMode.ALLOW_ALL,
             sandbox_contents=[],
             user_interface=ui,
+            persona_base_directory=persona_base_dir,
         )
 
     @pytest.mark.asyncio
-    async def test_quick_command_completion(self):
+    async def test_quick_command_completion(self, persona_base_dir):
         """Test that quick commands complete without timeout."""
-        context = self.create_test_context()
+        context = self.create_test_context(persona_base_dir)
 
         result = await shell_execute(context, "echo 'hello world'")
 
@@ -96,9 +97,9 @@ class TestInteractiveBashTimeout:
         assert "hello world" in result
 
     @pytest.mark.asyncio
-    async def test_timeout_kill_process(self):
+    async def test_timeout_kill_process(self, persona_base_dir):
         """Test killing a process when timeout occurs."""
-        context = self.create_test_context(responses=["K"])
+        context = self.create_test_context(persona_base_dir, responses=["K"])
 
         result = await _run_bash_command_with_interactive_timeout(
             context, "sleep 2", initial_timeout=0.1
@@ -108,9 +109,9 @@ class TestInteractiveBashTimeout:
         assert "Execution time:" in result
 
     @pytest.mark.asyncio
-    async def test_timeout_background_process(self):
+    async def test_timeout_background_process(self, persona_base_dir):
         """Test backgrounding a process when timeout occurs."""
-        context = self.create_test_context(responses=["B"])
+        context = self.create_test_context(persona_base_dir, responses=["B"])
 
         result = await _run_bash_command_with_interactive_timeout(
             context, "sleep 2", initial_timeout=0.1
@@ -121,9 +122,9 @@ class TestInteractiveBashTimeout:
         assert "Process continues running" in result
 
     @pytest.mark.asyncio
-    async def test_timeout_continue_then_kill(self):
+    async def test_timeout_continue_then_kill(self, persona_base_dir):
         """Test continuing wait then killing process."""
-        context = self.create_test_context(responses=["C", "K"])
+        context = self.create_test_context(persona_base_dir, responses=["C", "K"])
 
         # Need a longer sleep to ensure it doesn't complete between timeouts
         result = await _run_bash_command_with_interactive_timeout(
@@ -133,9 +134,9 @@ class TestInteractiveBashTimeout:
         assert "Command was killed by user" in result
 
     @pytest.mark.asyncio
-    async def test_output_capture_during_timeout(self):
+    async def test_output_capture_during_timeout(self, persona_base_dir):
         """Test that output is captured properly during timeout."""
-        context = self.create_test_context(responses=["K"])
+        context = self.create_test_context(persona_base_dir, responses=["K"])
 
         # Create a command that produces output then sleeps
         command = "echo 'line1'; echo 'line2'; sleep 2"
@@ -149,16 +150,16 @@ class TestInteractiveBashTimeout:
         assert "line2" in result
 
     @pytest.mark.asyncio
-    async def test_dangerous_command_blocked(self):
+    async def test_dangerous_command_blocked(self, persona_base_dir):
         """Test that dangerous commands are blocked."""
-        context = self.create_test_context()
+        context = self.create_test_context(persona_base_dir)
 
         result = await shell_execute(context, "sudo rm -rf /")
 
         assert "Error: This command is not allowed for safety reasons" in result
 
     @pytest.mark.asyncio
-    async def test_system_message_on_timeout(self):
+    async def test_system_message_on_timeout(self, persona_base_dir):
         """Test that system messages are shown on timeout."""
         ui = MockUserInterface(responses=["K"])
         context = AgentContext.create(
@@ -166,6 +167,7 @@ class TestInteractiveBashTimeout:
             sandbox_mode=SandboxMode.ALLOW_ALL,
             sandbox_contents=[],
             user_interface=ui,
+            persona_base_directory=persona_base_dir,
         )
 
         await _run_bash_command_with_interactive_timeout(
@@ -178,7 +180,7 @@ class TestInteractiveBashTimeout:
         assert any("Command has been running for" in msg[1] for msg in system_messages)
 
     @pytest.mark.asyncio
-    async def test_process_completes_during_user_input_wait(self):
+    async def test_process_completes_during_user_input_wait(self, persona_base_dir):
         """Test that if process completes while waiting for user input, it's detected."""
         import asyncio
 
@@ -198,6 +200,7 @@ class TestInteractiveBashTimeout:
             sandbox_mode=SandboxMode.ALLOW_ALL,
             sandbox_contents=[],
             user_interface=ui,
+            persona_base_directory=persona_base_dir,
         )
 
         # Use a command that will complete shortly after timeout but before user responds
@@ -215,11 +218,11 @@ class TestInteractiveBashTimeout:
         # The sleep command exits with code 0 when it completes normally
 
     @pytest.mark.asyncio
-    async def test_live_streaming_functionality(self):
+    async def test_live_streaming_functionality(self, persona_base_dir):
         """Test that live streaming mode works correctly."""
         from silica.developer.tools.repl import run_bash_command_with_live_streaming
 
-        context = self.create_test_context()
+        context = self.create_test_context(persona_base_dir)
 
         # Test with a quick command that should complete without timeout
         result = await run_bash_command_with_live_streaming(

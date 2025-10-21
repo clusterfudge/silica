@@ -4,7 +4,8 @@ import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
+import pytest
 
 from silica.developer.context import AgentContext
 from silica.developer.sandbox import SandboxMode
@@ -12,6 +13,11 @@ from silica.developer.user_interface import UserInterface
 
 
 class TestHistoryMetadata(unittest.TestCase):
+    @pytest.fixture(autouse=True)
+    def setup_fixture(self, persona_base_dir):
+        """Inject persona_base_dir fixture for unittest-style tests."""
+        self.persona_base_dir = persona_base_dir
+
     def setUp(self):
         # Create a temporary directory for history files
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -37,6 +43,7 @@ class TestHistoryMetadata(unittest.TestCase):
             sandbox_mode=SandboxMode.ALLOW_ALL,
             sandbox_contents=[os.getcwd()],
             user_interface=self.user_interface,
+            persona_base_directory=self.persona_base_dir,
         )
 
         # Mock chat history
@@ -49,18 +56,14 @@ class TestHistoryMetadata(unittest.TestCase):
         # Cleanup the temporary directory
         self.temp_dir.cleanup()
 
-    @patch("pathlib.Path.home")
-    def test_flush_adds_metadata(self, mock_home):
-        # Setup mock home to point to our temp directory
-        mock_home.return_value = self.history_dir
-
+    def test_flush_adds_metadata(self):
         # Flush the conversation
         self.agent_context.flush(self.chat_history)
 
         # Get the path to the saved history file
+        # persona_base_dir is used, and history is stored at persona_base_dir/history
         history_file = (
-            self.history_dir
-            / ".hdev"
+            self.persona_base_dir
             / "history"
             / self.agent_context.session_id
             / "root.json"
@@ -92,18 +95,14 @@ class TestHistoryMetadata(unittest.TestCase):
         self.assertIsInstance(data["metadata"]["root_dir"], str)
         self.assertTrue(len(data["metadata"]["root_dir"]) > 0)
 
-    @patch("pathlib.Path.home")
-    def test_update_preserves_created_at(self, mock_home):
-        # Setup mock home to point to our temp directory
-        mock_home.return_value = self.history_dir
-
+    def test_update_preserves_created_at(self):
         # Flush the conversation first time
         self.agent_context.flush(self.chat_history)
 
         # Get the path to the saved history file
+        # persona_base_dir is used, and history is stored at persona_base_dir/history
         history_file = (
-            self.history_dir
-            / ".hdev"
+            self.persona_base_dir
             / "history"
             / self.agent_context.session_id
             / "root.json"

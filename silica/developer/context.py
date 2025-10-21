@@ -93,6 +93,7 @@ class AgentContext:
         user_interface: UserInterface,
         session_id: str = None,
         cli_args: list[str] = None,
+        persona_base_directory: Path = None,
     ) -> "AgentContext":
         sandbox = Sandbox(
             sandbox_contents[0] if sandbox_contents else os.getcwd(),
@@ -101,7 +102,7 @@ class AgentContext:
             permission_check_rendering_callback=user_interface.permission_rendering_callback,
         )
 
-        memory_manager = MemoryManager()
+        memory_manager = MemoryManager(base_dir=persona_base_directory / "memory")
 
         # Use provided session_id or generate a new one
         context_session_id = session_id if session_id else str(uuid4())
@@ -115,6 +116,7 @@ class AgentContext:
             usage=[],
             memory_manager=memory_manager,
             cli_args=cli_args.copy() if cli_args else None,
+            history_base_dir=persona_base_directory,
         )
 
         # If a session_id was provided, attempt to load that session

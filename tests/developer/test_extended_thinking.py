@@ -86,7 +86,7 @@ class TestThinkingConfiguration:
 class TestAgentContextThinkingMode:
     """Test AgentContext thinking mode management."""
 
-    def test_default_thinking_mode_is_off(self):
+    def test_default_thinking_mode_is_off(self, persona_base_dir):
         """New context should default to thinking mode off."""
         mock_ui = Mock()
         mock_ui.permission_callback = Mock(return_value=True)
@@ -97,11 +97,12 @@ class TestAgentContextThinkingMode:
             sandbox_mode=SandboxMode.ALLOW_ALL,
             sandbox_contents=[],
             user_interface=mock_ui,
+            persona_base_directory=persona_base_dir,
         )
 
         assert context.thinking_mode == "off"
 
-    def test_thinking_mode_cycles_correctly(self):
+    def test_thinking_mode_cycles_correctly(self, persona_base_dir):
         """Thinking mode should cycle: off -> normal -> ultra -> off."""
         mock_ui = Mock()
         mock_ui.permission_callback = Mock(return_value=True)
@@ -112,6 +113,7 @@ class TestAgentContextThinkingMode:
             sandbox_mode=SandboxMode.ALLOW_ALL,
             sandbox_contents=[],
             user_interface=mock_ui,
+            persona_base_directory=persona_base_dir,
         )
 
         # Start at off
@@ -133,7 +135,7 @@ class TestAgentContextThinkingMode:
 class TestUsageSummaryWithThinking:
     """Test that usage summary correctly handles thinking tokens."""
 
-    def test_usage_summary_without_thinking(self):
+    def test_usage_summary_without_thinking(self, persona_base_dir):
         """Usage summary should work without thinking tokens."""
         mock_ui = Mock()
         mock_ui.permission_callback = Mock(return_value=True)
@@ -144,6 +146,7 @@ class TestUsageSummaryWithThinking:
             sandbox_mode=SandboxMode.ALLOW_ALL,
             sandbox_contents=[],
             user_interface=mock_ui,
+            persona_base_directory=persona_base_dir,
         )
 
         # Mock usage without thinking tokens
@@ -168,7 +171,7 @@ class TestUsageSummaryWithThinking:
         assert summary["total_thinking_tokens"] == 0
         assert summary["thinking_cost"] == 0.0
 
-    def test_usage_summary_with_thinking(self):
+    def test_usage_summary_with_thinking(self, persona_base_dir):
         """Usage summary should correctly track thinking tokens."""
         mock_ui = Mock()
         mock_ui.permission_callback = Mock(return_value=True)
@@ -179,6 +182,7 @@ class TestUsageSummaryWithThinking:
             sandbox_mode=SandboxMode.ALLOW_ALL,
             sandbox_contents=[],
             user_interface=mock_ui,
+            persona_base_directory=persona_base_dir,
         )
 
         # Mock usage with thinking tokens
@@ -200,7 +204,7 @@ class TestUsageSummaryWithThinking:
         expected_thinking_cost = 4500 * 18.75 / 1_000_000
         assert abs(summary["thinking_cost"] - expected_thinking_cost) < 0.0001
 
-    def test_usage_summary_with_dict_style_thinking(self):
+    def test_usage_summary_with_dict_style_thinking(self, persona_base_dir):
         """Usage summary should handle dict-style usage with thinking tokens."""
         mock_ui = Mock()
         mock_ui.permission_callback = Mock(return_value=True)
@@ -211,6 +215,7 @@ class TestUsageSummaryWithThinking:
             sandbox_mode=SandboxMode.ALLOW_ALL,
             sandbox_contents=[],
             user_interface=mock_ui,
+            persona_base_directory=persona_base_dir,
         )
 
         # Mock usage as dict (alternative format)
@@ -235,7 +240,7 @@ class TestUsageSummaryWithThinking:
 class TestSessionPersistenceWithThinking:
     """Test that thinking mode persists across sessions."""
 
-    def test_thinking_mode_saved_in_session(self):
+    def test_thinking_mode_saved_in_session(self, persona_base_dir):
         """Thinking mode should be saved to session data."""
         import tempfile
         import json
@@ -250,6 +255,7 @@ class TestSessionPersistenceWithThinking:
             sandbox_mode=SandboxMode.ALLOW_ALL,
             sandbox_contents=[],
             user_interface=mock_ui,
+            persona_base_directory=persona_base_dir,
         )
 
         # Set thinking mode to normal

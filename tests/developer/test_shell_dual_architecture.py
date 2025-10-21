@@ -69,7 +69,7 @@ class TestUserInterface(UserInterface):
 
 
 @pytest.fixture
-def context():
+def context(persona_base_dir):
     """Create a test context with permissions allowed."""
     ui = TestUserInterface()
     ctx = AgentContext.create(
@@ -77,6 +77,7 @@ def context():
         sandbox_mode=SandboxMode.ALLOW_ALL,
         sandbox_contents=[],
         user_interface=ui,
+        persona_base_directory=persona_base_dir,
     )
 
     # Clean up any existing sessions before each test

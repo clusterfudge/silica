@@ -8,7 +8,7 @@ from silica.developer.sandbox import SandboxMode
 
 
 @pytest.fixture
-def mock_context():
+def mock_context(persona_base_dir):
     """Create a mock agent context for testing"""
     mock_ui = Mock()
     Mock()
@@ -18,6 +18,7 @@ def mock_context():
         sandbox_mode=SandboxMode.ALLOW_ALL,
         sandbox_contents=[],
         user_interface=mock_ui,
+        persona_base_directory=persona_base_dir,
     )
 
     return context
