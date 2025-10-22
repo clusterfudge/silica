@@ -800,20 +800,31 @@ def cyclopts_main(
     if dwr:
         parsed_sandbox_mode = SandboxMode.ALLOW_ALL
 
+    # Initialize console early for validation messages
+    console = Console()
+
     # Validate persona if specified
     if persona and persona not in available_personas:
-        console = Console()
         console.print(
             f"[red]Error: Invalid persona '{persona}'. Available personas: {', '.join(available_personas)}[/red]"
         )
+        return
+
+    # Get or create persona (prompts user if needed)
+    # Use "default" if no persona specified
+    persona_name = persona or "default"
+    try:
+        persona_obj = personas.get_or_create(persona_name, interactive=True)
+    except KeyboardInterrupt:
+        # User cancelled persona creation
+        console.print("\n[yellow]Persona creation cancelled. Exiting.[/yellow]")
         return
 
     # Check for session ID in environment variable if not specified in args
     if not session_id and "SILICA_DEVELOPER_SESSION_ID" in os.environ:
         session_id = os.environ.get("SILICA_DEVELOPER_SESSION_ID")
 
-    # Initialize console and user interface (identical to original)
-    console = Console()
+    # Initialize user interface
     user_interface = CLIUserInterface(console, parsed_sandbox_mode)
 
     # Handle prompt loading from file or direct input (identical to original)
@@ -856,9 +867,6 @@ def cyclopts_main(
     if not initial_prompt and not session_id:
         user_interface.display_welcome_message()
 
-    # Setup system prompt/persona (identical to original)
-    persona = personas.for_name(persona)
-
     # Create agent context (identical to original)
     context = AgentContext.create(
         model_spec=get_model(model),
@@ -867,7 +875,7 @@ def cyclopts_main(
         user_interface=user_interface,
         session_id=session_id,
         cli_args=original_args,
-        persona_base_directory=persona.base_directory,
+        persona_base_directory=persona_obj.base_directory,
     )
 
     # Set the agent context reference in the UI for keyboard shortcuts
@@ -878,7 +886,7 @@ def cyclopts_main(
         run(
             agent_context=context,
             initial_prompt=initial_prompt,
-            system_prompt=persona.system_block,
+            system_prompt=persona_obj.system_block,
             single_response=bool(initial_prompt),
             enable_compaction=not disable_compaction,
             log_file_path=log_requests,

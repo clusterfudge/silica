@@ -407,17 +407,26 @@ class TestPerformanceAndUseCases:
     @pytest.mark.asyncio
     async def test_no_performance_regression(self, context):
         """Test that shell_execute has no significant overhead."""
+        import asyncio
         import time
 
-        # Time a simple command
+        # Time a simple command with timeout to prevent hanging
         start_time = time.time()
-        result = await shell_execute(context, 'echo "Performance test"')
-        end_time = time.time()
+        try:
+            # Timeout after 2.1 seconds - if test is hanging, this will catch it
+            result = await asyncio.wait_for(
+                shell_execute(context, 'echo "Performance test"'), timeout=2.1
+            )
+            end_time = time.time()
 
-        # Should complete quickly
-        execution_time = end_time - start_time
-        assert execution_time < 2.0  # Should be much faster than 2 seconds
-        assert "Performance test" in result
+            # Should complete quickly
+            execution_time = end_time - start_time
+            assert execution_time < 2.0  # Should be much faster than 2 seconds
+            assert "Performance test" in result
+        except asyncio.TimeoutError:
+            pytest.fail(
+                "shell_execute took longer than 2.1 seconds - possible performance regression or system overload"
+            )
 
     @pytest.mark.asyncio
     async def test_large_output_handling(self, context):
