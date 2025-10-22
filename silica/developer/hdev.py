@@ -881,7 +881,8 @@ def cyclopts_main(
     # Set the agent context reference in the UI for keyboard shortcuts
     user_interface.agent_context = context
 
-    # Run the agent loop (identical to original)
+    # Run the agent loop
+    # Pass the persona system_block - it will be used as fallback if persona.md doesn't exist
     asyncio.run(
         run(
             agent_context=context,

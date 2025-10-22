@@ -73,6 +73,72 @@ Use the `sandbox_debug` tool to diagnose sandbox configuration issues if file op
     return {"type": "text", "text": base_text + sandbox_path_info}
 
 
+def _load_persona_from_disk(agent_context: AgentContext) -> dict[str, Any] | None:
+    """Load persona content from disk and wrap it in persona tags.
+
+    This function always reads from disk to ensure the latest persona content
+    is used, allowing runtime updates to take effect immediately.
+
+    Priority:
+    1. If persona.md exists on disk, use it (takes precedence)
+    2. Otherwise, return None to use the system_section fallback
+
+    Args:
+        agent_context: The agent context containing persona base directory
+
+    Returns:
+        A content block with the persona wrapped in tags, or None if no persona file exists
+    """
+    persona_file = agent_context.history_base_dir / "persona.md"
+
+    if not persona_file.exists():
+        return None
+
+    try:
+        with open(persona_file, "r") as f:
+            persona_content = f.read().strip()
+
+        if not persona_content:
+            return None
+
+        # Get persona name from directory
+        persona_name = agent_context.history_base_dir.name
+
+        # Wrap in persona tags for clarity to show the model what it's editing
+        wrapped_content = (
+            f'<persona name="{persona_name}">\n{persona_content}\n</persona>'
+        )
+
+        return {"type": "text", "text": wrapped_content}
+    except (IOError, OSError):
+        # If we can't read the file, return None
+        return None
+
+
+def _wrap_system_section_with_persona_tags(
+    system_section: dict[str, Any], persona_name: str
+) -> dict[str, Any]:
+    """Wrap a system section content in persona tags.
+
+    This is used for built-in personas that are passed at startup but don't
+    have a persona.md file yet.
+
+    Args:
+        system_section: The system section to wrap
+        persona_name: Name of the persona
+
+    Returns:
+        A new system section with content wrapped in persona tags
+    """
+    if not system_section or "text" not in system_section:
+        return system_section
+
+    original_text = system_section["text"]
+    wrapped_text = f'<persona name="{persona_name}">\n{original_text}\n</persona>'
+
+    return {**system_section, "text": wrapped_text}
+
+
 def create_system_message(
     agent_context: AgentContext,
     max_estimated_tokens: int = 10_240,
@@ -80,9 +146,24 @@ def create_system_message(
     include_sandbox: bool = True,
     include_memory: bool = True,
 ):
-    sections: list[dict[str, Any]] = [
-        system_section or _create_default_system_section(agent_context)
-    ]
+    sections: list[dict[str, Any]] = []
+
+    # Try to load persona from disk first (takes priority over built-ins)
+    persona_section = _load_persona_from_disk(agent_context)
+
+    if persona_section:
+        # persona.md exists - use it and wrap in tags
+        sections.append(persona_section)
+    elif system_section:
+        # No persona.md but we have a built-in persona - wrap it in tags
+        persona_name = agent_context.history_base_dir.name
+        wrapped_section = _wrap_system_section_with_persona_tags(
+            system_section, persona_name
+        )
+        sections.append(wrapped_section)
+    else:
+        # No persona at all - use default system section
+        sections.append(_create_default_system_section(agent_context))
 
     # Add ripgrep guidance regardless of which system section is used
     try:
