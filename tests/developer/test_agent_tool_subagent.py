@@ -165,7 +165,12 @@ async def test_agent_tool_nested_context_save(
 
             # Verify the chat history was flushed correctly
             history_dir = (
-                Path(temp_dir.name) / ".hdev" / "history" / parent_context.session_id
+                Path(temp_dir.name)
+                / ".silica"
+                / "personas"
+                / "default"
+                / "history"
+                / parent_context.session_id
             )
             sub_agent_file = history_dir / f"{captured_agent_context.session_id}.json"
 

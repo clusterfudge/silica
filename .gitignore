@@ -39,3 +39,7 @@ silica/_version.py
 *.db
 logs/
 data/
+-e 
+# Local session history and memory
+history/
+memory/

@@ -186,7 +186,7 @@ class TestCompactionCommands(unittest.TestCase):
             user_interface=ui,
             usage=[],
             memory_manager=memory_manager,
-            history_base_dir=Path(self.test_dir) / ".hdev",
+            history_base_dir=Path(self.test_dir) / ".silica" / "personas" / "default",
         )
         context._chat_history = self.sample_messages.copy()
 
@@ -225,7 +225,7 @@ class TestCompactionCommands(unittest.TestCase):
             user_interface=ui,
             usage=[],
             memory_manager=memory_manager,
-            history_base_dir=Path(self.test_dir) / ".hdev",
+            history_base_dir=Path(self.test_dir) / ".silica" / "personas" / "default",
         )
         context._chat_history = [
             {"role": "user", "content": "Hello"},
@@ -262,7 +262,7 @@ class TestCompactionCommands(unittest.TestCase):
             user_interface=ui,
             usage=[],
             memory_manager=memory_manager,
-            history_base_dir=Path(self.test_dir) / ".hdev",
+            history_base_dir=Path(self.test_dir) / ".silica" / "personas" / "default",
         )
         context._chat_history = self.sample_messages.copy()
 
@@ -306,7 +306,7 @@ class TestCompactionCommands(unittest.TestCase):
             user_interface=ui,
             usage=[],
             memory_manager=memory_manager,
-            history_base_dir=Path(self.test_dir) / ".hdev",
+            history_base_dir=Path(self.test_dir) / ".silica" / "personas" / "default",
         )
         context._chat_history = self.sample_messages.copy()
 
@@ -345,7 +345,7 @@ class TestCompactionCommands(unittest.TestCase):
             user_interface=ui,
             usage=[],
             memory_manager=memory_manager,
-            history_base_dir=Path(self.test_dir) / ".hdev",
+            history_base_dir=Path(self.test_dir) / ".silica" / "personas" / "default",
         )
         context._chat_history = [
             {"role": "user", "content": "Message 1"},
@@ -383,7 +383,7 @@ class TestCompactionCommands(unittest.TestCase):
             user_interface=ui,
             usage=[],
             memory_manager=memory_manager,
-            history_base_dir=Path(self.test_dir) / ".hdev",
+            history_base_dir=Path(self.test_dir) / ".silica" / "personas" / "default",
         )
         context._chat_history = self.sample_messages.copy()
 

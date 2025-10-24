@@ -319,7 +319,14 @@ class TestConversationCompaction(unittest.TestCase):
         )
 
         # Setup temporary history directory
-        history_dir = Path(self.test_dir) / ".hdev" / "history" / context.session_id
+        history_dir = (
+            Path(self.test_dir)
+            / ".silica"
+            / "personas"
+            / "default"
+            / "history"
+            / context.session_id
+        )
         history_dir.mkdir(parents=True, exist_ok=True)
 
         # Create the root.json file to ensure the directory exists

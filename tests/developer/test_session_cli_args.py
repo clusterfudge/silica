@@ -117,7 +117,13 @@ class TestSessionCliArgs(unittest.TestCase):
 
             # Check that the file was created with CLI args
             session_file = (
-                self.history_dir / ".hdev" / "history" / "test-session" / "root.json"
+                self.history_dir
+                / ".silica"
+                / "personas"
+                / "default"
+                / "history"
+                / "test-session"
+                / "root.json"
             )
             self.assertTrue(session_file.exists())
 

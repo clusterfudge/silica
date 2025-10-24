@@ -122,7 +122,7 @@ class TestAgentContextRotate(unittest.TestCase):
             user_interface=ui,
             usage=[],
             memory_manager=memory_manager,
-            history_base_dir=Path(self.test_dir) / ".hdev",
+            history_base_dir=Path(self.test_dir) / ".silica" / "personas" / "default",
         )
         context._chat_history = self.sample_messages.copy()
 
@@ -130,7 +130,14 @@ class TestAgentContextRotate(unittest.TestCase):
         context.flush(context.chat_history, compact=False)
 
         # Verify root.json was created
-        history_dir = Path(self.test_dir) / ".hdev" / "history" / "test-rotate-session"
+        history_dir = (
+            Path(self.test_dir)
+            / ".silica"
+            / "personas"
+            / "default"
+            / "history"
+            / "test-rotate-session"
+        )
         root_file = history_dir / "root.json"
         self.assertTrue(root_file.exists())
 
@@ -190,7 +197,7 @@ class TestAgentContextRotate(unittest.TestCase):
             user_interface=ui,
             usage=[],
             memory_manager=memory_manager,
-            history_base_dir=Path(self.test_dir) / ".hdev",
+            history_base_dir=Path(self.test_dir) / ".silica" / "personas" / "default",
         )
 
         # Attempting to rotate should raise ValueError
@@ -214,14 +221,21 @@ class TestAgentContextRotate(unittest.TestCase):
             user_interface=ui,
             usage=[],
             memory_manager=memory_manager,
-            history_base_dir=Path(self.test_dir) / ".hdev",
+            history_base_dir=Path(self.test_dir) / ".silica" / "personas" / "default",
         )
         context._chat_history = self.sample_messages.copy()
 
         # First flush
         context.flush(context.chat_history, compact=False)
 
-        history_dir = Path(self.test_dir) / ".hdev" / "history" / "test-multi-rotate"
+        history_dir = (
+            Path(self.test_dir)
+            / ".silica"
+            / "personas"
+            / "default"
+            / "history"
+            / "test-multi-rotate"
+        )
         root_file = history_dir / "root.json"
 
         # First rotation (mutates context in place)
@@ -269,7 +283,7 @@ class TestAgentContextRotate(unittest.TestCase):
             user_interface=ui,
             usage=[],
             memory_manager=memory_manager,
-            history_base_dir=Path(self.test_dir) / ".hdev",
+            history_base_dir=Path(self.test_dir) / ".silica" / "personas" / "default",
         )
 
         # Try to rotate when root.json doesn't exist yet
@@ -282,7 +296,14 @@ class TestAgentContextRotate(unittest.TestCase):
         self.assertEqual(archive_name, "test-archive-20250112_140530.json")
 
         # Verify no archive was created (since there was nothing to archive)
-        history_dir = Path(self.test_dir) / ".hdev" / "history" / "test-no-root"
+        history_dir = (
+            Path(self.test_dir)
+            / ".silica"
+            / "personas"
+            / "default"
+            / "history"
+            / "test-no-root"
+        )
         if history_dir.exists():
             archive_file = history_dir / archive_name
             self.assertFalse(archive_file.exists())
@@ -304,7 +325,7 @@ class TestAgentContextRotate(unittest.TestCase):
             user_interface=ui,
             usage=[],
             memory_manager=memory_manager,
-            history_base_dir=Path(self.test_dir) / ".hdev",
+            history_base_dir=Path(self.test_dir) / ".silica" / "personas" / "default",
         )
         context._chat_history = self.sample_messages.copy()
 
@@ -338,7 +359,12 @@ class TestAgentContextRotate(unittest.TestCase):
 
         # Read the root.json and verify metadata is present
         history_dir = (
-            Path(self.test_dir) / ".hdev" / "history" / "test-metadata-storage"
+            Path(self.test_dir)
+            / ".silica"
+            / "personas"
+            / "default"
+            / "history"
+            / "test-metadata-storage"
         )
         root_file = history_dir / "root.json"
 

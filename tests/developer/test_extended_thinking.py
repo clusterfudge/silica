@@ -283,7 +283,9 @@ class TestSessionPersistenceWithThinking:
                 # Read the saved data
                 history_file = (
                     Path(tmpdir)
-                    / ".hdev"
+                    / ".silica"
+                    / "personas"
+                    / "default"
                     / "history"
                     / context.session_id
                     / "root.json"

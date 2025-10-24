@@ -14,27 +14,38 @@ from rich.console import Console
 from rich.table import Table
 from rich import box
 
-# Default history directory location
-DEFAULT_HISTORY_DIR = Path.home() / ".hdev" / "history"
+# Default history base directory location
+DEFAULT_HISTORY_BASE_DIR = Path.home() / ".silica" / "personas" / "default"
 
 
-def get_history_dir() -> Path:
-    """Get the path to the history directory."""
-    return DEFAULT_HISTORY_DIR
+def get_history_dir(history_base_dir: Optional[Path] = None) -> Path:
+    """Get the path to the history directory.
+
+    Args:
+        history_base_dir: Base directory for history. If None, defaults to ~/.silica/personas/default
+
+    Returns:
+        Path to the history directory (base_dir/history)
+    """
+    base = history_base_dir if history_base_dir else DEFAULT_HISTORY_BASE_DIR
+    return base / "history"
 
 
-def list_sessions(workdir: Optional[str] = None) -> List[Dict]:
+def list_sessions(
+    workdir: Optional[str] = None, history_base_dir: Optional[Path] = None
+) -> List[Dict]:
     """
     List available developer sessions with metadata.
 
     Args:
         workdir: Optional working directory to filter sessions by.
                 If provided, only sessions from this directory will be listed.
+        history_base_dir: Optional base directory for history. If None, defaults to ~/.silica/personas/default
 
     Returns:
         List of session data dictionaries.
     """
-    history_dir = get_history_dir()
+    history_dir = get_history_dir(history_base_dir)
 
     if not history_dir.exists():
         return []
@@ -90,17 +101,20 @@ def list_sessions(workdir: Optional[str] = None) -> List[Dict]:
     return sessions
 
 
-def get_session_data(session_id: str) -> Optional[Dict]:
+def get_session_data(
+    session_id: str, history_base_dir: Optional[Path] = None
+) -> Optional[Dict]:
     """
     Get data for a specific session.
 
     Args:
         session_id: ID or prefix of the session to retrieve.
+        history_base_dir: Optional base directory for history. If None, defaults to ~/.silica/personas/default
 
     Returns:
         Session data dictionary if found, None otherwise.
     """
-    history_dir = get_history_dir()
+    history_dir = get_history_dir(history_base_dir)
 
     # Find matching session directory
     matching_ids = [
@@ -189,7 +203,8 @@ def list_sessions_tool(context: Any, **kwargs) -> str:
     creation date, update date, message count, and working directory.
     """
     workdir = kwargs.get("workdir", None)
-    sessions = list_sessions(workdir)
+    history_base_dir = getattr(context, "history_base_dir", None)
+    sessions = list_sessions(workdir, history_base_dir=history_base_dir)
 
     if not sessions:
         return "No sessions found with metadata."
@@ -222,7 +237,8 @@ def get_session_tool(context: Any, **kwargs) -> str:
     if not session_id:
         return "Error: No session ID provided."
 
-    session_data = get_session_data(session_id)
+    history_base_dir = getattr(context, "history_base_dir", None)
+    session_data = get_session_data(session_id, history_base_dir=history_base_dir)
     if not session_data:
         return f"Session with ID '{session_id}' not found."
 
@@ -242,18 +258,19 @@ def get_session_tool(context: Any, **kwargs) -> str:
     return result
 
 
-def resume_session(session_id: str) -> bool:
+def resume_session(session_id: str, history_base_dir: Optional[Path] = None) -> bool:
     """
     Resume a previous developer session.
 
     Args:
         session_id: ID or prefix of the session to resume.
+        history_base_dir: Optional base directory for history. If None, defaults to ~/.silica/personas/default
 
     Returns:
         True if successful, False otherwise.
     """
     # Get basic session data to check metadata and root directory
-    session_data = get_session_data(session_id)
+    session_data = get_session_data(session_id, history_base_dir=history_base_dir)
 
     if not session_data or "metadata" not in session_data:
         console = Console()
@@ -282,7 +299,7 @@ def resume_session(session_id: str) -> bool:
         os.chdir(root_dir)
 
         # Construct hdev command
-        history_dir = get_history_dir()
+        history_dir = get_history_dir(history_base_dir)
         full_session_id = None
 
         # Find matching session directory

@@ -225,7 +225,7 @@ class TestCompactionSessionIDStability(unittest.TestCase):
             user_interface=ui,
             usage=[],
             memory_manager=memory_manager,
-            history_base_dir=Path(self.test_dir) / ".hdev",
+            history_base_dir=Path(self.test_dir) / ".silica" / "personas" / "default",
         )
         context._chat_history = self.sample_messages
 
@@ -260,7 +260,7 @@ class TestCompactionSessionIDStability(unittest.TestCase):
             user_interface=ui,
             usage=[],
             memory_manager=memory_manager,
-            history_base_dir=Path(self.test_dir) / ".hdev",
+            history_base_dir=Path(self.test_dir) / ".silica" / "personas" / "default",
         )
         context._chat_history = self.sample_messages.copy()
 
@@ -310,7 +310,7 @@ class TestCompactionSessionIDStability(unittest.TestCase):
             user_interface=ui,
             usage=[],
             memory_manager=memory_manager,
-            history_base_dir=Path(self.test_dir) / ".hdev",
+            history_base_dir=Path(self.test_dir) / ".silica" / "personas" / "default",
         )
         context._chat_history = self.sample_messages.copy()
 
@@ -318,7 +318,14 @@ class TestCompactionSessionIDStability(unittest.TestCase):
         context.flush(context.chat_history, compact=False)
 
         # Verify root.json was created
-        history_dir = Path(self.test_dir) / ".hdev" / "history" / "test-archive-session"
+        history_dir = (
+            Path(self.test_dir)
+            / ".silica"
+            / "personas"
+            / "default"
+            / "history"
+            / "test-archive-session"
+        )
         root_file = history_dir / "root.json"
         self.assertTrue(root_file.exists())
 
