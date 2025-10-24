@@ -73,10 +73,9 @@ def test_persona_tools_in_toolbox():
         schemas = toolbox.schemas()
         schema_names = {s["name"] for s in schemas}
 
-        # Verify all three persona tools are present
+        # Verify both persona tools are present
         assert "read_persona" in schema_names
         assert "write_persona" in schema_names
-        assert "list_personas" in schema_names
 
 
 def test_persona_workflow_integration():
@@ -151,18 +150,6 @@ def test_persona_workflow_integration():
         assert new_content in system_msg[0]["text"]
         assert builtin_content not in system_msg[0]["text"]
         assert '<persona name="test_persona">' in system_msg[0]["text"]
-
-        # Step 6: Test list_personas
-        # Note: list_personas lists from global personas directory, not temp test dir
-        # So we just verify it returns something valid
-        list_personas_func = next(
-            (tool for tool in toolbox.agent_tools if tool.__name__ == "list_personas"),
-            None,
-        )
-        assert list_personas_func is not None
-
-        result = list_personas_func(context)
-        assert "Available Personas:" in result or "No personas" in result
 
 
 def test_persona_backup_created():

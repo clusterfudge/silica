@@ -7,12 +7,11 @@ Persona tools allow the AI model to inspect and modify its own persona definitio
 The model can now:
 - Read its current persona instructions
 - Update its persona to change behavior
-- List all available personas
 - See exactly what it's editing through XML markup
 
 All persona changes take effect immediately without requiring a restart.
 
-## The Three Tools
+## The Two Tools
 
 ### `read_persona()`
 
@@ -68,24 +67,6 @@ Length: 123 characters
 Backup: persona.backup.20250107_123456.md
 
 The updated persona will take effect on the next system prompt render.
-```
-
-### `list_personas()`
-
-List all available personas.
-
-**Example:**
-```
-list_personas()
-```
-
-**Returns:**
-```
-Available Personas:
-
-  coding_agent (current): ✓ 1234 chars - Autonomous software engineering agent
-  basic_agent: ✓ 567 chars - General purpose assistant
-  my_custom: ✗ no persona.md
 ```
 
 ## Persona Markup

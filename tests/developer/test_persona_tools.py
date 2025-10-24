@@ -4,14 +4,12 @@ Tests for persona tools.
 
 import json
 import pytest
-from pathlib import Path
 
 from silica.developer.context import AgentContext
 from silica.developer.sandbox import SandboxMode
 from silica.developer.tools.persona_tools import (
     read_persona,
     write_persona,
-    list_personas,
 )
 
 
@@ -184,117 +182,6 @@ def test_log_persona_edit(agent_context, temp_persona_dir):
     assert log_entry["persona_name"] == "test_persona"
     assert "content_length" in log_entry
     assert log_entry["content_length"] == len(content)
-
-
-def test_list_personas(agent_context, temp_persona_dir):
-    """Test listing personas."""
-    # Create a few personas
-    persona1_dir = temp_persona_dir / "persona1"
-    persona1_dir.mkdir()
-    (persona1_dir / "persona.md").write_text("# Persona 1")
-
-    persona2_dir = temp_persona_dir / "persona2"
-    persona2_dir.mkdir()
-    (persona2_dir / "persona.md").write_text("# Persona 2")
-
-    # Create one without persona.md
-    persona3_dir = temp_persona_dir / "persona3"
-    persona3_dir.mkdir()
-
-    result = list_personas(agent_context)
-
-    assert "persona1" in result
-    assert "persona2" in result
-    assert "persona3" in result
-    assert "✓" in result  # Has persona.md
-    assert "✗" in result  # Missing persona.md
-    assert "(current)" in result  # Shows current persona
-
-    """Test that persona is loaded from disk in create_system_message."""
-    from silica.developer.prompt import create_system_message, _load_persona_from_disk
-    from silica.developer.user_interface import UserInterface
-    from silica.developer.models import get_model
-    from silica.developer.sandbox import SandboxMode
-    import tempfile
-
-    # Create a temporary persona directory
-    with tempfile.TemporaryDirectory() as tmpdir:
-        persona_dir = Path(tmpdir) / "test_persona"
-        persona_dir.mkdir()
-
-        # Write persona file
-        persona_content = "# Test Persona\nBe helpful."
-        (persona_dir / "persona.md").write_text(persona_content)
-
-        # Create mock UI
-        class MockUI(UserInterface):
-            def handle_system_message(self, message: str, **kwargs):
-                pass
-
-            def handle_assistant_message(self, message: str, **kwargs):
-                pass
-
-            def permission_callback(
-                self, action, resource, sandbox_mode, action_arguments
-            ):
-                return True
-
-            def permission_rendering_callback(self, action, resource, action_arguments):
-                pass
-
-            def handle_tool_use(self, tool_name, tool_params):
-                pass
-
-            def handle_tool_result(self, name, result, **kwargs):
-                pass
-
-            async def get_user_input(self, prompt=""):
-                return ""
-
-            def handle_user_input(self, user_input):
-                pass
-
-            def display_token_count(self, *args, **kwargs):
-                pass
-
-            def display_welcome_message(self):
-                pass
-
-            def status(self, message, spinner=None):
-                from contextlib import contextmanager
-
-                @contextmanager
-                def dummy_context():
-                    yield
-
-                return dummy_context()
-
-            def bare(self, message, live=None):
-                pass
-
-        # Create context
-        context = AgentContext.create(
-            model_spec=get_model("sonnet"),
-            sandbox_mode=SandboxMode.ALLOW_ALL,
-            sandbox_contents=[],
-            user_interface=MockUI(),
-            persona_base_directory=persona_dir,
-        )
-
-        # Test loading persona
-        persona_section = _load_persona_from_disk(context)
-        assert persona_section is not None
-        assert '<persona name="test_persona">' in persona_section["text"]
-        assert persona_content in persona_section["text"]
-        assert "</persona>" in persona_section["text"]
-
-        # Test in full system message
-        system_message = create_system_message(context)
-
-        # Should have persona as first section
-        assert len(system_message) > 0
-        first_section = system_message[0]
-        assert '<persona name="test_persona">' in first_section["text"]
 
 
 def test_persona_refresh_on_edit(agent_context):

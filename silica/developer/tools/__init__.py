@@ -62,7 +62,6 @@ from .github_comments import (
 from .persona_tools import (
     read_persona,
     write_persona,
-    list_personas,
 )
 
 ALL_TOOLS = (
@@ -119,7 +118,6 @@ ALL_TOOLS = (
         get_session_tool,
         read_persona,
         write_persona,
-        list_personas,
     ]
     + GITHUB_TOOLS
     + GITHUB_COMMENT_TOOLS
