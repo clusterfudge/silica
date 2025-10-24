@@ -14,12 +14,12 @@ All persona changes take effect immediately without requiring a restart.
 
 ## The Three Tools
 
-### `read_persona(name=None)`
+### `read_persona()`
 
-Read the content of a persona file.
+Read the content of the current persona file.
 
 **Parameters:**
-- `name` (optional): Persona name. If not provided, reads the current persona.
+- None - always reads the current persona
 
 **Example:**
 ```
@@ -35,13 +35,12 @@ Path: /Users/you/.silica/personas/coding_agent/persona.md
 ...
 ```
 
-### `write_persona(content, name=None)`
+### `write_persona(content)`
 
-Write or update a persona file.
+Write or update the current persona file.
 
 **Parameters:**
 - `content` (required): New persona content in markdown format
-- `name` (optional): Persona name. If not provided, updates the current persona.
 
 **Features:**
 - Creates automatic timestamped backup before writing

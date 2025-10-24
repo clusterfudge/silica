@@ -30,24 +30,6 @@ def temp_persona_dir(tmp_path, monkeypatch):
         persona_base,
     )
 
-    # Also patch it in persona_tools module
-    import silica.developer.tools.persona_tools
-
-    # Patch _get_persona_path to use our temp directory
-    silica.developer.tools.persona_tools._get_persona_path
-
-    def patched_get_path(agent_context, name=None):
-        if name:
-            return persona_base / name
-        else:
-            return agent_context.history_base_dir
-
-    monkeypatch.setattr(
-        silica.developer.tools.persona_tools,
-        "_get_persona_path",
-        patched_get_path,
-    )
-
     return persona_base
 
 
@@ -228,39 +210,6 @@ def test_list_personas(agent_context, temp_persona_dir):
     assert "✗" in result  # Missing persona.md
     assert "(current)" in result  # Shows current persona
 
-
-def test_read_named_persona(agent_context, temp_persona_dir):
-    """Test reading a named persona (not current)."""
-    # Create another persona
-    other_dir = temp_persona_dir / "other_persona"
-    other_dir.mkdir()
-    content = "# Other Persona"
-    (other_dir / "persona.md").write_text(content)
-
-    result = read_persona(agent_context, name="other_persona")
-    assert content in result
-    assert "other_persona" in result
-
-
-def test_write_named_persona(agent_context, temp_persona_dir):
-    """Test writing to a named persona (not current)."""
-    content = "# Named Persona"
-
-    result = write_persona(agent_context, content=content, name="new_persona")
-    assert "Successfully" in result
-    assert "new_persona" in result
-
-    # Verify it was created
-    new_dir = temp_persona_dir / "new_persona"
-    assert new_dir.exists()
-    assert (new_dir / "persona.md").exists()
-
-    with open(new_dir / "persona.md", "r") as f:
-        saved_content = f.read()
-    assert saved_content == content
-
-
-def test_persona_loaded_from_disk_in_prompt():
     """Test that persona is loaded from disk in create_system_message."""
     from silica.developer.prompt import create_system_message, _load_persona_from_disk
     from silica.developer.user_interface import UserInterface

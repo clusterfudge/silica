@@ -13,26 +13,6 @@ from silica.developer.context import AgentContext
 from silica.developer.tools.framework import tool
 
 
-def _get_persona_path(agent_context: AgentContext, name: str | None = None) -> Path:
-    """Get the path to a persona directory.
-
-    Args:
-        agent_context: The agent context containing persona base directory
-        name: Optional persona name. If None, uses current persona from base directory
-
-    Returns:
-        Path to the persona directory
-    """
-    if name:
-        # Load specified persona
-        from silica.developer.personas import _PERSONAS_BASE_DIRECTORY
-
-        return _PERSONAS_BASE_DIRECTORY / name
-    else:
-        # Use current persona from agent context
-        return agent_context.history_base_dir
-
-
 def _log_persona_edit(
     persona_dir: Path,
     action: str,
@@ -67,25 +47,21 @@ def _log_persona_edit(
 
 
 @tool
-def read_persona(context: AgentContext, name: str | None = None) -> str:
-    """Read the content of a persona file.
+def read_persona(context: AgentContext) -> str:
+    """Read the content of the current persona file.
 
-    This tool reads the persona.md file for the specified persona (or the current
-    persona if no name is provided). This allows the model to inspect its current
-    instructions and understand what can be modified.
-
-    Args:
-        name: Optional persona name. If not provided, reads the current persona.
+    This tool reads the persona.md file for the currently running persona.
+    This allows the model to inspect its own instructions and understand what
+    can be modified.
 
     Returns:
         The content of the persona.md file, or an error message if not found.
 
     Examples:
         >>> read_persona()  # Read current persona
-        >>> read_persona(name="coding_agent")  # Read a specific persona
     """
     try:
-        persona_dir = _get_persona_path(context, name)
+        persona_dir = context.history_base_dir
         persona_file = persona_dir / "persona.md"
 
         if not persona_file.exists():
@@ -94,7 +70,7 @@ def read_persona(context: AgentContext, name: str | None = None) -> str:
         with open(persona_file, "r") as f:
             content = f.read()
 
-        persona_name = name or persona_dir.name
+        persona_name = persona_dir.name
         return f"Persona: {persona_name}\nPath: {persona_file}\n\n{content}"
 
     except Exception as e:
@@ -102,30 +78,24 @@ def read_persona(context: AgentContext, name: str | None = None) -> str:
 
 
 @tool
-def write_persona(
-    context: AgentContext,
-    content: str,
-    name: str | None = None,
-) -> str:
-    """Write or update a persona file.
+def write_persona(context: AgentContext, content: str) -> str:
+    """Write or update the current persona file.
 
-    This tool writes new content to a persona.md file. Before writing, it creates
-    a timestamped backup of the existing file (if it exists) and logs the edit
-    to persona.log.jsonl.
+    This tool writes new content to the current persona's persona.md file.
+    Before writing, it creates a timestamped backup of the existing file
+    (if it exists) and logs the edit to persona.log.jsonl.
 
-    IMPORTANT: This modifies the persona that controls the model's behavior. Use
-    carefully and ensure the new content maintains clear, actionable instructions.
+    IMPORTANT: This modifies the persona that controls the model's own behavior.
+    Use carefully and ensure the new content maintains clear, actionable instructions.
 
     Args:
         content: The new persona content (markdown format)
-        name: Optional persona name. If not provided, updates the current persona.
 
     Returns:
         Success message with backup information, or error message.
 
     Examples:
         >>> write_persona(content="# My Custom Persona\\n\\nBe concise and helpful.")
-        >>> write_persona(content="...", name="my_persona")
     """
     # Validate content
     if not content or not content.strip():
@@ -135,8 +105,8 @@ def write_persona(
         return "Error: Persona content too large (max 100KB)"
 
     try:
-        persona_dir = _get_persona_path(context, name)
-        persona_name = name or persona_dir.name
+        persona_dir = context.history_base_dir
+        persona_name = persona_dir.name
         persona_file = persona_dir / "persona.md"
 
         # Create persona directory if it doesn't exist
@@ -159,7 +129,7 @@ def write_persona(
         else:
             action = "create"
 
-        # Write new content (permission checks happen at file operation level)
+        # Write new content
         with open(persona_file, "w") as f:
             f.write(content)
 
