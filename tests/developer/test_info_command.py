@@ -19,6 +19,7 @@ def mock_context():
     # Session information
     context.session_id = "12345678-1234-1234-1234-123456789012"
     context.parent_session_id = None
+    context.history_base_dir = None  # Will be set by tests that need it
 
     # Model specification
     context.model_spec = {
@@ -254,8 +255,18 @@ def test_info_command_with_parent_session(mock_context):
 
 def test_info_command_with_session_metadata(mock_context, tmp_path):
     """Test that session metadata is read and displayed."""
+    # Set history_base_dir on the mock context
+    mock_context.history_base_dir = tmp_path / ".silica" / "personas" / "default"
+
     # Create a mock session file with metadata
-    history_dir = tmp_path / ".hdev" / "history" / mock_context.session_id
+    history_dir = (
+        tmp_path
+        / ".silica"
+        / "personas"
+        / "default"
+        / "history"
+        / mock_context.session_id
+    )
     history_dir.mkdir(parents=True)
 
     session_file = history_dir / "root.json"

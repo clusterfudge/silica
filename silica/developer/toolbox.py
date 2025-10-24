@@ -919,7 +919,16 @@ class Toolbox:
         conversation_size = getattr(self.context, "_last_conversation_size", None)
 
         # Get session creation and update times if available
-        history_dir = Path.home() / ".hdev" / "history"
+        # Use context's history_base_dir if set, otherwise use default
+        if self.context.history_base_dir:
+            history_base_dir = (
+                Path(self.context.history_base_dir)
+                if not isinstance(self.context.history_base_dir, Path)
+                else self.context.history_base_dir
+            )
+        else:
+            history_base_dir = Path.home() / ".silica" / "personas" / "default"
+        history_dir = history_base_dir / "history"
         context_dir = parent_session_id if parent_session_id else session_id
         history_file = (
             history_dir

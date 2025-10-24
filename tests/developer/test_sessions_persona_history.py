@@ -66,9 +66,9 @@ class TestPersonaBasedSessionManagement(unittest.TestCase):
         self.assertEqual(history_dir, expected)
 
     def test_get_history_dir_default(self):
-        """Test that get_history_dir falls back to ~/.hdev when no base provided."""
+        """Test that get_history_dir falls back to ~/.silica/personas/default when no base provided."""
         history_dir = get_history_dir()
-        expected = Path.home() / ".hdev" / "history"
+        expected = Path.home() / ".silica" / "personas" / "default" / "history"
         self.assertEqual(history_dir, expected)
 
     def test_list_sessions_with_persona_base_dir(self):
@@ -183,6 +183,37 @@ class TestPersonaBasedSessionManagement(unittest.TestCase):
 
         # Result should be a string (may be empty if no sessions in default location)
         self.assertIsInstance(result, str)
+
+    def test_sessions_tool_inside_agent_context(self):
+        """Test that list_sessions_tool works correctly inside a running agent with context."""
+        from silica.developer.tools.sessions import list_sessions_tool
+
+        # Create a context with history_base_dir set
+        mock_context = MagicMock()
+        mock_context.history_base_dir = self.persona_base_dir
+
+        # Call the tool
+        result = list_sessions_tool(mock_context)
+
+        # Verify it found the persona sessions
+        self.assertIn("persona-", result)
+        self.assertIn("Available Sessions", result)
+
+    def test_get_session_tool_inside_agent_context(self):
+        """Test that get_session_tool works correctly inside a running agent with context."""
+        from silica.developer.tools.sessions import get_session_tool
+
+        # Create a context with history_base_dir set
+        mock_context = MagicMock()
+        mock_context.history_base_dir = self.persona_base_dir
+
+        # Call the tool
+        result = get_session_tool(mock_context, session_id="persona-session1")
+
+        # Verify it found the session
+        self.assertIn("persona-session1", result)
+        self.assertIn("Session Details", result)
+        self.assertIn(self.root_dir, result)
 
 
 if __name__ == "__main__":

@@ -14,15 +14,15 @@ from rich.console import Console
 from rich.table import Table
 from rich import box
 
-# Default history base directory location (for backward compatibility)
-DEFAULT_HISTORY_BASE_DIR = Path.home() / ".hdev"
+# Default history base directory location
+DEFAULT_HISTORY_BASE_DIR = Path.home() / ".silica" / "personas" / "default"
 
 
 def get_history_dir(history_base_dir: Optional[Path] = None) -> Path:
     """Get the path to the history directory.
 
     Args:
-        history_base_dir: Base directory for history. If None, defaults to ~/.hdev
+        history_base_dir: Base directory for history. If None, defaults to ~/.silica/personas/default
 
     Returns:
         Path to the history directory (base_dir/history)
@@ -40,7 +40,7 @@ def list_sessions(
     Args:
         workdir: Optional working directory to filter sessions by.
                 If provided, only sessions from this directory will be listed.
-        history_base_dir: Optional base directory for history. If None, defaults to ~/.hdev
+        history_base_dir: Optional base directory for history. If None, defaults to ~/.silica/personas/default
 
     Returns:
         List of session data dictionaries.
@@ -109,7 +109,7 @@ def get_session_data(
 
     Args:
         session_id: ID or prefix of the session to retrieve.
-        history_base_dir: Optional base directory for history. If None, defaults to ~/.hdev
+        history_base_dir: Optional base directory for history. If None, defaults to ~/.silica/personas/default
 
     Returns:
         Session data dictionary if found, None otherwise.
@@ -264,7 +264,7 @@ def resume_session(session_id: str, history_base_dir: Optional[Path] = None) -> 
 
     Args:
         session_id: ID or prefix of the session to resume.
-        history_base_dir: Optional base directory for history. If None, defaults to ~/.hdev
+        history_base_dir: Optional base directory for history. If None, defaults to ~/.silica/personas/default
 
     Returns:
         True if successful, False otherwise.

@@ -147,7 +147,14 @@ def test_flush_root_context(
     context.flush(chat_history)
 
     # Verify the file was created with correct path and content
-    history_dir = Path(temp_dir.name) / ".hdev" / "history" / context.session_id
+    history_dir = (
+        Path(temp_dir.name)
+        / ".silica"
+        / "personas"
+        / "default"
+        / "history"
+        / context.session_id
+    )
     history_file = history_dir / "root.json"
 
     assert history_file.exists(), f"History file not found at {history_file}"
@@ -195,7 +202,14 @@ def test_flush_sub_agent_context(
     sub_context.flush(chat_history)
 
     # Verify the file was created with correct path and content
-    history_dir = Path(temp_dir.name) / ".hdev" / "history" / root_context.session_id
+    history_dir = (
+        Path(temp_dir.name)
+        / ".silica"
+        / "personas"
+        / "default"
+        / "history"
+        / root_context.session_id
+    )
     history_file = history_dir / f"{sub_context.session_id}.json"
 
     assert history_file.exists(), f"Sub-agent history file not found at {history_file}"
@@ -282,7 +296,14 @@ def test_sub_agent_flush_directory_structure(
     sub_context.flush(chat_history)
 
     # Check that the root context created a root.json file in its own directory
-    root_dir = Path(temp_dir.name) / ".hdev" / "history" / root_context.session_id
+    root_dir = (
+        Path(temp_dir.name)
+        / ".silica"
+        / "personas"
+        / "default"
+        / "history"
+        / root_context.session_id
+    )
     root_file = root_dir / "root.json"
     assert root_file.exists(), f"Root history file not found at {root_file}"
 
