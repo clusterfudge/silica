@@ -656,13 +656,49 @@ class CustomCompleter(Completer):
                     yield Completion(history_item, start_position=start_position)
 
 
-def sessions(workdir: Annotated[str, cyclopts.Parameter("workdir")]):
-    s = list_sessions(workdir=workdir)
+def sessions(
+    workdir: Annotated[Optional[str], cyclopts.Parameter("workdir")] = None,
+    *,
+    persona: Annotated[
+        Optional[str], cyclopts.Parameter(help="Persona to list sessions for")
+    ] = None,
+):
+    """List available developer sessions with metadata.
+
+    Args:
+        workdir: Optional working directory to filter sessions by
+        persona: Optional persona name to list sessions for (defaults to 'default')
+    """
+    # Get persona base directory if specified
+    history_base_dir = None
+    if persona:
+        persona_obj = personas.get_or_create(persona, interactive=False)
+        history_base_dir = persona_obj.base_directory
+
+    s = list_sessions(workdir=workdir, history_base_dir=history_base_dir)
     print_session_list(s)
 
 
-def resume(session_id: Annotated[str, cyclopts.Parameter("session_id")]):
-    resume_session(session_id)
+def resume(
+    session_id: Annotated[str, cyclopts.Parameter("session_id")],
+    *,
+    persona: Annotated[
+        Optional[str], cyclopts.Parameter(help="Persona that owns the session")
+    ] = None,
+):
+    """Resume a previous developer session.
+
+    Args:
+        session_id: Session ID or prefix to resume
+        persona: Optional persona name that owns the session (defaults to 'default')
+    """
+    # Get persona base directory if specified
+    history_base_dir = None
+    if persona:
+        persona_obj = personas.get_or_create(persona, interactive=False)
+        history_base_dir = persona_obj.base_directory
+
+    resume_session(session_id, history_base_dir=history_base_dir)
 
 
 def attach_tools(app):
