@@ -578,6 +578,12 @@ class ConversationCompacter:
                 preserve_message_count = 1
             new_messages.extend(messages_to_use[-preserve_message_count:])
 
+        # Strip all thinking blocks from compacted messages to avoid API validation errors
+        # When thinking is enabled, the API requires the final assistant message to start
+        # with a thinking block. Since we can't guarantee this structure after compaction
+        # (we're preserving arbitrary messages), we strip all thinking blocks entirely.
+        new_messages = self._strip_all_thinking_blocks(new_messages)
+
         # Create metadata for the compaction (archive_name will be set by rotate())
         metadata = CompactionMetadata(
             archive_name="",  # Will be updated by _archive_and_rotate
