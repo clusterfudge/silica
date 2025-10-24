@@ -56,10 +56,13 @@ class MockUI(UserInterface):
 
 
 def test_persona_tools_in_toolbox():
-    """Test that persona tools are properly registered in the toolbox."""
+    """Test that persona tools are properly registered when persona.md exists."""
     with tempfile.TemporaryDirectory() as tmpdir:
         persona_dir = Path(tmpdir) / "test_persona"
         persona_dir.mkdir()
+
+        # Create persona.md to enable persona tools
+        (persona_dir / "persona.md").write_text("# Test Persona")
 
         context = AgentContext.create(
             model_spec=get_model("sonnet"),
@@ -79,10 +82,14 @@ def test_persona_tools_in_toolbox():
 
 
 def test_persona_workflow_integration():
-    """Test the complete workflow: builtin -> write -> read -> system prompt refresh."""
+    """Test the complete workflow: initial persona -> write -> read -> system prompt refresh."""
     with tempfile.TemporaryDirectory() as tmpdir:
         persona_dir = Path(tmpdir) / "test_persona"
         persona_dir.mkdir()
+
+        # Create initial persona.md to enable persona tools
+        initial_content = "# Initial Persona\nBe helpful."
+        (persona_dir / "persona.md").write_text(initial_content)
 
         # Create context
         context = AgentContext.create(
@@ -95,20 +102,16 @@ def test_persona_workflow_integration():
 
         toolbox = Toolbox(context)
 
-        # Step 1: Start with built-in persona (no persona.md yet)
-        builtin_content = "# Built-in Persona\nBe helpful."
-        system_section = {"type": "text", "text": builtin_content}
-
+        # Step 1: Verify initial persona is loaded
         system_msg = create_system_message(
             context,
-            system_section=system_section,
             include_sandbox=False,
             include_memory=False,
         )
 
-        # Should use built-in wrapped in tags
+        # Should use persona.md wrapped in tags
         assert '<persona name="test_persona">' in system_msg[0]["text"]
-        assert builtin_content in system_msg[0]["text"]
+        assert initial_content in system_msg[0]["text"]
 
         # Step 2: Write a new persona using the tool
         new_content = "# Updated Persona\nBe concise."
@@ -138,17 +141,16 @@ def test_persona_workflow_integration():
         result = read_persona_func(context)
         assert new_content in result
 
-        # Step 5: Verify system prompt now uses persona.md (not built-in)
+        # Step 5: Verify system prompt now uses updated persona.md
         system_msg = create_system_message(
             context,
-            system_section=system_section,  # Still passing built-in
             include_sandbox=False,
             include_memory=False,
         )
 
-        # Should use persona.md, not built-in
+        # Should use updated persona.md
         assert new_content in system_msg[0]["text"]
-        assert builtin_content not in system_msg[0]["text"]
+        assert initial_content not in system_msg[0]["text"]
         assert '<persona name="test_persona">' in system_msg[0]["text"]
 
 
@@ -157,6 +159,9 @@ def test_persona_backup_created():
     with tempfile.TemporaryDirectory() as tmpdir:
         persona_dir = Path(tmpdir) / "test_persona"
         persona_dir.mkdir()
+
+        # Create persona.md to enable persona tools
+        (persona_dir / "persona.md").write_text("# Initial")
 
         context = AgentContext.create(
             model_spec=get_model("sonnet"),
@@ -192,6 +197,9 @@ def test_persona_log_created():
         persona_dir = Path(tmpdir) / "test_persona"
         persona_dir.mkdir()
 
+        # Create persona.md to enable persona tools
+        (persona_dir / "persona.md").write_text("# Initial")
+
         context = AgentContext.create(
             model_spec=get_model("sonnet"),
             sandbox_mode=SandboxMode.ALLOW_ALL,
@@ -216,7 +224,7 @@ def test_persona_log_created():
         with open(log_file, "r") as f:
             log_entry = json.loads(f.read())
 
-        assert log_entry["action"] == "create"
+        assert log_entry["action"] == "write"
         assert log_entry["persona_name"] == "test_persona"
         assert log_entry["content_length"] == 6
         assert "timestamp" in log_entry

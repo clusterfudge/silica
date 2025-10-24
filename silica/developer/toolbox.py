@@ -39,6 +39,21 @@ class Toolbox:
         else:
             self.agent_tools = ALL_TOOLS
 
+        # Filter out persona tools if only built-in persona is active (no persona.md)
+        from pathlib import Path
+
+        if context.history_base_dir is not None and isinstance(
+            context.history_base_dir, Path
+        ):
+            persona_file = context.history_base_dir / "persona.md"
+            if not persona_file.exists():
+                # Built-in persona only - remove persona editing tools
+                self.agent_tools = [
+                    tool
+                    for tool in self.agent_tools
+                    if tool.__name__ not in ["read_persona", "write_persona"]
+                ]
+
         # Register CLI tools
         self.register_cli_tool("help", self._help, "Show help", aliases=["h"])
         self.register_cli_tool("tips", self._tips, "Show usage tips and tricks")

@@ -139,8 +139,10 @@ def test_system_message_with_custom_section():
             include_sandbox=False,
             include_memory=False,
         )
-        # Should have custom section + ripgrep section
+        # Should have custom section (wrapped in persona tags) + ripgrep section
         assert len(sections) == 2
-        assert sections[0]["text"] == "Custom system prompt"
+        assert "Custom system prompt" in sections[0]["text"]
+        assert "<persona" in sections[0]["text"]  # Should be wrapped in persona tags
+        assert "</persona>" in sections[0]["text"]
         ripgrep_section = sections[1]
         assert "ripgrep" in ripgrep_section["text"].lower()

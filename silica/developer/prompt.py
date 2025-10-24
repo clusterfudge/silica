@@ -89,6 +89,13 @@ def _load_persona_from_disk(agent_context: AgentContext) -> dict[str, Any] | Non
     Returns:
         A content block with the persona wrapped in tags, or None if no persona file exists
     """
+    from pathlib import Path
+
+    if agent_context.history_base_dir is None or not isinstance(
+        agent_context.history_base_dir, Path
+    ):
+        return None
+
     persona_file = agent_context.history_base_dir / "persona.md"
 
     if not persona_file.exists():
@@ -156,7 +163,11 @@ def create_system_message(
         sections.append(persona_section)
     elif system_section:
         # No persona.md but we have a built-in persona - wrap it in tags
-        persona_name = agent_context.history_base_dir.name
+        persona_name = (
+            agent_context.history_base_dir.name
+            if agent_context.history_base_dir
+            else "agent"
+        )
         wrapped_section = _wrap_system_section_with_persona_tags(
             system_section, persona_name
         )

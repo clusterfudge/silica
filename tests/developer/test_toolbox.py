@@ -1,6 +1,5 @@
 from silica.developer.toolbox import Toolbox
 from silica.developer.sandbox import SandboxMode
-from silica.developer.tools import ALL_TOOLS
 from silica.developer.context import AgentContext
 from silica.developer.user_interface import UserInterface
 
@@ -122,7 +121,8 @@ def test_schemas_match_tools(persona_base_dir):
     toolbox = Toolbox(context)
 
     schemas = toolbox.schemas()
-    tool_names = {tool.__name__ for tool in ALL_TOOLS}
+    # Compare with actually loaded tools (not ALL_TOOLS) since some may be filtered
+    tool_names = {tool.__name__ for tool in toolbox.agent_tools}
     schema_names = {schema["name"] for schema in schemas}
 
     assert tool_names == schema_names, "Schema names should match tool names"
