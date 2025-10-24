@@ -59,6 +59,10 @@ from .github import GITHUB_TOOLS
 from .github_comments import (
     GITHUB_COMMENT_TOOLS,
 )
+from .persona_tools import (
+    read_persona,
+    write_persona,
+)
 
 ALL_TOOLS = (
     [
@@ -112,6 +116,8 @@ ALL_TOOLS = (
         todo_write,
         list_sessions_tool,
         get_session_tool,
+        read_persona,
+        write_persona,
     ]
     + GITHUB_TOOLS
     + GITHUB_COMMENT_TOOLS
