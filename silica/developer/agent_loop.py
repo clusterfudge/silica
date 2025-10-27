@@ -8,6 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 import anthropic
+import httpx
 from anthropic.types import TextBlock, MessageParam
 from dotenv import load_dotenv
 
@@ -499,39 +500,76 @@ async def run(
                         )
 
                         thinking_content = ""
-                        with client.messages.stream(**api_kwargs) as stream:
-                            for chunk in stream:
-                                if chunk.type == "text":
-                                    ai_response += chunk.text
-                                elif chunk.type == "content_block_start":
-                                    # Check if this is a thinking block
-                                    if hasattr(chunk, "content_block") and hasattr(
-                                        chunk.content_block, "type"
-                                    ):
-                                        if chunk.content_block.type == "thinking":
-                                            thinking_content = ""
-                                elif chunk.type == "content_block_delta":
-                                    # Accumulate thinking content if this is a thinking delta
-                                    if hasattr(chunk, "delta") and hasattr(
-                                        chunk.delta, "type"
-                                    ):
-                                        if chunk.delta.type == "thinking_delta":
-                                            thinking_content += chunk.delta.thinking
+                        try:
+                            with client.messages.stream(**api_kwargs) as stream:
+                                for chunk in stream:
+                                    if chunk.type == "text":
+                                        ai_response += chunk.text
+                                    elif chunk.type == "content_block_start":
+                                        # Check if this is a thinking block
+                                        if hasattr(chunk, "content_block") and hasattr(
+                                            chunk.content_block, "type"
+                                        ):
+                                            if chunk.content_block.type == "thinking":
+                                                thinking_content = ""
+                                    elif chunk.type == "content_block_delta":
+                                        # Accumulate thinking content if this is a thinking delta
+                                        if hasattr(chunk, "delta") and hasattr(
+                                            chunk.delta, "type"
+                                        ):
+                                            if chunk.delta.type == "thinking_delta":
+                                                thinking_content += chunk.delta.thinking
 
-                            final_message = stream.get_final_message()
+                                final_message = stream.get_final_message()
 
-                        # Log the response
-                        logger.log_response(
-                            message=final_message,
-                            usage=final_message.usage,
-                            stop_reason=final_message.stop_reason,
-                            thinking_content=thinking_content
-                            if thinking_content
-                            else None,
-                        )
+                            # Log the response
+                            logger.log_response(
+                                message=final_message,
+                                usage=final_message.usage,
+                                stop_reason=final_message.stop_reason,
+                                thinking_content=thinking_content
+                                if thinking_content
+                                else None,
+                            )
 
-                        rate_limiter.update(stream.response.headers)
-                        break
+                            rate_limiter.update(stream.response.headers)
+                            break
+                        except (
+                            httpx.RemoteProtocolError,
+                            httpx.ReadError,
+                            httpx.ConnectError,
+                            httpx.NetworkError,
+                        ) as e:
+                            # Handle network/connection errors during streaming
+                            logger.log_error(
+                                error_type=type(e).__name__,
+                                error_message=str(e),
+                                context={
+                                    "attempt": attempt + 1,
+                                    "max_retries": max_retries,
+                                },
+                            )
+
+                            if attempt == max_retries - 1:
+                                user_interface.handle_system_message(
+                                    f"[bold red]Network error during streaming: {str(e)}. Max retries reached.[/bold red]",
+                                    markdown=False,
+                                )
+                                raise
+
+                            delay = min(
+                                base_delay * (2**attempt) + random.uniform(0, 1),
+                                max_delay,
+                            )
+                            user_interface.handle_system_message(
+                                f"[bold yellow]Network error during streaming. Retrying in {delay:.2f} seconds... (Attempt {attempt + 1}/{max_retries})[/bold yellow]",
+                                markdown=False,
+                            )
+                            time.sleep(delay)
+                            # Clear partial response before retrying
+                            ai_response = ""
+                            thinking_content = ""
+                            continue
                     except anthropic.RateLimitError as e:
                         # Handle rate limit errors specifically
                         backoff_time = rate_limiter.handle_rate_limit_error(e)
