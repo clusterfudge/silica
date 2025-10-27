@@ -176,7 +176,11 @@ class Toolbox:
             chat_history=chat_history or [],
         )
 
-        self.context.user_interface.handle_system_message(content, markdown=False)
+        # Render info command output as markdown for better formatting
+        render_as_markdown = name == "info"
+        self.context.user_interface.handle_system_message(
+            content, markdown=render_as_markdown
+        )
         add_to_buffer = confirm_to_add
         if confirm_to_add and content and content.strip():
             add_to_buffer = (
@@ -889,6 +893,20 @@ class Toolbox:
         session_id = self.context.session_id
         parent_session_id = self.context.parent_session_id
 
+        # Get persona name from history_base_dir
+        persona_name = "default"
+        if self.context.history_base_dir:
+            history_base_dir = (
+                Path(self.context.history_base_dir)
+                if not isinstance(self.context.history_base_dir, Path)
+                else self.context.history_base_dir
+            )
+            # Extract persona name from path like ~/.silica/personas/{persona_name}
+            if history_base_dir.parent.name == "personas":
+                persona_name = history_base_dir.name
+        else:
+            history_base_dir = Path.home() / ".silica" / "personas" / "default"
+
         # Get model information
         model_spec = self.context.model_spec
         model_name = model_spec["title"]
@@ -919,15 +937,6 @@ class Toolbox:
         conversation_size = getattr(self.context, "_last_conversation_size", None)
 
         # Get session creation and update times if available
-        # Use context's history_base_dir if set, otherwise use default
-        if self.context.history_base_dir:
-            history_base_dir = (
-                Path(self.context.history_base_dir)
-                if not isinstance(self.context.history_base_dir, Path)
-                else self.context.history_base_dir
-            )
-        else:
-            history_base_dir = Path.home() / ".silica" / "personas" / "default"
         history_dir = history_base_dir / "history"
         context_dir = parent_session_id if parent_session_id else session_id
         history_file = (
@@ -955,6 +964,9 @@ class Toolbox:
 
         # Format the output
         info = "# Session Information\n\n"
+
+        # Persona
+        info += f"**Persona:** `{persona_name}`\n\n"
 
         # Session IDs
         info += f"**Session ID:** `{session_id}`\n\n"
