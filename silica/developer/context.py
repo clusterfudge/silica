@@ -38,7 +38,7 @@ class AgentContext:
     cli_args: list[str] = None
     thinking_mode: str = "off"  # "off", "normal", or "ultra"
     history_base_dir: Path | None = (
-        None  # Base directory for history (defaults to ~/.hdev)
+        None  # Base directory for history (defaults to ~/.silica/personas/default)
     )
     _chat_history: list[MessageParam] = None
     _tool_result_buffer: list[dict] = None
@@ -53,7 +53,7 @@ class AgentContext:
     def _get_history_dir(self) -> Path:
         """Get the history directory for this context.
 
-        Uses history_base_dir if provided, otherwise defaults to ~/.hdev.
+        Uses history_base_dir if provided, otherwise defaults to ~/.silica/personas/default.
         For root contexts, returns base/history/{session_id}.
         For sub-agent contexts, returns base/history/{parent_session_id}.
 
@@ -68,7 +68,7 @@ class AgentContext:
                 else self.history_base_dir
             )
         else:
-            base = Path.home() / ".hdev"
+            base = Path.home() / ".silica" / "personas" / "default"
 
         context_dir = (
             self.parent_session_id if self.parent_session_id else self.session_id
@@ -339,7 +339,7 @@ class AgentContext:
         For sub-agent contexts (parent_session_id is not None), saves to:
             {history_base_dir}/history/{parent_session_id}/{session_id}.json
 
-        Where history_base_dir defaults to ~/.hdev if not specified.
+        Where history_base_dir defaults to ~/.silica/personas/default if not specified.
 
         Args:
             chat_history: The chat history to save
@@ -467,12 +467,16 @@ def load_session_data(
         session_id: The ID of the session to load
         base_context: Optional existing AgentContext to update with session data.
                       If not provided, a new context will be created.
-        history_base_dir: Optional base directory for history (defaults to ~/.hdev)
+        history_base_dir: Optional base directory for history (defaults to ~/.silica/personas/default)
 
     Returns:
         Updated AgentContext if successful, None if loading failed
     """
-    base = history_base_dir if history_base_dir else (Path.home() / ".hdev")
+    base = (
+        history_base_dir
+        if history_base_dir
+        else (Path.home() / ".silica" / "personas" / "default")
+    )
     history_dir = base / "history" / session_id
     root_file = history_dir / "root.json"
 

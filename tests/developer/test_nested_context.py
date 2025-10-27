@@ -108,7 +108,12 @@ class TestNestedContextFlush(unittest.TestCase):
 
         # Check that the root context saved to the correct location
         root_dir = (
-            Path(self.temp_dir.name) / ".hdev" / "history" / root_context.session_id
+            Path(self.temp_dir.name)
+            / ".silica"
+            / "personas"
+            / "default"
+            / "history"
+            / root_context.session_id
         )
         root_file = root_dir / "root.json"
         self.assertTrue(
@@ -124,7 +129,12 @@ class TestNestedContextFlush(unittest.TestCase):
         # Check that the level2 context saved correctly
         # Currently, this would save to level1's directory, which might not be what we want
         level1_dir = (
-            Path(self.temp_dir.name) / ".hdev" / "history" / level1_context.session_id
+            Path(self.temp_dir.name)
+            / ".silica"
+            / "personas"
+            / "default"
+            / "history"
+            / level1_context.session_id
         )
         level2_file = level1_dir / f"{level2_context.session_id}.json"
 
