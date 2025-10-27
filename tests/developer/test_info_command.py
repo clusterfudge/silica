@@ -317,3 +317,60 @@ def test_info_command_registered_in_toolbox(mock_context):
         toolbox.local["info"]["docstring"]
         == "Show statistics about the current session"
     )
+
+
+def test_info_command_contains_persona_name(mock_context, tmp_path):
+    """Test that persona name is extracted from history_base_dir and displayed."""
+    # Test with default persona (history_base_dir is None)
+    mock_context.history_base_dir = None
+    toolbox = Toolbox(mock_context)
+
+    result = toolbox._info(
+        user_interface=mock_context.user_interface,
+        sandbox=mock_context.sandbox,
+        user_input="",
+    )
+
+    assert "**Persona:** `default`" in result
+
+    # Test with custom persona
+    mock_context.history_base_dir = tmp_path / ".silica" / "personas" / "my_persona"
+    mock_context.history_base_dir.mkdir(parents=True, exist_ok=True)
+
+    toolbox = Toolbox(mock_context)
+
+    result = toolbox._info(
+        user_interface=mock_context.user_interface,
+        sandbox=mock_context.sandbox,
+        user_input="",
+    )
+
+    assert "**Persona:** `my_persona`" in result
+
+
+def test_info_command_renders_as_markdown(mock_context):
+    """Test that info command output is rendered as markdown."""
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    # Create toolbox
+    toolbox = Toolbox(mock_context)
+
+    # Create an async mock for get_user_input
+    mock_context.user_interface.get_user_input = AsyncMock(return_value="n")
+
+    # Call invoke_cli_tool
+    async def test_invoke():
+        content, add_to_buffer = await toolbox.invoke_cli_tool(
+            "info", "", chat_history=[], confirm_to_add=True
+        )
+        return content, add_to_buffer
+
+    result, _ = asyncio.run(test_invoke())
+
+    # Verify handle_system_message was called with markdown=True
+    mock_context.user_interface.handle_system_message.assert_called()
+    call_args = mock_context.user_interface.handle_system_message.call_args
+
+    # Check that markdown parameter was True
+    assert call_args[1]["markdown"] is True
