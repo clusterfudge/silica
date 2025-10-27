@@ -43,3 +43,4 @@ data/
 # Local session history and memory
 history/
 memory/
+.persona

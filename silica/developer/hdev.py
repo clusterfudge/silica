@@ -45,6 +45,103 @@ def parse_sandbox_mode(value: str) -> SandboxMode:
     raise argparse.ArgumentTypeError(f"Invalid sandbox mode: {value}")
 
 
+def _find_git_root() -> Optional[Path]:
+    """Find the git repository root, if in a git repository."""
+    try:
+        current_dir = Path.cwd().resolve()
+
+        # Walk up directories looking for .git folder
+        while current_dir != current_dir.parent:
+            if (current_dir / ".git").is_dir():
+                return current_dir
+            current_dir = current_dir.parent
+
+        return None
+    except Exception:
+        return None
+
+
+def _get_persona_file_location() -> Path:
+    """Get the location where .persona file should be stored.
+
+    If in a git repository, use the git root. Otherwise, use the current directory.
+    """
+    git_root = _find_git_root()
+    if git_root:
+        return git_root / ".persona"
+    else:
+        return Path.cwd() / ".persona"
+
+
+def _read_persona_file() -> Optional[str]:
+    """Read the persona name from .persona file if it exists.
+
+    Returns:
+        Persona name from file, or None if file doesn't exist or is invalid
+    """
+    persona_file = _get_persona_file_location()
+
+    if not persona_file.exists():
+        return None
+
+    try:
+        persona_name = persona_file.read_text().strip()
+        if persona_name:
+            return persona_name
+        return None
+    except Exception:
+        return None
+
+
+def _write_persona_file(persona_name: str) -> None:
+    """Write the persona name to .persona file.
+
+    Args:
+        persona_name: Name of the persona to save
+    """
+    persona_file = _get_persona_file_location()
+
+    try:
+        persona_file.write_text(persona_name + "\n")
+    except Exception as e:
+        # Don't fail if we can't write the file, just log it
+        console = Console()
+        console.print(f"[yellow]Warning: Could not write .persona file: {e}[/yellow]")
+
+
+def _ensure_persona_in_gitignore() -> None:
+    """Ensure .persona is in .gitignore if in a git repository."""
+    git_root = _find_git_root()
+
+    if not git_root:
+        return  # Not in a git repository
+
+    gitignore_file = git_root / ".gitignore"
+
+    try:
+        # Read existing .gitignore
+        if gitignore_file.exists():
+            gitignore_content = gitignore_file.read_text()
+        else:
+            gitignore_content = ""
+
+        # Check if .persona is already in .gitignore
+        lines = gitignore_content.splitlines()
+        for line in lines:
+            if line.strip() == ".persona":
+                return  # Already present
+
+        # Add .persona to .gitignore
+        if gitignore_content and not gitignore_content.endswith("\n"):
+            gitignore_content += "\n"
+        gitignore_content += ".persona\n"
+
+        gitignore_file.write_text(gitignore_content)
+    except Exception:
+        # Don't fail if we can't update .gitignore, just skip it
+        pass
+
+
 # Use the pre-defined HORIZONTALS box which has only top and bottom borders
 # This makes it easier to copy-paste content from the terminal
 HORIZONTAL_ONLY_BOX = HORIZONTALS
@@ -839,22 +936,42 @@ def cyclopts_main(
     # Initialize console early for validation messages
     console = Console()
 
-    # Validate persona if specified
-    if persona and persona not in available_personas:
+    # Handle .persona file logic
+    # 1. Read existing .persona file if it exists
+    file_persona = _read_persona_file()
+
+    # 2. Determine which persona to use
+    # Priority: CLI argument > .persona file > "default"
+    if persona:
+        # CLI argument takes precedence
+        persona_name = persona
+    elif file_persona:
+        # Use persona from file if no CLI argument
+        persona_name = file_persona
+    else:
+        # Default to "default" persona
+        persona_name = "default"
+
+    # Validate persona
+    if persona_name not in available_personas:
         console.print(
-            f"[red]Error: Invalid persona '{persona}'. Available personas: {', '.join(available_personas)}[/red]"
+            f"[red]Error: Invalid persona '{persona_name}'. Available personas: {', '.join(available_personas)}[/red]"
         )
         return
 
     # Get or create persona (prompts user if needed)
-    # Use "default" if no persona specified
-    persona_name = persona or "default"
     try:
         persona_obj = personas.get_or_create(persona_name, interactive=True)
     except KeyboardInterrupt:
         # User cancelled persona creation
         console.print("\n[yellow]Persona creation cancelled. Exiting.[/yellow]")
         return
+
+    # 3. Write the chosen persona to .persona file (create/update as needed)
+    _write_persona_file(persona_name)
+
+    # 4. Ensure .persona is in .gitignore
+    _ensure_persona_in_gitignore()
 
     # Check for session ID in environment variable if not specified in args
     if not session_id and "SILICA_DEVELOPER_SESSION_ID" in os.environ:
