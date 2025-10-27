@@ -937,13 +937,22 @@ def cyclopts_main(
     console = Console()
 
     # Handle .persona file logic
+    # The .persona file allows setting a project-specific default persona
+    # while the CLI --persona argument provides temporary overrides without
+    # modifying the file. This enables both convenience and flexibility.
+    #
+    # Behavior:
+    # - CLI argument (--persona): Temporarily uses specified persona, file unchanged
+    # - No CLI argument + .persona file exists: Uses persona from file
+    # - No CLI argument + no file: Uses "default" persona, creates .persona file
+    #
     # 1. Read existing .persona file if it exists
     file_persona = _read_persona_file()
 
     # 2. Determine which persona to use
     # Priority: CLI argument > .persona file > "default"
     if persona:
-        # CLI argument takes precedence
+        # CLI argument takes precedence (temporary override)
         persona_name = persona
     elif file_persona:
         # Use persona from file if no CLI argument
@@ -967,8 +976,10 @@ def cyclopts_main(
         console.print("\n[yellow]Persona creation cancelled. Exiting.[/yellow]")
         return
 
-    # 3. Write the chosen persona to .persona file (create/update as needed)
-    _write_persona_file(persona_name)
+    # 3. Write the chosen persona to .persona file ONLY if no CLI argument was provided
+    # This allows CLI arguments to temporarily override without changing the file
+    if not persona:
+        _write_persona_file(persona_name)
 
     # 4. Ensure .persona is in .gitignore
     _ensure_persona_in_gitignore()
