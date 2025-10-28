@@ -846,8 +846,11 @@ class Toolbox:
         # Extract optional workdir filter
         workdir = user_input.strip() if user_input.strip() else None
 
-        # Get the list of sessions'1583628'
-        sessions = list_sessions(workdir)
+        # Get history_base_dir from context (persona-aware)
+        history_base_dir = getattr(self.context, "history_base_dir", None)
+
+        # Get the list of sessions
+        sessions = list_sessions(workdir, history_base_dir=history_base_dir)
 
         # Print the formatted list
         print_session_list(sessions)
@@ -866,8 +869,11 @@ class Toolbox:
             )
             return "Error: No session ID provided"
 
+        # Get history_base_dir from context (persona-aware)
+        history_base_dir = getattr(self.context, "history_base_dir", None)
+
         # Attempt to resume the session
-        success = resume_session(session_id)
+        success = resume_session(session_id, history_base_dir=history_base_dir)
 
         if not success:
             return f"Failed to resume session {session_id}"
