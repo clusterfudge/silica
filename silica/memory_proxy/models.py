@@ -12,17 +12,21 @@ class FileMetadata(BaseModel):
     md5: str = Field(..., description="MD5 hash of file content")
     last_modified: datetime = Field(..., description="Last modification timestamp")
     size: int = Field(..., description="File size in bytes")
+    version: int = Field(..., description="Version number (milliseconds since epoch)")
     is_deleted: bool = Field(default=False, description="Whether file is tombstoned")
 
 
 class SyncIndexResponse(BaseModel):
-    """Response model for GET /sync endpoint."""
+    """Response model for GET /sync/{namespace} endpoint."""
 
     files: Dict[str, FileMetadata] = Field(
         default_factory=dict, description="Map of file paths to metadata"
     )
     index_last_modified: datetime = Field(
         ..., description="When index was last updated"
+    )
+    index_version: int = Field(
+        ..., description="Index version (milliseconds since epoch)"
     )
 
 

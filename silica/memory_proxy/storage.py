@@ -35,7 +35,6 @@ class PreconditionFailedError(StorageError):
 class S3Storage:
     """Handles all S3 operations for the Memory Proxy service."""
 
-    SYNC_INDEX_KEY = ".sync-index.json"
     SENTINEL_NEW_FILE = "new"
 
     def __init__(self, settings: Settings = None):
@@ -53,11 +52,18 @@ class S3Storage:
         self.bucket = settings.s3_bucket
         self.prefix = settings.s3_prefix.rstrip("/")
 
-    def _make_key(self, path: str) -> str:
-        """Convert a file path to an S3 key with prefix."""
-        # Remove leading slash if present
+    def _make_key(self, namespace: str, path: str) -> str:
+        """Convert a namespace and file path to an S3 key with prefix."""
+        # Remove leading slashes if present
+        namespace = namespace.lstrip("/")
         path = path.lstrip("/")
-        return f"{self.prefix}/{path}" if self.prefix else path
+        if self.prefix:
+            return f"{self.prefix}/{namespace}/{path}"
+        return f"{namespace}/{path}"
+
+    def _get_version(self) -> int:
+        """Get current version number (milliseconds since epoch)."""
+        return int(datetime.now(timezone.utc).timestamp() * 1000)
 
     def _calculate_md5(self, content: bytes) -> str:
         """Calculate MD5 hash of content."""
@@ -66,80 +72,84 @@ class S3Storage:
     def health_check(self) -> bool:
         """Check if S3 is accessible."""
         try:
-            # Try to head the sync index (or bucket if index doesn't exist)
-            key = self._make_key(self.SYNC_INDEX_KEY)
-            try:
-                self.s3.head_object(Bucket=self.bucket, Key=key)
-            except ClientError as e:
-                if e.response["Error"]["Code"] == "404":
-                    # Index doesn't exist yet, but S3 is accessible
-                    # Try to head the bucket instead
-                    self.s3.head_bucket(Bucket=self.bucket)
-                else:
-                    raise
+            # Try to head the bucket to check connectivity
+            self.s3.head_bucket(Bucket=self.bucket)
             return True
         except Exception as e:
             logger.error(f"Health check failed: {e}")
             return False
 
-    def read_file(self, path: str) -> Tuple[bytes, str, datetime, str]:
+    def read_file(
+        self, namespace: str, path: str
+    ) -> Tuple[bytes, str, datetime, str, int]:
         """
         Read a file from S3.
 
+        Args:
+            namespace: Namespace identifier
+            path: File path
+
         Returns:
-            Tuple of (content, md5, last_modified, content_type)
+            Tuple of (content, md5, last_modified, content_type, version)
 
         Raises:
             FileNotFoundError: If file doesn't exist or is tombstoned
             StorageError: For other S3 errors
         """
-        key = self._make_key(path)
+        key = self._make_key(namespace, path)
         try:
             response = self.s3.get_object(Bucket=self.bucket, Key=key)
 
             # Check if tombstoned
             metadata = response.get("Metadata", {})
             if metadata.get("is-deleted") == "true":
-                raise FileNotFoundError(f"File is deleted: {path}")
+                raise FileNotFoundError(f"File is deleted: {namespace}/{path}")
 
             content = response["Body"].read()
             md5 = metadata.get("content-md5", self._calculate_md5(content))
             last_modified = response["LastModified"]
             content_type = response.get("ContentType", "application/octet-stream")
+            version = int(metadata.get("version", "0"))
 
-            return content, md5, last_modified, content_type
+            logger.debug(
+                f"Read file: {namespace}/{path} (md5={md5}, version={version})"
+            )
+            return content, md5, last_modified, content_type, version
 
         except ClientError as e:
             if e.response["Error"]["Code"] == "NoSuchKey":
-                raise FileNotFoundError(f"File not found: {path}")
-            logger.error(f"Error reading file {path}: {e}")
+                raise FileNotFoundError(f"File not found: {namespace}/{path}")
+            logger.error(f"Error reading file {namespace}/{path}: {e}")
             raise StorageError(f"Failed to read file: {e}")
 
     def write_file(
         self,
+        namespace: str,
         path: str,
         content: bytes,
         content_type: str = "application/octet-stream",
         expected_md5: str | None = None,
-    ) -> Tuple[bool, str]:
+    ) -> Tuple[bool, str, int]:
         """
         Write a file to S3 with optional conditional write.
 
         Args:
+            namespace: Namespace identifier
             path: File path
             content: File content bytes
             content_type: Content type
             expected_md5: Expected MD5 for conditional write (or SENTINEL_NEW_FILE for new files)
 
         Returns:
-            Tuple of (is_new, md5_hash)
+            Tuple of (is_new, md5_hash, version)
 
         Raises:
             PreconditionFailedError: If conditional write fails
             StorageError: For other S3 errors
         """
-        key = self._make_key(path)
+        key = self._make_key(namespace, path)
         new_md5 = self._calculate_md5(content)
+        version = self._get_version()
 
         # Handle conditional write
         if expected_md5 is not None:
@@ -202,35 +212,42 @@ class S3Storage:
                 ContentType=content_type,
                 Metadata={
                     "content-md5": new_md5,
+                    "version": str(version),
                     "is-deleted": "false",
                 },
             )
 
             # Update sync index
             self._update_sync_index(
+                namespace,
                 path,
                 FileMetadata(
                     md5=new_md5,
                     last_modified=datetime.now(timezone.utc),
                     size=len(content),
+                    version=version,
                     is_deleted=False,
                 ),
             )
 
             logger.info(
-                f"{'Created' if is_new else 'Updated'} file: {path} (md5={new_md5})"
+                f"{'Created' if is_new else 'Updated'} file: {namespace}/{path} "
+                f"(md5={new_md5}, version={version})"
             )
-            return is_new, new_md5
+            return is_new, new_md5, version
 
         except Exception as e:
-            logger.error(f"Error writing file {path}: {e}")
+            logger.error(f"Error writing file {namespace}/{path}: {e}")
             raise StorageError(f"Failed to write file: {e}")
 
-    def delete_file(self, path: str, expected_md5: str | None = None) -> None:
+    def delete_file(
+        self, namespace: str, path: str, expected_md5: str | None = None
+    ) -> None:
         """
         Delete a file by creating a tombstone.
 
         Args:
+            namespace: Namespace identifier
             path: File path
             expected_md5: Optional expected MD5 for conditional delete
 
@@ -239,7 +256,8 @@ class S3Storage:
             PreconditionFailedError: If conditional delete fails
             StorageError: For other S3 errors
         """
-        key = self._make_key(path)
+        key = self._make_key(namespace, path)
+        version = self._get_version()
 
         try:
             # Get current file metadata
@@ -261,32 +279,40 @@ class S3Storage:
                 Body=b"",
                 Metadata={
                     "content-md5": current_md5,
+                    "version": str(version),
                     "is-deleted": "true",
                 },
             )
 
             # Update sync index
             self._update_sync_index(
+                namespace,
                 path,
                 FileMetadata(
                     md5=current_md5,
                     last_modified=datetime.now(timezone.utc),
                     size=0,
+                    version=version,
                     is_deleted=True,
                 ),
             )
 
-            logger.info(f"Deleted (tombstoned) file: {path}")
+            logger.info(
+                f"Deleted (tombstoned) file: {namespace}/{path} (version={version})"
+            )
 
         except ClientError as e:
             if e.response["Error"]["Code"] == "404":
-                raise FileNotFoundError(f"File not found: {path}")
-            logger.error(f"Error deleting file {path}: {e}")
+                raise FileNotFoundError(f"File not found: {namespace}/{path}")
+            logger.error(f"Error deleting file {namespace}/{path}: {e}")
             raise StorageError(f"Failed to delete file: {e}")
 
-    def get_sync_index(self) -> SyncIndexResponse:
+    def get_sync_index(self, namespace: str) -> SyncIndexResponse:
         """
-        Get the sync index with all file metadata.
+        Get the sync index with all file metadata for a namespace.
+
+        Args:
+            namespace: Namespace identifier
 
         Returns:
             SyncIndexResponse with file metadata
@@ -294,7 +320,8 @@ class S3Storage:
         Raises:
             StorageError: For S3 errors
         """
-        key = self._make_key(self.SYNC_INDEX_KEY)
+        f"{namespace}/.sync-index.json"
+        key = self._make_key(namespace, ".sync-index.json")
 
         try:
             response = self.s3.get_object(Bucket=self.bucket, Key=key)
@@ -307,6 +334,9 @@ class S3Storage:
                 for path, metadata in data.get("files", {}).items()
             }
 
+            logger.debug(
+                f"Retrieved sync index for namespace: {namespace} ({len(files)} files)"
+            )
             return SyncIndexResponse(
                 files=files,
                 index_last_modified=datetime.fromisoformat(
@@ -314,18 +344,27 @@ class S3Storage:
                         "index_last_modified", datetime.now(timezone.utc).isoformat()
                     )
                 ),
+                index_version=data.get("index_version", 0),
             )
 
         except ClientError as e:
             if e.response["Error"]["Code"] == "NoSuchKey":
                 # No index yet, return empty
-                return SyncIndexResponse(
-                    files={}, index_last_modified=datetime.now(timezone.utc)
+                logger.debug(
+                    f"No sync index found for namespace: {namespace}, returning empty"
                 )
-            logger.error(f"Error reading sync index: {e}")
+                index_version = self._get_version()
+                return SyncIndexResponse(
+                    files={},
+                    index_last_modified=datetime.now(timezone.utc),
+                    index_version=index_version,
+                )
+            logger.error(f"Error reading sync index for namespace {namespace}: {e}")
             raise StorageError(f"Failed to read sync index: {e}")
 
-    def _update_sync_index(self, path: str, metadata: FileMetadata) -> None:
+    def _update_sync_index(
+        self, namespace: str, path: str, metadata: FileMetadata
+    ) -> None:
         """
         Update the sync index with new file metadata.
 
@@ -333,10 +372,11 @@ class S3Storage:
         as the individual blobs have strong consistency.
 
         Args:
+            namespace: Namespace identifier
             path: File path
             metadata: File metadata to store
         """
-        key = self._make_key(self.SYNC_INDEX_KEY)
+        key = self._make_key(namespace, ".sync-index.json")
 
         try:
             # Read current index
@@ -355,9 +395,12 @@ class S3Storage:
                 "md5": metadata.md5,
                 "last_modified": metadata.last_modified.isoformat(),
                 "size": metadata.size,
+                "version": metadata.version,
                 "is_deleted": metadata.is_deleted,
             }
+            index_version = self._get_version()
             data["index_last_modified"] = datetime.now(timezone.utc).isoformat()
+            data["index_version"] = index_version
 
             # Write back
             self.s3.put_object(
@@ -367,8 +410,10 @@ class S3Storage:
                 ContentType="application/json",
             )
 
-            logger.debug(f"Updated sync index for: {path}")
+            logger.debug(
+                f"Updated sync index for: {namespace}/{path} (version={metadata.version})"
+            )
 
         except Exception as e:
             # Log but don't fail the operation - index can be eventually consistent
-            logger.error(f"Error updating sync index for {path}: {e}")
+            logger.error(f"Error updating sync index for {namespace}/{path}: {e}")

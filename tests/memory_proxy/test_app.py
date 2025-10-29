@@ -13,7 +13,7 @@ def test_health_check_no_auth(test_client):
 
 def test_read_blob_requires_auth(test_client, mock_auth_failure):
     """Test read blob requires authentication."""
-    response = test_client.get("/blob/test.txt")
+    response = test_client.get("/blob/default/test.txt")
 
     # 403 when no auth header, 401 when invalid token
     assert response.status_code in (401, 403)
@@ -21,7 +21,7 @@ def test_read_blob_requires_auth(test_client, mock_auth_failure):
 
 def test_read_blob_not_found(test_client, auth_headers):
     """Test reading non-existent blob."""
-    response = test_client.get("/blob/nonexistent.txt", headers=auth_headers)
+    response = test_client.get("/blob/default/nonexistent.txt", headers=auth_headers)
 
     assert response.status_code == 404
 
@@ -32,7 +32,7 @@ def test_write_and_read_blob(test_client, auth_headers):
 
     # Write blob
     write_response = test_client.put(
-        "/blob/test/file.txt",
+        "/blob/default/test/file.txt",
         content=content,
         headers={**auth_headers, "Content-MD5": "new"},
     )
@@ -40,14 +40,16 @@ def test_write_and_read_blob(test_client, auth_headers):
     assert write_response.status_code == 201
     etag = write_response.headers["ETag"]
     assert etag
+    assert "X-Version" in write_response.headers
 
     # Read blob
-    read_response = test_client.get("/blob/test/file.txt", headers=auth_headers)
+    read_response = test_client.get("/blob/default/test/file.txt", headers=auth_headers)
 
     assert read_response.status_code == 200
     assert read_response.content == content
     assert "ETag" in read_response.headers
     assert "Last-Modified" in read_response.headers
+    assert "X-Version" in read_response.headers
 
 
 def test_write_blob_without_content_md5(test_client, auth_headers):
@@ -56,35 +58,37 @@ def test_write_blob_without_content_md5(test_client, auth_headers):
 
     # First write (new file)
     response1 = test_client.put(
-        "/blob/test.txt",
+        "/blob/default/test.txt",
         content=content,
         headers=auth_headers,
     )
 
     assert response1.status_code == 201
+    assert "X-Version" in response1.headers
 
     # Second write (update)
     response2 = test_client.put(
-        "/blob/test.txt",
+        "/blob/default/test.txt",
         content=b"Updated content",
         headers=auth_headers,
     )
 
     assert response2.status_code == 200
+    assert "X-Version" in response2.headers
 
 
 def test_write_blob_conditional_new_fails_if_exists(test_client, auth_headers):
     """Test conditional write with 'new' fails if file exists."""
     # Create file
     test_client.put(
-        "/blob/test.txt",
+        "/blob/default/test.txt",
         content=b"Existing content",
         headers={**auth_headers, "Content-MD5": "new"},
     )
 
     # Try to create again
     response = test_client.put(
-        "/blob/test.txt",
+        "/blob/default/test.txt",
         content=b"New content",
         headers={**auth_headers, "Content-MD5": "new"},
     )
@@ -98,7 +102,7 @@ def test_write_blob_conditional_update_success(test_client, auth_headers):
     """Test conditional update with correct MD5."""
     # Create file
     response1 = test_client.put(
-        "/blob/test.txt",
+        "/blob/default/test.txt",
         content=b"Version 1",
         headers={**auth_headers, "Content-MD5": "new"},
     )
@@ -106,7 +110,7 @@ def test_write_blob_conditional_update_success(test_client, auth_headers):
 
     # Update with correct MD5
     response2 = test_client.put(
-        "/blob/test.txt",
+        "/blob/default/test.txt",
         content=b"Version 2",
         headers={**auth_headers, "Content-MD5": etag1},
     )
@@ -114,20 +118,21 @@ def test_write_blob_conditional_update_success(test_client, auth_headers):
     assert response2.status_code == 200
     etag2 = response2.headers["ETag"].strip('"')
     assert etag2 != etag1
+    assert "X-Version" in response2.headers
 
 
 def test_write_blob_conditional_update_fails_with_wrong_md5(test_client, auth_headers):
     """Test conditional update fails with incorrect MD5."""
     # Create file
     test_client.put(
-        "/blob/test.txt",
+        "/blob/default/test.txt",
         content=b"Version 1",
         headers={**auth_headers, "Content-MD5": "new"},
     )
 
     # Try to update with wrong MD5
     response = test_client.put(
-        "/blob/test.txt",
+        "/blob/default/test.txt",
         content=b"Version 2",
         headers={**auth_headers, "Content-MD5": "wrong-md5"},
     )
@@ -142,24 +147,24 @@ def test_delete_blob(test_client, auth_headers):
     """Test deleting a blob."""
     # Create file
     test_client.put(
-        "/blob/test.txt",
+        "/blob/default/test.txt",
         content=b"To be deleted",
         headers={**auth_headers, "Content-MD5": "new"},
     )
 
     # Delete file
-    delete_response = test_client.delete("/blob/test.txt", headers=auth_headers)
+    delete_response = test_client.delete("/blob/default/test.txt", headers=auth_headers)
 
     assert delete_response.status_code == 204
 
     # Verify file is tombstoned (404 on read)
-    read_response = test_client.get("/blob/test.txt", headers=auth_headers)
+    read_response = test_client.get("/blob/default/test.txt", headers=auth_headers)
     assert read_response.status_code == 404
 
 
 def test_delete_blob_not_found(test_client, auth_headers):
     """Test deleting non-existent blob."""
-    response = test_client.delete("/blob/nonexistent.txt", headers=auth_headers)
+    response = test_client.delete("/blob/default/nonexistent.txt", headers=auth_headers)
 
     assert response.status_code == 404
 
@@ -168,7 +173,7 @@ def test_delete_blob_conditional_success(test_client, auth_headers):
     """Test conditional delete with correct MD5."""
     # Create file
     write_response = test_client.put(
-        "/blob/test.txt",
+        "/blob/default/test.txt",
         content=b"Content",
         headers={**auth_headers, "Content-MD5": "new"},
     )
@@ -176,7 +181,7 @@ def test_delete_blob_conditional_success(test_client, auth_headers):
 
     # Delete with correct MD5
     delete_response = test_client.delete(
-        "/blob/test.txt",
+        "/blob/default/test.txt",
         headers={**auth_headers, "If-Match": etag},
     )
 
@@ -187,14 +192,14 @@ def test_delete_blob_conditional_fails_with_wrong_md5(test_client, auth_headers)
     """Test conditional delete fails with incorrect MD5."""
     # Create file
     test_client.put(
-        "/blob/test.txt",
+        "/blob/default/test.txt",
         content=b"Content",
         headers={**auth_headers, "Content-MD5": "new"},
     )
 
     # Try to delete with wrong MD5
     response = test_client.delete(
-        "/blob/test.txt",
+        "/blob/default/test.txt",
         headers={**auth_headers, "If-Match": '"wrong-md5"'},
     )
 
@@ -203,34 +208,38 @@ def test_delete_blob_conditional_fails_with_wrong_md5(test_client, auth_headers)
 
 def test_get_sync_index_empty(test_client, auth_headers):
     """Test getting sync index when no files exist."""
-    response = test_client.get("/sync", headers=auth_headers)
+    response = test_client.get("/sync/default", headers=auth_headers)
 
     assert response.status_code == 200
     data = response.json()
     assert data["files"] == {}
     assert "index_last_modified" in data
+    assert "index_version" in data
+    assert "index_version" in data
 
 
 def test_get_sync_index_with_files(test_client, auth_headers):
     """Test getting sync index after writing files."""
     # Write files
     test_client.put(
-        "/blob/file1.txt",
+        "/blob/default/file1.txt",
         content=b"Content 1",
         headers={**auth_headers, "Content-MD5": "new"},
     )
     test_client.put(
-        "/blob/file2.txt",
+        "/blob/default/file2.txt",
         content=b"Content 2",
         headers={**auth_headers, "Content-MD5": "new"},
     )
 
     # Get sync index
-    response = test_client.get("/sync", headers=auth_headers)
+    response = test_client.get("/sync/default", headers=auth_headers)
 
     assert response.status_code == 200
     data = response.json()
     assert len(data["files"]) == 2
+    assert "index_version" in data
+    assert "index_version" in data
 
     # Check file1 metadata
     assert "file1.txt" in data["files"]
@@ -239,27 +248,28 @@ def test_get_sync_index_with_files(test_client, auth_headers):
     assert "last_modified" in file1_meta
     assert "size" in file1_meta
     assert file1_meta["is_deleted"] is False
+    assert "version" in file1_meta
 
 
 def test_get_sync_index_includes_tombstones(test_client, auth_headers):
     """Test sync index includes tombstoned files."""
     # Write and delete file
     test_client.put(
-        "/blob/deleted.txt",
+        "/blob/default/deleted.txt",
         content=b"To be deleted",
         headers={**auth_headers, "Content-MD5": "new"},
     )
-    test_client.delete("/blob/deleted.txt", headers=auth_headers)
+    test_client.delete("/blob/default/deleted.txt", headers=auth_headers)
 
     # Write active file
     test_client.put(
-        "/blob/active.txt",
+        "/blob/default/active.txt",
         content=b"Active content",
         headers={**auth_headers, "Content-MD5": "new"},
     )
 
     # Get sync index
-    response = test_client.get("/sync", headers=auth_headers)
+    response = test_client.get("/sync/default", headers=auth_headers)
 
     assert response.status_code == 200
     data = response.json()
@@ -271,45 +281,47 @@ def test_get_sync_index_includes_tombstones(test_client, auth_headers):
 def test_sync_workflow(test_client, auth_headers):
     """Test complete sync workflow."""
     # 1. Get initial sync index (empty)
-    sync1 = test_client.get("/sync", headers=auth_headers).json()
+    sync1 = test_client.get("/sync/default", headers=auth_headers).json()
     assert len(sync1["files"]) == 0
 
     # 2. Upload files
     test_client.put(
-        "/blob/dir1/file1.txt",
+        "/blob/default/dir1/file1.txt",
         content=b"File 1 content",
         headers={**auth_headers, "Content-MD5": "new"},
     )
     test_client.put(
-        "/blob/dir2/file2.txt",
+        "/blob/default/dir2/file2.txt",
         content=b"File 2 content",
         headers={**auth_headers, "Content-MD5": "new"},
     )
 
     # 3. Get updated sync index
-    sync2 = test_client.get("/sync", headers=auth_headers).json()
+    sync2 = test_client.get("/sync/default", headers=auth_headers).json()
     assert len(sync2["files"]) == 2
     file1_md5 = sync2["files"]["dir1/file1.txt"]["md5"]
 
     # 4. Update a file with conditional write
     update_response = test_client.put(
-        "/blob/dir1/file1.txt",
+        "/blob/default/dir1/file1.txt",
         content=b"Updated file 1 content",
         headers={**auth_headers, "Content-MD5": file1_md5},
     )
     assert update_response.status_code == 200
 
     # 5. Delete a file
-    test_client.delete("/blob/dir2/file2.txt", headers=auth_headers)
+    test_client.delete("/blob/default/dir2/file2.txt", headers=auth_headers)
 
     # 6. Get final sync index
-    sync3 = test_client.get("/sync", headers=auth_headers).json()
+    sync3 = test_client.get("/sync/default", headers=auth_headers).json()
     assert len(sync3["files"]) == 2
     assert sync3["files"]["dir1/file1.txt"]["md5"] != file1_md5  # Updated
     assert sync3["files"]["dir2/file2.txt"]["is_deleted"] is True  # Deleted
 
     # 7. Verify reading deleted file returns 404
-    read_response = test_client.get("/blob/dir2/file2.txt", headers=auth_headers)
+    read_response = test_client.get(
+        "/blob/default/dir2/file2.txt", headers=auth_headers
+    )
     assert read_response.status_code == 404
 
 
@@ -317,7 +329,7 @@ def test_content_type_preservation(test_client, auth_headers):
     """Test that Content-Type is preserved."""
     # Write with specific content type
     test_client.put(
-        "/blob/test.json",
+        "/blob/default/test.json",
         content=b'{"key": "value"}',
         headers={
             **auth_headers,
@@ -327,7 +339,7 @@ def test_content_type_preservation(test_client, auth_headers):
     )
 
     # Read and verify content type
-    response = test_client.get("/blob/test.json", headers=auth_headers)
+    response = test_client.get("/blob/default/test.json", headers=auth_headers)
     assert response.status_code == 200
     assert response.headers["Content-Type"] == "application/json"
 
@@ -338,29 +350,29 @@ def test_nested_paths(test_client, auth_headers):
 
     # Write
     write_response = test_client.put(
-        f"/blob/{path}",
+        f"/blob/default/{path}",
         content=b"Nested content",
         headers={**auth_headers, "Content-MD5": "new"},
     )
     assert write_response.status_code == 201
 
     # Read
-    read_response = test_client.get(f"/blob/{path}", headers=auth_headers)
+    read_response = test_client.get(f"/blob/default/{path}", headers=auth_headers)
     assert read_response.status_code == 200
     assert read_response.content == b"Nested content"
 
     # Verify in sync index
-    sync = test_client.get("/sync", headers=auth_headers).json()
+    sync = test_client.get("/sync/default", headers=auth_headers).json()
     assert path in sync["files"]
 
 
 def test_auth_failure_on_protected_endpoints(test_client, mock_auth_failure):
     """Test that all protected endpoints require valid auth."""
     endpoints = [
-        ("GET", "/blob/test.txt"),
-        ("PUT", "/blob/test.txt"),
-        ("DELETE", "/blob/test.txt"),
-        ("GET", "/sync"),
+        ("GET", "/blob/default/test.txt"),
+        ("PUT", "/blob/default/test.txt"),
+        ("DELETE", "/blob/default/test.txt"),
+        ("GET", "/sync/default"),
     ]
 
     for method, path in endpoints:
@@ -380,3 +392,70 @@ def test_auth_failure_on_protected_endpoints(test_client, mock_auth_failure):
             )
 
         assert response.status_code == 401, f"{method} {path} should require auth"
+
+
+def test_namespace_isolation_api(test_client, auth_headers):
+    """Test that namespaces are isolated at the API level."""
+    # Create same file in two different namespaces
+    content_ns1 = b"Content in namespace 1"
+    content_ns2 = b"Content in namespace 2"
+
+    # Write to namespace1
+    write_response1 = test_client.put(
+        "/blob/namespace1/test.txt",
+        content=content_ns1,
+        headers={**auth_headers, "Content-MD5": "new"},
+    )
+    assert write_response1.status_code == 201
+    etag_ns1 = write_response1.headers["ETag"]
+
+    # Write to namespace2
+    write_response2 = test_client.put(
+        "/blob/namespace2/test.txt",
+        content=content_ns2,
+        headers={**auth_headers, "Content-MD5": "new"},
+    )
+    assert write_response2.status_code == 201
+    etag_ns2 = write_response2.headers["ETag"]
+
+    # Verify ETags are different (different content)
+    assert etag_ns1 != etag_ns2
+
+    # Read from namespace1
+    read_response1 = test_client.get("/blob/namespace1/test.txt", headers=auth_headers)
+    assert read_response1.status_code == 200
+    assert read_response1.content == content_ns1
+
+    # Read from namespace2
+    read_response2 = test_client.get("/blob/namespace2/test.txt", headers=auth_headers)
+    assert read_response2.status_code == 200
+    assert read_response2.content == content_ns2
+
+    # Get sync index for namespace1
+    sync1 = test_client.get("/sync/namespace1", headers=auth_headers).json()
+    assert len(sync1["files"]) == 1
+    assert "test.txt" in sync1["files"]
+    assert sync1["files"]["test.txt"]["md5"] == etag_ns1.strip('"')
+
+    # Get sync index for namespace2
+    sync2 = test_client.get("/sync/namespace2", headers=auth_headers).json()
+    assert len(sync2["files"]) == 1
+    assert "test.txt" in sync2["files"]
+    assert sync2["files"]["test.txt"]["md5"] == etag_ns2.strip('"')
+
+    # Delete in namespace1 should not affect namespace2
+    delete_response = test_client.delete(
+        "/blob/namespace1/test.txt", headers=auth_headers
+    )
+    assert delete_response.status_code == 204
+
+    # Verify namespace1 file is deleted
+    read_after_delete = test_client.get(
+        "/blob/namespace1/test.txt", headers=auth_headers
+    )
+    assert read_after_delete.status_code == 404
+
+    # Verify namespace2 file still exists
+    read_ns2_after = test_client.get("/blob/namespace2/test.txt", headers=auth_headers)
+    assert read_ns2_after.status_code == 200
+    assert read_ns2_after.content == content_ns2

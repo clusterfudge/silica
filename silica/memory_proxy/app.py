@@ -34,8 +34,8 @@ logger = logging.getLogger(__name__)
 # Create FastAPI app
 app = FastAPI(
     title="Memory Proxy Service",
-    description="Remote KV proxy for blob storage with sync support",
-    version="0.1.0",
+    description="Remote KV proxy for blob storage with sync support and namespaces",
+    version="0.2.0",
 )
 
 # Initialize storage
@@ -60,19 +60,26 @@ async def health_check():
         )
 
 
-@app.get("/blob/{path:path}", tags=["blob"])
+@app.get("/blob/{namespace}/{path:path}", tags=["blob"])
 async def read_blob(
+    namespace: str,
     path: str,
     user_info: Dict = Depends(verify_token),
 ):
     """
-    Read a file from blob storage.
+    Read a file from blob storage within a namespace.
 
-    Returns file contents with ETag, Last-Modified, and Content-Type headers.
+    Args:
+        namespace: Persona/namespace identifier (e.g., "default", "coding-agent")
+        path: File path within namespace
+
+    Returns file contents with ETag, Last-Modified, X-Version, and Content-Type headers.
     Returns 404 if file doesn't exist or is tombstoned.
     """
     try:
-        content, md5, last_modified, content_type = storage.read_file(path)
+        content, md5, last_modified, content_type, version = storage.read_file(
+            namespace, path
+        )
 
         return Response(
             content=content,
@@ -80,23 +87,25 @@ async def read_blob(
             headers={
                 "ETag": f'"{md5}"',
                 "Last-Modified": last_modified.strftime("%a, %d %b %Y %H:%M:%S GMT"),
+                "X-Version": str(version),
             },
         )
 
     except FileNotFoundError as e:
-        logger.warning(f"File not found: {path}")
+        logger.warning(f"File not found: {namespace}/{path}")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
     except StorageError as e:
-        logger.error(f"Storage error reading {path}: {e}")
+        logger.error(f"Storage error reading {namespace}/{path}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Storage error",
         )
 
 
-@app.put("/blob/{path:path}", tags=["blob"])
+@app.put("/blob/{namespace}/{path:path}", tags=["blob"])
 async def write_blob(
+    namespace: str,
     path: str,
     request: Request,
     user_info: Dict = Depends(verify_token),
@@ -104,20 +113,26 @@ async def write_blob(
     content_type: str | None = Header(default="application/octet-stream"),
 ):
     """
-    Write or update a file in blob storage.
+    Write or update a file in blob storage within a namespace.
+
+    Args:
+        namespace: Persona/namespace identifier
+        path: File path within namespace
 
     Supports conditional writes via Content-MD5 header:
     - Omit header or use "new" for new files (fails if file exists)
     - Provide expected MD5 for updates (fails if current MD5 doesn't match)
 
     Returns 201 for new files, 200 for updates, 412 for precondition failures.
+    Returns ETag and X-Version headers.
     """
     try:
         # Read request body
         content = await request.body()
 
         # Perform write with conditional check
-        is_new, new_md5 = storage.write_file(
+        is_new, new_md5, version = storage.write_file(
+            namespace=namespace,
             path=path,
             content=content,
             content_type=content_type,
@@ -128,11 +143,11 @@ async def write_blob(
 
         return Response(
             status_code=status_code,
-            headers={"ETag": f'"{new_md5}"'},
+            headers={"ETag": f'"{new_md5}"', "X-Version": str(version)},
         )
 
     except PreconditionFailedError as e:
-        logger.warning(f"Precondition failed for {path}: {e}")
+        logger.warning(f"Precondition failed for {namespace}/{path}: {e}")
         raise HTTPException(
             status_code=status.HTTP_412_PRECONDITION_FAILED,
             detail=PreconditionFailedResponse(
@@ -145,21 +160,30 @@ async def write_blob(
         )
 
     except StorageError as e:
-        logger.error(f"Storage error writing {path}: {e}")
+        logger.error(f"Storage error writing {namespace}/{path}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Storage error",
         )
 
 
-@app.delete("/blob/{path:path}", tags=["blob"], status_code=status.HTTP_204_NO_CONTENT)
+@app.delete(
+    "/blob/{namespace}/{path:path}",
+    tags=["blob"],
+    status_code=status.HTTP_204_NO_CONTENT,
+)
 async def delete_blob(
+    namespace: str,
     path: str,
     user_info: Dict = Depends(verify_token),
     if_match: str | None = Header(default=None, alias="If-Match"),
 ):
     """
-    Delete a file by creating a tombstone.
+    Delete a file by creating a tombstone within a namespace.
+
+    Args:
+        namespace: Persona/namespace identifier
+        path: File path within namespace
 
     Supports conditional delete via If-Match header with expected MD5.
     Returns 204 on success, 404 if file doesn't exist, 412 on precondition failure.
@@ -168,16 +192,16 @@ async def delete_blob(
         # Remove quotes from ETag if present
         expected_md5 = if_match.strip('"') if if_match else None
 
-        storage.delete_file(path=path, expected_md5=expected_md5)
+        storage.delete_file(namespace=namespace, path=path, expected_md5=expected_md5)
 
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     except FileNotFoundError as e:
-        logger.warning(f"File not found for delete: {path}")
+        logger.warning(f"File not found for delete: {namespace}/{path}")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
     except PreconditionFailedError as e:
-        logger.warning(f"Precondition failed for delete {path}: {e}")
+        logger.warning(f"Precondition failed for delete {namespace}/{path}: {e}")
         raise HTTPException(
             status_code=status.HTTP_412_PRECONDITION_FAILED,
             detail=PreconditionFailedResponse(
@@ -190,27 +214,30 @@ async def delete_blob(
         )
 
     except StorageError as e:
-        logger.error(f"Storage error deleting {path}: {e}")
+        logger.error(f"Storage error deleting {namespace}/{path}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Storage error",
         )
 
 
-@app.get("/sync", response_model=SyncIndexResponse, tags=["sync"])
-async def get_sync_index(user_info: Dict = Depends(verify_token)):
+@app.get("/sync/{namespace}", response_model=SyncIndexResponse, tags=["sync"])
+async def get_sync_index(namespace: str, user_info: Dict = Depends(verify_token)):
     """
-    Get the sync index with metadata for all files.
+    Get the sync index with metadata for all files within a namespace.
 
-    Returns a map of file paths to metadata (MD5, last modified, size, deleted flag).
+    Args:
+        namespace: Persona/namespace identifier
+
+    Returns a map of file paths to metadata (MD5, last modified, size, version, deleted flag).
     Clients use this to determine which files need syncing.
     """
     try:
-        sync_index = storage.get_sync_index()
+        sync_index = storage.get_sync_index(namespace)
         return sync_index
 
     except StorageError as e:
-        logger.error(f"Storage error getting sync index: {e}")
+        logger.error(f"Storage error getting sync index for {namespace}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Storage error",
