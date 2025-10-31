@@ -3,18 +3,21 @@
 import cyclopts
 
 from silica.remote.cli.commands import (
-    config,
-    todos,
-    piku,
-    sync,
     agent,
-    tell,
+    antennae,
+    config,
+    create,
+    destroy,
+    memory_proxy,
+    piku,
     progress,
+    status,
+    sync,
+    tell,
+    todos,
     workspace,
     workspace_environment,
-    antennae,
 )
-from silica.remote.cli.commands import create, destroy, status
 
 app = cyclopts.App(
     help="A command line tool for creating workspaces for agents on top of piku."
@@ -36,6 +39,7 @@ app.command(config.config)
 app.command(todos.todos)
 app.command(piku.piku)
 app.command(workspace.workspace)
+app.command(memory_proxy.app)  # Memory Proxy deployment commands
 
 # Register workspace environment commands with aliases
 app.command(workspace_environment.workspace_environment)
