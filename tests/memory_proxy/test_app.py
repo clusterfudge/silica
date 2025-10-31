@@ -34,7 +34,7 @@ def test_write_and_read_blob(test_client, auth_headers):
     write_response = test_client.put(
         "/blob/default/test/file.txt",
         content=content,
-        headers={**auth_headers, "Content-MD5": "new"},
+        headers={**auth_headers, "If-Match-Version": "0"},
     )
 
     assert write_response.status_code == 201
@@ -53,24 +53,25 @@ def test_write_and_read_blob(test_client, auth_headers):
 
 
 def test_write_blob_without_content_md5(test_client, auth_headers):
-    """Test writing blob without Content-MD5 header."""
+    """Test writing blob with If-Match-Version but without Content-MD5."""
     content = b"Test content"
 
-    # First write (new file)
+    # First write (new file) with version 0
     response1 = test_client.put(
         "/blob/default/test.txt",
         content=content,
-        headers=auth_headers,
+        headers={**auth_headers, "If-Match-Version": "0"},
     )
 
     assert response1.status_code == 201
     assert "X-Version" in response1.headers
+    version1 = int(response1.headers["X-Version"])
 
-    # Second write (update)
+    # Second write (update) with correct version
     response2 = test_client.put(
         "/blob/default/test.txt",
         content=b"Updated content",
-        headers=auth_headers,
+        headers={**auth_headers, "If-Match-Version": str(version1)},
     )
 
     assert response2.status_code == 200
@@ -78,19 +79,19 @@ def test_write_blob_without_content_md5(test_client, auth_headers):
 
 
 def test_write_blob_conditional_new_fails_if_exists(test_client, auth_headers):
-    """Test conditional write with 'new' fails if file exists."""
+    """Test conditional write with version 0 fails if file exists."""
     # Create file
     test_client.put(
         "/blob/default/test.txt",
         content=b"Existing content",
-        headers={**auth_headers, "Content-MD5": "new"},
+        headers={**auth_headers, "If-Match-Version": "0"},
     )
 
     # Try to create again
     response = test_client.put(
         "/blob/default/test.txt",
         content=b"New content",
-        headers={**auth_headers, "Content-MD5": "new"},
+        headers={**auth_headers, "If-Match-Version": "0"},
     )
 
     assert response.status_code == 412
@@ -99,48 +100,50 @@ def test_write_blob_conditional_new_fails_if_exists(test_client, auth_headers):
 
 
 def test_write_blob_conditional_update_success(test_client, auth_headers):
-    """Test conditional update with correct MD5."""
+    """Test conditional update with correct version."""
     # Create file
     response1 = test_client.put(
         "/blob/default/test.txt",
         content=b"Version 1",
-        headers={**auth_headers, "Content-MD5": "new"},
+        headers={**auth_headers, "If-Match-Version": "0"},
     )
-    etag1 = response1.headers["ETag"].strip('"')
+    version1 = int(response1.headers["X-Version"])
 
-    # Update with correct MD5
+    # Update with correct version
     response2 = test_client.put(
         "/blob/default/test.txt",
         content=b"Version 2",
-        headers={**auth_headers, "Content-MD5": etag1},
+        headers={**auth_headers, "If-Match-Version": str(version1)},
     )
 
     assert response2.status_code == 200
-    etag2 = response2.headers["ETag"].strip('"')
-    assert etag2 != etag1
+    version2 = int(response2.headers["X-Version"])
+    assert version2 > version1
     assert "X-Version" in response2.headers
 
 
-def test_write_blob_conditional_update_fails_with_wrong_md5(test_client, auth_headers):
-    """Test conditional update fails with incorrect MD5."""
+def test_write_blob_conditional_update_fails_with_wrong_version(
+    test_client, auth_headers
+):
+    """Test conditional update fails with incorrect version."""
     # Create file
     test_client.put(
         "/blob/default/test.txt",
         content=b"Version 1",
-        headers={**auth_headers, "Content-MD5": "new"},
+        headers={**auth_headers, "If-Match-Version": "0"},
     )
 
-    # Try to update with wrong MD5
+    # Try to update with wrong version
     response = test_client.put(
         "/blob/default/test.txt",
         content=b"Version 2",
-        headers={**auth_headers, "Content-MD5": "wrong-md5"},
+        headers={**auth_headers, "If-Match-Version": "999"},
     )
 
     assert response.status_code == 412
     data = response.json()
     assert data["error_code"] == "PRECONDITION_FAILED"
-    assert "wrong-md5" in data["context"]["provided_md5"]
+    assert data["context"]["provided_version"] == "999"
 
 
 def test_delete_blob(test_client, auth_headers):
@@ -149,7 +152,7 @@ def test_delete_blob(test_client, auth_headers):
     test_client.put(
         "/blob/default/test.txt",
         content=b"To be deleted",
-        headers={**auth_headers, "Content-MD5": "new"},
+        headers={**auth_headers, "If-Match-Version": "0"},
     )
 
     # Delete file
@@ -170,37 +173,37 @@ def test_delete_blob_not_found(test_client, auth_headers):
 
 
 def test_delete_blob_conditional_success(test_client, auth_headers):
-    """Test conditional delete with correct MD5."""
+    """Test conditional delete with correct version."""
     # Create file
     write_response = test_client.put(
         "/blob/default/test.txt",
         content=b"Content",
-        headers={**auth_headers, "Content-MD5": "new"},
+        headers={**auth_headers, "If-Match-Version": "0"},
     )
-    etag = write_response.headers["ETag"]
+    version = write_response.headers["X-Version"]
 
-    # Delete with correct MD5
+    # Delete with correct version
     delete_response = test_client.delete(
         "/blob/default/test.txt",
-        headers={**auth_headers, "If-Match": etag},
+        headers={**auth_headers, "If-Match-Version": version},
     )
 
     assert delete_response.status_code == 204
 
 
-def test_delete_blob_conditional_fails_with_wrong_md5(test_client, auth_headers):
-    """Test conditional delete fails with incorrect MD5."""
+def test_delete_blob_conditional_fails_with_wrong_version(test_client, auth_headers):
+    """Test conditional delete fails with incorrect version."""
     # Create file
     test_client.put(
         "/blob/default/test.txt",
         content=b"Content",
-        headers={**auth_headers, "Content-MD5": "new"},
+        headers={**auth_headers, "If-Match-Version": "0"},
     )
 
-    # Try to delete with wrong MD5
+    # Try to delete with wrong version
     response = test_client.delete(
         "/blob/default/test.txt",
-        headers={**auth_headers, "If-Match": '"wrong-md5"'},
+        headers={**auth_headers, "If-Match-Version": "999"},
     )
 
     assert response.status_code == 412
@@ -224,12 +227,12 @@ def test_get_sync_index_with_files(test_client, auth_headers):
     test_client.put(
         "/blob/default/file1.txt",
         content=b"Content 1",
-        headers={**auth_headers, "Content-MD5": "new"},
+        headers={**auth_headers, "If-Match-Version": "0"},
     )
     test_client.put(
         "/blob/default/file2.txt",
         content=b"Content 2",
-        headers={**auth_headers, "Content-MD5": "new"},
+        headers={**auth_headers, "If-Match-Version": "0"},
     )
 
     # Get sync index
@@ -257,7 +260,7 @@ def test_get_sync_index_includes_tombstones(test_client, auth_headers):
     test_client.put(
         "/blob/default/deleted.txt",
         content=b"To be deleted",
-        headers={**auth_headers, "Content-MD5": "new"},
+        headers={**auth_headers, "If-Match-Version": "0"},
     )
     test_client.delete("/blob/default/deleted.txt", headers=auth_headers)
 
@@ -265,7 +268,7 @@ def test_get_sync_index_includes_tombstones(test_client, auth_headers):
     test_client.put(
         "/blob/default/active.txt",
         content=b"Active content",
-        headers={**auth_headers, "Content-MD5": "new"},
+        headers={**auth_headers, "If-Match-Version": "0"},
     )
 
     # Get sync index
@@ -288,24 +291,24 @@ def test_sync_workflow(test_client, auth_headers):
     test_client.put(
         "/blob/default/dir1/file1.txt",
         content=b"File 1 content",
-        headers={**auth_headers, "Content-MD5": "new"},
+        headers={**auth_headers, "If-Match-Version": "0"},
     )
     test_client.put(
         "/blob/default/dir2/file2.txt",
         content=b"File 2 content",
-        headers={**auth_headers, "Content-MD5": "new"},
+        headers={**auth_headers, "If-Match-Version": "0"},
     )
 
     # 3. Get updated sync index
     sync2 = test_client.get("/sync/default", headers=auth_headers).json()
     assert len(sync2["files"]) == 2
-    file1_md5 = sync2["files"]["dir1/file1.txt"]["md5"]
+    file1_version = sync2["files"]["dir1/file1.txt"]["version"]
 
     # 4. Update a file with conditional write
     update_response = test_client.put(
         "/blob/default/dir1/file1.txt",
         content=b"Updated file 1 content",
-        headers={**auth_headers, "Content-MD5": file1_md5},
+        headers={**auth_headers, "If-Match-Version": str(file1_version)},
     )
     assert update_response.status_code == 200
 
@@ -315,7 +318,7 @@ def test_sync_workflow(test_client, auth_headers):
     # 6. Get final sync index
     sync3 = test_client.get("/sync/default", headers=auth_headers).json()
     assert len(sync3["files"]) == 2
-    assert sync3["files"]["dir1/file1.txt"]["md5"] != file1_md5  # Updated
+    assert sync3["files"]["dir1/file1.txt"]["version"] > file1_version  # Updated
     assert sync3["files"]["dir2/file2.txt"]["is_deleted"] is True  # Deleted
 
     # 7. Verify reading deleted file returns 404
@@ -333,7 +336,7 @@ def test_content_type_preservation(test_client, auth_headers):
         content=b'{"key": "value"}',
         headers={
             **auth_headers,
-            "Content-MD5": "new",
+            "If-Match-Version": "0",
             "Content-Type": "application/json",
         },
     )
@@ -352,7 +355,7 @@ def test_nested_paths(test_client, auth_headers):
     write_response = test_client.put(
         f"/blob/default/{path}",
         content=b"Nested content",
-        headers={**auth_headers, "Content-MD5": "new"},
+        headers={**auth_headers, "If-Match-Version": "0"},
     )
     assert write_response.status_code == 201
 
@@ -404,7 +407,7 @@ def test_namespace_isolation_api(test_client, auth_headers):
     write_response1 = test_client.put(
         "/blob/namespace1/test.txt",
         content=content_ns1,
-        headers={**auth_headers, "Content-MD5": "new"},
+        headers={**auth_headers, "If-Match-Version": "0"},
     )
     assert write_response1.status_code == 201
     etag_ns1 = write_response1.headers["ETag"]
@@ -413,7 +416,7 @@ def test_namespace_isolation_api(test_client, auth_headers):
     write_response2 = test_client.put(
         "/blob/namespace2/test.txt",
         content=content_ns2,
-        headers={**auth_headers, "Content-MD5": "new"},
+        headers={**auth_headers, "If-Match-Version": "0"},
     )
     assert write_response2.status_code == 201
     etag_ns2 = write_response2.headers["ETag"]

@@ -87,12 +87,12 @@ def test_write_update_file(mock_s3):
 
 
 def test_write_conditional_new_file_success(mock_s3):
-    """Test conditional write for new file (using 'new' sentinel)."""
+    """Test conditional write for new file (using version 0)."""
     storage = S3Storage()
     content = b"New file"
 
     is_new, md5, version = storage.write_file(
-        "default", "test/file.txt", content, expected_md5="new"
+        "default", "test/file.txt", content, expected_version=0
     )
 
     assert is_new is True
@@ -106,17 +106,17 @@ def test_write_conditional_new_file_fails_if_exists(mock_s3):
     # Create file first
     storage.write_file("default", "test/file.txt", b"Existing content")
 
-    # Try to create again with 'new' sentinel
+    # Try to create again with version 0
     with pytest.raises(PreconditionFailedError) as exc_info:
         storage.write_file(
-            "default", "test/file.txt", b"New content", expected_md5="new"
+            "default", "test/file.txt", b"New content", expected_version=0
         )
 
     assert "already exists" in str(exc_info.value).lower()
 
 
 def test_write_conditional_update_success(mock_s3):
-    """Test conditional update with correct MD5."""
+    """Test conditional update with correct version."""
     storage = S3Storage()
 
     # Create file
@@ -124,10 +124,10 @@ def test_write_conditional_update_success(mock_s3):
     _, md5_1, version_1 = storage.write_file("default", "test/file.txt", content1)
     assert version_1 > 0
 
-    # Update with correct MD5
+    # Update with correct version
     content2 = b"Version 2"
     is_new, md5_2, version_2 = storage.write_file(
-        "default", "test/file.txt", content2, expected_md5=md5_1
+        "default", "test/file.txt", content2, expected_version=version_1
     )
 
     assert is_new is False
@@ -135,20 +135,21 @@ def test_write_conditional_update_success(mock_s3):
     assert version_2 > version_1
 
 
-def test_write_conditional_update_fails_with_wrong_md5(mock_s3):
-    """Test conditional update fails with incorrect MD5."""
+def test_write_conditional_update_fails_with_wrong_version(mock_s3):
+    """Test conditional update fails with incorrect version."""
     storage = S3Storage()
 
     # Create file
-    storage.write_file("default", "test/file.txt", b"Version 1")
+    _, _, version_1 = storage.write_file("default", "test/file.txt", b"Version 1")
 
-    # Try to update with wrong MD5
+    # Try to update with wrong version
+    wrong_version = version_1 - 1000  # Use a different version
     with pytest.raises(PreconditionFailedError) as exc_info:
         storage.write_file(
-            "default", "test/file.txt", b"Version 2", expected_md5="wrong-md5"
+            "default", "test/file.txt", b"Version 2", expected_version=wrong_version
         )
 
-    assert exc_info.value.provided_md5 == "wrong-md5"
+    assert exc_info.value.provided_version == str(wrong_version)
 
 
 def test_write_conditional_update_fails_if_file_missing(mock_s3):
@@ -157,11 +158,11 @@ def test_write_conditional_update_fails_if_file_missing(mock_s3):
 
     with pytest.raises(PreconditionFailedError) as exc_info:
         storage.write_file(
-            "default", "test/file.txt", b"Content", expected_md5="some-md5"
+            "default", "test/file.txt", b"Content", expected_version=12345
         )
 
     assert "does not exist" in str(exc_info.value).lower()
-    assert exc_info.value.current_md5 == "none"
+    assert exc_info.value.current_version == "none"
 
 
 def test_read_file(mock_s3):
@@ -238,14 +239,14 @@ def test_delete_file_not_found(mock_s3):
 
 
 def test_delete_conditional_success(mock_s3):
-    """Test conditional delete with correct MD5."""
+    """Test conditional delete with correct version."""
     storage = S3Storage()
 
     # Create file
-    _, md5, _ = storage.write_file("default", "test/file.txt", b"Content")
+    _, md5, version = storage.write_file("default", "test/file.txt", b"Content")
 
-    # Delete with correct MD5
-    storage.delete_file("default", "test/file.txt", expected_md5=md5)
+    # Delete with correct version
+    storage.delete_file("default", "test/file.txt", expected_version=version)
 
     # Verify tombstone
     response = mock_s3.get_object(
@@ -254,18 +255,19 @@ def test_delete_conditional_success(mock_s3):
     assert response["Metadata"]["is-deleted"] == "true"
 
 
-def test_delete_conditional_fails_with_wrong_md5(mock_s3):
-    """Test conditional delete fails with incorrect MD5."""
+def test_delete_conditional_fails_with_wrong_version(mock_s3):
+    """Test conditional delete fails with incorrect version."""
     storage = S3Storage()
 
     # Create file
-    storage.write_file("default", "test/file.txt", b"Content")
+    _, _, version = storage.write_file("default", "test/file.txt", b"Content")
 
-    # Try to delete with wrong MD5
+    # Try to delete with wrong version
+    wrong_version = version - 1000
     with pytest.raises(PreconditionFailedError) as exc_info:
-        storage.delete_file("default", "test/file.txt", expected_md5="wrong-md5")
+        storage.delete_file("default", "test/file.txt", expected_version=wrong_version)
 
-    assert exc_info.value.provided_md5 == "wrong-md5"
+    assert exc_info.value.provided_version == str(wrong_version)
 
 
 def test_get_sync_index_empty(mock_s3):

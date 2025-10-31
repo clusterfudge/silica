@@ -21,7 +21,6 @@ class Settings(BaseSettings):
 
     # heare-auth Configuration
     heare_auth_url: str = Field(..., description="heare-auth service URL")
-    heare_auth_app_id: str = Field(..., description="Application ID for heare-auth")
 
     # Application Configuration
     log_level: str = Field(default="INFO", description="Logging level")

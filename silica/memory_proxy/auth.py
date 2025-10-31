@@ -30,16 +30,13 @@ async def verify_token(
         HTTPException: If token is invalid or auth service is unavailable
     """
     settings = Settings()
-    token = credentials.credentials
+    api_key = credentials.credentials
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
                 f"{settings.heare_auth_url}/verify",
-                json={
-                    "token": token,
-                    "app_id": settings.heare_auth_app_id,
-                },
+                json={"api_key": api_key},
             )
 
             if response.status_code == 200:

@@ -54,5 +54,5 @@ class PreconditionFailedResponse(ErrorResponse):
 
     error_code: str = "PRECONDITION_FAILED"
     context: Dict[str, str] = Field(
-        ..., description="Context with current_md5 and provided_md5"
+        ..., description="Context with current_version and provided_version"
     )

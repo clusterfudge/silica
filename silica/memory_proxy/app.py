@@ -109,6 +109,7 @@ async def write_blob(
     path: str,
     request: Request,
     user_info: Dict = Depends(verify_token),
+    if_match_version: int = Header(..., alias="If-Match-Version"),
     content_md5: str | None = Header(default=None, alias="Content-MD5"),
     content_type: str | None = Header(default="application/octet-stream"),
 ):
@@ -119,9 +120,14 @@ async def write_blob(
         namespace: Persona/namespace identifier
         path: File path within namespace
 
-    Supports conditional writes via Content-MD5 header:
-    - Omit header or use "new" for new files (fails if file exists)
-    - Provide expected MD5 for updates (fails if current MD5 doesn't match)
+    Headers (required):
+    - If-Match-Version: Expected version number
+      - 0 means file must not exist (new file)
+      - >0 means file must have this version (update)
+
+    Headers (optional):
+    - Content-MD5: MD5 hash of payload for integrity validation
+    - Content-Type: File content type
 
     Returns 201 for new files, 200 for updates, 412 for precondition failures.
     Returns ETag and X-Version headers.
@@ -136,7 +142,8 @@ async def write_blob(
             path=path,
             content=content,
             content_type=content_type,
-            expected_md5=content_md5,
+            expected_version=if_match_version,
+            content_md5=content_md5,
         )
 
         status_code = status.HTTP_201_CREATED if is_new else status.HTTP_200_OK
@@ -153,8 +160,8 @@ async def write_blob(
             detail=PreconditionFailedResponse(
                 detail=str(e),
                 context={
-                    "current_md5": e.current_md5,
-                    "provided_md5": e.provided_md5,
+                    "current_version": e.current_version,
+                    "provided_version": e.provided_version,
                 },
             ).model_dump(),
         )
@@ -176,7 +183,7 @@ async def delete_blob(
     namespace: str,
     path: str,
     user_info: Dict = Depends(verify_token),
-    if_match: str | None = Header(default=None, alias="If-Match"),
+    if_match_version: int | None = Header(default=None, alias="If-Match-Version"),
 ):
     """
     Delete a file by creating a tombstone within a namespace.
@@ -185,14 +192,13 @@ async def delete_blob(
         namespace: Persona/namespace identifier
         path: File path within namespace
 
-    Supports conditional delete via If-Match header with expected MD5.
+    Supports conditional delete via If-Match-Version header.
     Returns 204 on success, 404 if file doesn't exist, 412 on precondition failure.
     """
     try:
-        # Remove quotes from ETag if present
-        expected_md5 = if_match.strip('"') if if_match else None
-
-        storage.delete_file(namespace=namespace, path=path, expected_md5=expected_md5)
+        storage.delete_file(
+            namespace=namespace, path=path, expected_version=if_match_version
+        )
 
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -207,8 +213,8 @@ async def delete_blob(
             detail=PreconditionFailedResponse(
                 detail=str(e),
                 context={
-                    "current_md5": e.current_md5,
-                    "provided_md5": e.provided_md5,
+                    "current_version": e.current_version,
+                    "provided_version": e.provided_version,
                 },
             ).model_dump(),
         )

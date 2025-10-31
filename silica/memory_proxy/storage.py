@@ -24,12 +24,15 @@ class FileNotFoundError(StorageError):
 
 
 class PreconditionFailedError(StorageError):
-    """Conditional operation failed (MD5 mismatch)."""
+    """Conditional operation failed (version mismatch)."""
 
-    def __init__(self, message: str, current_md5: str, provided_md5: str):
+    def __init__(self, message: str, current_version: str, provided_version: str):
         super().__init__(message)
-        self.current_md5 = current_md5
-        self.provided_md5 = provided_md5
+        self.current_version = current_version
+        self.provided_version = provided_version
+        # Backwards compatibility aliases
+        self.current_md5 = current_version
+        self.provided_md5 = provided_version
 
 
 class S3Storage:
@@ -128,7 +131,8 @@ class S3Storage:
         path: str,
         content: bytes,
         content_type: str = "application/octet-stream",
-        expected_md5: str | None = None,
+        expected_version: int | None = None,
+        content_md5: str | None = None,
     ) -> Tuple[bool, str, int]:
         """
         Write a file to S3 with optional conditional write.
@@ -138,7 +142,11 @@ class S3Storage:
             path: File path
             content: File content bytes
             content_type: Content type
-            expected_md5: Expected MD5 for conditional write (or SENTINEL_NEW_FILE for new files)
+            expected_version: Expected version for conditional write
+                             - 0 means file must not exist
+                             - >0 means file must have this version
+                             - None means no version check
+            content_md5: Optional MD5 for payload integrity validation
 
         Returns:
             Tuple of (is_new, md5_hash, version)
@@ -151,30 +159,34 @@ class S3Storage:
         new_md5 = self._calculate_md5(content)
         version = self._get_version()
 
-        # Handle conditional write
-        if expected_md5 is not None:
+        # Validate payload MD5 if provided
+        if content_md5 is not None and content_md5 != new_md5:
+            raise StorageError(
+                f"Content-MD5 mismatch: provided={content_md5}, calculated={new_md5}"
+            )
+
+        # Handle conditional write based on version
+        if expected_version is not None:
             try:
                 # Check current state
                 response = self.s3.head_object(Bucket=self.bucket, Key=key)
-                current_md5 = response.get("Metadata", {}).get("content-md5")
+                current_version = int(response.get("Metadata", {}).get("version", "0"))
 
-                # If expecting new file, but file exists
-                if expected_md5 == self.SENTINEL_NEW_FILE:
+                # File exists
+                if expected_version == 0:
+                    # Expecting new file, but file exists
                     raise PreconditionFailedError(
-                        "File already exists",
-                        current_md5=current_md5 or "unknown",
-                        provided_md5=expected_md5,
+                        "File already exists (expected version 0)",
+                        current_version=str(current_version),
+                        provided_version="0",
                     )
 
-                # If expecting specific MD5, but it doesn't match
-                if (
-                    expected_md5 != self.SENTINEL_NEW_FILE
-                    and current_md5 != expected_md5
-                ):
+                # Expecting specific version, but it doesn't match
+                if current_version != expected_version:
                     raise PreconditionFailedError(
-                        "Content-MD5 mismatch",
-                        current_md5=current_md5 or "unknown",
-                        provided_md5=expected_md5,
+                        f"Version mismatch: current={current_version}, expected={expected_version}",
+                        current_version=str(current_version),
+                        provided_version=str(expected_version),
                     )
 
                 is_new = False
@@ -182,12 +194,12 @@ class S3Storage:
             except ClientError as e:
                 if e.response["Error"]["Code"] == "404":
                     # File doesn't exist
-                    if expected_md5 != self.SENTINEL_NEW_FILE:
-                        # Expected file to exist for update
+                    if expected_version != 0:
+                        # Expected file to exist with specific version
                         raise PreconditionFailedError(
-                            "File does not exist",
-                            current_md5="none",
-                            provided_md5=expected_md5,
+                            f"File does not exist (expected version {expected_version})",
+                            current_version="none",
+                            provided_version=str(expected_version),
                         )
                     is_new = True
                 else:
@@ -241,7 +253,7 @@ class S3Storage:
             raise StorageError(f"Failed to write file: {e}")
 
     def delete_file(
-        self, namespace: str, path: str, expected_md5: str | None = None
+        self, namespace: str, path: str, expected_version: int | None = None
     ) -> None:
         """
         Delete a file by creating a tombstone.
@@ -249,7 +261,7 @@ class S3Storage:
         Args:
             namespace: Namespace identifier
             path: File path
-            expected_md5: Optional expected MD5 for conditional delete
+            expected_version: Optional expected version for conditional delete
 
         Raises:
             FileNotFoundError: If file doesn't exist
@@ -263,13 +275,14 @@ class S3Storage:
             # Get current file metadata
             response = self.s3.head_object(Bucket=self.bucket, Key=key)
             current_md5 = response.get("Metadata", {}).get("content-md5", "")
+            current_version = int(response.get("Metadata", {}).get("version", "0"))
 
             # Check conditional delete
-            if expected_md5 is not None and current_md5 != expected_md5:
+            if expected_version is not None and current_version != expected_version:
                 raise PreconditionFailedError(
-                    "Content-MD5 mismatch for delete",
-                    current_md5=current_md5,
-                    provided_md5=expected_md5,
+                    f"Version mismatch for delete: current={current_version}, expected={expected_version}",
+                    current_version=str(current_version),
+                    provided_version=str(expected_version),
                 )
 
             # Create tombstone (0-byte object with is-deleted flag)

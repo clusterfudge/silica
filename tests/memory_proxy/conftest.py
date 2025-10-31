@@ -21,7 +21,6 @@ def mock_env_vars():
             "S3_BUCKET": "test-bucket",
             "S3_PREFIX": "memory",
             "HEARE_AUTH_URL": "http://test-auth",
-            "HEARE_AUTH_APP_ID": "test-app",
             "LOG_LEVEL": "DEBUG",
         },
     ):

@@ -646,7 +646,6 @@ async def run(
 
             agent_context.report_usage(final_message.usage)
             usage_summary = agent_context.usage_summary()
-            user_interface.handle_assistant_message(ai_response)
 
             # Display thinking content if present
             if thinking_content:
@@ -656,6 +655,8 @@ async def run(
                     user_interface.handle_thinking_content(
                         thinking_content, thinking_tokens, thinking_cost, collapsed=True
                     )
+
+            user_interface.handle_assistant_message(ai_response)
 
             # Use conversation size calculated before the API call (when state was complete)
             # This avoids counting incomplete states with tool_use but no tool_result
