@@ -573,16 +573,45 @@ class ConversationCompacter:
         context_dict = agent_context.get_api_context()
         messages_to_use = context_dict["messages"]
         preserve_message_count = 2
+
+        # When thinking is enabled, we must ensure the conversation ends with a user message
+        # This is because the API requires that when thinking is enabled, any assistant message
+        # must start with a thinking block. After compaction, we strip thinking blocks, so we
+        # cannot preserve assistant messages as the final message.
         if len(messages_to_use) >= preserve_message_count:
-            if messages_to_use[-1]["role"] == "assistant":
-                preserve_message_count = 1
-            new_messages.extend(messages_to_use[-preserve_message_count:])
+            if agent_context.thinking_mode != "off":
+                # With thinking enabled, never preserve the last message if it's an assistant message
+                # Always preserve the last user message (and optionally the assistant before it)
+                if messages_to_use[-1]["role"] == "assistant":
+                    # Skip the last assistant message, look for the previous user message
+                    preserve_message_count = 1
+                    # Find the last user message
+                    for i in range(len(messages_to_use) - 1, -1, -1):
+                        if messages_to_use[i]["role"] == "user":
+                            # Preserve just this user message
+                            new_messages.append(messages_to_use[i])
+                            break
+                else:
+                    # Last message is already a user message, preserve it
+                    preserve_message_count = 1
+                    new_messages.extend(messages_to_use[-preserve_message_count:])
+            else:
+                # Thinking is off, use the standard logic
+                if messages_to_use[-1]["role"] == "assistant":
+                    preserve_message_count = 1
+                new_messages.extend(messages_to_use[-preserve_message_count:])
 
         # Strip all thinking blocks from compacted messages to avoid API validation errors
         # When thinking is enabled, the API requires the final assistant message to start
         # with a thinking block. Since we can't guarantee this structure after compaction
         # (we're preserving arbitrary messages), we strip all thinking blocks entirely.
         new_messages = self._strip_all_thinking_blocks(new_messages)
+
+        # Disable thinking mode after stripping thinking blocks
+        # The compacted conversation no longer has thinking context, and keeping thinking
+        # mode enabled would cause API validation errors on the next request
+        if agent_context.thinking_mode != "off":
+            agent_context.thinking_mode = "off"
 
         # Create metadata for the compaction (archive_name will be set by rotate())
         metadata = CompactionMetadata(
