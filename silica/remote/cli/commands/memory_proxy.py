@@ -9,6 +9,7 @@ import cyclopts
 app = cyclopts.App(name="memory-proxy", help="Memory Proxy service deployment")
 
 SILICA_DIR = Path.home() / ".silica"
+MEMORY_PROXY_DIR = SILICA_DIR / "memory-proxy"
 CONFIG_FILE = SILICA_DIR / "config.env"
 
 
@@ -16,6 +17,12 @@ def _ensure_silica_dir() -> Path:
     """Ensure ~/.silica directory exists."""
     SILICA_DIR.mkdir(exist_ok=True)
     return SILICA_DIR
+
+
+def _ensure_memory_proxy_dir() -> Path:
+    """Ensure ~/.silica/memory-proxy directory exists."""
+    MEMORY_PROXY_DIR.mkdir(parents=True, exist_ok=True)
+    return MEMORY_PROXY_DIR
 
 
 def _read_config() -> dict[str, str]:
@@ -95,8 +102,8 @@ def _prompt_for_config() -> dict[str, str]:
 
 
 def _create_procfile() -> None:
-    """Create Procfile in ~/.silica."""
-    procfile = SILICA_DIR / "Procfile"
+    """Create Procfile in ~/.silica/memory-proxy."""
+    procfile = MEMORY_PROXY_DIR / "Procfile"
     procfile.write_text(
         "web: uvicorn silica.memory_proxy.app:app --host 0.0.0.0 --port $PORT\n"
     )
@@ -104,7 +111,7 @@ def _create_procfile() -> None:
 
 def _create_requirements(version: Optional[str] = None) -> None:
     """Create requirements.txt with specified silica version."""
-    requirements = SILICA_DIR / "requirements.txt"
+    requirements = MEMORY_PROXY_DIR / "requirements.txt"
 
     if version:
         requirements.write_text(f"silica=={version}\n")
@@ -122,24 +129,24 @@ def _create_requirements(version: Optional[str] = None) -> None:
 
 def _create_python_version() -> None:
     """Create .python-version file."""
-    python_version = SILICA_DIR / ".python-version"
+    python_version = MEMORY_PROXY_DIR / ".python-version"
     python_version.write_text("3.11\n")
 
 
 def _create_gitignore() -> None:
     """Create .gitignore for the synthetic repo."""
-    gitignore = SILICA_DIR / ".gitignore"
+    gitignore = MEMORY_PROXY_DIR / ".gitignore"
     gitignore.write_text("config.env\n__pycache__/\n*.pyc\n")
 
 
 def _init_git_repo() -> None:
-    """Initialize git repository in ~/.silica."""
-    if not (SILICA_DIR / ".git").exists():
-        subprocess.run(["git", "init"], cwd=str(SILICA_DIR), check=True)
-        subprocess.run(["git", "add", "."], cwd=str(SILICA_DIR), check=True)
+    """Initialize git repository in ~/.silica/memory-proxy."""
+    if not (MEMORY_PROXY_DIR / ".git").exists():
+        subprocess.run(["git", "init"], cwd=str(MEMORY_PROXY_DIR), check=True)
+        subprocess.run(["git", "add", "."], cwd=str(MEMORY_PROXY_DIR), check=True)
         subprocess.run(
             ["git", "commit", "-m", "Initial commit for memory-proxy deployment"],
-            cwd=str(SILICA_DIR),
+            cwd=str(MEMORY_PROXY_DIR),
             check=True,
         )
 
@@ -151,7 +158,7 @@ def _add_dokku_remote(dokku_host: str, app_name: str) -> None:
     # Check if remote already exists
     result = subprocess.run(
         ["git", "remote", "get-url", "dokku"],
-        cwd=str(SILICA_DIR),
+        cwd=str(MEMORY_PROXY_DIR),
         capture_output=True,
         text=True,
     )
@@ -160,14 +167,14 @@ def _add_dokku_remote(dokku_host: str, app_name: str) -> None:
         # Remote exists, update it
         subprocess.run(
             ["git", "remote", "set-url", "dokku", remote_url],
-            cwd=str(SILICA_DIR),
+            cwd=str(MEMORY_PROXY_DIR),
             check=True,
         )
     else:
         # Add new remote
         subprocess.run(
             ["git", "remote", "add", "dokku", remote_url],
-            cwd=str(SILICA_DIR),
+            cwd=str(MEMORY_PROXY_DIR),
             check=True,
         )
 
@@ -176,9 +183,46 @@ def _git_force_push() -> None:
     """Force push to dokku remote."""
     subprocess.run(
         ["git", "push", "dokku", "main:master", "--force"],
-        cwd=str(SILICA_DIR),
+        cwd=str(MEMORY_PROXY_DIR),
         check=True,
     )
+
+
+def _check_dokku_app_exists(dokku_host: str, app_name: str) -> bool:
+    """Check if dokku app exists."""
+    ssh_host = dokku_host.split(":")[0]
+    cmd = ["ssh", ssh_host, "dokku", "apps:list"]
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        return False
+
+    # Check if app_name is in the output
+    return app_name in result.stdout
+
+
+def _create_dokku_app(dokku_host: str, app_name: str) -> None:
+    """Create dokku app if it doesn't exist."""
+    from rich.console import Console
+
+    console = Console()
+    ssh_host = dokku_host.split(":")[0]
+
+    # Check if app already exists
+    if _check_dokku_app_exists(dokku_host, app_name):
+        console.print(f"[yellow]App {app_name} already exists[/yellow]")
+        return
+
+    console.print(f"\n[bold]Creating dokku app {app_name}...[/bold]")
+    cmd = ["ssh", ssh_host, "dokku", "apps:create", app_name]
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+
+    if result.returncode != 0:
+        console.print(f"[red]Error creating app:[/red] {result.stderr}")
+        raise RuntimeError(f"Failed to create dokku app {app_name}")
+
+    console.print(f"[green]✓ App {app_name} created successfully[/green]")
 
 
 def _set_dokku_config(dokku_host: str, app_name: str, config: dict[str, str]) -> None:
@@ -231,8 +275,9 @@ def setup(
 
     console.print("\n[bold]Setting up Memory Proxy deployment...[/bold]\n")
 
-    # Ensure directory exists
+    # Ensure directories exist
     _ensure_silica_dir()
+    _ensure_memory_proxy_dir()
 
     # Prompt for or read config
     if not skip_config:
@@ -267,7 +312,7 @@ def setup(
     console.print(f"[green]✓ Dokku remote added: {dokku_host}:{app_name}[/green]")
 
     console.print("\n[bold green]Setup complete![/bold green]")
-    console.print(f"\nDeployment directory: {SILICA_DIR}")
+    console.print(f"\nDeployment directory: {MEMORY_PROXY_DIR}")
     console.print(f"Config file: {CONFIG_FILE}")
     console.print("\nTo deploy: [bold]silica memory-proxy deploy[/bold]")
 
@@ -279,7 +324,7 @@ def deploy(
     """
     Deploy Memory Proxy to Dokku.
 
-    Pushes the synthetic repo from ~/.silica to dokku and optionally
+    Pushes the synthetic repo from ~/.silica/memory-proxy to dokku and optionally
     sets config variables.
 
     Example:
@@ -290,7 +335,7 @@ def deploy(
 
     console = Console()
 
-    if not SILICA_DIR.exists() or not (SILICA_DIR / ".git").exists():
+    if not MEMORY_PROXY_DIR.exists() or not (MEMORY_PROXY_DIR / ".git").exists():
         console.print(
             "[red]Error:[/red] No deployment found. Run 'silica memory-proxy setup' first."
         )
@@ -307,7 +352,7 @@ def deploy(
     # Get dokku remote
     result = subprocess.run(
         ["git", "remote", "get-url", "dokku"],
-        cwd=str(SILICA_DIR),
+        cwd=str(MEMORY_PROXY_DIR),
         capture_output=True,
         text=True,
     )
@@ -323,15 +368,18 @@ def deploy(
 
     console.print(f"\n[bold]Deploying to {app_name} on {dokku_host}...[/bold]\n")
 
+    # Ensure dokku app exists
+    _create_dokku_app(dokku_host, app_name)
+
     # Set config if requested
     if set_config:
         _set_dokku_config(dokku_host, app_name, config)
 
     # Commit any changes
-    subprocess.run(["git", "add", "."], cwd=str(SILICA_DIR))
+    subprocess.run(["git", "add", "."], cwd=str(MEMORY_PROXY_DIR))
     subprocess.run(
         ["git", "commit", "-m", "Update deployment files", "--allow-empty"],
-        cwd=str(SILICA_DIR),
+        cwd=str(MEMORY_PROXY_DIR),
         capture_output=True,
     )
 
@@ -361,7 +409,7 @@ def upgrade(
 
     console = Console()
 
-    if not SILICA_DIR.exists() or not (SILICA_DIR / ".git").exists():
+    if not MEMORY_PROXY_DIR.exists() or not (MEMORY_PROXY_DIR / ".git").exists():
         console.print(
             "[red]Error:[/red] No deployment found. Run 'silica memory-proxy setup' first."
         )
@@ -374,10 +422,12 @@ def upgrade(
     console.print(f"[green]✓ Updated requirements.txt to silica=={version}[/green]")
 
     # Commit changes
-    subprocess.run(["git", "add", "requirements.txt"], cwd=str(SILICA_DIR), check=True)
+    subprocess.run(
+        ["git", "add", "requirements.txt"], cwd=str(MEMORY_PROXY_DIR), check=True
+    )
     subprocess.run(
         ["git", "commit", "-m", f"Upgrade to silica {version}"],
-        cwd=str(SILICA_DIR),
+        cwd=str(MEMORY_PROXY_DIR),
         check=True,
     )
 
@@ -400,7 +450,7 @@ def status() -> None:
 
     console = Console()
 
-    if not SILICA_DIR.exists():
+    if not MEMORY_PROXY_DIR.exists():
         console.print("[yellow]No deployment found.[/yellow]")
         console.print("Run 'silica memory-proxy setup' to get started.")
         return
@@ -409,25 +459,25 @@ def status() -> None:
     table.add_column("Setting", style="cyan")
     table.add_column("Value", style="green")
 
-    table.add_row("Deployment Directory", str(SILICA_DIR))
+    table.add_row("Deployment Directory", str(MEMORY_PROXY_DIR))
     table.add_row(
         "Config File", str(CONFIG_FILE) + (" ✓" if CONFIG_FILE.exists() else " ✗")
     )
 
     # Check for requirements.txt
-    req_file = SILICA_DIR / "requirements.txt"
+    req_file = MEMORY_PROXY_DIR / "requirements.txt"
     if req_file.exists():
         version = req_file.read_text().strip().split("==")[-1]
         table.add_row("Silica Version", version)
 
     # Check for git repo
-    if (SILICA_DIR / ".git").exists():
+    if (MEMORY_PROXY_DIR / ".git").exists():
         table.add_row("Git Repository", "✓ Initialized")
 
         # Get dokku remote
         result = subprocess.run(
             ["git", "remote", "get-url", "dokku"],
-            cwd=str(SILICA_DIR),
+            cwd=str(MEMORY_PROXY_DIR),
             capture_output=True,
             text=True,
         )
