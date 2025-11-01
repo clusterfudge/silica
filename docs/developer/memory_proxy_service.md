@@ -135,9 +135,8 @@ The easiest way to deploy the memory proxy is using the built-in CLI commands:
    ```
 
    This will:
-   - Create the dokku app if it doesn't exist
+   - Push the code to dokku (creating the app automatically on first push)
    - Set all configuration variables
-   - Push the deployment to dokku
    - Deploy the service
 
 3. **Check status**:

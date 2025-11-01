@@ -113,61 +113,6 @@ def test_check_dokku_app_exists_returns_false_when_app_missing(mock_silica_dirs)
         assert result is False
 
 
-def test_create_dokku_app_creates_app_when_missing(mock_silica_dirs):
-    """Test that _create_dokku_app creates a new app."""
-    from silica.remote.cli.commands.memory_proxy import _create_dokku_app
-
-    with patch("subprocess.run") as mock_run:
-        # First call: app doesn't exist
-        # Second call: create app succeeds
-        mock_run.side_effect = [
-            MagicMock(returncode=0, stdout="=====> My Apps\nother-app\n"),
-            MagicMock(returncode=0, stdout="App created\n", stderr=""),
-        ]
-
-        # Should not raise
-        _create_dokku_app("dokku@server", "memory-proxy")
-
-        # Verify ssh command was called
-        calls = mock_run.call_args_list
-        assert len(calls) == 2
-        assert "apps:create" in str(calls[1])
-
-
-def test_create_dokku_app_skips_when_exists(mock_silica_dirs):
-    """Test that _create_dokku_app skips creation if app exists."""
-    from silica.remote.cli.commands.memory_proxy import _create_dokku_app
-
-    with patch("subprocess.run") as mock_run:
-        # App already exists
-        mock_run.return_value = MagicMock(
-            returncode=0, stdout="=====> My Apps\nmemory-proxy\n"
-        )
-
-        # Should not raise and should only check, not create
-        _create_dokku_app("dokku@server", "memory-proxy")
-
-        # Only one call (the check)
-        assert mock_run.call_count == 1
-
-
-def test_create_dokku_app_raises_on_failure(mock_silica_dirs):
-    """Test that _create_dokku_app raises on creation failure."""
-    from silica.remote.cli.commands.memory_proxy import _create_dokku_app
-
-    with patch("subprocess.run") as mock_run:
-        # First call: app doesn't exist
-        # Second call: create app fails
-        mock_run.side_effect = [
-            MagicMock(returncode=0, stdout="=====> My Apps\nother-app\n"),
-            MagicMock(returncode=1, stdout="", stderr="Error creating app"),
-        ]
-
-        # Should raise
-        with pytest.raises(RuntimeError, match="Failed to create dokku app"):
-            _create_dokku_app("dokku@server", "memory-proxy")
-
-
 def test_git_operations_use_memory_proxy_dir(mock_silica_dirs):
     """Test that git operations happen in the memory-proxy directory."""
     from silica.remote.cli.commands.memory_proxy import (

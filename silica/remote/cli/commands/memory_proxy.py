@@ -201,30 +201,6 @@ def _check_dokku_app_exists(dokku_host: str, app_name: str) -> bool:
     return app_name in result.stdout
 
 
-def _create_dokku_app(dokku_host: str, app_name: str) -> None:
-    """Create dokku app if it doesn't exist."""
-    from rich.console import Console
-
-    console = Console()
-    ssh_host = dokku_host.split(":")[0]
-
-    # Check if app already exists
-    if _check_dokku_app_exists(dokku_host, app_name):
-        console.print(f"[yellow]App {app_name} already exists[/yellow]")
-        return
-
-    console.print(f"\n[bold]Creating dokku app {app_name}...[/bold]")
-    cmd = ["ssh", ssh_host, "dokku", "apps:create", app_name]
-
-    result = subprocess.run(cmd, capture_output=True, text=True)
-
-    if result.returncode != 0:
-        console.print(f"[red]Error creating app:[/red] {result.stderr}")
-        raise RuntimeError(f"Failed to create dokku app {app_name}")
-
-    console.print(f"[green]✓ App {app_name} created successfully[/green]")
-
-
 def _set_dokku_config(dokku_host: str, app_name: str, config: dict[str, str]) -> None:
     """Set dokku config variables via SSH."""
     from rich.console import Console
@@ -324,8 +300,8 @@ def deploy(
     """
     Deploy Memory Proxy to Dokku.
 
-    Pushes the synthetic repo from ~/.silica/memory-proxy to dokku and optionally
-    sets config variables.
+    Pushes the synthetic repo from ~/.silica/memory-proxy to dokku (which creates
+    the app if needed) and then sets config variables.
 
     Example:
         silica memory-proxy deploy
@@ -368,13 +344,6 @@ def deploy(
 
     console.print(f"\n[bold]Deploying to {app_name} on {dokku_host}...[/bold]\n")
 
-    # Ensure dokku app exists
-    _create_dokku_app(dokku_host, app_name)
-
-    # Set config if requested
-    if set_config:
-        _set_dokku_config(dokku_host, app_name, config)
-
     # Commit any changes
     subprocess.run(["git", "add", "."], cwd=str(MEMORY_PROXY_DIR))
     subprocess.run(
@@ -383,9 +352,15 @@ def deploy(
         capture_output=True,
     )
 
-    # Force push to dokku
-    console.print("\n[bold]Pushing to dokku...[/bold]")
+    # Push to dokku (this creates the app automatically on first push)
+    console.print("[bold]Pushing to dokku...[/bold]")
+    console.print("(App will be created automatically on first push)")
     _git_force_push()
+    console.print("[green]✓ Code deployed[/green]")
+
+    # Set config if requested (after app is created by push)
+    if set_config:
+        _set_dokku_config(dokku_host, app_name, config)
 
     console.print("\n[bold green]Deployment complete![/bold green]")
     console.print(
