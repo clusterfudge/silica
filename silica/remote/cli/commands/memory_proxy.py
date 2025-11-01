@@ -110,21 +110,21 @@ def _create_procfile() -> None:
 
 
 def _create_requirements(version: Optional[str] = None) -> None:
-    """Create requirements.txt with specified silica version."""
+    """Create requirements.txt with specified pysilica version."""
     requirements = MEMORY_PROXY_DIR / "requirements.txt"
 
     if version:
-        requirements.write_text(f"silica=={version}\n")
+        requirements.write_text(f"pysilica=={version}\n")
     else:
         # Use latest from PyPI or current installed version
         try:
             import silica
 
             current_version = silica.__version__
-            requirements.write_text(f"silica=={current_version}\n")
+            requirements.write_text(f"pysilica=={current_version}\n")
         except (ImportError, AttributeError):
             # Fallback to latest
-            requirements.write_text("silica\n")
+            requirements.write_text("pysilica\n")
 
 
 def _create_python_version() -> None:
@@ -398,7 +398,7 @@ def upgrade(
     version: str,
 ) -> None:
     """
-    Upgrade deployed Memory Proxy to a new silica version.
+    Upgrade deployed Memory Proxy to a new pysilica version.
 
     Updates requirements.txt, commits, and deploys.
 
@@ -415,18 +415,18 @@ def upgrade(
         )
         raise SystemExit(1)
 
-    console.print(f"\n[bold]Upgrading to silica {version}...[/bold]\n")
+    console.print(f"\n[bold]Upgrading to pysilica {version}...[/bold]\n")
 
     # Update requirements.txt
     _create_requirements(version)
-    console.print(f"[green]✓ Updated requirements.txt to silica=={version}[/green]")
+    console.print(f"[green]✓ Updated requirements.txt to pysilica=={version}[/green]")
 
     # Commit changes
     subprocess.run(
         ["git", "add", "requirements.txt"], cwd=str(MEMORY_PROXY_DIR), check=True
     )
     subprocess.run(
-        ["git", "commit", "-m", f"Upgrade to silica {version}"],
+        ["git", "commit", "-m", f"Upgrade to pysilica {version}"],
         cwd=str(MEMORY_PROXY_DIR),
         check=True,
     )
@@ -435,7 +435,7 @@ def upgrade(
     console.print("\n[bold]Deploying upgrade...[/bold]")
     _git_force_push()
 
-    console.print(f"\n[bold green]Upgraded to silica {version}![/bold green]")
+    console.print(f"\n[bold green]Upgraded to pysilica {version}![/bold green]")
 
 
 @app.command
@@ -468,7 +468,7 @@ def status() -> None:
     req_file = MEMORY_PROXY_DIR / "requirements.txt"
     if req_file.exists():
         version = req_file.read_text().strip().split("==")[-1]
-        table.add_row("Silica Version", version)
+        table.add_row("Pysilica Version", version)
 
     # Check for git repo
     if (MEMORY_PROXY_DIR / ".git").exists():

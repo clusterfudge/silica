@@ -201,3 +201,29 @@ def test_config_file_remains_in_silica_dir(mock_silica_dirs):
     # Config should be in SILICA_DIR, not MEMORY_PROXY_DIR
     assert CONFIG_FILE.parent == SILICA_DIR
     assert CONFIG_FILE.parent != MEMORY_PROXY_DIR
+
+
+def test_requirements_txt_uses_pysilica_package_name(mock_silica_dirs):
+    """Test that requirements.txt uses 'pysilica' not 'silica'."""
+    from silica.remote.cli.commands.memory_proxy import (
+        _create_requirements,
+        _ensure_memory_proxy_dir,
+    )
+
+    memory_proxy_dir = mock_silica_dirs["memory_proxy_dir"]
+    _ensure_memory_proxy_dir()
+
+    # Test with specific version
+    _create_requirements("0.8.0")
+    req_file = memory_proxy_dir / "requirements.txt"
+    assert req_file.exists()
+    content = req_file.read_text()
+    assert "pysilica==0.8.0" in content
+    # Ensure it's not just "silica==" (without the "py" prefix)
+    assert not content.strip().startswith("silica==")
+
+    # Test without version (uses current or latest)
+    _create_requirements()
+    content = req_file.read_text()
+    assert "pysilica" in content
+    assert content.strip().startswith("pysilica")
