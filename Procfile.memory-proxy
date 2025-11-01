@@ -1,0 +1,1 @@
+web: uvicorn silica.memory_proxy.app:app --host 0.0.0.0 --port $PORT
