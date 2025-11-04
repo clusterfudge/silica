@@ -378,5 +378,68 @@ class SyncOperationLog:
 
         return stats
 
+    # Import needed for timedelta
 
-# Import needed for timedelta
+    def _filter_operations(self, predicate: callable) -> list[SyncOperation]:
+        """Filter operations by predicate.
+
+        Args:
+            predicate: Function that takes SyncOperation and returns bool
+
+        Returns:
+            List of matching operations
+        """
+        operations = self._read_all_operations()
+        return [op for op in operations if predicate(op)]
+
+    def truncate_after_sync(self, keep_days: int = 7) -> int:
+        """Truncate log after successful sync.
+
+        Strategy:
+        - Keep all failed operations (for retry)
+        - Keep successful operations from last N days (for debugging)
+        - Remove old successful operations
+
+        Args:
+            keep_days: Number of days of successful operations to keep
+
+        Returns:
+            Number of operations removed
+        """
+        if not self.log_file.exists():
+            return 0
+
+        operations = self._read_all_operations()
+        cutoff = datetime.now(timezone.utc) - timedelta(days=keep_days)
+
+        # Keep: failed operations OR recent successful operations
+        kept_operations = [
+            op for op in operations if op.status != "success" or op.timestamp > cutoff
+        ]
+
+        removed_count = len(operations) - len(kept_operations)
+
+        if removed_count > 0:
+            # Rewrite log file with kept operations only
+            try:
+                with open(self.log_file, "w") as f:
+                    for op in kept_operations:
+                        log_entry = {
+                            "op_id": op.op_id,
+                            "op_type": op.op_type,
+                            "path": op.path,
+                            "status": op.status,
+                            "error": op.error,
+                            "timestamp": op.timestamp.isoformat(),
+                            "metadata": op.metadata,
+                        }
+                        f.write(json.dumps(log_entry) + "\n")
+
+                logger.info(
+                    f"Truncated operation log: removed {removed_count} old successful operations"
+                )
+            except OSError as e:
+                logger.error(f"Failed to truncate operation log: {e}")
+                raise
+
+        return removed_count

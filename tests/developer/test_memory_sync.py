@@ -1,5 +1,7 @@
 """Tests for memory sync module."""
 
+import json
+
 import pytest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -313,3 +315,89 @@ class TestSyncOperationLog:
 
         stats = operation_log.get_statistics()
         assert stats["total_operations"] == 0
+
+    def test_truncate_after_sync(self, operation_log):
+        """Test truncating log after sync."""
+        from datetime import timedelta, datetime, timezone
+
+        # Create some old successful operations (> 7 days)
+        old_time = datetime.now(timezone.utc) - timedelta(days=10)
+
+        # Log some operations
+        operation_log.log_operation("upload", "old_success.md", "success")
+        operation_log.log_operation("upload", "recent_success.md", "success")
+        operation_log.log_operation("download", "failed.md", "failed", error="Error")
+
+        # Manually modify timestamps to simulate old operations
+        operations = operation_log._read_all_operations()
+        operations[0].timestamp = old_time  # Make first operation old
+
+        # Rewrite with modified timestamps
+        with open(operation_log.log_file, "w") as f:
+            for op in operations:
+                log_entry = {
+                    "op_id": op.op_id,
+                    "op_type": op.op_type,
+                    "path": op.path,
+                    "status": op.status,
+                    "error": op.error,
+                    "timestamp": op.timestamp.isoformat(),
+                    "metadata": op.metadata,
+                }
+                f.write(json.dumps(log_entry) + "\n")
+
+        # Truncate
+        removed = operation_log.truncate_after_sync(keep_days=7)
+
+        # Should remove 1 old successful operation
+        assert removed == 1
+
+        # Check remaining operations
+        remaining = operation_log._read_all_operations()
+        paths = {op.path for op in remaining}
+
+        # Should keep recent success and failed operation
+        assert "recent_success.md" in paths
+        assert "failed.md" in paths
+        assert "old_success.md" not in paths
+
+    def test_truncate_keeps_all_failed(self, operation_log):
+        """Test that truncation keeps all failed operations regardless of age."""
+        from datetime import timedelta, datetime, timezone
+
+        old_time = datetime.now(timezone.utc) - timedelta(days=30)
+
+        # Log an old failed operation
+        operation_log.log_operation(
+            "upload", "old_failed.md", "failed", error="Old error"
+        )
+
+        # Manually modify timestamp
+        operations = operation_log._read_all_operations()
+        operations[0].timestamp = old_time
+
+        with open(operation_log.log_file, "w") as f:
+            for op in operations:
+                log_entry = {
+                    "op_id": op.op_id,
+                    "op_type": op.op_type,
+                    "path": op.path,
+                    "status": op.status,
+                    "error": op.error,
+                    "timestamp": op.timestamp.isoformat(),
+                    "metadata": op.metadata,
+                }
+                f.write(json.dumps(log_entry) + "\n")
+
+        # Truncate
+        removed = operation_log.truncate_after_sync(keep_days=7)
+
+        # Should not remove failed operation
+        assert removed == 0
+
+        remaining = operation_log._read_all_operations()
+        assert len(remaining) == 1
+        assert remaining[0].path == "old_failed.md"
+
+
+"""Tests for memory sync module."""
