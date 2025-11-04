@@ -151,9 +151,9 @@ def _init_git_repo() -> None:
         )
 
 
-def _add_dokku_remote(dokku_host: str, app_name: str) -> None:
+def _add_dokku_remote(dokku_connection_string: str, app_name: str) -> None:
     """Add dokku remote to git repo."""
-    remote_url = f"{dokku_host}:{app_name}"
+    remote_url = f"{dokku_connection_string}:{app_name}"
 
     # Check if remote already exists
     result = subprocess.run(
@@ -182,16 +182,16 @@ def _add_dokku_remote(dokku_host: str, app_name: str) -> None:
 def _git_force_push() -> None:
     """Force push to dokku remote."""
     subprocess.run(
-        ["git", "push", "dokku", "main:master", "--force"],
+        ["git", "push", "dokku", "main", "--force"],
         cwd=str(MEMORY_PROXY_DIR),
         check=True,
     )
 
 
-def _check_dokku_app_exists(dokku_host: str, app_name: str) -> bool:
+def _check_dokku_app_exists(dokku_connection_string: str, app_name: str) -> bool:
     """Check if dokku app exists."""
-    ssh_host = dokku_host.split(":")[0]
-    cmd = ["ssh", ssh_host, "dokku", "apps:list"]
+    ssh_host = dokku_connection_string.split(":")[0]
+    cmd = ["ssh", ssh_host, "apps:list"]
 
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
@@ -201,7 +201,26 @@ def _check_dokku_app_exists(dokku_host: str, app_name: str) -> bool:
     return app_name in result.stdout
 
 
-def _set_dokku_config(dokku_host: str, app_name: str, config: dict[str, str]) -> None:
+def _dokku_create_app(dokku_connection_string: str, app_name: str) -> bool:
+    """Create dokku app."""
+    from rich.console import Console
+
+    console = Console()
+    ssh_host = dokku_connection_string.split(":")[0]
+    cmd = ["ssh", ssh_host, "apps:create", app_name]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+
+    if result.returncode == 0:
+        console.print(f"[green]✓ Created app {app_name}[/green]")
+    else:
+        console.print(f"[red]Failed to create app:[/red] {result.stderr}")
+
+    return result.returncode == 0
+
+
+def _set_dokku_config(
+    dokku_connection_string: str, app_name: str, config: dict[str, str]
+) -> None:
     """Set dokku config variables via SSH."""
     from rich.console import Console
 
@@ -211,8 +230,7 @@ def _set_dokku_config(dokku_host: str, app_name: str, config: dict[str, str]) ->
     config_parts = [f"{k}={v}" for k, v in config.items()]
     cmd = [
         "ssh",
-        dokku_host.split(":")[0],
-        "dokku",
+        dokku_connection_string.split(":")[0],
         "config:set",
         app_name,
     ] + config_parts
@@ -340,9 +358,11 @@ def deploy(
         raise SystemExit(1)
 
     dokku_remote = result.stdout.strip()
-    dokku_host, app_name = dokku_remote.split(":")
+    dokku_connection_string, app_name = dokku_remote.split(":")
 
-    console.print(f"\n[bold]Deploying to {app_name} on {dokku_host}...[/bold]\n")
+    console.print(
+        f"\n[bold]Deploying to {app_name} on {dokku_connection_string}...[/bold]\n"
+    )
 
     # Commit any changes
     subprocess.run(["git", "add", "."], cwd=str(MEMORY_PROXY_DIR))
@@ -352,20 +372,23 @@ def deploy(
         capture_output=True,
     )
 
-    # Push to dokku (this creates the app automatically on first push)
-    console.print("[bold]Pushing to dokku...[/bold]")
-    console.print("(App will be created automatically on first push)")
+    # If app does not exist, create it and set configuration
+    if not _check_dokku_app_exists(dokku_connection_string, app_name):
+        console.print(f"[yellow]App {app_name} does not exist, creating...[/yellow]")
+        if not _dokku_create_app(dokku_connection_string, app_name):
+            console.print("[red]Error:[/red] Failed to create app")
+            raise SystemExit(1)
+        _set_dokku_config(dokku_connection_string, app_name, config)
+    elif set_config:
+        _set_dokku_config(dokku_connection_string, app_name, config)
+
+    # Push to dokku
+    console.print("\n[bold]Pushing to dokku...[/bold]")
     _git_force_push()
     console.print("[green]✓ Code deployed[/green]")
 
-    # Set config if requested (after app is created by push)
-    if set_config:
-        _set_dokku_config(dokku_host, app_name, config)
-
     console.print("\n[bold green]Deployment complete![/bold green]")
-    console.print(
-        f"\nApp URL: https://{app_name}.your-domain.com (configure with dokku)"
-    )
+    console.print(f"\nApp URL: https://{app_name}.{dokku_connection_string}")
 
 
 @app.command

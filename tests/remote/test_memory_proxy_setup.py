@@ -98,6 +98,10 @@ def test_check_dokku_app_exists_returns_true_when_app_exists(mock_silica_dirs):
         result = _check_dokku_app_exists("dokku@server", "memory-proxy")
         assert result is True
 
+        # Verify SSH command doesn't include 'dokku' prefix (dokku user runs commands directly)
+        call_args = mock_run.call_args[0][0]
+        assert call_args == ["ssh", "dokku@server", "apps:list"]
+
 
 def test_check_dokku_app_exists_returns_false_when_app_missing(mock_silica_dirs):
     """Test that _check_dokku_app_exists returns False for missing apps."""
@@ -110,6 +114,38 @@ def test_check_dokku_app_exists_returns_false_when_app_missing(mock_silica_dirs)
         )
 
         result = _check_dokku_app_exists("dokku@server", "memory-proxy")
+        assert result is False
+
+
+def test_dokku_create_app_creates_app_successfully(mock_silica_dirs):
+    """Test that _dokku_create_app creates an app."""
+    from silica.remote.cli.commands.memory_proxy import _dokku_create_app
+
+    with patch("subprocess.run") as mock_run:
+        # Mock successful app creation
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="Creating memory-proxy... done\n", stderr=""
+        )
+
+        result = _dokku_create_app("dokku@server", "memory-proxy")
+        assert result is True
+
+        # Verify SSH command doesn't include 'dokku' prefix
+        call_args = mock_run.call_args[0][0]
+        assert call_args == ["ssh", "dokku@server", "apps:create", "memory-proxy"]
+
+
+def test_dokku_create_app_handles_failure(mock_silica_dirs):
+    """Test that _dokku_create_app handles creation failures."""
+    from silica.remote.cli.commands.memory_proxy import _dokku_create_app
+
+    with patch("subprocess.run") as mock_run:
+        # Mock failed app creation
+        mock_run.return_value = MagicMock(
+            returncode=1, stdout="", stderr="App already exists\n"
+        )
+
+        result = _dokku_create_app("dokku@server", "memory-proxy")
         assert result is False
 
 
