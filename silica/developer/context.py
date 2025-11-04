@@ -121,8 +121,10 @@ class AgentContext:
 
         # If a session_id was provided, attempt to load that session
         if session_id:
-            # Load the session data
-            loaded_context = load_session_data(session_id, context)
+            # Load the session data - pass persona_base_directory to load from correct location
+            loaded_context = load_session_data(
+                session_id, context, history_base_dir=persona_base_directory
+            )
 
             # If loading was successful, update message count for UI feedback
             if loaded_context and loaded_context.chat_history:
