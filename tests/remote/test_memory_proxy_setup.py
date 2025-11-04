@@ -1,5 +1,6 @@
 """Tests for memory-proxy CLI commands."""
 
+import subprocess
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -153,7 +154,6 @@ def test_git_operations_use_memory_proxy_dir(mock_silica_dirs):
     """Test that git operations happen in the memory-proxy directory."""
     from silica.remote.cli.commands.memory_proxy import (
         _ensure_memory_proxy_dir,
-        _init_git_repo,
     )
 
     memory_proxy_dir = mock_silica_dirs["memory_proxy_dir"]
@@ -161,10 +161,30 @@ def test_git_operations_use_memory_proxy_dir(mock_silica_dirs):
 
     # Create some files
     (memory_proxy_dir / "Procfile").write_text("web: echo test\n")
-    (memory_proxy_dir / "requirements.txt").write_text("silica\n")
+    (memory_proxy_dir / "requirements.txt").write_text("pysilica\n")
 
-    # Initialize git
-    _init_git_repo()
+    # Initialize git (this creates the .git directory)
+    subprocess.run(["git", "init"], cwd=str(memory_proxy_dir), check=True)
+
+    # Configure git user for the test (required in CI environments)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=str(memory_proxy_dir),
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=str(memory_proxy_dir),
+        check=True,
+    )
+
+    # Add and commit files
+    subprocess.run(["git", "add", "."], cwd=str(memory_proxy_dir), check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Test commit"],
+        cwd=str(memory_proxy_dir),
+        check=True,
+    )
 
     # Verify git repo is in the right place
     assert (memory_proxy_dir / ".git").exists()
