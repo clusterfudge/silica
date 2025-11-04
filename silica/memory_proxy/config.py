@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     aws_region: str = Field(default="us-east-1", description="AWS region")
     s3_bucket: str = Field(..., description="S3 bucket name")
     s3_prefix: str = Field(
-        default="memory", description="S3 key prefix for all objects"
+        default="2025-10-31/personas", description="S3 key prefix for all objects"
     )
     s3_endpoint_url: str | None = Field(
         default=None, description="Custom S3 endpoint URL (for S3-compatible services)"
