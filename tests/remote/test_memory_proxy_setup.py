@@ -1,0 +1,230 @@
+"""Tests for memory-proxy CLI commands."""
+
+import subprocess
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+
+@pytest.fixture
+def mock_home(tmp_path):
+    """Mock home directory for testing."""
+    return tmp_path
+
+
+@pytest.fixture
+def mock_silica_dirs(mock_home, monkeypatch):
+    """Set up mock silica directories."""
+    silica_dir = mock_home / ".silica"
+    memory_proxy_dir = silica_dir / "memory-proxy"
+    config_file = silica_dir / "config.env"
+
+    # Patch the module-level constants
+    monkeypatch.setattr(
+        "silica.remote.cli.commands.memory_proxy.SILICA_DIR", silica_dir
+    )
+    monkeypatch.setattr(
+        "silica.remote.cli.commands.memory_proxy.MEMORY_PROXY_DIR", memory_proxy_dir
+    )
+    monkeypatch.setattr(
+        "silica.remote.cli.commands.memory_proxy.CONFIG_FILE", config_file
+    )
+
+    return {
+        "silica_dir": silica_dir,
+        "memory_proxy_dir": memory_proxy_dir,
+        "config_file": config_file,
+    }
+
+
+def test_memory_proxy_dir_is_separate_from_silica_dir(mock_silica_dirs):
+    """Test that memory-proxy files are isolated in their own directory."""
+    from silica.remote.cli.commands.memory_proxy import (
+        MEMORY_PROXY_DIR,
+        SILICA_DIR,
+    )
+
+    # Verify the directories are different
+    assert MEMORY_PROXY_DIR != SILICA_DIR
+    assert MEMORY_PROXY_DIR.parent == SILICA_DIR
+    assert MEMORY_PROXY_DIR.name == "memory-proxy"
+
+
+def test_ensure_memory_proxy_dir_creates_directory(mock_silica_dirs):
+    """Test that _ensure_memory_proxy_dir creates the directory."""
+    from silica.remote.cli.commands.memory_proxy import _ensure_memory_proxy_dir
+
+    memory_proxy_dir = mock_silica_dirs["memory_proxy_dir"]
+
+    # Directory should not exist initially
+    assert not memory_proxy_dir.exists()
+
+    # Call the function
+    result = _ensure_memory_proxy_dir()
+
+    # Directory should now exist
+    assert memory_proxy_dir.exists()
+    assert result == memory_proxy_dir
+
+
+def test_create_procfile_writes_to_memory_proxy_dir(mock_silica_dirs):
+    """Test that Procfile is created in memory-proxy directory."""
+    from silica.remote.cli.commands.memory_proxy import (
+        _create_procfile,
+        _ensure_memory_proxy_dir,
+    )
+
+    memory_proxy_dir = mock_silica_dirs["memory_proxy_dir"]
+    _ensure_memory_proxy_dir()
+
+    # Create Procfile
+    _create_procfile()
+
+    # Verify it exists in the right place
+    procfile = memory_proxy_dir / "Procfile"
+    assert procfile.exists()
+    assert "uvicorn silica.memory_proxy.app:app" in procfile.read_text()
+
+
+def test_check_dokku_app_exists_returns_true_when_app_exists(mock_silica_dirs):
+    """Test that _check_dokku_app_exists detects existing apps."""
+    from silica.remote.cli.commands.memory_proxy import _check_dokku_app_exists
+
+    with patch("subprocess.run") as mock_run:
+        # Mock successful response with app name in output
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="=====> My Apps\nmemory-proxy\nother-app\n"
+        )
+
+        result = _check_dokku_app_exists("dokku@server", "memory-proxy")
+        assert result is True
+
+        # Verify SSH command doesn't include 'dokku' prefix (dokku user runs commands directly)
+        call_args = mock_run.call_args[0][0]
+        assert call_args == ["ssh", "dokku@server", "apps:list"]
+
+
+def test_check_dokku_app_exists_returns_false_when_app_missing(mock_silica_dirs):
+    """Test that _check_dokku_app_exists returns False for missing apps."""
+    from silica.remote.cli.commands.memory_proxy import _check_dokku_app_exists
+
+    with patch("subprocess.run") as mock_run:
+        # Mock successful response without app name
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="=====> My Apps\nother-app\n"
+        )
+
+        result = _check_dokku_app_exists("dokku@server", "memory-proxy")
+        assert result is False
+
+
+def test_dokku_create_app_creates_app_successfully(mock_silica_dirs):
+    """Test that _dokku_create_app creates an app."""
+    from silica.remote.cli.commands.memory_proxy import _dokku_create_app
+
+    with patch("subprocess.run") as mock_run:
+        # Mock successful app creation
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="Creating memory-proxy... done\n", stderr=""
+        )
+
+        result = _dokku_create_app("dokku@server", "memory-proxy")
+        assert result is True
+
+        # Verify SSH command doesn't include 'dokku' prefix
+        call_args = mock_run.call_args[0][0]
+        assert call_args == ["ssh", "dokku@server", "apps:create", "memory-proxy"]
+
+
+def test_dokku_create_app_handles_failure(mock_silica_dirs):
+    """Test that _dokku_create_app handles creation failures."""
+    from silica.remote.cli.commands.memory_proxy import _dokku_create_app
+
+    with patch("subprocess.run") as mock_run:
+        # Mock failed app creation
+        mock_run.return_value = MagicMock(
+            returncode=1, stdout="", stderr="App already exists\n"
+        )
+
+        result = _dokku_create_app("dokku@server", "memory-proxy")
+        assert result is False
+
+
+def test_git_operations_use_memory_proxy_dir(mock_silica_dirs):
+    """Test that git operations happen in the memory-proxy directory."""
+    from silica.remote.cli.commands.memory_proxy import (
+        _ensure_memory_proxy_dir,
+    )
+
+    memory_proxy_dir = mock_silica_dirs["memory_proxy_dir"]
+    _ensure_memory_proxy_dir()
+
+    # Create some files
+    (memory_proxy_dir / "Procfile").write_text("web: echo test\n")
+    (memory_proxy_dir / "requirements.txt").write_text("pysilica\n")
+
+    # Initialize git (this creates the .git directory)
+    subprocess.run(["git", "init"], cwd=str(memory_proxy_dir), check=True)
+
+    # Configure git user for the test (required in CI environments)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=str(memory_proxy_dir),
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=str(memory_proxy_dir),
+        check=True,
+    )
+
+    # Add and commit files
+    subprocess.run(["git", "add", "."], cwd=str(memory_proxy_dir), check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Test commit"],
+        cwd=str(memory_proxy_dir),
+        check=True,
+    )
+
+    # Verify git repo is in the right place
+    assert (memory_proxy_dir / ".git").exists()
+    assert not (mock_silica_dirs["silica_dir"] / ".git").exists()
+
+
+def test_config_file_remains_in_silica_dir(mock_silica_dirs):
+    """Test that config.env is stored in ~/.silica, not memory-proxy dir."""
+    from silica.remote.cli.commands.memory_proxy import (
+        CONFIG_FILE,
+        MEMORY_PROXY_DIR,
+        SILICA_DIR,
+    )
+
+    # Config should be in SILICA_DIR, not MEMORY_PROXY_DIR
+    assert CONFIG_FILE.parent == SILICA_DIR
+    assert CONFIG_FILE.parent != MEMORY_PROXY_DIR
+
+
+def test_requirements_txt_uses_pysilica_package_name(mock_silica_dirs):
+    """Test that requirements.txt uses 'pysilica' not 'silica'."""
+    from silica.remote.cli.commands.memory_proxy import (
+        _create_requirements,
+        _ensure_memory_proxy_dir,
+    )
+
+    memory_proxy_dir = mock_silica_dirs["memory_proxy_dir"]
+    _ensure_memory_proxy_dir()
+
+    # Test with specific version
+    _create_requirements("0.8.0")
+    req_file = memory_proxy_dir / "requirements.txt"
+    assert req_file.exists()
+    content = req_file.read_text()
+    assert "pysilica==0.8.0" in content
+    # Ensure it's not just "silica==" (without the "py" prefix)
+    assert not content.strip().startswith("silica==")
+
+    # Test without version (uses current or latest)
+    _create_requirements()
+    content = req_file.read_text()
+    assert "pysilica" in content
+    assert content.strip().startswith("pysilica")

@@ -114,7 +114,44 @@ All configuration via environment variables:
 
 ## Deployment
 
-### Dokku Deployment
+### Dokku Deployment (Automated via CLI)
+
+The easiest way to deploy the memory proxy is using the built-in CLI commands:
+
+1. **Run setup** (interactive configuration):
+   ```bash
+   silica memory-proxy setup dokku@your-server
+   ```
+
+   This will:
+   - Prompt for all required configuration (AWS credentials, S3 bucket, etc.)
+   - Create deployment files in `~/.silica/memory-proxy`
+   - Initialize a git repository
+   - Save configuration to `~/.silica/config.env`
+
+2. **Deploy to Dokku**:
+   ```bash
+   silica memory-proxy deploy
+   ```
+
+   This will:
+   - Push the code to dokku (creating the app automatically on first push)
+   - Set all configuration variables
+   - Deploy the service
+
+3. **Check status**:
+   ```bash
+   silica memory-proxy status
+   ```
+
+4. **Upgrade to a new version**:
+   ```bash
+   silica memory-proxy upgrade 0.8.0
+   ```
+
+### Dokku Deployment (Manual)
+
+For manual deployment or customization:
 
 1. **Create app**:
    ```bash
