@@ -5,7 +5,7 @@ from datetime import datetime
 from unittest.mock import Mock, patch, MagicMock
 import httpx
 
-from silica.developer.tools.memory_proxy_client import (
+from silica.developer.memory.proxy_client import (
     MemoryProxyClient,
     VersionConflictError,
     NotFoundError,
@@ -18,7 +18,7 @@ from silica.developer.tools.memory_proxy_client import (
 @pytest.fixture
 def mock_httpx_client():
     """Mock httpx.Client for testing."""
-    with patch("silica.developer.tools.memory_proxy_client.httpx.Client") as mock:
+    with patch("silica.developer.memory.proxy_client.httpx.Client") as mock:
         client = MagicMock()
         mock.return_value = client
         yield client
@@ -45,7 +45,7 @@ def test_client_initialization(proxy_client):
 
 def test_base_url_trailing_slash_removed():
     """Test that trailing slash is removed from base URL."""
-    with patch("silica.developer.tools.memory_proxy_client.httpx.Client"):
+    with patch("silica.developer.memory.proxy_client.httpx.Client"):
         client = MemoryProxyClient(
             base_url="https://memory-proxy.example.com/", token="test"
         )
@@ -347,7 +347,7 @@ def test_get_sync_index_empty(proxy_client, mock_httpx_client):
 def test_context_manager():
     """Test client can be used as context manager."""
     with patch(
-        "silica.developer.tools.memory_proxy_client.httpx.Client"
+        "silica.developer.memory.proxy_client.httpx.Client"
     ) as mock_client_class:
         mock_client_instance = MagicMock()
         mock_client_class.return_value = mock_client_instance
