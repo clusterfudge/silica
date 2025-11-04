@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from silica.developer.tools.memory_proxy_config import MemoryProxyConfig
+from silica.developer.memory.proxy_config import MemoryProxyConfig
 
 
 @pytest.fixture
