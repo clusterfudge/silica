@@ -24,6 +24,10 @@ from silica.developer.memory.proxy_client import (
     VersionConflictError,
     NotFoundError,
 )
+from silica.developer.memory.conflict_resolver import (
+    ConflictResolver,
+    ConflictResolutionError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -564,6 +568,7 @@ class SyncEngine:
         client: MemoryProxyClient,
         local_base_dir: Path,
         namespace: str,
+        conflict_resolver: ConflictResolver | None = None,
     ):
         """Initialize sync engine.
 
@@ -571,10 +576,12 @@ class SyncEngine:
             client: Memory proxy client
             local_base_dir: Base directory for persona (e.g., ~/.silica/personas/default)
             namespace: Namespace for remote storage (typically persona name)
+            conflict_resolver: Conflict resolver for handling merge conflicts (optional)
         """
         self.client = client
         self.local_base_dir = Path(local_base_dir)
         self.namespace = namespace
+        self.conflict_resolver = conflict_resolver
 
         self.local_index = LocalIndex(local_base_dir)
         self.operation_log = SyncOperationLog(local_base_dir)
@@ -635,6 +642,103 @@ class SyncEngine:
 
         return plan
 
+    def resolve_conflicts(
+        self, conflicts: list[SyncOperationDetail]
+    ) -> list[SyncOperationDetail]:
+        """Resolve all conflicts using configured conflict resolver.
+
+        This method:
+        1. Downloads remote content for each conflict
+        2. Reads local content
+        3. Calls conflict resolver to merge
+        4. Writes merged content locally
+        5. Returns upload operations for merged files
+
+        Args:
+            conflicts: List of conflict operations
+
+        Returns:
+            List of upload operations for resolved (merged) files
+
+        Raises:
+            ValueError: If no conflict resolver configured
+            ConflictResolutionError: If conflict resolution fails
+        """
+        if not self.conflict_resolver:
+            raise ValueError(
+                "No conflict resolver configured. "
+                "Cannot resolve conflicts without a resolver."
+            )
+
+        if not conflicts:
+            return []
+
+        logger.info(f"Resolving {len(conflicts)} conflicts")
+        resolved_uploads = []
+
+        for conflict in conflicts:
+            try:
+                # Get local content
+                local_path = self.local_base_dir / conflict.path
+                if not local_path.exists():
+                    logger.warning(
+                        f"Local file missing during conflict resolution: {conflict.path}"
+                    )
+                    continue
+
+                local_content = local_path.read_bytes()
+
+                # Get remote content
+                remote_content, md5, last_mod, content_type, version = (
+                    self.client.read_blob(
+                        namespace=self.namespace,
+                        path=conflict.path,
+                    )
+                )
+
+                logger.debug(
+                    f"Resolving conflict for {conflict.path}: "
+                    f"local={len(local_content)} bytes, remote={len(remote_content)} bytes"
+                )
+
+                # Resolve conflict using LLM
+                merged_content = self.conflict_resolver.resolve_conflict(
+                    path=conflict.path,
+                    local_content=local_content,
+                    remote_content=remote_content,
+                )
+
+                # Write merged content locally
+                local_path.write_bytes(merged_content)
+
+                logger.info(
+                    f"Resolved conflict for {conflict.path}, "
+                    f"merged={len(merged_content)} bytes"
+                )
+
+                # Create upload operation for merged file
+                # Use remote version as expected_version since we just read it
+                resolved_uploads.append(
+                    SyncOperationDetail(
+                        type="upload",
+                        path=conflict.path,
+                        reason="Conflict resolved via LLM merge",
+                        remote_version=version,
+                    )
+                )
+
+            except Exception as e:
+                logger.error(f"Failed to resolve conflict for {conflict.path}: {e}")
+                raise ConflictResolutionError(
+                    f"Failed to resolve conflict for {conflict.path}: {e}"
+                ) from e
+
+        logger.info(
+            f"Successfully resolved {len(resolved_uploads)} conflicts, "
+            f"ready for upload"
+        )
+        return resolved_uploads
+
     def _determine_operation(
         self,
         path: str,
@@ -642,7 +746,14 @@ class SyncEngine:
         remote_entry: FileMetadata | None,
         index_entry: FileMetadata | None,
     ) -> SyncOperationDetail | None:
-        """Determine what operation is needed for a file.
+        """Determine what operation is needed for a file (simplified version-based logic).
+
+        This uses a version-based approach:
+        - remote.version > index.version means remote changed
+        - local.md5 != index.md5 means local changed
+        - If both changed → CONFLICT (resolve via LLM)
+        - If only one changed → sync that direction
+        - If neither changed → IN SYNC
 
         Args:
             path: File path
@@ -653,92 +764,87 @@ class SyncEngine:
         Returns:
             SyncOperationDetail if an operation is needed, None if in sync
         """
+        # Determine what changed using version-based comparison
+        local_changed = False
+        remote_changed = False
+
+        if local_file and index_entry:
+            # Local changed if MD5 differs from last known state
+            local_changed = local_file.md5 != index_entry.md5
+
+        if remote_entry and index_entry:
+            # Remote changed if version increased
+            remote_changed = remote_entry.version > index_entry.version
+
         # Case 1: File exists locally and remotely
         if local_file and remote_entry:
-            remote_deleted = remote_entry.is_deleted
-
-            if remote_deleted:
-                # Remote was deleted - should we delete local?
+            # Handle tombstones (deleted on remote but still in index)
+            if remote_entry.is_deleted:
                 if index_entry and not index_entry.is_deleted:
-                    # We knew about this file before, and now it's deleted remotely
+                    # Remote was deleted after we last synced
                     return SyncOperationDetail(
                         type="delete_local",
                         path=path,
                         reason="Deleted remotely",
-                        remote_md5=remote_entry.md5,
                         remote_version=remote_entry.version,
                     )
                 else:
-                    # Conflict: local file exists but remote is deleted
+                    # Conflict: local file exists but remote shows deleted
                     return SyncOperationDetail(
                         type="conflict",
                         path=path,
                         reason="Local file exists but remote is deleted",
                         local_md5=local_file.md5,
-                        remote_md5=remote_entry.md5,
+                        remote_version=remote_entry.version,
                     )
 
-            # Both exist and remote is not deleted - check if they match
+            # Files match - in sync
             if local_file.md5 == remote_entry.md5:
-                # Files are in sync - update index and continue
-                self.local_index.update_entry(
-                    path,
-                    FileMetadata(
-                        md5=remote_entry.md5,
-                        last_modified=datetime.fromisoformat(
-                            remote_entry.last_modified.isoformat()
-                        ),
-                        size=remote_entry.size,
-                        version=remote_entry.version,
-                        is_deleted=remote_entry.is_deleted,
-                    ),
-                )
+                # Update index to track current state
+                self.local_index.update_entry(path, remote_entry)
                 return None  # In sync
 
-            # Files differ - need to determine which is newer
-            if index_entry:
-                # We have history - check if either changed
-                local_changed = local_file.md5 != index_entry.md5
-                remote_changed = remote_entry.md5 != index_entry.md5
-
-                if local_changed and remote_changed:
-                    # Both changed since last sync - conflict!
-                    return SyncOperationDetail(
-                        type="conflict",
-                        path=path,
-                        reason="Both local and remote modified",
-                        local_md5=local_file.md5,
-                        remote_md5=remote_entry.md5,
-                        local_version=index_entry.version,
-                        remote_version=remote_entry.version,
-                    )
-                elif local_changed:
-                    # Only local changed - upload
-                    return SyncOperationDetail(
-                        type="upload",
-                        path=path,
-                        reason="Local file modified",
-                        local_md5=local_file.md5,
-                        remote_md5=remote_entry.md5,
-                        remote_version=remote_entry.version,
-                    )
-                elif remote_changed:
-                    # Only remote changed - download
-                    return SyncOperationDetail(
-                        type="download",
-                        path=path,
-                        reason="Remote file modified",
-                        local_md5=local_file.md5,
-                        remote_md5=remote_entry.md5,
-                        remote_version=remote_entry.version,
-                    )
-            else:
-                # No history - files differ but we don't know which is newer
-                # Default to conflict to be safe
+            # Files differ - determine action based on what changed
+            if local_changed and remote_changed:
+                # CONFLICT: Both sides modified since last sync
                 return SyncOperationDetail(
                     type="conflict",
                     path=path,
-                    reason="Files differ with no sync history",
+                    reason="Both local and remote modified since last sync",
+                    local_md5=local_file.md5,
+                    remote_md5=remote_entry.md5,
+                    local_version=index_entry.version if index_entry else None,
+                    remote_version=remote_entry.version,
+                )
+
+            elif local_changed:
+                # Only local changed - upload
+                return SyncOperationDetail(
+                    type="upload",
+                    path=path,
+                    reason="Local file modified",
+                    local_md5=local_file.md5,
+                    remote_version=remote_entry.version,
+                )
+
+            elif remote_changed:
+                # Only remote changed - download
+                return SyncOperationDetail(
+                    type="download",
+                    path=path,
+                    reason="Remote file modified",
+                    remote_md5=remote_entry.md5,
+                    remote_version=remote_entry.version,
+                )
+
+            else:
+                # Neither changed according to our tracking, but files differ
+                # This shouldn't happen if our index is consistent
+                # Treat as conflict to be safe
+                return SyncOperationDetail(
+                    type="conflict",
+                    path=path,
+                    reason="Files differ with no recorded changes (index may be stale)",
                     local_md5=local_file.md5,
                     remote_md5=remote_entry.md5,
                 )
@@ -801,28 +907,31 @@ class SyncEngine:
     ) -> SyncResult:
         """Execute sync plan.
 
+        Conflicts must be resolved before calling this method.
+        If any conflicts remain in the plan, this will raise an error.
+
         Args:
-            plan: Sync plan to execute
+            plan: Sync plan to execute (must not have conflicts)
             show_progress: Whether to show progress (requires rich)
 
         Returns:
             SyncResult with operation results
+
+        Raises:
+            ValueError: If plan contains unresolved conflicts
         """
         import time
 
         start_time = time.time()
         result = SyncResult()
 
-        # Skip conflicts
+        # FAIL if there are unresolved conflicts
         if plan.conflicts:
-            result.conflicts.extend(plan.conflicts)
-            for conflict in plan.conflicts:
-                self.operation_log.log_operation(
-                    "conflict",
-                    conflict.path,
-                    "conflict",
-                    error=conflict.reason,
-                )
+            raise ValueError(
+                f"Cannot execute sync with {len(plan.conflicts)} unresolved conflicts. "
+                f"Conflicts must be resolved before execution. "
+                f"Conflicting files: {[c.path for c in plan.conflicts]}"
+            )
 
         # Execute uploads
         for op in plan.upload:

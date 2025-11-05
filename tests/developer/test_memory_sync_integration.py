@@ -365,12 +365,16 @@ class TestEndToEndSync:
         plan2 = sync_engine.analyze_sync_operations()
         assert len(plan2.conflicts) == 1
         assert plan2.conflicts[0].path == "memory/conflict.md"
-        assert plan2.conflicts[0].reason == "Both local and remote modified"
+        assert (
+            plan2.conflicts[0].reason
+            == "Both local and remote modified since last sync"
+        )
 
-        # Execute sync - conflict should be skipped
-        result2 = sync_engine.execute_sync(plan2, show_progress=False)
-        assert len(result2.conflicts) == 1
-        assert len(result2.succeeded) == 0
+        # Executing sync with unresolved conflicts should raise ValueError
+        import pytest
+
+        with pytest.raises(ValueError, match="unresolved conflicts"):
+            sync_engine.execute_sync(plan2, show_progress=False)
 
     def test_multi_file_sync(self, sync_engine, temp_persona_dir, proxy_client):
         """Test syncing multiple files at once."""
