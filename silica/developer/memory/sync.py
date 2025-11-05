@@ -600,14 +600,15 @@ class SyncEngine:
 
         # Get remote index
         try:
-            remote_index = self.client.get_sync_index(self.namespace)
+            remote_index_response = self.client.get_sync_index(self.namespace)
         except Exception as e:
             logger.error(f"Failed to get remote index: {e}")
             # If we can't get remote index, we can't sync
             raise
 
-        # Convert remote index to dict for easier lookup
-        remote_files = {entry["path"]: entry for entry in remote_index}
+        # Convert remote index (SyncIndexResponse) to dict for easier lookup
+        # remote_index_response.files is a dict[str, FileMetadata]
+        remote_files = remote_index_response.files
 
         # Get all unique paths
         all_paths = set(local_files.keys()) | set(remote_files.keys())
@@ -638,7 +639,7 @@ class SyncEngine:
         self,
         path: str,
         local_file: FileInfo | None,
-        remote_entry: dict | None,
+        remote_entry: FileMetadata | None,
         index_entry: FileMetadata | None,
     ) -> SyncOperationDetail | None:
         """Determine what operation is needed for a file.
@@ -654,7 +655,7 @@ class SyncEngine:
         """
         # Case 1: File exists locally and remotely
         if local_file and remote_entry:
-            remote_deleted = remote_entry.get("is_deleted", False)
+            remote_deleted = remote_entry.is_deleted
 
             if remote_deleted:
                 # Remote was deleted - should we delete local?
@@ -664,8 +665,8 @@ class SyncEngine:
                         type="delete_local",
                         path=path,
                         reason="Deleted remotely",
-                        remote_md5=remote_entry.get("md5"),
-                        remote_version=remote_entry.get("version"),
+                        remote_md5=remote_entry.md5,
+                        remote_version=remote_entry.version,
                     )
                 else:
                     # Conflict: local file exists but remote is deleted
@@ -674,22 +675,22 @@ class SyncEngine:
                         path=path,
                         reason="Local file exists but remote is deleted",
                         local_md5=local_file.md5,
-                        remote_md5=remote_entry.get("md5"),
+                        remote_md5=remote_entry.md5,
                     )
 
             # Both exist and remote is not deleted - check if they match
-            if local_file.md5 == remote_entry.get("md5"):
+            if local_file.md5 == remote_entry.md5:
                 # Files are in sync - update index and continue
                 self.local_index.update_entry(
                     path,
                     FileMetadata(
-                        md5=remote_entry["md5"],
+                        md5=remote_entry.md5,
                         last_modified=datetime.fromisoformat(
-                            remote_entry["last_modified"]
+                            remote_entry.last_modified.isoformat()
                         ),
-                        size=remote_entry["size"],
-                        version=remote_entry["version"],
-                        is_deleted=remote_entry.get("is_deleted", False),
+                        size=remote_entry.size,
+                        version=remote_entry.version,
+                        is_deleted=remote_entry.is_deleted,
                     ),
                 )
                 return None  # In sync
@@ -698,7 +699,7 @@ class SyncEngine:
             if index_entry:
                 # We have history - check if either changed
                 local_changed = local_file.md5 != index_entry.md5
-                remote_changed = remote_entry.get("md5") != index_entry.md5
+                remote_changed = remote_entry.md5 != index_entry.md5
 
                 if local_changed and remote_changed:
                     # Both changed since last sync - conflict!
@@ -707,9 +708,9 @@ class SyncEngine:
                         path=path,
                         reason="Both local and remote modified",
                         local_md5=local_file.md5,
-                        remote_md5=remote_entry.get("md5"),
+                        remote_md5=remote_entry.md5,
                         local_version=index_entry.version,
-                        remote_version=remote_entry.get("version"),
+                        remote_version=remote_entry.version,
                     )
                 elif local_changed:
                     # Only local changed - upload
@@ -718,8 +719,8 @@ class SyncEngine:
                         path=path,
                         reason="Local file modified",
                         local_md5=local_file.md5,
-                        remote_md5=remote_entry.get("md5"),
-                        remote_version=remote_entry.get("version"),
+                        remote_md5=remote_entry.md5,
+                        remote_version=remote_entry.version,
                     )
                 elif remote_changed:
                     # Only remote changed - download
@@ -728,8 +729,8 @@ class SyncEngine:
                         path=path,
                         reason="Remote file modified",
                         local_md5=local_file.md5,
-                        remote_md5=remote_entry.get("md5"),
-                        remote_version=remote_entry.get("version"),
+                        remote_md5=remote_entry.md5,
+                        remote_version=remote_entry.version,
                     )
             else:
                 # No history - files differ but we don't know which is newer
@@ -739,7 +740,7 @@ class SyncEngine:
                     path=path,
                     reason="Files differ with no sync history",
                     local_md5=local_file.md5,
-                    remote_md5=remote_entry.get("md5"),
+                    remote_md5=remote_entry.md5,
                 )
 
         # Case 2: File only exists locally
@@ -764,7 +765,7 @@ class SyncEngine:
 
         # Case 3: File only exists remotely
         elif not local_file and remote_entry:
-            remote_deleted = remote_entry.get("is_deleted", False)
+            remote_deleted = remote_entry.is_deleted
 
             if remote_deleted:
                 # Remote tombstone only - nothing to do
@@ -776,8 +777,8 @@ class SyncEngine:
                     type="delete_remote",
                     path=path,
                     reason="Deleted locally",
-                    remote_md5=remote_entry.get("md5"),
-                    remote_version=remote_entry.get("version"),
+                    remote_md5=remote_entry.md5,
+                    remote_version=remote_entry.version,
                 )
             else:
                 # New remote file - download it
@@ -785,9 +786,9 @@ class SyncEngine:
                     type="download",
                     path=path,
                     reason="New remote file",
-                    remote_md5=remote_entry.get("md5"),
-                    remote_size=remote_entry.get("size"),
-                    remote_version=remote_entry.get("version"),
+                    remote_md5=remote_entry.md5,
+                    remote_size=remote_entry.size,
+                    remote_version=remote_entry.version,
                 )
 
         # Case 4: File exists in neither place (shouldn't happen)
@@ -915,12 +916,13 @@ class SyncEngine:
             md5 = self._calculate_md5(content)
 
             # Upload to remote
-            new_version = self.client.write_blob(
+            # write_blob returns tuple (is_new, md5, version)
+            is_new, returned_md5, new_version = self.client.write_blob(
                 namespace=self.namespace,
                 path=path,
                 content=content,
+                expected_version=remote_version,
                 content_type="application/octet-stream",
-                expected_version=remote_version if remote_version > 0 else None,
             )
 
             # Update local index
@@ -968,7 +970,8 @@ class SyncEngine:
 
         try:
             # Download from remote
-            content, metadata = self.client.read_blob(
+            # read_blob returns (content, md5, last_modified, content_type, version)
+            content, md5, last_modified, content_type, version = self.client.read_blob(
                 namespace=self.namespace, path=path
             )
 
@@ -979,18 +982,27 @@ class SyncEngine:
             with open(full_path, "wb") as f:
                 f.write(content)
 
+            # Create metadata object
+            file_metadata = FileMetadata(
+                md5=md5,
+                last_modified=last_modified,
+                size=len(content),
+                version=version,
+                is_deleted=False,
+            )
+
             # Update local index
-            self.local_index.update_entry(path, metadata)
+            self.local_index.update_entry(path, file_metadata)
 
             # Log success
             self.operation_log.log_operation(
                 "download",
                 path,
                 "success",
-                metadata={"version": metadata.version, "size": metadata.size},
+                metadata={"version": version, "size": len(content)},
             )
 
-            logger.info(f"Downloaded {path} (v{metadata.version})")
+            logger.info(f"Downloaded {path} (v{version})")
             return True
 
         except NotFoundError:
