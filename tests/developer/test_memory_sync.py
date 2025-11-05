@@ -16,8 +16,32 @@ from silica.developer.memory.sync import (
     SyncResult,
     SyncStatus,
 )
-from silica.developer.memory.proxy_client import FileMetadata, MemoryProxyClient
+from silica.developer.memory.proxy_client import (
+    FileMetadata,
+    MemoryProxyClient,
+    SyncIndexResponse,
+)
 from unittest.mock import AsyncMock
+
+
+def make_sync_index_response(files_list):
+    """Helper to create SyncIndexResponse from list of file dicts."""
+    files_dict = {}
+    for file_dict in files_list:
+        path = file_dict["path"]
+        files_dict[path] = FileMetadata(
+            md5=file_dict["md5"],
+            last_modified=datetime.fromisoformat(file_dict["last_modified"]),
+            size=file_dict["size"],
+            version=file_dict["version"],
+            is_deleted=file_dict.get("is_deleted", False),
+        )
+
+    return SyncIndexResponse(
+        files=files_dict,
+        index_last_modified=datetime.now(timezone.utc),
+        index_version=max((f.version for f in files_dict.values()), default=0),
+    )
 
 
 @pytest.fixture
@@ -435,7 +459,7 @@ class TestSyncEngine:
     def test_analyze_empty_sync(self, sync_engine, mock_client):
         """Test analyzing sync when everything is empty."""
         # Configure mock
-        mock_client.get_sync_index.return_value = []
+        mock_client.get_sync_index.return_value = make_sync_index_response([])
 
         plan = sync_engine.analyze_sync_operations()
 
@@ -453,7 +477,7 @@ class TestSyncEngine:
         test_file.write_text("test content")
 
         # Configure AsyncMock
-        mock_client.get_sync_index.return_value = []
+        mock_client.get_sync_index.return_value = make_sync_index_response([])
 
         plan = sync_engine.analyze_sync_operations()
 
@@ -465,16 +489,18 @@ class TestSyncEngine:
     def test_analyze_new_remote_file(self, sync_engine, mock_client):
         """Test analyzing sync with a new remote file."""
         # Configure AsyncMock
-        mock_client.get_sync_index.return_value = [
-            {
-                "path": "memory/remote.md",
-                "md5": "abc123",
-                "size": 100,
-                "version": 1000,
-                "last_modified": "2025-01-01T00:00:00Z",
-                "is_deleted": False,
-            }
-        ]
+        mock_client.get_sync_index.return_value = make_sync_index_response(
+            [
+                {
+                    "path": "memory/remote.md",
+                    "md5": "abc123",
+                    "size": 100,
+                    "version": 1000,
+                    "last_modified": "2025-01-01T00:00:00Z",
+                    "is_deleted": False,
+                }
+            ]
+        )
 
         plan = sync_engine.analyze_sync_operations()
 
@@ -498,16 +524,18 @@ class TestSyncEngine:
         md5 = hashlib.md5(content).hexdigest()
 
         # Configure AsyncMock
-        mock_client.get_sync_index.return_value = [
-            {
-                "path": "memory/test.md",
-                "md5": md5,
-                "size": len(content),
-                "version": 1000,
-                "last_modified": "2025-01-01T00:00:00Z",
-                "is_deleted": False,
-            }
-        ]
+        mock_client.get_sync_index.return_value = make_sync_index_response(
+            [
+                {
+                    "path": "memory/test.md",
+                    "md5": md5,
+                    "size": len(content),
+                    "version": 1000,
+                    "last_modified": "2025-01-01T00:00:00Z",
+                    "is_deleted": False,
+                }
+            ]
+        )
 
         plan = sync_engine.analyze_sync_operations()
 
@@ -541,16 +569,18 @@ class TestSyncEngine:
         sync_engine.local_index.save()  # Save so it persists across load() calls
 
         # Configure mock
-        mock_client.get_sync_index.return_value = [
-            {
-                "path": "memory/test.md",
-                "md5": "old_md5",
-                "size": 50,
-                "version": 1000,
-                "last_modified": "2025-01-01T00:00:00Z",
-                "is_deleted": False,
-            }
-        ]
+        mock_client.get_sync_index.return_value = make_sync_index_response(
+            [
+                {
+                    "path": "memory/test.md",
+                    "md5": "old_md5",
+                    "size": 50,
+                    "version": 1000,
+                    "last_modified": "2025-01-01T00:00:00Z",
+                    "is_deleted": False,
+                }
+            ]
+        )
 
         plan = sync_engine.analyze_sync_operations()
 
@@ -586,16 +616,18 @@ class TestSyncEngine:
         sync_engine.local_index.save()  # Save so it persists across load() calls
 
         # Configure mock
-        mock_client.get_sync_index.return_value = [
-            {
-                "path": "memory/test.md",
-                "md5": "new_remote_md5",
-                "size": 100,
-                "version": 1001,
-                "last_modified": "2025-01-02T00:00:00Z",
-                "is_deleted": False,
-            }
-        ]
+        mock_client.get_sync_index.return_value = make_sync_index_response(
+            [
+                {
+                    "path": "memory/test.md",
+                    "md5": "new_remote_md5",
+                    "size": 100,
+                    "version": 1001,
+                    "last_modified": "2025-01-02T00:00:00Z",
+                    "is_deleted": False,
+                }
+            ]
+        )
 
         plan = sync_engine.analyze_sync_operations()
 
@@ -631,23 +663,27 @@ class TestSyncEngine:
         sync_engine.local_index.save()  # Save so it persists across load() calls
 
         # Configure mock
-        mock_client.get_sync_index.return_value = [
-            {
-                "path": "memory/test.md",
-                "md5": "new_remote_md5",
-                "size": 100,
-                "version": 1001,
-                "last_modified": "2025-01-02T00:00:00Z",
-                "is_deleted": False,
-            }
-        ]
+        mock_client.get_sync_index.return_value = make_sync_index_response(
+            [
+                {
+                    "path": "memory/test.md",
+                    "md5": "new_remote_md5",
+                    "size": 100,
+                    "version": 1001,
+                    "last_modified": "2025-01-02T00:00:00Z",
+                    "is_deleted": False,
+                }
+            ]
+        )
 
         plan = sync_engine.analyze_sync_operations()
 
         assert plan.has_conflicts
         assert len(plan.conflicts) == 1
         assert plan.conflicts[0].path == "memory/test.md"
-        assert plan.conflicts[0].reason == "Both local and remote modified"
+        assert (
+            plan.conflicts[0].reason == "Both local and remote modified since last sync"
+        )
 
     def test_upload_file(self, sync_engine, mock_client, temp_dir):
         """Test uploading a file."""
@@ -659,7 +695,7 @@ class TestSyncEngine:
         test_file.write_bytes(content)
 
         # Configure AsyncMock
-        mock_client.write_blob.return_value = 1001
+        mock_client.write_blob.return_value = (True, "mock_md5", 1001)
 
         result = sync_engine.upload_file("memory/test.md", 1000)
 
@@ -681,16 +717,20 @@ class TestSyncEngine:
     def test_download_file(self, sync_engine, mock_client, temp_dir):
         """Test downloading a file."""
         content = b"downloaded content"
-        metadata = FileMetadata(
-            md5="abc123",
-            last_modified=datetime.now(timezone.utc),
-            size=len(content),
-            version=1000,
-            is_deleted=False,
-        )
+        md5 = "abc123"
+        last_modified = datetime.now(timezone.utc)
+        content_type = "text/markdown"
+        version = 1000
 
         # Configure AsyncMock
-        mock_client.read_blob.return_value = (content, metadata)
+        # read_blob returns (content, md5, last_modified, content_type, version)
+        mock_client.read_blob.return_value = (
+            content,
+            md5,
+            last_modified,
+            content_type,
+            version,
+        )
 
         result = sync_engine.download_file("memory/test.md")
 
@@ -773,7 +813,7 @@ class TestSyncEngine:
         test_file.write_text("test content")
 
         # Configure AsyncMock
-        mock_client.write_blob.return_value = 1001
+        mock_client.write_blob.return_value = (True, "mock_md5", 1001)
 
         # Create plan
         plan = SyncPlan(
