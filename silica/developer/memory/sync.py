@@ -18,9 +18,109 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from silica.developer.memory.proxy_client import FileMetadata
+from silica.developer.memory.proxy_client import (
+    FileMetadata,
+    MemoryProxyClient,
+    VersionConflictError,
+    NotFoundError,
+)
+from silica.developer.memory.conflict_resolver import (
+    ConflictResolver,
+    ConflictResolutionError,
+)
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class SyncOperationDetail:
+    """Details about a single sync operation."""
+
+    type: str  # "upload", "download", "delete_local", "delete_remote"
+    path: str
+    reason: str
+    local_md5: str | None = None
+    remote_md5: str | None = None
+    local_version: int | None = None
+    remote_version: int | None = None
+    local_size: int | None = None
+    remote_size: int | None = None
+
+
+@dataclass
+class SyncPlan:
+    """Plan for sync operations."""
+
+    upload: list[SyncOperationDetail] = field(default_factory=list)
+    download: list[SyncOperationDetail] = field(default_factory=list)
+    delete_local: list[SyncOperationDetail] = field(default_factory=list)
+    delete_remote: list[SyncOperationDetail] = field(default_factory=list)
+    conflicts: list[SyncOperationDetail] = field(default_factory=list)
+
+    @property
+    def total_operations(self) -> int:
+        """Get total number of operations in plan."""
+        return (
+            len(self.upload)
+            + len(self.download)
+            + len(self.delete_local)
+            + len(self.delete_remote)
+        )
+
+    @property
+    def has_conflicts(self) -> bool:
+        """Check if plan has any conflicts."""
+        return len(self.conflicts) > 0
+
+
+@dataclass
+class SyncResult:
+    """Result of sync execution."""
+
+    succeeded: list[SyncOperationDetail] = field(default_factory=list)
+    failed: list[SyncOperationDetail] = field(default_factory=list)
+    conflicts: list[SyncOperationDetail] = field(default_factory=list)
+    skipped: list[SyncOperationDetail] = field(default_factory=list)
+    duration: float = 0.0
+
+    @property
+    def total(self) -> int:
+        """Get total number of operations attempted."""
+        return (
+            len(self.succeeded)
+            + len(self.failed)
+            + len(self.conflicts)
+            + len(self.skipped)
+        )
+
+    @property
+    def success_rate(self) -> float:
+        """Calculate success rate as percentage."""
+        if self.total == 0:
+            return 100.0
+        return (len(self.succeeded) / self.total) * 100.0
+
+
+@dataclass
+class SyncStatus:
+    """Current sync status for status command."""
+
+    in_sync: list[str] = field(default_factory=list)
+    pending_upload: list[dict] = field(default_factory=list)
+    pending_download: list[dict] = field(default_factory=list)
+    failed: list[dict] = field(default_factory=list)
+    conflicts: list[dict] = field(default_factory=list)
+    last_sync: datetime | None = None
+
+    @property
+    def needs_sync(self) -> bool:
+        """Check if any action is needed."""
+        return bool(
+            self.pending_upload
+            or self.pending_download
+            or self.failed
+            or self.conflicts
+        )
 
 
 class LocalIndex:
@@ -443,3 +543,772 @@ class SyncOperationLog:
                 raise
 
         return removed_count
+
+
+@dataclass
+class FileInfo:
+    """Information about a local file."""
+
+    path: str
+    md5: str
+    size: int
+    last_modified: datetime
+
+
+class SyncEngine:
+    """Orchestrate sync operations between local and remote storage.
+
+    The sync engine analyzes the differences between local files, the local index
+    (which tracks the last known remote state), and the actual remote state to
+    determine what operations need to be performed.
+    """
+
+    def __init__(
+        self,
+        client: MemoryProxyClient,
+        local_base_dir: Path,
+        namespace: str,
+        conflict_resolver: ConflictResolver | None = None,
+    ):
+        """Initialize sync engine.
+
+        Args:
+            client: Memory proxy client
+            local_base_dir: Base directory for persona (e.g., ~/.silica/personas/default)
+            namespace: Namespace for remote storage (typically persona name)
+            conflict_resolver: Conflict resolver for handling merge conflicts (optional)
+        """
+        self.client = client
+        self.local_base_dir = Path(local_base_dir)
+        self.namespace = namespace
+        self.conflict_resolver = conflict_resolver
+
+        self.local_index = LocalIndex(local_base_dir)
+        self.operation_log = SyncOperationLog(local_base_dir)
+
+    def analyze_sync_operations(self) -> SyncPlan:
+        """Analyze local vs remote and create sync plan.
+
+        This method compares:
+        1. Local filesystem state
+        2. Local index (last known remote state)
+        3. Current remote state
+
+        Returns:
+            SyncPlan with operations to perform
+        """
+        plan = SyncPlan()
+
+        # Load local index
+        self.local_index.load()
+
+        # Scan local files
+        local_files = self._scan_local_files()
+
+        # Get remote index
+        try:
+            remote_index_response = self.client.get_sync_index(self.namespace)
+        except Exception as e:
+            logger.error(f"Failed to get remote index: {e}")
+            # If we can't get remote index, we can't sync
+            raise
+
+        # Convert remote index (SyncIndexResponse) to dict for easier lookup
+        # remote_index_response.files is a dict[str, FileMetadata]
+        remote_files = remote_index_response.files
+
+        # Get all unique paths
+        all_paths = set(local_files.keys()) | set(remote_files.keys())
+
+        for path in all_paths:
+            local_file = local_files.get(path)
+            remote_entry = remote_files.get(path)
+            index_entry = self.local_index.get_entry(path)
+
+            # Determine what operation is needed
+            op = self._determine_operation(path, local_file, remote_entry, index_entry)
+
+            if op:
+                if op.type == "upload":
+                    plan.upload.append(op)
+                elif op.type == "download":
+                    plan.download.append(op)
+                elif op.type == "delete_local":
+                    plan.delete_local.append(op)
+                elif op.type == "delete_remote":
+                    plan.delete_remote.append(op)
+                elif op.type == "conflict":
+                    plan.conflicts.append(op)
+
+        return plan
+
+    def resolve_conflicts(
+        self, conflicts: list[SyncOperationDetail]
+    ) -> list[SyncOperationDetail]:
+        """Resolve all conflicts using configured conflict resolver.
+
+        This method:
+        1. Downloads remote content for each conflict
+        2. Reads local content
+        3. Calls conflict resolver to merge
+        4. Writes merged content locally
+        5. Returns upload operations for merged files
+
+        Args:
+            conflicts: List of conflict operations
+
+        Returns:
+            List of upload operations for resolved (merged) files
+
+        Raises:
+            ValueError: If no conflict resolver configured
+            ConflictResolutionError: If conflict resolution fails
+        """
+        if not self.conflict_resolver:
+            raise ValueError(
+                "No conflict resolver configured. "
+                "Cannot resolve conflicts without a resolver."
+            )
+
+        if not conflicts:
+            return []
+
+        logger.info(f"Resolving {len(conflicts)} conflicts")
+        resolved_uploads = []
+
+        for conflict in conflicts:
+            try:
+                # Get local content
+                local_path = self.local_base_dir / conflict.path
+                if not local_path.exists():
+                    logger.warning(
+                        f"Local file missing during conflict resolution: {conflict.path}"
+                    )
+                    continue
+
+                local_content = local_path.read_bytes()
+
+                # Get remote content
+                remote_content, md5, last_mod, content_type, version = (
+                    self.client.read_blob(
+                        namespace=self.namespace,
+                        path=conflict.path,
+                    )
+                )
+
+                logger.debug(
+                    f"Resolving conflict for {conflict.path}: "
+                    f"local={len(local_content)} bytes, remote={len(remote_content)} bytes"
+                )
+
+                # Get file metadata for LLM context
+                local_metadata = {"path": str(local_path)}
+                if local_path.exists():
+                    local_metadata["mtime"] = local_path.stat().st_mtime
+
+                remote_metadata = {
+                    "last_modified": last_mod.isoformat() if last_mod else None,
+                    "version": version,
+                    "md5": md5,
+                }
+
+                # Resolve conflict using LLM
+                merged_content = self.conflict_resolver.resolve_conflict(
+                    path=conflict.path,
+                    local_content=local_content,
+                    remote_content=remote_content,
+                    local_metadata=local_metadata,
+                    remote_metadata=remote_metadata,
+                )
+
+                # Write merged content locally
+                local_path.write_bytes(merged_content)
+
+                logger.info(
+                    f"Resolved conflict for {conflict.path}, "
+                    f"merged={len(merged_content)} bytes"
+                )
+
+                # Create upload operation for merged file
+                # Use remote version as expected_version since we just read it
+                resolved_uploads.append(
+                    SyncOperationDetail(
+                        type="upload",
+                        path=conflict.path,
+                        reason="Conflict resolved via LLM merge",
+                        remote_version=version,
+                    )
+                )
+
+            except Exception as e:
+                logger.error(f"Failed to resolve conflict for {conflict.path}: {e}")
+                raise ConflictResolutionError(
+                    f"Failed to resolve conflict for {conflict.path}: {e}"
+                ) from e
+
+        logger.info(
+            f"Successfully resolved {len(resolved_uploads)} conflicts, "
+            f"ready for upload"
+        )
+        return resolved_uploads
+
+    def _determine_operation(
+        self,
+        path: str,
+        local_file: FileInfo | None,
+        remote_entry: FileMetadata | None,
+        index_entry: FileMetadata | None,
+    ) -> SyncOperationDetail | None:
+        """Determine what operation is needed for a file (simplified version-based logic).
+
+        This uses a version-based approach:
+        - remote.version > index.version means remote changed
+        - local.md5 != index.md5 means local changed
+        - If both changed → CONFLICT (resolve via LLM)
+        - If only one changed → sync that direction
+        - If neither changed → IN SYNC
+
+        Args:
+            path: File path
+            local_file: Local file info (None if doesn't exist)
+            remote_entry: Remote metadata (None if doesn't exist)
+            index_entry: Last known remote state (None if never synced)
+
+        Returns:
+            SyncOperationDetail if an operation is needed, None if in sync
+        """
+        # Determine what changed using version-based comparison
+        local_changed = False
+        remote_changed = False
+
+        if local_file and index_entry:
+            # Local changed if MD5 differs from last known state
+            local_changed = local_file.md5 != index_entry.md5
+
+        if remote_entry and index_entry:
+            # Remote changed if version increased
+            remote_changed = remote_entry.version > index_entry.version
+
+        # Case 1: File exists locally and remotely
+        if local_file and remote_entry:
+            # Handle tombstones (deleted on remote but still in index)
+            if remote_entry.is_deleted:
+                if index_entry and not index_entry.is_deleted:
+                    # Remote was deleted after we last synced
+                    return SyncOperationDetail(
+                        type="delete_local",
+                        path=path,
+                        reason="Deleted remotely",
+                        remote_version=remote_entry.version,
+                    )
+                else:
+                    # Conflict: local file exists but remote shows deleted
+                    return SyncOperationDetail(
+                        type="conflict",
+                        path=path,
+                        reason="Local file exists but remote is deleted",
+                        local_md5=local_file.md5,
+                        remote_version=remote_entry.version,
+                    )
+
+            # Files match - in sync
+            if local_file.md5 == remote_entry.md5:
+                # Update index to track current state
+                self.local_index.update_entry(path, remote_entry)
+                return None  # In sync
+
+            # Files differ - determine action based on what changed
+            if local_changed and remote_changed:
+                # CONFLICT: Both sides modified since last sync
+                return SyncOperationDetail(
+                    type="conflict",
+                    path=path,
+                    reason="Both local and remote modified since last sync",
+                    local_md5=local_file.md5,
+                    remote_md5=remote_entry.md5,
+                    local_version=index_entry.version if index_entry else None,
+                    remote_version=remote_entry.version,
+                )
+
+            elif local_changed:
+                # Only local changed - upload
+                return SyncOperationDetail(
+                    type="upload",
+                    path=path,
+                    reason="Local file modified",
+                    local_md5=local_file.md5,
+                    remote_version=remote_entry.version,
+                )
+
+            elif remote_changed:
+                # Only remote changed - download
+                return SyncOperationDetail(
+                    type="download",
+                    path=path,
+                    reason="Remote file modified",
+                    remote_md5=remote_entry.md5,
+                    remote_version=remote_entry.version,
+                )
+
+            else:
+                # Neither changed according to our tracking, but files differ
+                # This shouldn't happen if our index is consistent
+                # Treat as conflict to be safe
+                return SyncOperationDetail(
+                    type="conflict",
+                    path=path,
+                    reason="Files differ with no recorded changes (index may be stale)",
+                    local_md5=local_file.md5,
+                    remote_md5=remote_entry.md5,
+                )
+
+        # Case 2: File only exists locally
+        elif local_file and not remote_entry:
+            if index_entry and not index_entry.is_deleted:
+                # We knew about this file remotely before - it was deleted remotely
+                return SyncOperationDetail(
+                    type="delete_local",
+                    path=path,
+                    reason="Deleted remotely",
+                    local_md5=local_file.md5,
+                )
+            else:
+                # New local file - upload it
+                return SyncOperationDetail(
+                    type="upload",
+                    path=path,
+                    reason="New local file",
+                    local_md5=local_file.md5,
+                    local_size=local_file.size,
+                )
+
+        # Case 3: File only exists remotely
+        elif not local_file and remote_entry:
+            remote_deleted = remote_entry.is_deleted
+
+            if remote_deleted:
+                # Remote tombstone only - nothing to do
+                return None
+
+            if index_entry:
+                # We knew about this file - local was deleted
+                return SyncOperationDetail(
+                    type="delete_remote",
+                    path=path,
+                    reason="Deleted locally",
+                    remote_md5=remote_entry.md5,
+                    remote_version=remote_entry.version,
+                )
+            else:
+                # New remote file - download it
+                return SyncOperationDetail(
+                    type="download",
+                    path=path,
+                    reason="New remote file",
+                    remote_md5=remote_entry.md5,
+                    remote_size=remote_entry.size,
+                    remote_version=remote_entry.version,
+                )
+
+        # Case 4: File exists in neither place (shouldn't happen)
+        return None
+
+    def execute_sync(
+        self,
+        plan: SyncPlan,
+        show_progress: bool = True,
+    ) -> SyncResult:
+        """Execute sync plan.
+
+        Conflicts must be resolved before calling this method.
+        If any conflicts remain in the plan, this will raise an error.
+
+        Args:
+            plan: Sync plan to execute (must not have conflicts)
+            show_progress: Whether to show progress (requires rich)
+
+        Returns:
+            SyncResult with operation results
+
+        Raises:
+            ValueError: If plan contains unresolved conflicts
+        """
+        import time
+
+        start_time = time.time()
+        result = SyncResult()
+
+        # FAIL if there are unresolved conflicts
+        if plan.conflicts:
+            raise ValueError(
+                f"Cannot execute sync with {len(plan.conflicts)} unresolved conflicts. "
+                f"Conflicts must be resolved before execution. "
+                f"Conflicting files: {[c.path for c in plan.conflicts]}"
+            )
+
+        # Execute uploads
+        for op in plan.upload:
+            try:
+                success = self.upload_file(op.path, op.remote_version or 0)
+                if success:
+                    result.succeeded.append(op)
+                else:
+                    result.failed.append(op)
+            except Exception as e:
+                logger.error(f"Upload failed for {op.path}: {e}")
+                result.failed.append(op)
+                self.operation_log.log_operation(
+                    "upload", op.path, "failed", error=str(e)
+                )
+
+        # Execute downloads
+        for op in plan.download:
+            try:
+                success = self.download_file(op.path)
+                if success:
+                    result.succeeded.append(op)
+                else:
+                    result.failed.append(op)
+            except Exception as e:
+                logger.error(f"Download failed for {op.path}: {e}")
+                result.failed.append(op)
+                self.operation_log.log_operation(
+                    "download", op.path, "failed", error=str(e)
+                )
+
+        # Execute local deletes
+        for op in plan.delete_local:
+            try:
+                success = self.delete_local(op.path)
+                if success:
+                    result.succeeded.append(op)
+                else:
+                    result.failed.append(op)
+            except Exception as e:
+                logger.error(f"Delete local failed for {op.path}: {e}")
+                result.failed.append(op)
+                self.operation_log.log_operation(
+                    "delete_local", op.path, "failed", error=str(e)
+                )
+
+        # Execute remote deletes
+        for op in plan.delete_remote:
+            try:
+                success = self.delete_remote(op.path, op.remote_version or 0)
+                if success:
+                    result.succeeded.append(op)
+                else:
+                    result.failed.append(op)
+            except Exception as e:
+                logger.error(f"Delete remote failed for {op.path}: {e}")
+                result.failed.append(op)
+                self.operation_log.log_operation(
+                    "delete_remote", op.path, "failed", error=str(e)
+                )
+
+        result.duration = time.time() - start_time
+
+        # Save updated index
+        self.local_index.save()
+
+        return result
+
+    def upload_file(self, path: str, remote_version: int) -> bool:
+        """Upload file to remote with conditional write.
+
+        Args:
+            path: File path relative to base directory
+            remote_version: Expected remote version (0 for new files)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        full_path = self.local_base_dir / path
+
+        if not full_path.exists():
+            logger.error(f"Cannot upload {path}: file not found")
+            return False
+
+        try:
+            # Read file content
+            with open(full_path, "rb") as f:
+                content = f.read()
+
+            # Calculate MD5
+            md5 = self._calculate_md5(content)
+
+            # Upload to remote
+            # write_blob returns tuple (is_new, md5, version)
+            is_new, returned_md5, new_version = self.client.write_blob(
+                namespace=self.namespace,
+                path=path,
+                content=content,
+                expected_version=remote_version,
+                content_type="application/octet-stream",
+            )
+
+            # Update local index
+            self.local_index.update_entry(
+                path,
+                FileMetadata(
+                    md5=md5,
+                    last_modified=datetime.now(timezone.utc),
+                    size=len(content),
+                    version=new_version,
+                    is_deleted=False,
+                ),
+            )
+
+            # Log success
+            self.operation_log.log_operation(
+                "upload",
+                path,
+                "success",
+                metadata={"version": new_version, "size": len(content)},
+            )
+
+            logger.info(f"Uploaded {path} (v{new_version})")
+            return True
+
+        except VersionConflictError as e:
+            logger.warning(f"Version conflict uploading {path}: {e}")
+            self.operation_log.log_operation("upload", path, "conflict", error=str(e))
+            return False
+        except Exception as e:
+            logger.error(f"Failed to upload {path}: {e}")
+            self.operation_log.log_operation("upload", path, "failed", error=str(e))
+            return False
+
+    def download_file(self, path: str) -> bool:
+        """Download file from remote.
+
+        Args:
+            path: File path relative to base directory
+
+        Returns:
+            True if successful, False otherwise
+        """
+        full_path = self.local_base_dir / path
+
+        try:
+            # Download from remote
+            # read_blob returns (content, md5, last_modified, content_type, version)
+            content, md5, last_modified, content_type, version = self.client.read_blob(
+                namespace=self.namespace, path=path
+            )
+
+            # Ensure directory exists
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Write file
+            with open(full_path, "wb") as f:
+                f.write(content)
+
+            # Create metadata object
+            file_metadata = FileMetadata(
+                md5=md5,
+                last_modified=last_modified,
+                size=len(content),
+                version=version,
+                is_deleted=False,
+            )
+
+            # Update local index
+            self.local_index.update_entry(path, file_metadata)
+
+            # Log success
+            self.operation_log.log_operation(
+                "download",
+                path,
+                "success",
+                metadata={"version": version, "size": len(content)},
+            )
+
+            logger.info(f"Downloaded {path} (v{version})")
+            return True
+
+        except NotFoundError:
+            logger.warning(f"File not found remotely: {path}")
+            self.operation_log.log_operation(
+                "download", path, "failed", error="Not found"
+            )
+            return False
+        except Exception as e:
+            logger.error(f"Failed to download {path}: {e}")
+            self.operation_log.log_operation("download", path, "failed", error=str(e))
+            return False
+
+    def delete_local(self, path: str) -> bool:
+        """Delete local file.
+
+        Args:
+            path: File path relative to base directory
+
+        Returns:
+            True if successful, False otherwise
+        """
+        full_path = self.local_base_dir / path
+
+        try:
+            if full_path.exists():
+                full_path.unlink()
+
+            # Update local index (don't remove, mark as deleted to track remote state)
+            index_entry = self.local_index.get_entry(path)
+            if index_entry:
+                index_entry.is_deleted = True
+                self.local_index.update_entry(path, index_entry)
+
+            # Log success
+            self.operation_log.log_operation("delete_local", path, "success")
+
+            logger.info(f"Deleted local file {path}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to delete local {path}: {e}")
+            self.operation_log.log_operation(
+                "delete_local", path, "failed", error=str(e)
+            )
+            return False
+
+    def delete_remote(self, path: str, remote_version: int) -> bool:
+        """Delete remote file (create tombstone).
+
+        Args:
+            path: File path relative to base directory
+            remote_version: Expected remote version
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Delete on remote (creates tombstone)
+            new_version = self.client.delete_blob(
+                namespace=self.namespace,
+                path=path,
+                expected_version=remote_version,
+            )
+
+            # Update local index
+            self.local_index.update_entry(
+                path,
+                FileMetadata(
+                    md5="",
+                    last_modified=datetime.now(timezone.utc),
+                    size=0,
+                    version=new_version,
+                    is_deleted=True,
+                ),
+            )
+
+            # Log success
+            self.operation_log.log_operation(
+                "delete_remote",
+                path,
+                "success",
+                metadata={"version": new_version},
+            )
+
+            logger.info(f"Deleted remote file {path} (v{new_version})")
+            return True
+
+        except VersionConflictError as e:
+            logger.warning(f"Version conflict deleting {path}: {e}")
+            self.operation_log.log_operation(
+                "delete_remote", path, "conflict", error=str(e)
+            )
+            return False
+        except Exception as e:
+            logger.error(f"Failed to delete remote {path}: {e}")
+            self.operation_log.log_operation(
+                "delete_remote", path, "failed", error=str(e)
+            )
+            return False
+
+    def get_sync_status(self) -> SyncStatus:
+        """Get detailed sync status.
+
+        Returns:
+            SyncStatus with current state
+        """
+        # This would be implemented to check current state
+        # For now, return empty status
+        return SyncStatus()
+
+    def _scan_local_files(self) -> dict[str, FileInfo]:
+        """Scan local filesystem for files to sync.
+
+        Returns:
+            Dictionary mapping paths to FileInfo
+        """
+        files = {}
+
+        # Directories to scan
+        scan_dirs = [
+            self.local_base_dir / "memory",
+            self.local_base_dir / "history",
+        ]
+
+        # Also check for persona.md in base directory
+        persona_file = self.local_base_dir / "persona.md"
+        if persona_file.exists() and persona_file.is_file():
+            with open(persona_file, "rb") as f:
+                content = f.read()
+            files["persona.md"] = FileInfo(
+                path="persona.md",
+                md5=self._calculate_md5(content),
+                size=len(content),
+                last_modified=datetime.fromtimestamp(
+                    persona_file.stat().st_mtime, tz=timezone.utc
+                ),
+            )
+
+        # Scan directories
+        for scan_dir in scan_dirs:
+            if not scan_dir.exists():
+                continue
+
+            for file_path in scan_dir.rglob("*"):
+                if not file_path.is_file():
+                    continue
+
+                # Skip sync metadata files
+                if file_path.name in [".sync-index.json", ".sync-log.jsonl"]:
+                    continue
+
+                # Get relative path
+                try:
+                    rel_path = file_path.relative_to(self.local_base_dir)
+                except ValueError:
+                    continue
+
+                # Read file and calculate MD5
+                try:
+                    with open(file_path, "rb") as f:
+                        content = f.read()
+
+                    files[str(rel_path)] = FileInfo(
+                        path=str(rel_path),
+                        md5=self._calculate_md5(content),
+                        size=len(content),
+                        last_modified=datetime.fromtimestamp(
+                            file_path.stat().st_mtime, tz=timezone.utc
+                        ),
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to read {rel_path}: {e}")
+                    continue
+
+        return files
+
+    def _calculate_md5(self, content: bytes) -> str:
+        """Calculate MD5 hash of content.
+
+        Args:
+            content: File content
+
+        Returns:
+            MD5 hash as hex string
+        """
+        return hashlib.md5(content).hexdigest()
