@@ -701,11 +701,24 @@ class SyncEngine:
                     f"local={len(local_content)} bytes, remote={len(remote_content)} bytes"
                 )
 
+                # Get file metadata for LLM context
+                local_metadata = {"path": str(local_path)}
+                if local_path.exists():
+                    local_metadata["mtime"] = local_path.stat().st_mtime
+
+                remote_metadata = {
+                    "last_modified": last_mod.isoformat() if last_mod else None,
+                    "version": version,
+                    "md5": md5,
+                }
+
                 # Resolve conflict using LLM
                 merged_content = self.conflict_resolver.resolve_conflict(
                     path=conflict.path,
                     local_content=local_content,
                     remote_content=remote_content,
+                    local_metadata=local_metadata,
+                    remote_metadata=remote_metadata,
                 )
 
                 # Write merged content locally

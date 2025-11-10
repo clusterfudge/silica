@@ -5,7 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from silica.developer.memory.conflict_resolver import (
-    MockConflictResolver,
+    ConflictResolver,
     ConflictResolutionError,
 )
 from silica.developer.memory.sync import SyncEngine
@@ -13,6 +13,36 @@ from silica.developer.memory.sync_coordinator import sync_with_retry
 from silica.developer.memory.exceptions import SyncExhaustedError
 from unittest.mock import patch
 from starlette.testclient import TestClient
+
+
+class MockConflictResolver(ConflictResolver):
+    """Mock conflict resolver for testing."""
+
+    def __init__(self, strategy: str = "local"):
+        """Initialize mock resolver.
+
+        Args:
+            strategy: Resolution strategy - "local", "remote", or "error"
+        """
+        if strategy not in ("local", "remote", "error"):
+            raise ValueError(f"Invalid strategy: {strategy}")
+        self.strategy = strategy
+
+    def resolve_conflict(
+        self,
+        path: str,
+        local_content: bytes,
+        remote_content: bytes,
+        local_metadata: dict | None = None,
+        remote_metadata: dict | None = None,
+    ) -> bytes:
+        """Resolve conflict based on strategy."""
+        if self.strategy == "error":
+            raise ConflictResolutionError(f"Mock error for {path}")
+        elif self.strategy == "local":
+            return local_content
+        else:  # remote
+            return remote_content
 
 
 class TestConflictResolver:
