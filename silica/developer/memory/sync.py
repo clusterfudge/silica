@@ -814,7 +814,17 @@ class SyncEngine:
             # Files match - in sync
             if local_file.md5 == remote_entry.md5:
                 # Update index to track current state
-                self.local_index.update_entry(path, remote_entry)
+                # Use local file's mtime for optimization, but remote version/deleted status
+                self.local_index.update_entry(
+                    path,
+                    FileMetadata(
+                        md5=local_file.md5,
+                        last_modified=local_file.last_modified,  # Use local mtime!
+                        size=local_file.size,
+                        version=remote_entry.version,
+                        is_deleted=False,
+                    ),
+                )
                 return None  # In sync
 
             # Files differ - determine action based on what changed
@@ -1287,6 +1297,8 @@ class SyncEngine:
     def _scan_local_files(self) -> dict[str, FileInfo]:
         """Scan local filesystem for files to sync.
 
+        Optimized to avoid reading unchanged files by checking mtime against index.
+
         Returns:
             Dictionary mapping paths to FileInfo
         """
@@ -1298,19 +1310,61 @@ class SyncEngine:
             self.local_base_dir / "history",
         ]
 
+        # Helper to process a single file
+        def process_file(file_path: Path, rel_path: str):
+            try:
+                stat_info = file_path.stat()
+                file_size = stat_info.st_size
+                file_mtime = datetime.fromtimestamp(stat_info.st_mtime, tz=timezone.utc)
+
+                # Check if we have this file in the index
+                index_entry = self.local_index.get_entry(rel_path)
+
+                # Fast path: If file hasn't been modified recently and size matches, use cached MD5
+                # Only use cache if file is "stable" (mtime > 2 seconds old) to catch rapid edits
+                if index_entry and not index_entry.is_deleted:
+                    time_since_mod = (
+                        datetime.now(timezone.utc) - file_mtime
+                    ).total_seconds()
+                    mtime_diff = abs(
+                        (file_mtime - index_entry.last_modified).total_seconds()
+                    )
+
+                    # Use cached MD5 if:
+                    # 1. File hasn't been touched in over 2 seconds (stable file)
+                    # 2. Size matches index
+                    # 3. Mtime matches index (within 1-second tolerance for filesystem precision)
+                    if (
+                        time_since_mod > 2.0
+                        and file_size == index_entry.size
+                        and mtime_diff < 1.0
+                    ):
+                        # File unchanged and stable - use cached MD5
+                        files[rel_path] = FileInfo(
+                            path=rel_path,
+                            md5=index_entry.md5,
+                            size=file_size,
+                            last_modified=file_mtime,
+                        )
+                        return
+
+                # Slow path: File changed or not in index - read and hash
+                with open(file_path, "rb") as f:
+                    content = f.read()
+
+                files[rel_path] = FileInfo(
+                    path=rel_path,
+                    md5=self._calculate_md5(content),
+                    size=len(content),
+                    last_modified=file_mtime,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to read {rel_path}: {e}")
+
         # Also check for persona.md in base directory
         persona_file = self.local_base_dir / "persona.md"
         if persona_file.exists() and persona_file.is_file():
-            with open(persona_file, "rb") as f:
-                content = f.read()
-            files["persona.md"] = FileInfo(
-                path="persona.md",
-                md5=self._calculate_md5(content),
-                size=len(content),
-                last_modified=datetime.fromtimestamp(
-                    persona_file.stat().st_mtime, tz=timezone.utc
-                ),
-            )
+            process_file(persona_file, "persona.md")
 
         # Scan directories
         for scan_dir in scan_dirs:
@@ -1327,26 +1381,11 @@ class SyncEngine:
 
                 # Get relative path
                 try:
-                    rel_path = file_path.relative_to(self.local_base_dir)
+                    rel_path = str(file_path.relative_to(self.local_base_dir))
                 except ValueError:
                     continue
 
-                # Read file and calculate MD5
-                try:
-                    with open(file_path, "rb") as f:
-                        content = f.read()
-
-                    files[str(rel_path)] = FileInfo(
-                        path=str(rel_path),
-                        md5=self._calculate_md5(content),
-                        size=len(content),
-                        last_modified=datetime.fromtimestamp(
-                            file_path.stat().st_mtime, tz=timezone.utc
-                        ),
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to read {rel_path}: {e}")
-                    continue
+                process_file(file_path, rel_path)
 
         return files
 
