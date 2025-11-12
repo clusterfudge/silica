@@ -124,14 +124,10 @@ def create_sync_strategy(base_dir: Path) -> SyncStrategy:
         SyncStrategy instance (RemoteSync if enabled, NoOpSync otherwise)
     """
     try:
-        # Check if sync is configured
-        config = MemoryProxyConfig.load(base_dir)
+        # Load global config
+        config = MemoryProxyConfig()
 
-        # If not configured or disabled, use no-op
-        if not config or not config.is_enabled():
-            return NoOpSync()
-
-        # Extract namespace from base_dir path
+        # Extract namespace (persona name) from base_dir path
         # e.g., ~/.silica/personas/default -> "default"
         namespace = "default"
         if base_dir:
@@ -141,8 +137,12 @@ def create_sync_strategy(base_dir: Path) -> SyncStrategy:
                 if persona_idx + 1 < len(parts):
                     namespace = parts[persona_idx + 1]
 
+        # Check if sync is enabled for this persona
+        if not config.is_sync_enabled(namespace):
+            return NoOpSync()
+
         # Create client and return remote sync
-        client = MemoryProxyClient(config.url, config.token)
+        client = MemoryProxyClient(config.remote_url, config.auth_token)
         return RemoteSync(client, namespace)
 
     except Exception as e:

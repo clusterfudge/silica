@@ -190,10 +190,16 @@ class TestRemoteSync:
 class TestCreateSyncStrategy:
     """Test the factory function."""
 
-    def test_create_sync_strategy_no_config(self):
+    @patch("silica.developer.memory.sync_strategy.MemoryProxyConfig")
+    def test_create_sync_strategy_no_config(self, MockConfig):
         """Test that NoOpSync is returned when no config exists."""
+        # Mock config with no remote_url/auth_token (not configured)
+        mock_config = Mock()
+        mock_config.is_sync_enabled.return_value = False
+        MockConfig.return_value = mock_config
+
         with tempfile.TemporaryDirectory() as tmpdir:
-            base_dir = Path(tmpdir)
+            base_dir = Path(tmpdir) / "personas" / "default"
             strategy = create_sync_strategy(base_dir)
 
             assert isinstance(strategy, NoOpSync)
@@ -202,31 +208,39 @@ class TestCreateSyncStrategy:
     @patch("silica.developer.memory.sync_strategy.MemoryProxyClient")
     def test_create_sync_strategy_config_disabled(self, MockClient, MockConfig):
         """Test that NoOpSync is returned when sync is disabled."""
-        # Mock config that is disabled
+        # Mock config that is disabled for this persona
         mock_config = Mock()
-        mock_config.is_enabled.return_value = False
-        MockConfig.load.return_value = mock_config
+        mock_config.is_sync_enabled.return_value = False
+        MockConfig.return_value = mock_config
 
         strategy = create_sync_strategy(Path("/fake/personas/test"))
 
+        # Verify is_sync_enabled was called with persona name
+        mock_config.is_sync_enabled.assert_called_once_with("test")
         assert isinstance(strategy, NoOpSync)
 
     @patch("silica.developer.memory.sync_strategy.MemoryProxyConfig")
     @patch("silica.developer.memory.sync_strategy.MemoryProxyClient")
     def test_create_sync_strategy_config_enabled(self, MockClient, MockConfig):
         """Test that RemoteSync is returned when sync is enabled."""
-        # Mock config that is enabled
+        # Mock config that is enabled for this persona
         mock_config = Mock()
-        mock_config.is_enabled.return_value = True
-        mock_config.url = "https://test-proxy.com"
-        mock_config.token = "test-token"
-        MockConfig.load.return_value = mock_config
+        mock_config.is_sync_enabled.return_value = True
+        mock_config.remote_url = "https://test-proxy.com"
+        mock_config.auth_token = "test-token"
+        MockConfig.return_value = mock_config
 
         # Mock client
         mock_client = Mock()
         MockClient.return_value = mock_client
 
         strategy = create_sync_strategy(Path("/fake/personas/test"))
+
+        # Verify is_sync_enabled was called with persona name
+        mock_config.is_sync_enabled.assert_called_once_with("test")
+
+        # Verify client was created with correct params
+        MockClient.assert_called_once_with("https://test-proxy.com", "test-token")
 
         # Verify RemoteSync was created
         assert isinstance(strategy, RemoteSync)
@@ -236,8 +250,8 @@ class TestCreateSyncStrategy:
     @patch("silica.developer.memory.sync_strategy.MemoryProxyConfig")
     def test_create_sync_strategy_exception(self, MockConfig):
         """Test that NoOpSync is returned when exception occurs."""
-        # Mock exception during config load
-        MockConfig.load.side_effect = Exception("Config error")
+        # Mock exception during config creation
+        MockConfig.side_effect = Exception("Config error")
 
         with patch("silica.developer.memory.sync_strategy.logger") as mock_logger:
             strategy = create_sync_strategy(Path("/fake/path"))
@@ -256,10 +270,10 @@ class TestCreateSyncStrategy:
         """Test namespace extraction from various paths."""
         # Mock config
         mock_config = Mock()
-        mock_config.is_enabled.return_value = True
-        mock_config.url = "https://test.com"
-        mock_config.token = "token"
-        MockConfig.load.return_value = mock_config
+        mock_config.is_sync_enabled.return_value = True
+        mock_config.remote_url = "https://test.com"
+        mock_config.auth_token = "token"
+        MockConfig.return_value = mock_config
         MockClient.return_value = Mock()
 
         # Test various path formats
