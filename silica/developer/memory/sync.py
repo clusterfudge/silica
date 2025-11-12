@@ -946,72 +946,120 @@ class SyncEngine:
                 f"Conflicting files: {[c.path for c in plan.conflicts]}"
             )
 
-        # Execute uploads
-        for op in plan.upload:
+        # Set up progress bar if requested
+        progress_bar = None
+        task_id = None
+        total_ops = plan.total_operations
+
+        if show_progress and total_ops > 0:
             try:
-                success = self.upload_file(op.path, op.remote_version or 0)
-                if success:
-                    result.succeeded.append(op)
-                else:
-                    result.failed.append(op)
-            except Exception as e:
-                logger.error(f"Upload failed for {op.path}: {e}")
-                result.failed.append(op)
-                self.operation_log.log_operation(
-                    "upload", op.path, "failed", error=str(e)
+                from rich.progress import (
+                    Progress,
+                    SpinnerColumn,
+                    BarColumn,
+                    TextColumn,
+                    TimeRemainingColumn,
                 )
 
-        # Execute downloads
-        for op in plan.download:
-            try:
-                success = self.download_file(op.path)
-                if success:
-                    result.succeeded.append(op)
-                else:
-                    result.failed.append(op)
-            except Exception as e:
-                logger.error(f"Download failed for {op.path}: {e}")
-                result.failed.append(op)
-                self.operation_log.log_operation(
-                    "download", op.path, "failed", error=str(e)
+                progress_bar = Progress(
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    BarColumn(),
+                    TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                    TextColumn("({task.completed}/{task.total})"),
+                    TimeRemainingColumn(),
                 )
-
-        # Execute local deletes
-        for op in plan.delete_local:
-            try:
-                success = self.delete_local(op.path)
-                if success:
-                    result.succeeded.append(op)
-                else:
-                    result.failed.append(op)
-            except Exception as e:
-                logger.error(f"Delete local failed for {op.path}: {e}")
-                result.failed.append(op)
-                self.operation_log.log_operation(
-                    "delete_local", op.path, "failed", error=str(e)
+                progress_bar.start()
+                task_id = progress_bar.add_task(
+                    "[cyan]Syncing files...", total=total_ops
                 )
+            except ImportError:
+                # rich not available, continue without progress
+                pass
 
-        # Execute remote deletes
-        for op in plan.delete_remote:
-            try:
-                success = self.delete_remote(op.path, op.remote_version or 0)
-                if success:
-                    result.succeeded.append(op)
-                else:
+        try:
+            # Execute uploads
+            for op in plan.upload:
+                try:
+                    success = self.upload_file(op.path, op.remote_version or 0)
+                    if success:
+                        result.succeeded.append(op)
+                    else:
+                        result.failed.append(op)
+                except Exception as e:
+                    logger.error(f"Upload failed for {op.path}: {e}")
                     result.failed.append(op)
-            except Exception as e:
-                logger.error(f"Delete remote failed for {op.path}: {e}")
-                result.failed.append(op)
-                self.operation_log.log_operation(
-                    "delete_remote", op.path, "failed", error=str(e)
-                )
+                    self.operation_log.log_operation(
+                        "upload", op.path, "failed", error=str(e)
+                    )
+                finally:
+                    if progress_bar and task_id is not None:
+                        progress_bar.update(task_id, advance=1)
 
-        result.duration = time.time() - start_time
+            # Execute downloads
+            for op in plan.download:
+                try:
+                    success = self.download_file(op.path)
+                    if success:
+                        result.succeeded.append(op)
+                    else:
+                        result.failed.append(op)
+                except Exception as e:
+                    logger.error(f"Download failed for {op.path}: {e}")
+                    result.failed.append(op)
+                    self.operation_log.log_operation(
+                        "download", op.path, "failed", error=str(e)
+                    )
+                finally:
+                    if progress_bar and task_id is not None:
+                        progress_bar.update(task_id, advance=1)
 
-        # Save updated index
-        self.local_index.save()
+            # Execute local deletes
+            for op in plan.delete_local:
+                try:
+                    success = self.delete_local(op.path)
+                    if success:
+                        result.succeeded.append(op)
+                    else:
+                        result.failed.append(op)
+                except Exception as e:
+                    logger.error(f"Delete local failed for {op.path}: {e}")
+                    result.failed.append(op)
+                    self.operation_log.log_operation(
+                        "delete_local", op.path, "failed", error=str(e)
+                    )
+                finally:
+                    if progress_bar and task_id is not None:
+                        progress_bar.update(task_id, advance=1)
 
-        return result
+            # Execute remote deletes
+            for op in plan.delete_remote:
+                try:
+                    success = self.delete_remote(op.path, op.remote_version or 0)
+                    if success:
+                        result.succeeded.append(op)
+                    else:
+                        result.failed.append(op)
+                except Exception as e:
+                    logger.error(f"Delete remote failed for {op.path}: {e}")
+                    result.failed.append(op)
+                    self.operation_log.log_operation(
+                        "delete_remote", op.path, "failed", error=str(e)
+                    )
+                finally:
+                    if progress_bar and task_id is not None:
+                        progress_bar.update(task_id, advance=1)
+
+            result.duration = time.time() - start_time
+
+            # Save updated index
+            self.local_index.save()
+
+            return result
+        finally:
+            # Clean up progress bar
+            if progress_bar:
+                progress_bar.stop()
 
     def upload_file(self, path: str, remote_version: int) -> bool:
         """Upload file to remote with conditional write.
