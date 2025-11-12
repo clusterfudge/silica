@@ -22,6 +22,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from silica.developer import personas
 from silica.developer.agent_loop import run
 from silica.developer.context import AgentContext
+from silica.developer.memory.sync_strategy import NoOpSync, create_sync_strategy
 from silica.developer.models import model_names, get_model
 from silica.developer.sandbox import SandboxMode, Sandbox
 from silica.developer.tools.sessions import (
@@ -799,8 +800,6 @@ def resume(
 
 
 def attach_tools(app):
-    from silica.developer.memory.sync_strategy import NoOpSync
-
     console = Console()
     sandbox = Sandbox(".", SandboxMode.ALLOW_ALL)
     context = AgentContext.create(
@@ -1035,8 +1034,6 @@ def cyclopts_main(
         user_interface.display_welcome_message()
 
     # Create sync strategy for memory proxy
-    from silica.developer.memory.sync_strategy import create_sync_strategy
-
     sync_strategy = create_sync_strategy(persona_obj.base_directory)
 
     # Create agent context (identical to original)
