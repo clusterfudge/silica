@@ -125,12 +125,12 @@ class AgentContext:
             sync_strategy=sync_strategy,
         )
 
-        # Sync on startup (uses more retries, shows messages to user)
+        # Sync on startup (uses more retries, only show messages if sync happened)
         if context.sync_strategy and persona_base_directory:
-            user_interface.handle_system_message("[cyan]Syncing memory...[/cyan]")
             result = context.sync_strategy.sync(
                 persona_base_directory, max_retries=3, silent=False
             )
+            # Only show messages if something actually happened
             if result and result.get("succeeded", 0) > 0:
                 user_interface.handle_system_message(
                     f"[green]✓ Synced {result['succeeded']} files from remote[/green]"
@@ -139,9 +139,7 @@ class AgentContext:
                 user_interface.handle_system_message(
                     f"[yellow]⚠ Sync failed: {result['error']}[/yellow]"
                 )
-            else:
-                # No files synced, but no error - just show completion
-                user_interface.handle_system_message("[green]✓ Memory in sync[/green]")
+            # If nothing happened (in sync), show nothing
 
         # If a session_id was provided, attempt to load that session
         if session_id:
