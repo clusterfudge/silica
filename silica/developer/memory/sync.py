@@ -1105,12 +1105,17 @@ class SyncEngine:
                 content_type="application/octet-stream",
             )
 
-            # Update local index
+            # Get the actual file mtime for index
+            file_mtime = datetime.fromtimestamp(
+                full_path.stat().st_mtime, tz=timezone.utc
+            )
+
+            # Update local index with LOCAL file's mtime (not upload time)
             self.local_index.update_entry(
                 path,
                 FileMetadata(
                     md5=md5,
-                    last_modified=datetime.now(timezone.utc),
+                    last_modified=file_mtime,
                     size=len(content),
                     version=new_version,
                     is_deleted=False,
@@ -1162,10 +1167,15 @@ class SyncEngine:
             with open(full_path, "wb") as f:
                 f.write(content)
 
-            # Create metadata object
+            # Get the actual file mtime after writing
+            file_mtime = datetime.fromtimestamp(
+                full_path.stat().st_mtime, tz=timezone.utc
+            )
+
+            # Create metadata object with LOCAL file's mtime (not remote's)
             file_metadata = FileMetadata(
                 md5=md5,
-                last_modified=last_modified,
+                last_modified=file_mtime,
                 size=len(content),
                 version=version,
                 is_deleted=False,
