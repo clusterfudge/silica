@@ -3,8 +3,11 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 from uuid import uuid4
+
+if TYPE_CHECKING:
+    from silica.developer.memory.sync_strategy import SyncStrategy
 
 from anthropic.types import Usage, MessageParam
 
@@ -40,6 +43,7 @@ class AgentContext:
     history_base_dir: Path | None = (
         None  # Base directory for history (defaults to ~/.silica/personas/default)
     )
+    sync_strategy: "SyncStrategy" = None  # Strategy for memory synchronization
     _chat_history: list[MessageParam] = None
     _tool_result_buffer: list[dict] = None
 
@@ -49,6 +53,12 @@ class AgentContext:
             self._chat_history = []
         if self._tool_result_buffer is None:
             self._tool_result_buffer = []
+
+        # Initialize sync strategy if not provided
+        if self.sync_strategy is None and self.history_base_dir:
+            from silica.developer.memory.sync_strategy import create_sync_strategy
+
+            self.sync_strategy = create_sync_strategy(self.history_base_dir)
 
     def _get_history_dir(self) -> Path:
         """Get the history directory for this context.
@@ -94,6 +104,7 @@ class AgentContext:
         session_id: str = None,
         cli_args: list[str] = None,
         persona_base_directory: Path = None,
+        sync_strategy: "SyncStrategy" = None,
     ) -> "AgentContext":
         sandbox = Sandbox(
             sandbox_contents[0] if sandbox_contents else os.getcwd(),
@@ -117,7 +128,22 @@ class AgentContext:
             memory_manager=memory_manager,
             cli_args=cli_args.copy() if cli_args else None,
             history_base_dir=persona_base_directory,
+            sync_strategy=sync_strategy,
         )
+
+        # Sync on startup (shows messages to user)
+        if context.sync_strategy and persona_base_directory:
+            result = context.sync_strategy.sync_on_startup(
+                persona_base_directory, silent=False
+            )
+            if result and result.get("succeeded", 0) > 0:
+                user_interface.handle_system_message(
+                    f"[green]✓ Synced {result['succeeded']} files from remote[/green]"
+                )
+            elif result and result.get("error"):
+                user_interface.handle_system_message(
+                    f"[yellow]⚠ Sync failed: {result['error']}[/yellow]"
+                )
 
         # If a session_id was provided, attempt to load that session
         if session_id:
@@ -152,6 +178,7 @@ class AgentContext:
             memory_manager=self.memory_manager,
             cli_args=self.cli_args.copy() if self.cli_args else None,
             history_base_dir=self.history_base_dir,  # Preserve history_base_dir
+            sync_strategy=self.sync_strategy,  # Preserve sync_strategy
             _chat_history=self.chat_history.copy() if keep_history else [],
             _tool_result_buffer=self.tool_result_buffer.copy() if keep_history else [],
         )
@@ -452,6 +479,10 @@ class AgentContext:
         # Write the data to the file
         with open(history_file, "w") as f:
             json.dump(context_data, f, indent=2, cls=PydanticJSONEncoder)
+
+        # Sync silently after flush (in-loop sync)
+        if self.sync_strategy and self.history_base_dir:
+            self.sync_strategy.sync_after_flush(self.history_base_dir, silent=True)
 
 
 def load_session_data(
