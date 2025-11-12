@@ -54,12 +54,6 @@ class AgentContext:
         if self._tool_result_buffer is None:
             self._tool_result_buffer = []
 
-        # Initialize sync strategy if not provided
-        if self.sync_strategy is None and self.history_base_dir:
-            from silica.developer.memory.sync_strategy import create_sync_strategy
-
-            self.sync_strategy = create_sync_strategy(self.history_base_dir)
-
     def _get_history_dir(self) -> Path:
         """Get the history directory for this context.
 

@@ -10,6 +10,12 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional
 
+from silica.developer.memory.llm_conflict_resolver import LLMConflictResolver
+from silica.developer.memory.proxy_client import MemoryProxyClient
+from silica.developer.memory.proxy_config import MemoryProxyConfig
+from silica.developer.memory.sync import SyncEngine
+from silica.developer.memory.sync_coordinator import sync_with_retry
+
 logger = logging.getLogger(__name__)
 
 
@@ -76,15 +82,7 @@ class RemoteSync(SyncStrategy):
         """
         self.client = client
         self.namespace = namespace
-        self.conflict_resolver = conflict_resolver
-
-        # Lazy import to avoid circular dependencies
-        if self.conflict_resolver is None:
-            from silica.developer.memory.llm_conflict_resolver import (
-                LLMConflictResolver,
-            )
-
-            self.conflict_resolver = LLMConflictResolver()
+        self.conflict_resolver = conflict_resolver or LLMConflictResolver()
 
     def sync_after_flush(self, base_dir: Path, silent: bool = True) -> Optional[dict]:
         """Sync changes to remote after flush.
@@ -93,9 +91,6 @@ class RemoteSync(SyncStrategy):
         Failures are logged but don't interrupt the user.
         """
         try:
-            from silica.developer.memory.sync import SyncEngine
-            from silica.developer.memory.sync_coordinator import sync_with_retry
-
             engine = SyncEngine(
                 client=self.client,
                 local_base_dir=base_dir,
@@ -129,9 +124,6 @@ class RemoteSync(SyncStrategy):
         Shows user-facing messages by default.
         """
         try:
-            from silica.developer.memory.sync import SyncEngine
-            from silica.developer.memory.sync_coordinator import sync_with_retry
-
             engine = SyncEngine(
                 client=self.client,
                 local_base_dir=base_dir,
@@ -172,9 +164,6 @@ def create_sync_strategy(base_dir: Path) -> SyncStrategy:
         SyncStrategy instance (RemoteSync if enabled, NoOpSync otherwise)
     """
     try:
-        from silica.developer.memory.proxy_config import MemoryProxyConfig
-        from silica.developer.memory.proxy_client import MemoryProxyClient
-
         # Check if sync is configured
         config = MemoryProxyConfig.load(base_dir)
 

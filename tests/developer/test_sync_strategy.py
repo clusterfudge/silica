@@ -60,7 +60,7 @@ class TestRemoteSync:
         mock_client = Mock()
 
         with patch(
-            "silica.developer.memory.llm_conflict_resolver.LLMConflictResolver"
+            "silica.developer.memory.sync_strategy.LLMConflictResolver"
         ) as MockResolver:
             mock_resolver_instance = Mock()
             MockResolver.return_value = mock_resolver_instance
@@ -70,8 +70,8 @@ class TestRemoteSync:
             MockResolver.assert_called_once()
             assert strategy.conflict_resolver is mock_resolver_instance
 
-    @patch("silica.developer.memory.sync.SyncEngine")
-    @patch("silica.developer.memory.sync_coordinator.sync_with_retry")
+    @patch("silica.developer.memory.sync_strategy.SyncEngine")
+    @patch("silica.developer.memory.sync_strategy.sync_with_retry")
     def test_sync_after_flush_success(self, mock_sync_with_retry, mock_sync_engine):
         """Test successful sync after flush."""
         mock_client = Mock()
@@ -108,8 +108,8 @@ class TestRemoteSync:
             "conflicts": 0,
         }
 
-    @patch("silica.developer.memory.sync.SyncEngine")
-    @patch("silica.developer.memory.sync_coordinator.sync_with_retry")
+    @patch("silica.developer.memory.sync_strategy.SyncEngine")
+    @patch("silica.developer.memory.sync_strategy.sync_with_retry")
     def test_sync_after_flush_with_failures(
         self, mock_sync_with_retry, mock_sync_engine
     ):
@@ -139,8 +139,8 @@ class TestRemoteSync:
             "conflicts": 0,
         }
 
-    @patch("silica.developer.memory.sync.SyncEngine")
-    @patch("silica.developer.memory.sync_coordinator.sync_with_retry")
+    @patch("silica.developer.memory.sync_strategy.SyncEngine")
+    @patch("silica.developer.memory.sync_strategy.sync_with_retry")
     def test_sync_after_flush_exception(self, mock_sync_with_retry, mock_sync_engine):
         """Test sync after flush when exception occurs."""
         mock_client = Mock()
@@ -160,8 +160,8 @@ class TestRemoteSync:
 
         assert result == {"error": "Network error"}
 
-    @patch("silica.developer.memory.sync.SyncEngine")
-    @patch("silica.developer.memory.sync_coordinator.sync_with_retry")
+    @patch("silica.developer.memory.sync_strategy.SyncEngine")
+    @patch("silica.developer.memory.sync_strategy.sync_with_retry")
     def test_sync_on_startup(self, mock_sync_with_retry, mock_sync_engine):
         """Test sync on startup (uses max_retries=3)."""
         mock_client = Mock()
@@ -200,8 +200,8 @@ class TestCreateSyncStrategy:
 
             assert isinstance(strategy, NoOpSync)
 
-    @patch("silica.developer.memory.proxy_config.MemoryProxyConfig")
-    @patch("silica.developer.memory.proxy_client.MemoryProxyClient")
+    @patch("silica.developer.memory.sync_strategy.MemoryProxyConfig")
+    @patch("silica.developer.memory.sync_strategy.MemoryProxyClient")
     def test_create_sync_strategy_config_disabled(self, MockClient, MockConfig):
         """Test that NoOpSync is returned when sync is disabled."""
         # Mock config that is disabled
@@ -213,8 +213,8 @@ class TestCreateSyncStrategy:
 
         assert isinstance(strategy, NoOpSync)
 
-    @patch("silica.developer.memory.proxy_config.MemoryProxyConfig")
-    @patch("silica.developer.memory.proxy_client.MemoryProxyClient")
+    @patch("silica.developer.memory.sync_strategy.MemoryProxyConfig")
+    @patch("silica.developer.memory.sync_strategy.MemoryProxyClient")
     def test_create_sync_strategy_config_enabled(self, MockClient, MockConfig):
         """Test that RemoteSync is returned when sync is enabled."""
         # Mock config that is enabled
@@ -235,7 +235,7 @@ class TestCreateSyncStrategy:
         assert strategy.client is mock_client
         assert strategy.namespace == "test"  # Extracted from path
 
-    @patch("silica.developer.memory.proxy_config.MemoryProxyConfig")
+    @patch("silica.developer.memory.sync_strategy.MemoryProxyConfig")
     def test_create_sync_strategy_exception(self, MockConfig):
         """Test that NoOpSync is returned when exception occurs."""
         # Mock exception during config load
@@ -252,8 +252,8 @@ class TestCreateSyncStrategy:
 
         assert isinstance(strategy, NoOpSync)
 
-    @patch("silica.developer.memory.proxy_config.MemoryProxyConfig")
-    @patch("silica.developer.memory.proxy_client.MemoryProxyClient")
+    @patch("silica.developer.memory.sync_strategy.MemoryProxyConfig")
+    @patch("silica.developer.memory.sync_strategy.MemoryProxyClient")
     def test_namespace_extraction(self, MockClient, MockConfig):
         """Test namespace extraction from various paths."""
         # Mock config

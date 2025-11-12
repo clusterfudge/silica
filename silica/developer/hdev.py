@@ -799,6 +799,8 @@ def resume(
 
 
 def attach_tools(app):
+    from silica.developer.memory.sync_strategy import NoOpSync
+
     console = Console()
     sandbox = Sandbox(".", SandboxMode.ALLOW_ALL)
     context = AgentContext.create(
@@ -807,6 +809,7 @@ def attach_tools(app):
         sandbox_contents=[],
         user_interface=CLIUserInterface(console, sandbox.mode),
         persona_base_directory=Path("~/.silica/personas/default").expanduser(),
+        sync_strategy=NoOpSync(),  # No sync for tool attachment
     )
     toolbox = Toolbox(context)
 
@@ -1031,6 +1034,11 @@ def cyclopts_main(
     if not initial_prompt and not session_id:
         user_interface.display_welcome_message()
 
+    # Create sync strategy for memory proxy
+    from silica.developer.memory.sync_strategy import create_sync_strategy
+
+    sync_strategy = create_sync_strategy(persona_obj.base_directory)
+
     # Create agent context (identical to original)
     context = AgentContext.create(
         model_spec=get_model(model),
@@ -1040,6 +1048,7 @@ def cyclopts_main(
         session_id=session_id,
         cli_args=original_args,
         persona_base_directory=persona_obj.base_directory,
+        sync_strategy=sync_strategy,
     )
 
     # Set the agent context reference in the UI for keyboard shortcuts
