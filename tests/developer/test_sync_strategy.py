@@ -16,23 +16,23 @@ from silica.developer.memory.sync_strategy import (
 class TestNoOpSync:
     """Test that NoOpSync does nothing."""
 
-    def test_sync_after_flush_returns_none(self):
-        """Test that sync_after_flush returns None."""
+    def test_sync_returns_none(self):
+        """Test that sync returns None."""
         strategy = NoOpSync()
-        result = strategy.sync_after_flush(Path("/fake/path"))
+        result = strategy.sync(Path("/fake/path"))
         assert result is None
 
-    def test_sync_on_startup_returns_none(self):
-        """Test that sync_on_startup returns None."""
+    def test_sync_with_retries(self):
+        """Test that sync accepts max_retries parameter."""
         strategy = NoOpSync()
-        result = strategy.sync_on_startup(Path("/fake/path"))
+        result = strategy.sync(Path("/fake/path"), max_retries=3)
         assert result is None
 
     def test_silent_parameter_accepted(self):
         """Test that silent parameter is accepted but ignored."""
         strategy = NoOpSync()
-        result1 = strategy.sync_after_flush(Path("/fake/path"), silent=True)
-        result2 = strategy.sync_after_flush(Path("/fake/path"), silent=False)
+        result1 = strategy.sync(Path("/fake/path"), silent=True)
+        result2 = strategy.sync(Path("/fake/path"), silent=False)
         assert result1 is None
         assert result2 is None
 
@@ -72,8 +72,8 @@ class TestRemoteSync:
 
     @patch("silica.developer.memory.sync_strategy.SyncEngine")
     @patch("silica.developer.memory.sync_strategy.sync_with_retry")
-    def test_sync_after_flush_success(self, mock_sync_with_retry, mock_sync_engine):
-        """Test successful sync after flush."""
+    def test_sync_success(self, mock_sync_with_retry, mock_sync_engine):
+        """Test successful sync."""
         mock_client = Mock()
         mock_resolver = Mock()
 
@@ -85,7 +85,7 @@ class TestRemoteSync:
         mock_sync_with_retry.return_value = mock_result
 
         strategy = RemoteSync(mock_client, "test-namespace", mock_resolver)
-        result = strategy.sync_after_flush(Path("/fake/path"), silent=True)
+        result = strategy.sync(Path("/fake/path"), max_retries=1, silent=True)
 
         # Verify SyncEngine was created with correct params
         mock_sync_engine.assert_called_once_with(
@@ -110,10 +110,8 @@ class TestRemoteSync:
 
     @patch("silica.developer.memory.sync_strategy.SyncEngine")
     @patch("silica.developer.memory.sync_strategy.sync_with_retry")
-    def test_sync_after_flush_with_failures(
-        self, mock_sync_with_retry, mock_sync_engine
-    ):
-        """Test sync after flush with some failures."""
+    def test_sync_with_failures(self, mock_sync_with_retry, mock_sync_engine):
+        """Test sync with some failures."""
         mock_client = Mock()
         mock_resolver = Mock()
 
@@ -127,7 +125,7 @@ class TestRemoteSync:
         strategy = RemoteSync(mock_client, "test-namespace", mock_resolver)
 
         with patch("silica.developer.memory.sync_strategy.logger") as mock_logger:
-            result = strategy.sync_after_flush(Path("/fake/path"))
+            result = strategy.sync(Path("/fake/path"))
 
             # Verify warning was logged
             mock_logger.warning.assert_called_once()
@@ -141,8 +139,8 @@ class TestRemoteSync:
 
     @patch("silica.developer.memory.sync_strategy.SyncEngine")
     @patch("silica.developer.memory.sync_strategy.sync_with_retry")
-    def test_sync_after_flush_exception(self, mock_sync_with_retry, mock_sync_engine):
-        """Test sync after flush when exception occurs."""
+    def test_sync_exception(self, mock_sync_with_retry, mock_sync_engine):
+        """Test sync when exception occurs."""
         mock_client = Mock()
         mock_resolver = Mock()
 
@@ -152,7 +150,7 @@ class TestRemoteSync:
         strategy = RemoteSync(mock_client, "test-namespace", mock_resolver)
 
         with patch("silica.developer.memory.sync_strategy.logger") as mock_logger:
-            result = strategy.sync_after_flush(Path("/fake/path"))
+            result = strategy.sync(Path("/fake/path"))
 
             # Verify warning was logged
             mock_logger.warning.assert_called_once()
@@ -162,8 +160,8 @@ class TestRemoteSync:
 
     @patch("silica.developer.memory.sync_strategy.SyncEngine")
     @patch("silica.developer.memory.sync_strategy.sync_with_retry")
-    def test_sync_on_startup(self, mock_sync_with_retry, mock_sync_engine):
-        """Test sync on startup (uses max_retries=3)."""
+    def test_sync_with_custom_retries(self, mock_sync_with_retry, mock_sync_engine):
+        """Test sync with custom max_retries."""
         mock_client = Mock()
         mock_resolver = Mock()
 
@@ -175,12 +173,12 @@ class TestRemoteSync:
         mock_sync_with_retry.return_value = mock_result
 
         strategy = RemoteSync(mock_client, "test-namespace", mock_resolver)
-        result = strategy.sync_on_startup(Path("/fake/path"), silent=False)
+        result = strategy.sync(Path("/fake/path"), max_retries=3, silent=False)
 
-        # Verify sync_with_retry was called with startup params
+        # Verify sync_with_retry was called with custom params
         call_kwargs = mock_sync_with_retry.call_args.kwargs
         assert call_kwargs["show_progress"] is False
-        assert call_kwargs["max_retries"] == 3  # More retries for startup
+        assert call_kwargs["max_retries"] == 3
 
         assert result == {
             "succeeded": 2,
@@ -284,13 +282,11 @@ class TestSyncStrategyInterface:
         """Test that NoOpSync implements SyncStrategy."""
         strategy = NoOpSync()
         assert isinstance(strategy, SyncStrategy)
-        assert hasattr(strategy, "sync_after_flush")
-        assert hasattr(strategy, "sync_on_startup")
+        assert hasattr(strategy, "sync")
 
     def test_remote_implements_interface(self):
         """Test that RemoteSync implements SyncStrategy."""
         mock_client = Mock()
         strategy = RemoteSync(mock_client, "test")
         assert isinstance(strategy, SyncStrategy)
-        assert hasattr(strategy, "sync_after_flush")
-        assert hasattr(strategy, "sync_on_startup")
+        assert hasattr(strategy, "sync")

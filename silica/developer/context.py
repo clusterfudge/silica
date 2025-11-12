@@ -125,10 +125,10 @@ class AgentContext:
             sync_strategy=sync_strategy,
         )
 
-        # Sync on startup (shows messages to user)
+        # Sync on startup (uses more retries, shows messages to user)
         if context.sync_strategy and persona_base_directory:
-            result = context.sync_strategy.sync_on_startup(
-                persona_base_directory, silent=False
+            result = context.sync_strategy.sync(
+                persona_base_directory, max_retries=3, silent=False
             )
             if result and result.get("succeeded", 0) > 0:
                 user_interface.handle_system_message(
@@ -474,9 +474,9 @@ class AgentContext:
         with open(history_file, "w") as f:
             json.dump(context_data, f, indent=2, cls=PydanticJSONEncoder)
 
-        # Sync silently after flush (in-loop sync)
+        # Sync silently after flush (fast path with single retry, silent)
         if self.sync_strategy and self.history_base_dir:
-            self.sync_strategy.sync_after_flush(self.history_base_dir, silent=True)
+            self.sync_strategy.sync(self.history_base_dir, max_retries=1, silent=True)
 
 
 def load_session_data(

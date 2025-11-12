@@ -23,12 +23,15 @@ class SyncStrategy(ABC):
     """Abstract interface for memory synchronization strategies."""
 
     @abstractmethod
-    def sync_after_flush(self, base_dir: Path, silent: bool = True) -> Optional[dict]:
-        """Called after context flush to sync changes.
+    def sync(
+        self, base_dir: Path, max_retries: int = 1, silent: bool = True
+    ) -> Optional[dict]:
+        """Sync local and remote memory.
 
         Args:
-            base_dir: Base directory that was flushed
-            silent: If True, suppress user-facing messages (default for in-loop sync)
+            base_dir: Base directory to sync
+            max_retries: Maximum number of retry attempts (default: 1 for fast path)
+            silent: If True, suppress user-facing messages (default: True)
 
         Returns:
             Optional dict with sync results (for logging/debugging):
@@ -40,18 +43,6 @@ class SyncStrategy(ABC):
             }
         """
 
-    @abstractmethod
-    def sync_on_startup(self, base_dir: Path, silent: bool = False) -> Optional[dict]:
-        """Called on agent startup to pull remote changes.
-
-        Args:
-            base_dir: Base directory to sync to
-            silent: If False, show user-facing messages (default for startup)
-
-        Returns:
-            Optional dict with sync results (for logging/debugging)
-        """
-
 
 class NoOpSync(SyncStrategy):
     """No-op implementation - sync is disabled.
@@ -60,11 +51,7 @@ class NoOpSync(SyncStrategy):
     It provides zero overhead and no side effects.
     """
 
-    def sync_after_flush(self, base_dir: Path, silent: bool = True) -> None:
-        """No-op: does nothing."""
-        return None
-
-    def sync_on_startup(self, base_dir: Path, silent: bool = False) -> None:
+    def sync(self, base_dir: Path, max_retries: int = 1, silent: bool = True) -> None:
         """No-op: does nothing."""
         return None
 
@@ -84,11 +71,18 @@ class RemoteSync(SyncStrategy):
         self.namespace = namespace
         self.conflict_resolver = conflict_resolver or LLMConflictResolver()
 
-    def sync_after_flush(self, base_dir: Path, silent: bool = True) -> Optional[dict]:
-        """Sync changes to remote after flush.
+    def sync(
+        self, base_dir: Path, max_retries: int = 1, silent: bool = True
+    ) -> Optional[dict]:
+        """Sync local and remote memory.
 
-        Uses minimal retries (1) for fast path during agent loop.
-        Failures are logged but don't interrupt the user.
+        Args:
+            base_dir: Base directory to sync
+            max_retries: Maximum number of retry attempts
+            silent: If True, suppress user-facing messages
+
+        Returns:
+            Dict with sync results
         """
         try:
             engine = SyncEngine(
@@ -98,14 +92,13 @@ class RemoteSync(SyncStrategy):
                 conflict_resolver=self.conflict_resolver,
             )
 
-            # Fast path: single retry, no progress bars
-            result = sync_with_retry(engine, show_progress=False, max_retries=1)
+            result = sync_with_retry(
+                engine, show_progress=False, max_retries=max_retries
+            )
 
             # Log failures but don't interrupt user
             if result.failed:
-                logger.warning(
-                    f"Sync after flush: {len(result.failed)} files failed to sync"
-                )
+                logger.warning(f"Sync: {len(result.failed)} files failed to sync")
 
             return {
                 "succeeded": len(result.succeeded),
@@ -114,40 +107,7 @@ class RemoteSync(SyncStrategy):
             }
 
         except Exception as e:
-            logger.warning(f"Sync after flush failed: {e}")
-            return {"error": str(e)}
-
-    def sync_on_startup(self, base_dir: Path, silent: bool = False) -> Optional[dict]:
-        """Sync from remote on startup.
-
-        Uses full retries (3) since startup is allowed to take time.
-        Shows user-facing messages by default.
-        """
-        try:
-            engine = SyncEngine(
-                client=self.client,
-                local_base_dir=base_dir,
-                namespace=self.namespace,
-                conflict_resolver=self.conflict_resolver,
-            )
-
-            # Startup: full retries, no progress bars (but can show messages)
-            result = sync_with_retry(engine, show_progress=False, max_retries=3)
-
-            # Log warnings for failures
-            if result.failed:
-                logger.warning(
-                    f"Sync on startup: {len(result.failed)} files failed to sync"
-                )
-
-            return {
-                "succeeded": len(result.succeeded),
-                "failed": len(result.failed),
-                "conflicts": len(result.conflicts),
-            }
-
-        except Exception as e:
-            logger.warning(f"Sync on startup failed: {e}")
+            logger.warning(f"Sync failed: {e}")
             return {"error": str(e)}
 
 
