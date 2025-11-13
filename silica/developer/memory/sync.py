@@ -569,19 +569,23 @@ class SyncEngine:
         local_base_dir: Path,
         namespace: str,
         conflict_resolver: ConflictResolver | None = None,
+        scan_base: Path | None = None,
     ):
         """Initialize sync engine.
 
         Args:
             client: Memory proxy client
             local_base_dir: Base directory for persona (e.g., ~/.silica/personas/default)
-            namespace: Namespace for remote storage (typically persona name)
+            namespace: Namespace for remote storage (e.g., "default/memory")
             conflict_resolver: Conflict resolver for handling merge conflicts (optional)
+            scan_base: Base directory to scan files from (default: local_base_dir)
+                      Used for namespace-specific scanning (e.g., memory/ or history/session/)
         """
         self.client = client
         self.local_base_dir = Path(local_base_dir)
         self.namespace = namespace
         self.conflict_resolver = conflict_resolver
+        self.scan_base = Path(scan_base) if scan_base else self.local_base_dir
 
         self.local_index = LocalIndex(local_base_dir)
         self.operation_log = SyncOperationLog(local_base_dir)
@@ -1075,13 +1079,13 @@ class SyncEngine:
         """Upload file to remote with conditional write.
 
         Args:
-            path: File path relative to base directory
+            path: File path relative to scan_base directory
             remote_version: Expected remote version (0 for new files)
 
         Returns:
             True if successful, False otherwise
         """
-        full_path = self.local_base_dir / path
+        full_path = self.scan_base / path
 
         if not full_path.exists():
             logger.error(f"Cannot upload {path}: file not found")
@@ -1146,12 +1150,12 @@ class SyncEngine:
         """Download file from remote.
 
         Args:
-            path: File path relative to base directory
+            path: File path relative to scan_base directory
 
         Returns:
             True if successful, False otherwise
         """
-        full_path = self.local_base_dir / path
+        full_path = self.scan_base / path
 
         try:
             # Download from remote
@@ -1210,12 +1214,12 @@ class SyncEngine:
         """Delete local file.
 
         Args:
-            path: File path relative to base directory
+            path: File path relative to scan_base directory
 
         Returns:
             True if successful, False otherwise
         """
-        full_path = self.local_base_dir / path
+        full_path = self.scan_base / path
 
         try:
             if full_path.exists():
@@ -1308,17 +1312,12 @@ class SyncEngine:
         """Scan local filesystem for files to sync.
 
         Optimized to avoid reading unchanged files by checking mtime against index.
+        Scans from scan_base directory (which may be a subdirectory like memory/).
 
         Returns:
-            Dictionary mapping paths to FileInfo
+            Dictionary mapping paths to FileInfo (paths relative to scan_base)
         """
         files = {}
-
-        # Directories to scan
-        scan_dirs = [
-            self.local_base_dir / "memory",
-            self.local_base_dir / "history",
-        ]
 
         # Helper to process a single file
         def process_file(file_path: Path, rel_path: str):
@@ -1371,31 +1370,26 @@ class SyncEngine:
             except Exception as e:
                 logger.warning(f"Failed to read {rel_path}: {e}")
 
-        # Also check for persona.md in base directory
-        persona_file = self.local_base_dir / "persona.md"
-        if persona_file.exists() and persona_file.is_file():
-            process_file(persona_file, "persona.md")
+        # Scan all files recursively from scan_base
+        if not self.scan_base.exists():
+            logger.warning(f"Scan base directory does not exist: {self.scan_base}")
+            return files
 
-        # Scan directories
-        for scan_dir in scan_dirs:
-            if not scan_dir.exists():
+        for file_path in self.scan_base.rglob("*"):
+            if not file_path.is_file():
                 continue
 
-            for file_path in scan_dir.rglob("*"):
-                if not file_path.is_file():
-                    continue
+            # Skip sync metadata files
+            if file_path.name in [".sync-index.json", ".sync-log.jsonl"]:
+                continue
 
-                # Skip sync metadata files
-                if file_path.name in [".sync-index.json", ".sync-log.jsonl"]:
-                    continue
+            # Get relative path from scan_base (not local_base_dir!)
+            try:
+                rel_path = str(file_path.relative_to(self.scan_base))
+            except ValueError:
+                continue
 
-                # Get relative path
-                try:
-                    rel_path = str(file_path.relative_to(self.local_base_dir))
-                except ValueError:
-                    continue
-
-                process_file(file_path, rel_path)
+            process_file(file_path, rel_path)
 
         return files
 

@@ -49,6 +49,7 @@ class TestRemoteSync:
             client=mock_client,
             namespace="test-namespace",
             conflict_resolver=mock_resolver,
+            scan_base=Path("/fake/path"),
         )
 
         assert strategy.client is mock_client
@@ -93,6 +94,7 @@ class TestRemoteSync:
             local_base_dir=Path("/fake/path"),
             namespace="test-namespace",
             conflict_resolver=mock_resolver,
+            scan_base=Path("/fake/path"),
         )
 
         # Verify sync_with_retry was called with correct params
@@ -245,7 +247,7 @@ class TestCreateSyncStrategy:
         # Verify RemoteSync was created
         assert isinstance(strategy, RemoteSync)
         assert strategy.client is mock_client
-        assert strategy.namespace == "test"  # Extracted from path
+        assert strategy.namespace == "test/memory"  # Memory namespace
 
     @patch("silica.developer.memory.sync_strategy.MemoryProxyConfig")
     def test_create_sync_strategy_exception(self, MockConfig):
@@ -258,7 +260,7 @@ class TestCreateSyncStrategy:
 
             # Verify warning was logged
             mock_logger.warning.assert_called_once()
-            assert "Failed to create sync strategy" in str(
+            assert "Failed to create sync strategies" in str(
                 mock_logger.warning.call_args
             )
 
@@ -278,10 +280,10 @@ class TestCreateSyncStrategy:
 
         # Test various path formats
         test_cases = [
-            (Path("/home/user/.silica/personas/default"), "default"),
-            (Path("/home/user/.silica/personas/my-persona"), "my-persona"),
-            (Path("/Users/john/.silica/personas/work"), "work"),
-            (Path("/some/other/path"), "default"),  # Fallback
+            (Path("/home/user/.silica/personas/default"), "default/memory"),
+            (Path("/home/user/.silica/personas/my-persona"), "my-persona/memory"),
+            (Path("/Users/john/.silica/personas/work"), "work/memory"),
+            (Path("/some/other/path"), "default/memory"),  # Fallback
         ]
 
         for path, expected_namespace in test_cases:

@@ -22,7 +22,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from silica.developer import personas
 from silica.developer.agent_loop import run
 from silica.developer.context import AgentContext
-from silica.developer.memory.sync_strategy import NoOpSync, create_sync_strategy
+from silica.developer.memory.sync_strategy import NoOpSync, create_sync_strategies
 from silica.developer.models import model_names, get_model
 from silica.developer.sandbox import SandboxMode, Sandbox
 from silica.developer.tools.sessions import (
@@ -808,7 +808,8 @@ def attach_tools(app):
         sandbox_contents=[],
         user_interface=CLIUserInterface(console, sandbox.mode),
         persona_base_directory=Path("~/.silica/personas/default").expanduser(),
-        sync_strategy=NoOpSync(),  # No sync for tool attachment
+        memory_sync_strategy=NoOpSync(),  # No sync for tool attachment
+        history_sync_strategy=NoOpSync(),
     )
     toolbox = Toolbox(context)
 
@@ -1033,10 +1034,12 @@ def cyclopts_main(
     if not initial_prompt and not session_id:
         user_interface.display_welcome_message()
 
-    # Create sync strategy for memory proxy
-    sync_strategy = create_sync_strategy(persona_obj.base_directory)
+    # Create sync strategies for memory and history
+    memory_strategy, history_strategy = create_sync_strategies(
+        persona_obj.base_directory, session_id=session_id
+    )
 
-    # Create agent context (identical to original)
+    # Create agent context
     context = AgentContext.create(
         model_spec=get_model(model),
         sandbox_mode=parsed_sandbox_mode,
@@ -1045,7 +1048,8 @@ def cyclopts_main(
         session_id=session_id,
         cli_args=original_args,
         persona_base_directory=persona_obj.base_directory,
-        sync_strategy=sync_strategy,
+        memory_sync_strategy=memory_strategy,
+        history_sync_strategy=history_strategy,
     )
 
     # Set the agent context reference in the UI for keyboard shortcuts

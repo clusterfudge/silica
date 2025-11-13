@@ -43,7 +43,10 @@ class AgentContext:
     history_base_dir: Path | None = (
         None  # Base directory for history (defaults to ~/.silica/personas/default)
     )
-    sync_strategy: "SyncStrategy" = None  # Strategy for memory synchronization
+    memory_sync_strategy: "SyncStrategy" = None  # Strategy for memory/ sync
+    history_sync_strategy: "SyncStrategy" = (
+        None  # Strategy for history/session_id/ sync
+    )
     _chat_history: list[MessageParam] = None
     _tool_result_buffer: list[dict] = None
 
@@ -98,7 +101,8 @@ class AgentContext:
         session_id: str = None,
         cli_args: list[str] = None,
         persona_base_directory: Path = None,
-        sync_strategy: "SyncStrategy" = None,
+        memory_sync_strategy: "SyncStrategy" = None,
+        history_sync_strategy: "SyncStrategy" = None,
     ) -> "AgentContext":
         sandbox = Sandbox(
             sandbox_contents[0] if sandbox_contents else os.getcwd(),
@@ -122,22 +126,23 @@ class AgentContext:
             memory_manager=memory_manager,
             cli_args=cli_args.copy() if cli_args else None,
             history_base_dir=persona_base_directory,
-            sync_strategy=sync_strategy,
+            memory_sync_strategy=memory_sync_strategy,
+            history_sync_strategy=history_sync_strategy,
         )
 
-        # Sync on startup (uses more retries, only show messages if sync happened)
-        if context.sync_strategy and persona_base_directory:
-            result = context.sync_strategy.sync(
+        # Sync memory on startup (uses more retries, only show messages if sync happened)
+        if context.memory_sync_strategy and persona_base_directory:
+            result = context.memory_sync_strategy.sync(
                 persona_base_directory, max_retries=3, silent=False
             )
             # Only show messages if something actually happened
             if result and result.get("succeeded", 0) > 0:
                 user_interface.handle_system_message(
-                    f"[green]✓ Synced {result['succeeded']} files from remote[/green]"
+                    f"[green]✓ Synced {result['succeeded']} memory files from remote[/green]"
                 )
             elif result and result.get("error"):
                 user_interface.handle_system_message(
-                    f"[yellow]⚠ Sync failed: {result['error']}[/yellow]"
+                    f"[yellow]⚠ Memory sync failed: {result['error']}[/yellow]"
                 )
             # If nothing happened (in sync), show nothing
 
@@ -476,9 +481,16 @@ class AgentContext:
         with open(history_file, "w") as f:
             json.dump(context_data, f, indent=2, cls=PydanticJSONEncoder)
 
-        # Sync silently after flush (fast path with single retry, silent)
-        if self.sync_strategy and self.history_base_dir:
-            self.sync_strategy.sync(self.history_base_dir, max_retries=1, silent=True)
+        # Sync both memory and history silently after flush (fast path with single retry)
+        if self.history_base_dir:
+            if self.memory_sync_strategy:
+                self.memory_sync_strategy.sync(
+                    self.history_base_dir, max_retries=1, silent=True
+                )
+            if self.history_sync_strategy:
+                self.history_sync_strategy.sync(
+                    self.history_base_dir, max_retries=1, silent=True
+                )
 
 
 def load_session_data(

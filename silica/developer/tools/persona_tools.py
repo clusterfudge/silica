@@ -62,7 +62,7 @@ def read_persona(context: AgentContext) -> str:
     """
     try:
         persona_dir = context.history_base_dir
-        persona_file = persona_dir / "persona.md"
+        persona_file = persona_dir / "memory" / "persona.md"
 
         if not persona_file.exists():
             return f"Error: Persona file not found at {persona_file}"
@@ -107,7 +107,7 @@ def write_persona(context: AgentContext, content: str) -> str:
     try:
         persona_dir = context.history_base_dir
         persona_name = persona_dir.name
-        persona_file = persona_dir / "persona.md"
+        persona_file = persona_dir / "memory" / "persona.md"
 
         # Create persona directory if it doesn't exist
         persona_dir.mkdir(parents=True, exist_ok=True)
