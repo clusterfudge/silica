@@ -325,6 +325,16 @@ async def run(
 
                 if user_input.startswith("/"):
                     if user_input in ["/quit", "/exit"]:
+                        # Sync history on clean exit (backup)
+                        if (
+                            agent_context.history_sync_strategy
+                            and agent_context.history_base_dir
+                        ):
+                            agent_context.history_sync_strategy.sync(
+                                agent_context.history_base_dir,
+                                max_retries=3,
+                                silent=True,
+                            )
                         break
                     elif user_input == "/restart":
                         # Clear the chat history and tool result buffer in the context

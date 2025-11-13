@@ -481,16 +481,10 @@ class AgentContext:
         with open(history_file, "w") as f:
             json.dump(context_data, f, indent=2, cls=PydanticJSONEncoder)
 
-        # Sync both memory and history silently after flush (fast path with single retry)
-        if self.history_base_dir:
-            if self.memory_sync_strategy:
-                self.memory_sync_strategy.sync(
-                    self.history_base_dir, max_retries=1, silent=True
-                )
-            if self.history_sync_strategy:
-                self.history_sync_strategy.sync(
-                    self.history_base_dir, max_retries=1, silent=True
-                )
+        # Note: Sync removed from flush for performance
+        # - Memory: syncs before write (in memory tools), not after every flush
+        # - History: single writer per session, no sync needed during session
+        # History will sync on clean exit for backup
 
 
 def load_session_data(
