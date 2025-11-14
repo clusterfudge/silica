@@ -451,6 +451,11 @@ async def write_memory_entry(
     Returns:
         Status message including placement reasoning when using agentic placement
     """
+    # Sync memory before write to get latest changes and detect conflicts
+    if context.memory_sync_strategy and context.history_base_dir:
+        context.memory_sync_strategy.sync(
+            context.history_base_dir, max_retries=3, silent=True
+        )
     if path is None:
         # Use agent to determine the best path and generate summary
         try:

@@ -95,9 +95,11 @@ def test_persona_file_overrides_builtin():
         persona_dir = Path(tmpdir) / "test_persona"
         persona_dir.mkdir()
 
-        # Write persona.md
+        # Write persona.md (now in memory/ subdirectory)
+        memory_dir = persona_dir / "memory"
+        memory_dir.mkdir()
         persona_content = "# From File"
-        (persona_dir / "persona.md").write_text(persona_content)
+        (memory_dir / "persona.md").write_text(persona_content)
 
         context = AgentContext.create(
             model_spec=get_model("sonnet"),
