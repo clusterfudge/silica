@@ -131,8 +131,8 @@ def test_write_persona_creates_backup(agent_context, temp_persona_dir):
     assert "Backup:" in result
     assert "Successfully write" in result
 
-    # Check that backup file exists
-    persona_dir = agent_context.history_base_dir
+    # Check that backup file exists (now in memory/ subdirectory)
+    persona_dir = agent_context.history_base_dir / "memory"
     backups = list(persona_dir.glob("persona.backup.*.md"))
     assert len(backups) == 1
 
@@ -159,7 +159,8 @@ def test_write_persona_too_large(agent_context):
 
 def test_log_persona_edit(agent_context, temp_persona_dir):
     """Test that persona edits are logged correctly."""
-    persona_dir = agent_context.history_base_dir
+    # Log file is in memory/ subdirectory
+    persona_dir = agent_context.history_base_dir / "memory"
 
     # Write a persona (which should log)
     content = "# Test"

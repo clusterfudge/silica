@@ -29,7 +29,7 @@ def _log_persona_edit(
         content_length: Length of the new content
         backup_path: Optional path to backup file
     """
-    log_file = persona_dir / "persona.log.jsonl"
+    log_file = persona_dir / "memory" / "persona.log.jsonl"
 
     log_entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -107,16 +107,18 @@ def write_persona(context: AgentContext, content: str) -> str:
     try:
         persona_dir = context.history_base_dir
         persona_name = persona_dir.name
-        persona_file = persona_dir / "memory" / "persona.md"
 
-        # Create persona directory if it doesn't exist
-        persona_dir.mkdir(parents=True, exist_ok=True)
+        # Ensure memory directory exists
+        memory_dir = persona_dir / "memory"
+        memory_dir.mkdir(parents=True, exist_ok=True)
+
+        persona_file = memory_dir / "persona.md"
 
         # Create backup if file exists
         backup_path = None
         if persona_file.exists():
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_file = persona_dir / f"persona.backup.{timestamp}.md"
+            backup_file = memory_dir / f"persona.backup.{timestamp}.md"
 
             with open(persona_file, "r") as f:
                 old_content = f.read()

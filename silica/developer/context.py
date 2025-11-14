@@ -179,7 +179,8 @@ class AgentContext:
             memory_manager=self.memory_manager,
             cli_args=self.cli_args.copy() if self.cli_args else None,
             history_base_dir=self.history_base_dir,  # Preserve history_base_dir
-            sync_strategy=self.sync_strategy,  # Preserve sync_strategy
+            memory_sync_strategy=self.memory_sync_strategy,  # Preserve memory sync strategy
+            history_sync_strategy=self.history_sync_strategy,  # Preserve history sync strategy
             _chat_history=self.chat_history.copy() if keep_history else [],
             _tool_result_buffer=self.tool_result_buffer.copy() if keep_history else [],
         )

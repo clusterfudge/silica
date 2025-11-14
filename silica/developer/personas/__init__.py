@@ -116,7 +116,11 @@ def create_persona_directory(name: str, base_prompt: str = "") -> Path:
     persona_dir = _PERSONAS_BASE_DIRECTORY / name
     persona_dir.mkdir(parents=True, exist_ok=True)
 
-    persona_file = persona_dir / "memory" / "persona.md"
+    # Ensure memory directory exists
+    memory_dir = persona_dir / "memory"
+    memory_dir.mkdir(parents=True, exist_ok=True)
+
+    persona_file = memory_dir / "persona.md"
     if not persona_file.exists():
         with open(persona_file, "w") as f:
             f.write(base_prompt)
@@ -237,9 +241,13 @@ def get_or_create(name: str | None, interactive: bool = True) -> Persona:
             persona_dir = _PERSONAS_BASE_DIRECTORY / name
             persona_dir.mkdir(parents=True, exist_ok=True)
 
+            # Ensure memory directory exists
+            memory_dir = persona_dir / "memory"
+            memory_dir.mkdir(parents=True, exist_ok=True)
+
             # Get the built-in prompt and write it to persona.md
             base_prompt = get_builtin_prompt(selected_name)
-            persona_file = persona_dir / "memory" / "persona.md"
+            persona_file = memory_dir / "persona.md"
             with open(persona_file, "w") as f:
                 f.write(base_prompt)
 
@@ -251,7 +259,12 @@ def get_or_create(name: str | None, interactive: bool = True) -> Persona:
             # For blank personas, create directory with empty persona.md
             persona_dir = _PERSONAS_BASE_DIRECTORY / name
             persona_dir.mkdir(parents=True, exist_ok=True)
-            persona_file = persona_dir / "memory" / "persona.md"
+
+            # Ensure memory directory exists
+            memory_dir = persona_dir / "memory"
+            memory_dir.mkdir(parents=True, exist_ok=True)
+
+            persona_file = memory_dir / "persona.md"
             with open(persona_file, "w") as f:
                 f.write("")
 
@@ -267,7 +280,12 @@ def get_or_create(name: str | None, interactive: bool = True) -> Persona:
         # User declined template - create blank persona
         persona_dir = _PERSONAS_BASE_DIRECTORY / name
         persona_dir.mkdir(parents=True, exist_ok=True)
-        persona_file = persona_dir / "memory" / "persona.md"
+
+        # Ensure memory directory exists
+        memory_dir = persona_dir / "memory"
+        memory_dir.mkdir(parents=True, exist_ok=True)
+
+        persona_file = memory_dir / "persona.md"
         with open(persona_file, "w") as f:
             f.write("")
 

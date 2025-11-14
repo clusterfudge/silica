@@ -61,8 +61,10 @@ def test_persona_tools_in_toolbox():
         persona_dir = Path(tmpdir) / "test_persona"
         persona_dir.mkdir()
 
-        # Create persona.md to enable persona tools
-        (persona_dir / "persona.md").write_text("# Test Persona")
+        # Create persona.md to enable persona tools (in memory/ subdirectory)
+        memory_dir = persona_dir / "memory"
+        memory_dir.mkdir()
+        (memory_dir / "persona.md").write_text("# Test Persona")
 
         context = AgentContext.create(
             model_spec=get_model("sonnet"),
@@ -87,9 +89,11 @@ def test_persona_workflow_integration():
         persona_dir = Path(tmpdir) / "test_persona"
         persona_dir.mkdir()
 
-        # Create initial persona.md to enable persona tools
+        # Create initial persona.md to enable persona tools (in memory/ subdirectory)
+        memory_dir = persona_dir / "memory"
+        memory_dir.mkdir()
         initial_content = "# Initial Persona\nBe helpful."
-        (persona_dir / "persona.md").write_text(initial_content)
+        (memory_dir / "persona.md").write_text(initial_content)
 
         # Create context
         context = AgentContext.create(
@@ -126,8 +130,8 @@ def test_persona_workflow_integration():
         result = write_persona_func(context, content=new_content)
         assert "Successfully" in result
 
-        # Step 3: Verify persona.md was created
-        persona_file = persona_dir / "persona.md"
+        # Step 3: Verify persona.md was created (in memory/ subdirectory)
+        persona_file = memory_dir / "persona.md"
         assert persona_file.exists()
         assert persona_file.read_text() == new_content
 
@@ -160,8 +164,10 @@ def test_persona_backup_created():
         persona_dir = Path(tmpdir) / "test_persona"
         persona_dir.mkdir()
 
-        # Create persona.md to enable persona tools
-        (persona_dir / "persona.md").write_text("# Initial")
+        # Create persona.md to enable persona tools (in memory/ subdirectory)
+        memory_dir = persona_dir / "memory"
+        memory_dir.mkdir()
+        (memory_dir / "persona.md").write_text("# Initial")
 
         context = AgentContext.create(
             model_spec=get_model("sonnet"),
@@ -182,9 +188,9 @@ def test_persona_backup_created():
         # Update it
         result = write_persona(context, content="# Updated")
 
-        # Check backup was created
+        # Check backup was created (in memory/ subdirectory)
         assert "Backup:" in result
-        backups = list(persona_dir.glob("persona.backup.*.md"))
+        backups = list(memory_dir.glob("persona.backup.*.md"))
         assert len(backups) == 1
         assert backups[0].read_text() == "# Initial"
 
@@ -197,8 +203,10 @@ def test_persona_log_created():
         persona_dir = Path(tmpdir) / "test_persona"
         persona_dir.mkdir()
 
-        # Create persona.md to enable persona tools
-        (persona_dir / "persona.md").write_text("# Initial")
+        # Create persona.md to enable persona tools (in memory/ subdirectory)
+        memory_dir = persona_dir / "memory"
+        memory_dir.mkdir()
+        (memory_dir / "persona.md").write_text("# Initial")
 
         context = AgentContext.create(
             model_spec=get_model("sonnet"),
@@ -216,8 +224,8 @@ def test_persona_log_created():
         # Write persona
         write_persona(context, content="# Test")
 
-        # Check log file
-        log_file = persona_dir / "persona.log.jsonl"
+        # Check log file (in memory/ subdirectory)
+        log_file = memory_dir / "persona.log.jsonl"
         assert log_file.exists()
 
         # Parse log entry

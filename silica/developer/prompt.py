@@ -80,7 +80,7 @@ def _load_persona_from_disk(agent_context: AgentContext) -> dict[str, Any] | Non
     is used, allowing runtime updates to take effect immediately.
 
     Priority:
-    1. If persona.md exists on disk, use it (takes precedence)
+    1. If memory/persona.md exists on disk, use it (takes precedence)
     2. Otherwise, return None to use the system_section fallback
 
     Args:
@@ -96,7 +96,7 @@ def _load_persona_from_disk(agent_context: AgentContext) -> dict[str, Any] | Non
     ):
         return None
 
-    persona_file = agent_context.history_base_dir / "persona.md"
+    persona_file = agent_context.history_base_dir / "memory" / "persona.md"
 
     if not persona_file.exists():
         return None
