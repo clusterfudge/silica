@@ -1372,7 +1372,8 @@ class SyncEngine:
 
         # Scan all files recursively from scan_base
         if not self.scan_base.exists():
-            logger.warning(f"Scan base directory does not exist: {self.scan_base}")
+            # Debug level - this is expected for new sessions before first turn
+            logger.debug(f"Scan base directory does not exist: {self.scan_base}")
             return files
 
         for file_path in self.scan_base.rglob("*"):
