@@ -940,11 +940,16 @@ class SyncEngine:
                 )
 
         # CASE D: Neither local nor remote exists
+        # This occurs when:
+        # - Both files deleted and tombstone was purged from remote index
+        # - Files deleted outside sync system (manual cleanup)
+        # - Index recovery/consistency check
         else:
-            # File is gone from both sides
+            # File is gone from both sides, cleanup orphaned index entry
             if index_entry:
-                # Clear index entry (cleanup)
+                # Remove stale index entry
                 self.local_index.remove_entry(path)
+                logger.debug(f"Cleaned up orphaned index entry for: {path}")
             return None  # No operation needed
 
     def execute_sync(
