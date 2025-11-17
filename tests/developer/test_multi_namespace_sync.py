@@ -47,10 +47,15 @@ def temp_dir():
 
 
 @pytest.fixture
-def persona_dir(temp_dir):
+def persona_dir(temp_dir, monkeypatch):
     """Create a persona directory structure."""
-    persona_path = temp_dir / "personas" / "default"
+    persona_path = temp_dir / "personas" / "test"
     persona_path.mkdir(parents=True)
+
+    # Mock the personas module to use our temp directory
+    from silica.developer import personas
+
+    monkeypatch.setattr(personas, "_PERSONAS_BASE_DIRECTORY", temp_dir / "personas")
 
     # Create memory directory with files
     memory_dir = persona_path / "memory"
@@ -86,28 +91,28 @@ class TestMultiNamespaceIndependence:
 
     def test_memory_engine_creation_with_config(self, mock_client, persona_dir):
         """Test creating a sync engine with memory config."""
-        config = SyncConfig.for_memory("default", persona_dir)
+        config = SyncConfig.for_memory("test")
         engine = SyncEngine(client=mock_client, config=config)
 
         assert engine.config == config
-        assert engine.config.namespace == "personas/default/memory"
+        assert engine.config.namespace == "personas/test/memory"
         assert engine.local_index.index_file == config.index_file
 
     def test_history_engine_creation_with_config(self, mock_client, persona_dir):
         """Test creating a sync engine with history config."""
-        config = SyncConfig.for_history("default", persona_dir, "session-1")
+        config = SyncConfig.for_history("test", "session-1")
         engine = SyncEngine(client=mock_client, config=config)
 
         assert engine.config == config
-        assert engine.config.namespace == "personas/default/history/session-1"
+        assert engine.config.namespace == "personas/test/history/session-1"
         assert engine.local_index.index_file == config.index_file
 
     def test_memory_and_history_engines_have_different_indices(
         self, mock_client, persona_dir
     ):
         """Test that memory and history engines use different index files."""
-        memory_config = SyncConfig.for_memory("default", persona_dir)
-        history_config = SyncConfig.for_history("default", persona_dir, "session-1")
+        memory_config = SyncConfig.for_memory("test")
+        history_config = SyncConfig.for_history("test", "session-1")
 
         memory_engine = SyncEngine(client=mock_client, config=memory_config)
         history_engine = SyncEngine(client=mock_client, config=history_config)
@@ -135,7 +140,7 @@ class TestMultiNamespaceIndependence:
 
     def test_memory_engine_scans_only_memory_files(self, mock_client, persona_dir):
         """Test that memory engine only scans memory files and persona.md."""
-        config = SyncConfig.for_memory("default", persona_dir)
+        config = SyncConfig.for_memory("test")
         engine = SyncEngine(client=mock_client, config=config)
 
         # Configure mock to return empty remote
@@ -156,7 +161,7 @@ class TestMultiNamespaceIndependence:
 
     def test_history_engine_scans_only_session_files(self, mock_client, persona_dir):
         """Test that history engine only scans files for its session."""
-        config = SyncConfig.for_history("default", persona_dir, "session-1")
+        config = SyncConfig.for_history("test", "session-1")
         engine = SyncEngine(client=mock_client, config=config)
 
         # Configure mock to return empty remote
@@ -181,8 +186,8 @@ class TestMultiNamespaceIndependence:
         self, mock_client, persona_dir
     ):
         """Test that history engines for different sessions are independent."""
-        config1 = SyncConfig.for_history("default", persona_dir, "session-1")
-        config2 = SyncConfig.for_history("default", persona_dir, "session-2")
+        config1 = SyncConfig.for_history("test", "session-1")
+        config2 = SyncConfig.for_history("test", "session-2")
 
         engine1 = SyncEngine(client=mock_client, config=config1)
         engine2 = SyncEngine(client=mock_client, config=config2)
@@ -214,8 +219,8 @@ class TestMultiNamespaceIndependence:
 
     def test_engines_use_independent_indices(self, mock_client, persona_dir):
         """Test that different engines use independent indices (no shared state)."""
-        memory_config = SyncConfig.for_memory("default", persona_dir)
-        history_config = SyncConfig.for_history("default", persona_dir, "session-1")
+        memory_config = SyncConfig.for_memory("test")
+        history_config = SyncConfig.for_history("test", "session-1")
 
         memory_engine = SyncEngine(client=mock_client, config=memory_config)
         history_engine = SyncEngine(client=mock_client, config=history_config)
@@ -243,8 +248,8 @@ class TestMultiNamespaceIndependence:
 
     def test_concurrent_sync_operations_dont_interfere(self, mock_client, persona_dir):
         """Test that syncing different namespaces doesn't cause conflicts."""
-        memory_config = SyncConfig.for_memory("default", persona_dir)
-        history_config = SyncConfig.for_history("default", persona_dir, "session-1")
+        memory_config = SyncConfig.for_memory("test")
+        history_config = SyncConfig.for_history("test", "session-1")
 
         memory_engine = SyncEngine(client=mock_client, config=memory_config)
         history_engine = SyncEngine(client=mock_client, config=history_config)
@@ -269,8 +274,8 @@ class TestMultiNamespaceIndependence:
 
     def test_index_persistence_per_namespace(self, mock_client, persona_dir):
         """Test that index changes persist per namespace."""
-        memory_config = SyncConfig.for_memory("default", persona_dir)
-        history_config = SyncConfig.for_history("default", persona_dir, "session-1")
+        memory_config = SyncConfig.for_memory("test")
+        history_config = SyncConfig.for_history("test", "session-1")
 
         # Create engines and update indices
         memory_engine = SyncEngine(client=mock_client, config=memory_config)

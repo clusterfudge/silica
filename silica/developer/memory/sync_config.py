@@ -25,7 +25,7 @@ class SyncConfig:
     index_file: Path  # Local index file path
 
     @classmethod
-    def for_memory(cls, persona_name: str, persona_dir: Path) -> "SyncConfig":
+    def for_memory(cls, persona_name: str) -> "SyncConfig":
         """Create configuration for memory sync.
 
         Memory sync includes:
@@ -34,17 +34,19 @@ class SyncConfig:
 
         Args:
             persona_name: Name of the persona (e.g., "default")
-            persona_dir: Base directory for the persona
 
         Returns:
             SyncConfig configured for memory sync
 
         Example:
-            >>> config = SyncConfig.for_memory("default", Path("~/.silica/personas/default"))
+            >>> config = SyncConfig.for_memory("default")
             >>> config.namespace
             'personas/default/memory'
         """
-        persona_dir = Path(persona_dir)
+        from silica.developer import personas
+
+        persona = personas.get_or_create(persona_name, interactive=False)
+        persona_dir = persona.base_directory
 
         return cls(
             namespace=f"personas/{persona_name}/memory",
@@ -56,9 +58,7 @@ class SyncConfig:
         )
 
     @classmethod
-    def for_history(
-        cls, persona_name: str, persona_dir: Path, session_id: str
-    ) -> "SyncConfig":
+    def for_history(cls, persona_name: str, session_id: str) -> "SyncConfig":
         """Create configuration for session history sync.
 
         History sync is per-session:
@@ -67,20 +67,20 @@ class SyncConfig:
 
         Args:
             persona_name: Name of the persona (e.g., "default")
-            persona_dir: Base directory for the persona
             session_id: Session identifier (e.g., "session-123")
 
         Returns:
             SyncConfig configured for history sync
 
         Example:
-            >>> config = SyncConfig.for_history("default",
-            ...                                  Path("~/.silica/personas/default"),
-            ...                                  "session-123")
+            >>> config = SyncConfig.for_history("default", "session-123")
             >>> config.namespace
             'personas/default/history/session-123'
         """
-        persona_dir = Path(persona_dir)
+        from silica.developer import personas
+
+        persona = personas.get_or_create(persona_name, interactive=False)
+        persona_dir = persona.base_directory
         session_dir = persona_dir / "history" / session_id
 
         return cls(

@@ -51,10 +51,10 @@ class TestSyncConfig:
 
     def test_for_memory_creates_correct_config(self, persona_dir):
         """Test SyncConfig.for_memory() creates correct configuration."""
-        config = SyncConfig.for_memory("default", persona_dir)
+        config = SyncConfig.for_memory("test")
 
         # Check namespace
-        assert config.namespace == "personas/default/memory"
+        assert config.namespace == "personas/test/memory"
 
         # Check scan paths include memory directory and persona.md
         scan_path_names = [p.name for p in config.scan_paths]
@@ -68,10 +68,10 @@ class TestSyncConfig:
     def test_for_history_creates_correct_config(self, persona_dir):
         """Test SyncConfig.for_history() creates correct configuration."""
         session_id = "session-123"
-        config = SyncConfig.for_history("default", persona_dir, session_id)
+        config = SyncConfig.for_history("test", session_id)
 
         # Check namespace includes session ID
-        assert config.namespace == f"personas/default/history/{session_id}"
+        assert config.namespace == f"personas/test/history/{session_id}"
 
         # Check scan paths point to session directory
         assert len(config.scan_paths) == 1
@@ -86,8 +86,8 @@ class TestSyncConfig:
 
     def test_memory_and_history_configs_are_independent(self, persona_dir):
         """Test that memory and history configs don't overlap."""
-        memory_config = SyncConfig.for_memory("default", persona_dir)
-        history_config = SyncConfig.for_history("default", persona_dir, "session-1")
+        memory_config = SyncConfig.for_memory("test")
+        history_config = SyncConfig.for_history("test", "session-1")
 
         # Different namespaces
         assert memory_config.namespace != history_config.namespace
@@ -102,8 +102,8 @@ class TestSyncConfig:
 
     def test_multiple_history_configs_for_different_sessions(self, persona_dir):
         """Test that different session configs are independent."""
-        config1 = SyncConfig.for_history("default", persona_dir, "session-1")
-        config2 = SyncConfig.for_history("default", persona_dir, "session-2")
+        config1 = SyncConfig.for_history("test", "session-1")
+        config2 = SyncConfig.for_history("test", "session-2")
 
         # Different namespaces
         assert config1.namespace != config2.namespace
@@ -120,8 +120,8 @@ class TestSyncConfig:
 
     def test_config_equality(self, persona_dir):
         """Test that configs with same parameters are equal."""
-        config1 = SyncConfig.for_memory("default", persona_dir)
-        config2 = SyncConfig.for_memory("default", persona_dir)
+        config1 = SyncConfig.for_memory("test")
+        config2 = SyncConfig.for_memory("test")
 
         assert config1.namespace == config2.namespace
         assert config1.scan_paths == config2.scan_paths
@@ -146,7 +146,13 @@ class TestSyncConfig:
 
     def test_memory_config_includes_persona_file(self, persona_dir):
         """Test that memory config includes persona.md file."""
-        config = SyncConfig.for_memory("default", persona_dir)
+        config = SyncConfig.for_memory("test")
+
+        # Get the expected persona directory
+        from silica.developer import personas
+
+        persona = personas.get_or_create("test", interactive=False)
+        persona_dir = persona.base_directory
 
         # persona.md should be in scan paths
         persona_file = persona_dir / "persona.md"
@@ -154,12 +160,17 @@ class TestSyncConfig:
 
     def test_history_config_excludes_other_sessions(self, persona_dir):
         """Test that history config only includes specific session."""
-        config = SyncConfig.for_history("default", persona_dir, "session-1")
+        config = SyncConfig.for_history("test", "session-1")
+
+        # Get the expected persona directory
+        from silica.developer import personas
+
+        persona = personas.get_or_create("test", interactive=False)
+        persona_dir = persona.base_directory
 
         # Should only include session-1 directory
         assert len(config.scan_paths) == 1
         assert config.scan_paths[0] == persona_dir / "history" / "session-1"
 
         # Should not include session-2
-        session2_path = persona_dir / "history" / "session-2"
-        assert session2_path not in config.scan_paths
+        persona_dir / "history" / "session-2"
