@@ -15,9 +15,9 @@ def temp_dir():
 
 
 @pytest.fixture
-def persona_dir(temp_dir):
-    """Create a persona directory structure."""
-    persona_path = temp_dir / "personas" / "default"
+def persona_dir(temp_dir, monkeypatch):
+    """Create a persona directory structure and configure personas module."""
+    persona_path = temp_dir / "personas" / "test"
     persona_path.mkdir(parents=True)
 
     # Create memory directory
@@ -29,6 +29,11 @@ def persona_dir(temp_dir):
 
     # Create persona.md
     (persona_path / "persona.md").write_text("# Test Persona")
+
+    # Mock the personas module to use our temp directory
+    from silica.developer import personas
+
+    monkeypatch.setattr(personas, "_PERSONAS_BASE_DIRECTORY", temp_dir / "personas")
 
     return persona_path
 
@@ -173,4 +178,4 @@ class TestSyncConfig:
         assert config.scan_paths[0] == persona_dir / "history" / "session-1"
 
         # Should not include session-2
-        persona_dir / "history" / "session-2"
+        assert (persona_dir / "history" / "session-2") not in config.scan_paths
