@@ -344,6 +344,9 @@ def sync(
     Performs bi-directional sync between local memory and remote storage.
     Uses automatic conflict resolution via LLM when needed.
 
+    NOTE: This only syncs the memory/ directory, not session history.
+    Session history is automatically synced per-session on startup and exit.
+
     Example:
         silica memory-sync sync
         silica memory-sync sync --dry-run
@@ -392,12 +395,15 @@ def sync(
         # Create proxy client
         client = MemoryProxyClient(base_url=config.remote_url, token=config.auth_token)
 
-        # Create sync engine
+        # Create sync engine for memory (not history - that's per-session)
+        # Use persona_name/memory namespace and scan from memory/ subdirectory
+        memory_dir = persona_dir / "memory"
         sync_engine = SyncEngine(
             client=client,
             local_base_dir=persona_dir,
-            namespace=persona_name,
+            namespace=f"{persona_name}/memory",
             conflict_resolver=conflict_resolver,
+            scan_base=memory_dir,
         )
 
         if dry_run:
