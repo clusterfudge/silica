@@ -138,11 +138,13 @@ class AgentContext:
             # Only show messages if something actually happened
             if result and result.get("succeeded", 0) > 0:
                 user_interface.handle_system_message(
-                    f"[green]✓ Synced {result['succeeded']} memory files from remote[/green]"
+                    f"[green]✓ Synced {result['succeeded']} memory files from remote[/green]",
+                    markdown=False,
                 )
             elif result and result.get("error"):
                 user_interface.handle_system_message(
-                    f"[yellow]⚠ Memory sync failed: {result['error']}[/yellow]"
+                    f"[yellow]⚠ Memory sync failed: {result['error']}[/yellow]",
+                    markdown=False,
                 )
             # If nothing happened (in sync), show nothing
 

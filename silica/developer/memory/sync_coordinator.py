@@ -78,7 +78,9 @@ def sync_with_retry(
                     )
 
                 except ConflictResolutionError as e:
-                    logger.error(f"Conflict resolution failed: {e}")
+                    logger.error(
+                        f"Conflict resolution failed for {sync_engine.namespace}: {e}"
+                    )
                     if is_fatal_error(e):
                         raise SyncFatalError(
                             f"Fatal error during conflict resolution: {e}"
@@ -144,17 +146,19 @@ def sync_with_retry(
 
         except (AuthenticationError, PermissionError, OSError) as e:
             # Fatal errors - don't retry
-            logger.error(f"Fatal error during sync: {e}")
+            logger.error(f"Fatal error during sync for {sync_engine.namespace}: {e}")
             raise SyncFatalError(f"Fatal error during sync: {e}") from e
 
         except ValueError as e:
             # Likely unresolved conflicts in execute_sync
-            logger.error(f"Invalid sync state: {e}")
+            logger.error(f"Invalid sync state for {sync_engine.namespace}: {e}")
             raise SyncFatalError(f"Invalid sync state: {e}") from e
 
         except Exception as e:
             # Unknown error - classify it
-            logger.error(f"Unexpected error during sync: {e}")
+            logger.error(
+                f"Unexpected error during sync for {sync_engine.namespace}: {e}"
+            )
             if is_fatal_error(e):
                 raise SyncFatalError(f"Fatal error during sync: {e}") from e
 
@@ -165,7 +169,9 @@ def sync_with_retry(
             continue
 
     # Max retries exceeded
-    logger.error(f"Sync failed after {max_retries} attempts")
+    logger.error(
+        f"Sync failed for {sync_engine.namespace} after {max_retries} attempts"
+    )
     raise SyncExhaustedError(
         f"Sync failed after {max_retries} attempts. "
         f"Please check logs and try again later."

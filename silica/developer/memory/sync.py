@@ -613,7 +613,7 @@ class SyncEngine:
         try:
             remote_index_response = self.client.get_sync_index(self.namespace)
         except Exception as e:
-            logger.error(f"Failed to get remote index: {e}")
+            logger.error(f"Failed to get remote index for {self.namespace}: {e}")
             # If we can't get remote index, we can't sync
             raise
 
