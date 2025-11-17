@@ -328,7 +328,7 @@ class MemoryProxyClient:
             namespace: Namespace (persona name)
 
         Returns:
-            SyncIndexResponse with file metadata
+            SyncIndexResponse with file metadata (empty if namespace doesn't exist yet)
 
         Raises:
             ConnectionError: If request fails
@@ -345,6 +345,14 @@ class MemoryProxyClient:
                     f"Retrieved sync index for {namespace}: {len(data.get('files', {}))} files"
                 )
                 return SyncIndexResponse(**data)
+
+            elif response.status_code == 404:
+                # Namespace doesn't exist yet on remote - return empty index
+                # This is expected for first-time sync
+                logger.debug(
+                    f"Namespace {namespace} not found on remote, using empty index"
+                )
+                return SyncIndexResponse(files={}, last_updated=None)
 
             elif response.status_code == 401:
                 raise AuthenticationError("Invalid authentication token")
