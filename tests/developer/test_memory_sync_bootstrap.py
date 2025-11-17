@@ -621,16 +621,27 @@ class TestEdgeCases:
         # No operations needed
         assert plan.total_operations == 0
 
-    def test_persona_file_synced_correctly(self, mock_client, temp_dir):
+    def test_persona_file_synced_correctly(self, mock_client, temp_dir, monkeypatch):
         """persona.md file in base directory should be synced with memory config."""
         from silica.developer.memory.sync_config import SyncConfig
+        from silica.developer import personas
 
-        # Create persona.md in base directory
+        # Set up persona directory structure
+        personas_dir = temp_dir / "personas"
+        personas_dir.mkdir()
+        test_persona_dir = personas_dir / "test"
+        test_persona_dir.mkdir()
+        (test_persona_dir / "memory").mkdir()
+
+        # Create persona.md in persona directory
         persona_content = b"# Persona\n\nMy persona"
-        (temp_dir / "persona.md").write_bytes(persona_content)
+        (test_persona_dir / "persona.md").write_bytes(persona_content)
+
+        # Mock personas module to use temp directory
+        monkeypatch.setattr(personas, "_PERSONAS_BASE_DIRECTORY", personas_dir)
 
         # Create engine with memory config (which includes persona.md)
-        config = SyncConfig.for_memory("test", temp_dir)
+        config = SyncConfig.for_memory("test")
         engine = SyncEngine(client=mock_client, config=config)
 
         # Configure mock: empty remote
