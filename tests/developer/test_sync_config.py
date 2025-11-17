@@ -85,7 +85,7 @@ class TestSyncConfig:
         # Check index file is in session directory
         assert (
             config.index_file
-            == persona_dir / "history" / session_id / ".sync-index.json"
+            == persona_dir / "history" / session_id / ".sync-index-history.json"
         )
         assert session_id in str(config.index_file)
 

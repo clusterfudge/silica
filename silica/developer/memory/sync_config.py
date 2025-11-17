@@ -86,5 +86,5 @@ class SyncConfig:
         return cls(
             namespace=f"personas/{persona_name}/history/{session_id}",
             scan_paths=[session_dir],
-            index_file=session_dir / ".sync-index.json",
+            index_file=session_dir / ".sync-index-history.json",
         )
