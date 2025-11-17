@@ -7,7 +7,6 @@ from tempfile import TemporaryDirectory
 
 from silica.developer.memory.sync import (
     LocalIndex,
-    SyncOperationLog,
     SyncEngine,
     SyncPlan,
     SyncOperationDetail,
@@ -53,12 +52,6 @@ def temp_dir():
 def local_index(temp_dir):
     """Create a LocalIndex instance."""
     return LocalIndex(temp_dir / ".sync-index.json")
-
-
-@pytest.fixture
-def operation_log(temp_dir):
-    """Create a SyncOperationLog instance."""
-    return SyncOperationLog(temp_dir)
 
 
 class TestLocalIndex:
