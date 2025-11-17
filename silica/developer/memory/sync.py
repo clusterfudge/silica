@@ -16,7 +16,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from silica.developer.memory.proxy_client import (
     FileMetadata,
@@ -28,6 +28,9 @@ from silica.developer.memory.conflict_resolver import (
     ConflictResolver,
     ConflictResolutionError,
 )
+
+if TYPE_CHECKING:
+    from silica.developer.memory.sync_config import SyncConfig
 
 logger = logging.getLogger(__name__)
 
@@ -129,17 +132,16 @@ class LocalIndex:
     The local index stores the last known state of remote files,
     allowing us to detect changes and conflicts.
 
-    Stored as: <persona_base_dir>/.sync-index.json
+    Index file location is now configurable per namespace.
     """
 
-    def __init__(self, base_dir: Path):
+    def __init__(self, index_file: Path):
         """Initialize local index.
 
         Args:
-            base_dir: Base directory for persona (e.g., ~/.silica/personas/default)
+            index_file: Path to the index file (e.g., ~/.silica/personas/default/.sync-index-memory.json)
         """
-        self.base_dir = Path(base_dir)
-        self.index_file = self.base_dir / ".sync-index.json"
+        self.index_file = Path(index_file)
         self._index: dict[str, FileMetadata] = {}
         self._loaded = False
 
@@ -181,7 +183,7 @@ class LocalIndex:
     def save(self) -> None:
         """Save index to disk."""
         # Ensure directory exists
-        self.base_dir.mkdir(parents=True, exist_ok=True)
+        self.index_file.parent.mkdir(parents=True, exist_ok=True)
 
         # Convert FileMetadata objects to dicts
         data = {
@@ -284,17 +286,16 @@ class SyncOperationLog:
     Stores operations in append-only JSONL format for easy debugging
     and recovery from failures.
 
-    Stored as: <persona_base_dir>/.sync-log.jsonl
+    Log file location is now configurable per namespace.
     """
 
-    def __init__(self, base_dir: Path):
+    def __init__(self, log_file: Path):
         """Initialize sync operation log.
 
         Args:
-            base_dir: Base directory for persona
+            log_file: Path to the log file (e.g., ~/.silica/personas/default/.sync-log-memory.jsonl)
         """
-        self.base_dir = Path(base_dir)
-        self.log_file = self.base_dir / ".sync-log.jsonl"
+        self.log_file = Path(log_file)
 
     def log_operation(
         self,
@@ -317,7 +318,7 @@ class SyncOperationLog:
             Operation ID
         """
         # Ensure directory exists
-        self.base_dir.mkdir(parents=True, exist_ok=True)
+        self.log_file.parent.mkdir(parents=True, exist_ok=True)
 
         # Generate operation ID
         timestamp = datetime.now(timezone.utc)
@@ -561,30 +562,66 @@ class SyncEngine:
     The sync engine analyzes the differences between local files, the local index
     (which tracks the last known remote state), and the actual remote state to
     determine what operations need to be performed.
+
+    Now supports multiple independent namespaces through SyncConfig.
     """
 
     def __init__(
         self,
         client: MemoryProxyClient,
-        local_base_dir: Path,
-        namespace: str,
+        config: "SyncConfig",
         conflict_resolver: ConflictResolver | None = None,
     ):
         """Initialize sync engine.
 
         Args:
             client: Memory proxy client
-            local_base_dir: Base directory for persona (e.g., ~/.silica/personas/default)
-            namespace: Namespace for remote storage (typically persona name)
+            config: Sync configuration (namespace, paths, indices)
             conflict_resolver: Conflict resolver for handling merge conflicts (optional)
         """
+
         self.client = client
-        self.local_base_dir = Path(local_base_dir)
-        self.namespace = namespace
+        self.config = config
         self.conflict_resolver = conflict_resolver
 
-        self.local_index = LocalIndex(local_base_dir)
-        self.operation_log = SyncOperationLog(local_base_dir)
+        self.local_index = LocalIndex(config.index_file)
+
+        # Derive base directory from index file location
+        # For memory: ~/.silica/personas/default/.sync-index-memory.json → ~/.silica/personas/default
+        # For history: ~/.silica/personas/default/history/session-1/.sync-index.json → ~/.silica/personas/default
+        self._base_dir = self._determine_base_dir()
+
+    def _determine_base_dir(self) -> Path:
+        """Determine base directory for file operations from config.
+
+        Returns the directory where actual files are stored, determined from
+        the first scan path in the config.
+        """
+        if not self.config.scan_paths:
+            # Fallback: use index file's parent
+            return self.config.index_file.parent
+
+        first_path = Path(self.config.scan_paths[0])
+
+        # If it's a file (e.g., persona.md), use its parent
+        if first_path.is_file() or not first_path.exists():
+            return first_path.parent
+
+        # If it's a directory, use its parent to get the persona directory
+        # e.g., .../personas/default/memory → .../personas/default
+        # e.g., .../personas/default/history/session-1 → .../personas/default
+        if "history" in first_path.parts:
+            # For history paths, go up to persona dir
+            # Find 'personas' in path and go two levels deep from there
+            parts = first_path.parts
+            if "personas" in parts:
+                persona_idx = parts.index("personas")
+                if persona_idx + 1 < len(parts):
+                    # Return personas/<name>
+                    return Path(*parts[: persona_idx + 2])
+
+        # For memory or other paths, use parent
+        return first_path.parent
 
     def analyze_sync_operations(self) -> SyncPlan:
         """Analyze local vs remote and create sync plan.
@@ -607,7 +644,7 @@ class SyncEngine:
 
         # Get remote index
         try:
-            remote_index_response = self.client.get_sync_index(self.namespace)
+            remote_index_response = self.client.get_sync_index(self.config.namespace)
         except Exception as e:
             logger.error(f"Failed to get remote index: {e}")
             # If we can't get remote index, we can't sync
@@ -679,7 +716,7 @@ class SyncEngine:
         for conflict in conflicts:
             try:
                 # Get local content
-                local_path = self.local_base_dir / conflict.path
+                local_path = self._base_dir / conflict.path
                 if not local_path.exists():
                     logger.warning(
                         f"Local file missing during conflict resolution: {conflict.path}"
@@ -691,7 +728,7 @@ class SyncEngine:
                 # Get remote content
                 remote_content, md5, last_mod, content_type, version = (
                     self.client.read_blob(
-                        namespace=self.namespace,
+                        namespace=self.config.namespace,
                         path=conflict.path,
                     )
                 )
@@ -1028,9 +1065,6 @@ class SyncEngine:
                 except Exception as e:
                     logger.error(f"Upload failed for {op.path}: {e}")
                     result.failed.append(op)
-                    self.operation_log.log_operation(
-                        "upload", op.path, "failed", error=str(e)
-                    )
                 finally:
                     if progress_bar and task_id is not None:
                         progress_bar.update(task_id, advance=1)
@@ -1046,9 +1080,6 @@ class SyncEngine:
                 except Exception as e:
                     logger.error(f"Download failed for {op.path}: {e}")
                     result.failed.append(op)
-                    self.operation_log.log_operation(
-                        "download", op.path, "failed", error=str(e)
-                    )
                 finally:
                     if progress_bar and task_id is not None:
                         progress_bar.update(task_id, advance=1)
@@ -1064,9 +1095,6 @@ class SyncEngine:
                 except Exception as e:
                     logger.error(f"Delete local failed for {op.path}: {e}")
                     result.failed.append(op)
-                    self.operation_log.log_operation(
-                        "delete_local", op.path, "failed", error=str(e)
-                    )
                 finally:
                     if progress_bar and task_id is not None:
                         progress_bar.update(task_id, advance=1)
@@ -1082,9 +1110,6 @@ class SyncEngine:
                 except Exception as e:
                     logger.error(f"Delete remote failed for {op.path}: {e}")
                     result.failed.append(op)
-                    self.operation_log.log_operation(
-                        "delete_remote", op.path, "failed", error=str(e)
-                    )
                 finally:
                     if progress_bar and task_id is not None:
                         progress_bar.update(task_id, advance=1)
@@ -1110,7 +1135,7 @@ class SyncEngine:
         Returns:
             True if successful, False otherwise
         """
-        full_path = self.local_base_dir / path
+        full_path = self._base_dir / path
 
         if not full_path.exists():
             logger.error(f"Cannot upload {path}: file not found")
@@ -1127,7 +1152,7 @@ class SyncEngine:
             # Upload to remote
             # write_blob returns tuple (is_new, md5, version)
             is_new, returned_md5, new_version = self.client.write_blob(
-                namespace=self.namespace,
+                namespace=self.config.namespace,
                 path=path,
                 content=content,
                 expected_version=remote_version,
@@ -1147,23 +1172,15 @@ class SyncEngine:
             )
 
             # Log success
-            self.operation_log.log_operation(
-                "upload",
-                path,
-                "success",
-                metadata={"version": new_version, "size": len(content)},
-            )
 
             logger.info(f"Uploaded {path} (v{new_version})")
             return True
 
         except VersionConflictError as e:
             logger.warning(f"Version conflict uploading {path}: {e}")
-            self.operation_log.log_operation("upload", path, "conflict", error=str(e))
             return False
         except Exception as e:
             logger.error(f"Failed to upload {path}: {e}")
-            self.operation_log.log_operation("upload", path, "failed", error=str(e))
             return False
 
     def download_file(self, path: str) -> bool:
@@ -1175,13 +1192,13 @@ class SyncEngine:
         Returns:
             True if successful, False otherwise
         """
-        full_path = self.local_base_dir / path
+        full_path = self._base_dir / path
 
         try:
             # Download from remote
             # read_blob returns (content, md5, last_modified, content_type, version)
             content, md5, last_modified, content_type, version = self.client.read_blob(
-                namespace=self.namespace, path=path
+                namespace=self.config.namespace, path=path
             )
 
             # Ensure directory exists
@@ -1204,25 +1221,15 @@ class SyncEngine:
             self.local_index.update_entry(path, file_metadata)
 
             # Log success
-            self.operation_log.log_operation(
-                "download",
-                path,
-                "success",
-                metadata={"version": version, "size": len(content)},
-            )
 
             logger.info(f"Downloaded {path} (v{version})")
             return True
 
         except NotFoundError:
             logger.warning(f"File not found remotely: {path}")
-            self.operation_log.log_operation(
-                "download", path, "failed", error="Not found"
-            )
             return False
         except Exception as e:
             logger.error(f"Failed to download {path}: {e}")
-            self.operation_log.log_operation("download", path, "failed", error=str(e))
             return False
 
     def delete_local(self, path: str) -> bool:
@@ -1234,7 +1241,7 @@ class SyncEngine:
         Returns:
             True if successful, False otherwise
         """
-        full_path = self.local_base_dir / path
+        full_path = self._base_dir / path
 
         try:
             if full_path.exists():
@@ -1247,16 +1254,12 @@ class SyncEngine:
                 self.local_index.update_entry(path, index_entry)
 
             # Log success
-            self.operation_log.log_operation("delete_local", path, "success")
 
             logger.info(f"Deleted local file {path}")
             return True
 
         except Exception as e:
             logger.error(f"Failed to delete local {path}: {e}")
-            self.operation_log.log_operation(
-                "delete_local", path, "failed", error=str(e)
-            )
             return False
 
     def delete_remote(self, path: str, remote_version: int) -> bool:
@@ -1272,7 +1275,7 @@ class SyncEngine:
         try:
             # Delete on remote (creates tombstone)
             new_version = self.client.delete_blob(
-                namespace=self.namespace,
+                namespace=self.config.namespace,
                 path=path,
                 expected_version=remote_version,
             )
@@ -1290,27 +1293,15 @@ class SyncEngine:
             )
 
             # Log success
-            self.operation_log.log_operation(
-                "delete_remote",
-                path,
-                "success",
-                metadata={"version": new_version},
-            )
 
             logger.info(f"Deleted remote file {path} (v{new_version})")
             return True
 
         except VersionConflictError as e:
             logger.warning(f"Version conflict deleting {path}: {e}")
-            self.operation_log.log_operation(
-                "delete_remote", path, "conflict", error=str(e)
-            )
             return False
         except Exception as e:
             logger.error(f"Failed to delete remote {path}: {e}")
-            self.operation_log.log_operation(
-                "delete_remote", path, "failed", error=str(e)
-            )
             return False
 
     def get_sync_status(self) -> SyncStatus:
@@ -1324,68 +1315,81 @@ class SyncEngine:
         return SyncStatus()
 
     def _scan_local_files(self) -> dict[str, FileInfo]:
-        """Scan local filesystem for files to sync.
+        """Scan configured local paths for files to sync.
+
+        Uses config.scan_paths to determine which files/directories to scan.
+        This enables multiple engines to scan different subsets of files.
 
         Returns:
             Dictionary mapping paths to FileInfo
         """
         files = {}
 
-        # Directories to scan
-        scan_dirs = [
-            self.local_base_dir / "memory",
-            self.local_base_dir / "history",
-        ]
+        # Scan configured paths
+        for scan_path in self.config.scan_paths:
+            scan_path = Path(scan_path)
 
-        # Also check for persona.md in base directory
-        persona_file = self.local_base_dir / "persona.md"
-        if persona_file.exists() and persona_file.is_file():
-            with open(persona_file, "rb") as f:
-                content = f.read()
-            files["persona.md"] = FileInfo(
-                path="persona.md",
-                md5=self._calculate_md5(content),
-                size=len(content),
-                last_modified=datetime.fromtimestamp(
-                    persona_file.stat().st_mtime, tz=timezone.utc
-                ),
-            )
-
-        # Scan directories
-        for scan_dir in scan_dirs:
-            if not scan_dir.exists():
+            if not scan_path.exists():
+                logger.debug(f"Scan path does not exist: {scan_path}")
                 continue
 
-            for file_path in scan_dir.rglob("*"):
-                if not file_path.is_file():
-                    continue
-
-                # Skip sync metadata files
-                if file_path.name in [".sync-index.json", ".sync-log.jsonl"]:
-                    continue
-
-                # Get relative path
+            if scan_path.is_file():
+                # Single file (e.g., persona.md)
+                rel_path = scan_path.name
                 try:
-                    rel_path = file_path.relative_to(self.local_base_dir)
-                except ValueError:
-                    continue
-
-                # Read file and calculate MD5
-                try:
-                    with open(file_path, "rb") as f:
+                    with open(scan_path, "rb") as f:
                         content = f.read()
 
-                    files[str(rel_path)] = FileInfo(
-                        path=str(rel_path),
+                    files[rel_path] = FileInfo(
+                        path=rel_path,
                         md5=self._calculate_md5(content),
                         size=len(content),
                         last_modified=datetime.fromtimestamp(
-                            file_path.stat().st_mtime, tz=timezone.utc
+                            scan_path.stat().st_mtime, tz=timezone.utc
                         ),
                     )
                 except Exception as e:
-                    logger.warning(f"Failed to read {rel_path}: {e}")
-                    continue
+                    logger.warning(f"Failed to read {scan_path}: {e}")
+
+            elif scan_path.is_dir():
+                # Directory - scan recursively
+                for file_path in scan_path.rglob("*"):
+                    if not file_path.is_file():
+                        continue
+
+                    # Skip sync metadata files
+                    if file_path.name in [
+                        ".sync-index.json",
+                        ".sync-index-memory.json",
+                        ".sync-log.jsonl",
+                        ".sync-log-memory.jsonl",
+                    ]:
+                        continue
+
+                    # Get relative path from scan_path's parent
+                    # This preserves directory structure (e.g., "memory/file.md")
+                    try:
+                        rel_path = file_path.relative_to(scan_path.parent)
+                    except ValueError:
+                        # If relative_to fails, just use filename
+                        rel_path = file_path.name
+
+                    # Read file and calculate MD5
+                    try:
+                        with open(file_path, "rb") as f:
+                            content = f.read()
+
+                        files[str(rel_path)] = FileInfo(
+                            path=str(rel_path),
+                            md5=self._calculate_md5(content),
+                            size=len(content),
+                            last_modified=datetime.fromtimestamp(
+                                file_path.stat().st_mtime, tz=timezone.utc
+                            ),
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to read {rel_path}: {e}")
+                        continue
 
         return files
 

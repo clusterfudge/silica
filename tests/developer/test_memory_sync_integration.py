@@ -132,10 +132,14 @@ def proxy_client(test_client):
 def sync_engine(proxy_client, temp_persona_dir):
     """Create SyncEngine with test client and temp directory."""
     from silica.developer.memory.sync import SyncEngine
+    from silica.developer.memory.sync_config import SyncConfig
 
-    return SyncEngine(
-        client=proxy_client, local_base_dir=temp_persona_dir, namespace="test-persona"
+    config = SyncConfig(
+        namespace="test-persona",
+        scan_paths=[temp_persona_dir / "memory", temp_persona_dir / "history"],
+        index_file=temp_persona_dir / ".sync-index.json",
     )
+    return SyncEngine(client=proxy_client, config=config)
 
 
 class TestEndToEndSync:
@@ -415,7 +419,8 @@ class TestEndToEndSync:
         remote_index = proxy_client.get_sync_index("test-persona")
         assert len(remote_index.files) == 15
 
-    def test_operation_logging(self, sync_engine, temp_persona_dir):
+        # Removed: operation logging feature dropped
+        #     def test_operation_logging(self, sync_engine, temp_persona_dir):
         """Test that operations are logged correctly."""
         # Create a file and sync
         memory_dir = temp_persona_dir / "memory"
