@@ -1,7 +1,5 @@
 """Tests for memory sync module."""
 
-import json
-
 import pytest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -9,7 +7,6 @@ from tempfile import TemporaryDirectory
 
 from silica.developer.memory.sync import (
     LocalIndex,
-    SyncOperationLog,
     SyncEngine,
     SyncPlan,
     SyncOperationDetail,
@@ -54,13 +51,7 @@ def temp_dir():
 @pytest.fixture
 def local_index(temp_dir):
     """Create a LocalIndex instance."""
-    return LocalIndex(temp_dir)
-
-
-@pytest.fixture
-def operation_log(temp_dir):
-    """Create a SyncOperationLog instance."""
-    return SyncOperationLog(temp_dir)
+    return LocalIndex(temp_dir / ".sync-index.json")
 
 
 class TestLocalIndex:
@@ -68,7 +59,6 @@ class TestLocalIndex:
 
     def test_init(self, local_index, temp_dir):
         """Test initialization."""
-        assert local_index.base_dir == temp_dir
         assert local_index.index_file == temp_dir / ".sync-index.json"
         assert not local_index._loaded
 
@@ -102,7 +92,7 @@ class TestLocalIndex:
         local_index.save()
 
         # Create new index and load
-        local_index2 = LocalIndex(local_index.base_dir)
+        local_index2 = LocalIndex(local_index.index_file)
         entries = local_index2.load()
 
         assert len(entries) == 2
@@ -201,233 +191,13 @@ class TestLocalIndex:
         local_index.save()
 
         # Create new instance
-        new_index = LocalIndex(local_index.base_dir)
+        new_index = LocalIndex(local_index.index_file)
         new_index.load()
 
         entry = new_index.get_entry("persistent.md")
         assert entry is not None
         assert entry.md5 == "persist"
         assert entry.version == 1000
-
-
-class TestSyncOperationLog:
-    """Tests for SyncOperationLog class."""
-
-    def test_init(self, operation_log, temp_dir):
-        """Test initialization."""
-        assert operation_log.base_dir == temp_dir
-        assert operation_log.log_file == temp_dir / ".sync-log.jsonl"
-
-    def test_log_operation(self, operation_log):
-        """Test logging an operation."""
-        op_id = operation_log.log_operation(
-            op_type="upload",
-            path="test.md",
-            status="success",
-        )
-
-        assert op_id is not None
-        assert isinstance(op_id, str)
-        assert operation_log.log_file.exists()
-
-    def test_log_operation_with_error(self, operation_log):
-        """Test logging a failed operation."""
-        op_id = operation_log.log_operation(
-            op_type="download",
-            path="failed.md",
-            status="failed",
-            error="Network timeout",
-        )
-
-        assert op_id is not None
-
-        # Verify it appears in failed operations
-        failed = operation_log.get_failed_operations()
-        assert len(failed) == 1
-        assert failed[0].path == "failed.md"
-        assert failed[0].error == "Network timeout"
-
-    def test_log_operation_with_metadata(self, operation_log):
-        """Test logging with additional metadata."""
-        operation_log.log_operation(
-            op_type="upload",
-            path="test.md",
-            status="success",
-            metadata={"size": 1024, "md5": "abc123"},
-        )
-
-        operations = operation_log.get_operations_for_path("test.md")
-        assert len(operations) == 1
-        assert operations[0].metadata["size"] == 1024
-        assert operations[0].metadata["md5"] == "abc123"
-
-    def test_get_failed_operations(self, operation_log):
-        """Test getting failed operations."""
-        # Log some operations
-        operation_log.log_operation("upload", "file1.md", "success")
-        operation_log.log_operation("download", "file2.md", "failed", error="Error 1")
-        operation_log.log_operation("upload", "file3.md", "failed", error="Error 2")
-        operation_log.log_operation("delete", "file4.md", "success")
-
-        failed = operation_log.get_failed_operations()
-
-        assert len(failed) == 2
-        assert all(op.status == "failed" for op in failed)
-        assert {op.path for op in failed} == {"file2.md", "file3.md"}
-
-    def test_get_recent_operations(self, operation_log):
-        """Test getting recent operations."""
-        # Log several operations
-        for i in range(10):
-            operation_log.log_operation(
-                "upload",
-                f"file{i}.md",
-                "success",
-            )
-
-        recent = operation_log.get_recent_operations(limit=5)
-
-        assert len(recent) == 5
-        # Should be in reverse order (newest first)
-        assert recent[0].path == "file9.md"
-        assert recent[4].path == "file5.md"
-
-    def test_get_operations_for_path(self, operation_log):
-        """Test getting operations for specific path."""
-        # Log operations for different paths
-        operation_log.log_operation("upload", "test.md", "success")
-        operation_log.log_operation("download", "test.md", "success")
-        operation_log.log_operation("upload", "other.md", "success")
-        operation_log.log_operation("delete", "test.md", "success")
-
-        ops = operation_log.get_operations_for_path("test.md")
-
-        assert len(ops) == 3
-        assert all(op.path == "test.md" for op in ops)
-
-    def test_get_statistics(self, operation_log):
-        """Test getting operation statistics."""
-        # Log various operations
-        operation_log.log_operation("upload", "file1.md", "success")
-        operation_log.log_operation("upload", "file2.md", "success")
-        operation_log.log_operation("download", "file3.md", "success")
-        operation_log.log_operation("upload", "file4.md", "failed", error="Error")
-        operation_log.log_operation("delete", "file5.md", "success")
-
-        stats = operation_log.get_statistics()
-
-        assert stats["total_operations"] == 5
-        assert stats["by_type"]["upload"] == 3
-        assert stats["by_type"]["download"] == 1
-        assert stats["by_type"]["delete"] == 1
-        assert stats["by_status"]["success"] == 4
-        assert stats["by_status"]["failed"] == 1
-
-    def test_persistence(self, operation_log):
-        """Test that log persists across instances."""
-        # Log some operations
-        operation_log.log_operation("upload", "test1.md", "success")
-        operation_log.log_operation("download", "test2.md", "success")
-
-        # Create new instance
-        new_log = SyncOperationLog(operation_log.base_dir)
-        recent = new_log.get_recent_operations(limit=10)
-
-        assert len(recent) == 2
-        paths = {op.path for op in recent}
-        assert paths == {"test1.md", "test2.md"}
-
-    def test_empty_log(self, operation_log):
-        """Test operations on empty log."""
-        assert operation_log.get_failed_operations() == []
-        assert operation_log.get_recent_operations() == []
-        assert operation_log.get_operations_for_path("any.md") == []
-
-        stats = operation_log.get_statistics()
-        assert stats["total_operations"] == 0
-
-    def test_truncate_after_sync(self, operation_log):
-        """Test truncating log after sync."""
-        from datetime import timedelta, datetime, timezone
-
-        # Create some old successful operations (> 7 days)
-        old_time = datetime.now(timezone.utc) - timedelta(days=10)
-
-        # Log some operations
-        operation_log.log_operation("upload", "old_success.md", "success")
-        operation_log.log_operation("upload", "recent_success.md", "success")
-        operation_log.log_operation("download", "failed.md", "failed", error="Error")
-
-        # Manually modify timestamps to simulate old operations
-        operations = operation_log._read_all_operations()
-        operations[0].timestamp = old_time  # Make first operation old
-
-        # Rewrite with modified timestamps
-        with open(operation_log.log_file, "w") as f:
-            for op in operations:
-                log_entry = {
-                    "op_id": op.op_id,
-                    "op_type": op.op_type,
-                    "path": op.path,
-                    "status": op.status,
-                    "error": op.error,
-                    "timestamp": op.timestamp.isoformat(),
-                    "metadata": op.metadata,
-                }
-                f.write(json.dumps(log_entry) + "\n")
-
-        # Truncate
-        removed = operation_log.truncate_after_sync(keep_days=7)
-
-        # Should remove 1 old successful operation
-        assert removed == 1
-
-        # Check remaining operations
-        remaining = operation_log._read_all_operations()
-        paths = {op.path for op in remaining}
-
-        # Should keep recent success and failed operation
-        assert "recent_success.md" in paths
-        assert "failed.md" in paths
-        assert "old_success.md" not in paths
-
-    def test_truncate_keeps_all_failed(self, operation_log):
-        """Test that truncation keeps all failed operations regardless of age."""
-        from datetime import timedelta, datetime, timezone
-
-        old_time = datetime.now(timezone.utc) - timedelta(days=30)
-
-        # Log an old failed operation
-        operation_log.log_operation(
-            "upload", "old_failed.md", "failed", error="Old error"
-        )
-
-        # Manually modify timestamp
-        operations = operation_log._read_all_operations()
-        operations[0].timestamp = old_time
-
-        with open(operation_log.log_file, "w") as f:
-            for op in operations:
-                log_entry = {
-                    "op_id": op.op_id,
-                    "op_type": op.op_type,
-                    "path": op.path,
-                    "status": op.status,
-                    "error": op.error,
-                    "timestamp": op.timestamp.isoformat(),
-                    "metadata": op.metadata,
-                }
-                f.write(json.dumps(log_entry) + "\n")
-
-        # Truncate
-        removed = operation_log.truncate_after_sync(keep_days=7)
-
-        # Should not remove failed operation
-        assert removed == 0
-
-        remaining = operation_log._read_all_operations()
-        assert len(remaining) == 1
-        assert remaining[0].path == "old_failed.md"
 
 
 class TestSyncEngine:
@@ -442,19 +212,24 @@ class TestSyncEngine:
     @pytest.fixture
     def sync_engine(self, temp_dir, mock_client):
         """Create a SyncEngine instance."""
+        from silica.developer.memory.sync_config import SyncConfig
+
+        # Create a test config
+        config = SyncConfig(
+            namespace="test-persona",
+            scan_paths=[temp_dir / "memory", temp_dir / "history"],
+            index_file=temp_dir / ".sync-index.json",
+        )
         return SyncEngine(
             client=mock_client,
-            local_base_dir=temp_dir,
-            namespace="test-persona",
+            config=config,
         )
 
     def test_init(self, sync_engine, temp_dir, mock_client):
         """Test initialization."""
         assert sync_engine.client == mock_client
-        assert sync_engine.local_base_dir == temp_dir
-        assert sync_engine.namespace == "test-persona"
+        assert sync_engine.config.namespace == "test-persona"
         assert isinstance(sync_engine.local_index, LocalIndex)
-        assert isinstance(sync_engine.operation_log, SyncOperationLog)
 
     def test_analyze_empty_sync(self, sync_engine, mock_client):
         """Test analyzing sync when everything is empty."""
@@ -845,20 +620,18 @@ class TestSyncEngine:
         history_dir.mkdir()
         (history_dir / "session.json").write_text("{}")
 
-        # Create persona.md
-        (temp_dir / "persona.md").write_text("persona content")
-
         files = sync_engine._scan_local_files()
 
-        # Should find all files except sync metadata
+        # Should find files in configured scan paths (memory/ and history/)
         assert "memory/test1.md" in files
         assert "memory/test2.md" in files
         assert "history/session.json" in files
-        assert "persona.md" in files
 
         # Should not include sync metadata files
         assert ".sync-index.json" not in files
         assert ".sync-log.jsonl" not in files
+        assert ".sync-index-memory.json" not in files
+        assert ".sync-log-memory.jsonl" not in files
 
     def test_calculate_md5(self, sync_engine):
         """Test MD5 calculation."""

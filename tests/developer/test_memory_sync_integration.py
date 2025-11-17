@@ -132,10 +132,17 @@ def proxy_client(test_client):
 def sync_engine(proxy_client, temp_persona_dir):
     """Create SyncEngine with test client and temp directory."""
     from silica.developer.memory.sync import SyncEngine
+    from silica.developer.memory.sync_config import SyncConfig
 
-    return SyncEngine(
-        client=proxy_client, local_base_dir=temp_persona_dir, namespace="test-persona"
+    config = SyncConfig(
+        namespace="test-persona",
+        scan_paths=[
+            temp_persona_dir / "memory",
+            temp_persona_dir / "persona.md",
+        ],
+        index_file=temp_persona_dir / ".sync-index.json",
     )
+    return SyncEngine(client=proxy_client, config=config)
 
 
 class TestEndToEndSync:
@@ -415,25 +422,6 @@ class TestEndToEndSync:
         remote_index = proxy_client.get_sync_index("test-persona")
         assert len(remote_index.files) == 15
 
-    def test_operation_logging(self, sync_engine, temp_persona_dir):
-        """Test that operations are logged correctly."""
-        # Create a file and sync
-        memory_dir = temp_persona_dir / "memory"
-        (memory_dir / "logged.md").write_text("Test")
-
-        plan = sync_engine.analyze_sync_operations()
-        sync_engine.execute_sync(plan, show_progress=False)
-
-        # Check operation log
-        recent_ops = sync_engine.operation_log.get_recent_operations(limit=10)
-        assert len(recent_ops) > 0
-
-        # Should have upload operation
-        upload_ops = [op for op in recent_ops if op.op_type == "upload"]
-        assert len(upload_ops) == 1
-        assert upload_ops[0].path == "memory/logged.md"
-        assert upload_ops[0].status == "success"
-
     def test_sync_with_nested_directories(
         self, sync_engine, temp_persona_dir, proxy_client
     ):
@@ -460,13 +448,17 @@ class TestEndToEndSync:
     def test_local_index_persists(self, proxy_client, temp_persona_dir):
         """Test that local index persists across SyncEngine instances."""
         from silica.developer.memory.sync import SyncEngine
+        from silica.developer.memory.sync_config import SyncConfig
+
+        # Create config
+        config = SyncConfig(
+            namespace="test-persona",
+            scan_paths=[temp_persona_dir / "memory"],
+            index_file=temp_persona_dir / ".sync-index.json",
+        )
 
         # Create first engine and sync a file
-        engine1 = SyncEngine(
-            client=proxy_client,
-            local_base_dir=temp_persona_dir,
-            namespace="test-persona",
-        )
+        engine1 = SyncEngine(client=proxy_client, config=config)
 
         memory_dir = temp_persona_dir / "memory"
         (memory_dir / "persistent.md").write_text("Content")
@@ -475,26 +467,26 @@ class TestEndToEndSync:
         engine1.execute_sync(plan1, show_progress=False)
 
         # Create new SyncEngine instance (simulating restart)
-        engine2 = SyncEngine(
-            client=proxy_client,
-            local_base_dir=temp_persona_dir,
-            namespace="test-persona",
-        )
+        engine2 = SyncEngine(client=proxy_client, config=config)
 
         # Should recognize file is already synced
         plan2 = engine2.analyze_sync_operations()
         assert plan2.total_operations == 0
 
-    def test_operation_log_persists(self, proxy_client, temp_persona_dir):
-        """Test that operation log persists."""
+    def test_index_tracks_synced_files(self, proxy_client, temp_persona_dir):
+        """Test that index correctly tracks synced files."""
         from silica.developer.memory.sync import SyncEngine
+        from silica.developer.memory.sync_config import SyncConfig
+
+        # Create config
+        config = SyncConfig(
+            namespace="test-persona",
+            scan_paths=[temp_persona_dir / "memory"],
+            index_file=temp_persona_dir / ".sync-index.json",
+        )
 
         # Perform sync
-        engine1 = SyncEngine(
-            client=proxy_client,
-            local_base_dir=temp_persona_dir,
-            namespace="test-persona",
-        )
+        engine1 = SyncEngine(client=proxy_client, config=config)
 
         memory_dir = temp_persona_dir / "memory"
         (memory_dir / "logged.md").write_text("Content")
@@ -502,13 +494,14 @@ class TestEndToEndSync:
         plan = engine1.analyze_sync_operations()
         engine1.execute_sync(plan, show_progress=False)
 
-        # Create new SyncEngine instance
-        engine2 = SyncEngine(
-            client=proxy_client,
-            local_base_dir=temp_persona_dir,
-            namespace="test-persona",
-        )
+        # Verify index was created and contains the file
+        assert config.index_file.exists()
 
-        # Should see previous operations
-        ops = engine2.operation_log.get_recent_operations(limit=10)
-        assert len(ops) > 0
+        # Create new SyncEngine instance and verify it reads the index
+        engine2 = SyncEngine(client=proxy_client, config=config)
+
+        # Index should track the synced file
+        index_entry = engine2.local_index.get_entry("memory/logged.md")
+        assert index_entry is not None
+        assert index_entry.md5 is not None
+        assert index_entry.size > 0

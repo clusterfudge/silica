@@ -167,11 +167,17 @@ def proxy_client(test_client):
 @pytest.fixture
 def sync_engine_with_resolver(temp_dir, proxy_client):
     """Create sync engine with mock conflict resolver."""
+    from silica.developer.memory.sync_config import SyncConfig
+
     resolver = MockConflictResolver(strategy="local")
+    config = SyncConfig(
+        namespace="test",
+        scan_paths=[temp_dir / "memory"],
+        index_file=temp_dir / ".sync-index.json",
+    )
     engine = SyncEngine(
         client=proxy_client,
-        local_base_dir=temp_dir,
-        namespace="test",
+        config=config,
         conflict_resolver=resolver,
     )
     return engine
@@ -247,10 +253,16 @@ class TestConflictResolution:
 
     def test_sync_without_resolver_raises_error(self, temp_dir, proxy_client):
         """Test that sync_with_retry requires a resolver."""
+        from silica.developer.memory.sync_config import SyncConfig
+
+        config = SyncConfig(
+            namespace="test",
+            scan_paths=[temp_dir / "memory"],
+            index_file=temp_dir / ".sync-index.json",
+        )
         engine = SyncEngine(
             client=proxy_client,
-            local_base_dir=temp_dir,
-            namespace="test",
+            config=config,
             conflict_resolver=None,  # No resolver
         )
 

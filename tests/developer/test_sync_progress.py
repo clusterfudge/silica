@@ -19,10 +19,16 @@ def mock_client():
 @pytest.fixture
 def sync_engine(tmp_path, mock_client):
     """Create a sync engine for testing."""
+    from silica.developer.memory.sync_config import SyncConfig
+
+    config = SyncConfig(
+        namespace="test",
+        scan_paths=[tmp_path],
+        index_file=tmp_path / ".sync-index.json",
+    )
     engine = SyncEngine(
         client=mock_client,
-        local_base_dir=tmp_path,
-        namespace="test",
+        config=config,
     )
     return engine
 

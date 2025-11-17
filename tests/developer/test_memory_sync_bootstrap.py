@@ -65,10 +65,17 @@ def mock_client():
 @pytest.fixture
 def sync_engine(temp_dir, mock_client):
     """Create a SyncEngine instance."""
+    from silica.developer.memory.sync_config import SyncConfig
+
+    # Create a test config
+    config = SyncConfig(
+        namespace="test-persona",
+        scan_paths=[temp_dir / "memory", temp_dir / "history"],
+        index_file=temp_dir / ".sync-index.json",
+    )
     return SyncEngine(
         client=mock_client,
-        local_base_dir=temp_dir,
-        namespace="test-persona",
+        config=config,
     )
 
 
@@ -614,21 +621,38 @@ class TestEdgeCases:
         # No operations needed
         assert plan.total_operations == 0
 
-    def test_persona_file_synced_correctly(self, sync_engine, mock_client, temp_dir):
-        """persona.md file in base directory should be synced."""
-        # Create persona.md in base directory
+    def test_persona_file_synced_correctly(self, mock_client, temp_dir, monkeypatch):
+        """persona.md file in base directory should be synced with memory config."""
+        from silica.developer.memory.sync_config import SyncConfig
+        from silica.developer import personas
+
+        # Set up persona directory structure
+        personas_dir = temp_dir / "personas"
+        personas_dir.mkdir()
+        test_persona_dir = personas_dir / "test"
+        test_persona_dir.mkdir()
+        (test_persona_dir / "memory").mkdir()
+
+        # Create persona.md in persona directory
         persona_content = b"# Persona\n\nMy persona"
-        (temp_dir / "persona.md").write_bytes(persona_content)
+        (test_persona_dir / "persona.md").write_bytes(persona_content)
+
+        # Mock personas module to use temp directory
+        monkeypatch.setattr(personas, "_PERSONAS_BASE_DIRECTORY", personas_dir)
+
+        # Create engine with memory config (which includes persona.md)
+        config = SyncConfig.for_memory("test")
+        engine = SyncEngine(client=mock_client, config=config)
 
         # Configure mock: empty remote
         mock_client.get_sync_index.return_value = make_sync_index_response([])
 
         # Analyze sync
-        plan = sync_engine.analyze_sync_operations()
+        plan = engine.analyze_sync_operations()
 
         # Should upload persona.md
-        assert len(plan.upload) == 1
-        assert plan.upload[0].path == "persona.md"
+        upload_paths = {op.path for op in plan.upload}
+        assert "persona.md" in upload_paths
 
     def test_sync_metadata_files_ignored(self, sync_engine, mock_client, temp_dir):
         """Sync metadata files (.sync-index.json, .sync-log.jsonl) should not be synced."""

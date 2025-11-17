@@ -379,7 +379,7 @@ def sync(
             )
 
         # Set up sync engine
-        persona_dir / "memory"
+        from silica.developer.memory.sync_config import SyncConfig
 
         # Create conflict resolver if we have an API key
         conflict_resolver = None
@@ -392,11 +392,13 @@ def sync(
         # Create proxy client
         client = MemoryProxyClient(base_url=config.remote_url, token=config.auth_token)
 
+        # Create sync configuration for memory
+        sync_config = SyncConfig.for_memory(persona_name)
+
         # Create sync engine
         sync_engine = SyncEngine(
             client=client,
-            local_base_dir=persona_dir,
-            namespace=persona_name,
+            config=sync_config,
             conflict_resolver=conflict_resolver,
         )
 
