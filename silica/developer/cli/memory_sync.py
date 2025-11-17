@@ -411,12 +411,65 @@ def sync(
                 f"[cyan]Analyzing sync plan for persona '{persona_name}'...[/cyan]\n"
             )
 
-            # This is a placeholder - the actual sync_with_retry doesn't have a dry-run mode yet
-            # We would need to add a method to just analyze without executing
+            # Analyze sync operations without executing
+            plan = sync_engine.analyze_sync_operations()
+
+            # Check if there's anything to do
+            if plan.total_operations == 0:
+                console.print(
+                    Panel(
+                        "[green]✓ Everything is in sync - no operations needed[/green]",
+                        title="Dry Run Results",
+                        border_style="green",
+                    )
+                )
+                return
+
+            # Display what would be done
+            table = Table(title="Sync Plan (Dry Run)", show_header=True)
+            table.add_column("Operation", style="cyan", no_wrap=True)
+            table.add_column("Count", style="white", justify="right")
+            table.add_column("Files", style="dim")
+
+            if plan.upload:
+                files = [op.path for op in plan.upload[:5]]
+                if len(plan.upload) > 5:
+                    files.append(f"... and {len(plan.upload) - 5} more")
+                table.add_row("Upload", str(len(plan.upload)), "\n".join(files))
+
+            if plan.download:
+                files = [op.path for op in plan.download[:5]]
+                if len(plan.download) > 5:
+                    files.append(f"... and {len(plan.download) - 5} more")
+                table.add_row("Download", str(len(plan.download)), "\n".join(files))
+
+            if plan.delete_local:
+                files = [op.path for op in plan.delete_local[:5]]
+                if len(plan.delete_local) > 5:
+                    files.append(f"... and {len(plan.delete_local) - 5} more")
+                table.add_row(
+                    "Delete Local", str(len(plan.delete_local)), "\n".join(files)
+                )
+
+            if plan.delete_remote:
+                files = [op.path for op in plan.delete_remote[:5]]
+                if len(plan.delete_remote) > 5:
+                    files.append(f"... and {len(plan.delete_remote) - 5} more")
+                table.add_row(
+                    "Delete Remote", str(len(plan.delete_remote)), "\n".join(files)
+                )
+
+            if plan.conflicts:
+                files = [f"{op.path} (conflict)" for op in plan.conflicts[:5]]
+                if len(plan.conflicts) > 5:
+                    files.append(f"... and {len(plan.conflicts) - 5} more")
+                table.add_row("Conflicts", str(len(plan.conflicts)), "\n".join(files))
+
+            console.print(table)
+            console.print(f"\n[dim]Total operations: {plan.total_operations}[/dim]")
             console.print(
-                "[yellow]Dry-run mode: Would perform sync analysis here[/yellow]"
+                "[dim]Run without --dry-run to execute these operations[/dim]"
             )
-            console.print("[dim]Full dry-run implementation coming soon[/dim]")
             return
 
         console.print(f"[cyan]Syncing memory for persona '{persona_name}'...[/cyan]\n")

@@ -245,17 +245,40 @@ def test_sync_command_not_enabled(mock_config, mock_persona, capsys):
 
 def test_sync_command_dry_run(tmp_path, mock_persona, capsys):
     """Test sync command with dry-run."""
+    from silica.developer.memory.sync import SyncPlan, SyncOperationDetail
+
     config_path = tmp_path / "memory_proxy.json"
     with patch.object(MemoryProxyConfig, "DEFAULT_CONFIG_PATH", config_path):
         config = MemoryProxyConfig()
         config.setup("https://memory.example.com", "test_token", enable=True)
 
+        # Create a mock sync plan
+        plan = SyncPlan()
+        plan.upload.append(
+            SyncOperationDetail(type="upload", path="test.md", reason="New file")
+        )
+        plan.download.append(
+            SyncOperationDetail(
+                type="download", path="remote.md", reason="New remote file"
+            )
+        )
+
         with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test_key"}):
             with patch("silica.developer.cli.memory_sync.LLMConflictResolver"):
-                sync(dry_run=True)
+                with patch("silica.developer.cli.memory_sync.MemoryProxyClient"):
+                    with patch(
+                        "silica.developer.cli.memory_sync.SyncEngine"
+                    ) as mock_engine:
+                        # Mock analyze_sync_operations to return our plan
+                        mock_engine.return_value.analyze_sync_operations.return_value = plan
+
+                        sync(dry_run=True)
 
         captured = capsys.readouterr()
-        assert "Dry-run" in captured.out or "dry-run" in captured.out
+        assert "Dry Run" in captured.out or "dry-run" in captured.out
+        assert "Upload" in captured.out
+        assert "Download" in captured.out
+        assert "test.md" in captured.out
 
 
 def test_sync_command_success(tmp_path, mock_persona, capsys):
