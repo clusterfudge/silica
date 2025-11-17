@@ -142,8 +142,11 @@ class AgentContext:
                     markdown=False,
                 )
             elif result and result.get("error"):
+                namespace = result.get("namespace", "memory")
+                # Get first line of error for cleaner display
+                error_msg = result["error"].split("\n")[0]
                 user_interface.handle_system_message(
-                    f"[yellow]⚠ Memory sync failed: {result['error']}[/yellow]",
+                    f"[yellow]⚠ Memory sync failed for {namespace}: {error_msg}[/yellow]",
                     markdown=False,
                 )
             # If nothing happened (in sync), show nothing

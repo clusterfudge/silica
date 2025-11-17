@@ -352,7 +352,13 @@ class MemoryProxyClient:
                 logger.debug(
                     f"Namespace {namespace} not found on remote, using empty index"
                 )
-                return SyncIndexResponse(files={}, last_updated=None)
+                from datetime import datetime, timezone
+
+                return SyncIndexResponse(
+                    files={},
+                    index_last_modified=datetime.now(timezone.utc),
+                    index_version=0,
+                )
 
             elif response.status_code == 401:
                 raise AuthenticationError("Invalid authentication token")

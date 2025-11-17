@@ -119,8 +119,11 @@ class RemoteSync(SyncStrategy):
             }
 
         except Exception as e:
-            logger.warning(f"Sync failed: {e}")
-            return {"error": str(e)}
+            logger.warning(f"Sync failed for {self.namespace}: {e}")
+            return {
+                "error": str(e),
+                "namespace": self.namespace,
+            }
 
 
 def create_sync_strategies(

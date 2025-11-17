@@ -158,7 +158,7 @@ class TestRemoteSync:
             mock_logger.warning.assert_called_once()
             assert "Network error" in str(mock_logger.warning.call_args)
 
-        assert result == {"error": "Network error"}
+        assert result == {"error": "Network error", "namespace": "test-namespace"}
 
     @patch("silica.developer.memory.sync_strategy.SyncEngine")
     @patch("silica.developer.memory.sync_strategy.sync_with_retry")
