@@ -759,14 +759,18 @@ class SyncEngine:
         remote_entry: FileMetadata | None,
         index_entry: FileMetadata | None,
     ) -> SyncOperationDetail | None:
-        """Determine what operation is needed for a file (simplified version-based logic).
+        """Determine what operation is needed for a file.
 
-        This uses a version-based approach:
-        - remote.version > index.version means remote changed
-        - local.md5 != index.md5 means local changed
-        - If both changed → CONFLICT (resolve via LLM)
-        - If only one changed → sync that direction
-        - If neither changed → IN SYNC
+        **Core Principle**: Remote is authoritative, local is cache.
+        Only explicit tombstones (remote_entry.is_deleted == True) trigger local deletion.
+
+        Decision logic:
+        1. Check for remote tombstone → delete local (explicit deletion)
+        2. Check existence patterns and apply rules:
+           - Local exists, remote missing → UPLOAD (preserve local work)
+           - Local missing, remote exists → DOWNLOAD or DELETE_REMOTE
+           - Both exist → Compare versions for sync direction
+           - Neither exists → No operation
 
         Args:
             path: File path
@@ -777,47 +781,59 @@ class SyncEngine:
         Returns:
             SyncOperationDetail if an operation is needed, None if in sync
         """
-        # Determine what changed using version-based comparison
-        local_changed = False
-        remote_changed = False
+        # ==========================================
+        # STEP 1: Check for explicit tombstone
+        # ==========================================
+        # Tombstones are the ONLY way to trigger local file deletion.
+        # They are unambiguous and always honored.
 
-        if local_file and index_entry:
-            # Local changed if MD5 differs from last known state
-            local_changed = local_file.md5 != index_entry.md5
-
-        if remote_entry and index_entry:
-            # Remote changed if version increased
-            remote_changed = remote_entry.version > index_entry.version
-
-        # Case 1: File exists locally and remotely
-        if local_file and remote_entry:
-            # Handle tombstones (deleted on remote but still in index)
-            if remote_entry.is_deleted:
+        if remote_entry and remote_entry.is_deleted:
+            # Explicit tombstone in remote index
+            if local_file:
+                # Local file exists, remote has tombstone → delete local
+                return SyncOperationDetail(
+                    type="delete_local",
+                    path=path,
+                    reason="Explicit remote deletion (tombstone)",
+                    local_md5=local_file.md5,
+                    remote_version=remote_entry.version,
+                )
+            else:
+                # Local already deleted, just update index to track tombstone
                 if index_entry and not index_entry.is_deleted:
-                    # Remote was deleted after we last synced
-                    return SyncOperationDetail(
-                        type="delete_local",
-                        path=path,
-                        reason="Deleted remotely",
-                        remote_version=remote_entry.version,
-                    )
-                else:
-                    # Conflict: local file exists but remote shows deleted
-                    return SyncOperationDetail(
-                        type="conflict",
-                        path=path,
-                        reason="Local file exists but remote is deleted",
-                        local_md5=local_file.md5,
-                        remote_version=remote_entry.version,
-                    )
+                    # Update our index to reflect the tombstone
+                    self.local_index.update_entry(path, remote_entry)
+                return None  # No operation needed
 
+        # ==========================================
+        # STEP 2: Handle existence patterns
+        # ==========================================
+
+        # CASE A: Both local and remote exist
+        if local_file and remote_entry:
             # Files match - in sync
             if local_file.md5 == remote_entry.md5:
                 # Update index to track current state
                 self.local_index.update_entry(path, remote_entry)
                 return None  # In sync
 
-            # Files differ - determine action based on what changed
+            # Files differ - determine sync direction
+
+            # Bootstrap scenario: no index entry means we don't know history
+            if not index_entry:
+                # Remote is authority on bootstrap - download remote version
+                return SyncOperationDetail(
+                    type="download",
+                    path=path,
+                    reason="Remote is authority, bootstrap scenario",
+                    remote_md5=remote_entry.md5,
+                    remote_version=remote_entry.version,
+                )
+
+            # We have history - determine what changed
+            local_changed = local_file.md5 != index_entry.md5
+            remote_changed = remote_entry.version > index_entry.version
+
             if local_changed and remote_changed:
                 # CONFLICT: Both sides modified since last sync
                 return SyncOperationDetail(
@@ -826,7 +842,7 @@ class SyncEngine:
                     reason="Both local and remote modified since last sync",
                     local_md5=local_file.md5,
                     remote_md5=remote_entry.md5,
-                    local_version=index_entry.version if index_entry else None,
+                    local_version=index_entry.version,
                     remote_version=remote_entry.version,
                 )
 
@@ -851,9 +867,8 @@ class SyncEngine:
                 )
 
             else:
-                # Neither changed according to our tracking, but files differ
-                # This shouldn't happen if our index is consistent
-                # Treat as conflict to be safe
+                # Neither changed according to index, but files differ
+                # Index may be stale - treat as conflict to be safe
                 return SyncOperationDetail(
                     type="conflict",
                     path=path,
@@ -862,18 +877,34 @@ class SyncEngine:
                     remote_md5=remote_entry.md5,
                 )
 
-        # Case 2: File only exists locally
+        # CASE B: Only local file exists (remote is missing)
         elif local_file and not remote_entry:
-            if index_entry and not index_entry.is_deleted:
-                # We knew about this file remotely before - it was deleted remotely
+            # CRITICAL FIX: Missing remote entry does NOT imply deletion!
+            # It could mean:
+            # - New local file (never synced)
+            # - Remote namespace was reset
+            # - File was re-created after deletion
+            # - Bootstrap scenario with old index
+            #
+            # SAFE DEFAULT: Upload the local file (preserves user work)
+            # We only delete local files with explicit tombstones.
+
+            if index_entry:
+                # We have history - file was known before
+                # Upload to restore/re-create on remote
                 return SyncOperationDetail(
-                    type="delete_local",
+                    type="upload",
                     path=path,
-                    reason="Deleted remotely",
+                    reason="Re-upload to remote (missing remote entry, preserving local work)",
                     local_md5=local_file.md5,
+                    local_size=local_file.size,
+                    # Use index version as expected version if available
+                    remote_version=index_entry.version
+                    if not index_entry.is_deleted
+                    else 0,
                 )
             else:
-                # New local file - upload it
+                # No history - new local file
                 return SyncOperationDetail(
                     type="upload",
                     path=path,
@@ -882,16 +913,13 @@ class SyncEngine:
                     local_size=local_file.size,
                 )
 
-        # Case 3: File only exists remotely
+        # CASE C: Only remote file exists (local is missing)
         elif not local_file and remote_entry:
-            remote_deleted = remote_entry.is_deleted
-
-            if remote_deleted:
-                # Remote tombstone only - nothing to do
-                return None
+            # Remote exists (and not tombstone, checked in step 1)
 
             if index_entry:
                 # We knew about this file - local was deleted
+                # Propagate deletion to remote (create tombstone)
                 return SyncOperationDetail(
                     type="delete_remote",
                     path=path,
@@ -900,7 +928,8 @@ class SyncEngine:
                     remote_version=remote_entry.version,
                 )
             else:
-                # New remote file - download it
+                # No history - new remote file (bootstrap)
+                # Download it
                 return SyncOperationDetail(
                     type="download",
                     path=path,
@@ -910,8 +939,13 @@ class SyncEngine:
                     remote_version=remote_entry.version,
                 )
 
-        # Case 4: File exists in neither place (shouldn't happen)
-        return None
+        # CASE D: Neither local nor remote exists
+        else:
+            # File is gone from both sides
+            if index_entry:
+                # Clear index entry (cleanup)
+                self.local_index.remove_entry(path)
+            return None  # No operation needed
 
     def execute_sync(
         self,
