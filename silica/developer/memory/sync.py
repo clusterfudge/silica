@@ -612,6 +612,53 @@ class SyncEngine:
         # Get remote index
         try:
             remote_index_response = self.client.get_sync_index(self.namespace)
+
+            # MIGRATION: If new namespace is empty, check old flat namespace
+            # Old: "persona" with paths like "memory/foo.md"
+            # New: "persona/memory" with paths like "foo.md"
+            if (
+                len(remote_index_response.files) == 0
+                and "/" in self.namespace
+                and self.namespace.endswith("/memory")
+            ):
+                # Try old namespace
+                old_namespace = self.namespace.rsplit("/", 1)[0]
+                logger.info(
+                    f"New namespace {self.namespace} is empty, checking old namespace {old_namespace}"
+                )
+                try:
+                    old_index_response = self.client.get_sync_index(old_namespace)
+                    if len(old_index_response.files) > 0:
+                        logger.warning(
+                            f"Found {len(old_index_response.files)} files in old namespace {old_namespace}. "
+                            f"These need to be migrated to new namespace structure."
+                        )
+                        # Filter to only memory/ files and strip prefix
+                        migrated_files = {}
+                        for path, metadata in old_index_response.files.items():
+                            if path.startswith("memory/"):
+                                # Strip "memory/" prefix for new namespace
+                                new_path = path[7:]  # Remove "memory/"
+                                migrated_files[new_path] = metadata
+
+                        if migrated_files:
+                            logger.info(
+                                f"Migrated {len(migrated_files)} memory files from old namespace"
+                            )
+                            # Create new response with migrated files
+                            from silica.developer.memory.proxy_client import (
+                                SyncIndexResponse,
+                            )
+
+                            remote_index_response = SyncIndexResponse(
+                                files=migrated_files,
+                                index_last_modified=old_index_response.index_last_modified,
+                                index_version=old_index_response.index_version,
+                            )
+                except Exception as migration_error:
+                    logger.debug(f"Could not check old namespace: {migration_error}")
+                    # Continue with empty new namespace
+
         except Exception as e:
             logger.error(f"Failed to get remote index for {self.namespace}: {e}")
             # If we can't get remote index, we can't sync
