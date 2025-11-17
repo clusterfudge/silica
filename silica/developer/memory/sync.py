@@ -621,6 +621,11 @@ class SyncEngine:
         # remote_index_response.files is a dict[str, FileMetadata]
         remote_files = remote_index_response.files
 
+        # SAFETY: If remote is empty but we have local files, this is likely first sync
+        # DO NOT delete local files in this case - only upload them
+        remote_is_empty = len(remote_files) == 0
+        has_local_files = len(local_files) > 0
+
         # Get all unique paths
         all_paths = set(local_files.keys()) | set(remote_files.keys())
 
@@ -633,6 +638,21 @@ class SyncEngine:
             op = self._determine_operation(path, local_file, remote_entry, index_entry)
 
             if op:
+                # SAFETY: Skip local deletions if remote is empty (likely first sync or remote failure)
+                if op.type == "delete_local" and remote_is_empty and has_local_files:
+                    logger.warning(
+                        f"Skipping delete_local for {path}: remote is empty, "
+                        f"preserving local files (likely first sync)"
+                    )
+                    # Convert to upload instead
+                    op = SyncOperationDetail(
+                        type="upload",
+                        path=path,
+                        reason="Remote empty, preserving local file",
+                        local_md5=local_file.md5 if local_file else None,
+                        local_size=local_file.size if local_file else None,
+                    )
+
                 if op.type == "upload":
                     plan.upload.append(op)
                 elif op.type == "download":
