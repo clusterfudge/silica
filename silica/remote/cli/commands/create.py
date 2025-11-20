@@ -353,6 +353,7 @@ def create_remote_workspace(
             "requirements.txt",
             ".gitignore",
             "launch_agent.sh",
+            "load_env.sh",
             "setup_python.sh",
             "verify_setup.py",
         ]
