@@ -82,10 +82,8 @@ async def edit_file(
         if content.count(match_text) > 1:
             return "Error: The text to match is not unique in the file."
         elif content.count(match_text) == 0:
-            # If match_text is not found, append replace_text to the end of the file
-            new_content = content + "\n" + replace_text
-            context.sandbox.write_file(path, new_content)
-            return "Text not found. Content added to the end of the file."
+            # If match_text is not found, return an error
+            return f"Error: Could not find the specified text to match in {path}. Please verify the exact text exists in the file."
         else:
             # Replace the matched text
             new_content = content.replace(match_text, replace_text, 1)
