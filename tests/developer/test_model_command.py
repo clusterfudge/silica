@@ -88,21 +88,27 @@ def test_model_command_change_model_by_full_name(mock_context):
 
 
 def test_model_command_invalid_model_name(mock_context):
-    """Test that invalid model names show helpful error message"""
+    """Test that unregistered model names use Opus fallback"""
     toolbox = Toolbox(mock_context)
 
+    # Use a custom/unregistered model name
     result = toolbox._model(
         user_interface=mock_context.user_interface,
         sandbox=mock_context.sandbox,
         user_input="invalid-model",
     )
 
-    assert "Error:" in result
-    assert "Available short names:" in result
-    assert "Available full model names:" in result
-    assert "haiku" in result
-    assert "sonnet" in result
-    assert "opus" in result
+    # Should succeed and show the custom model name
+    assert "Model changed to:" in result
+    assert "invalid-model" in result
+
+    # Verify the context was updated with custom model
+    assert mock_context.model_spec["title"] == "invalid-model"
+
+    # Verify it uses Opus pricing/limits as fallback
+    opus = get_model("opus")
+    assert mock_context.model_spec["pricing"] == opus["pricing"]
+    assert mock_context.model_spec["max_tokens"] == opus["max_tokens"]
 
 
 def test_model_command_case_insensitive(mock_context):

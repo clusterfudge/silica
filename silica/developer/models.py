@@ -81,4 +81,8 @@ def get_model(model_name: str) -> ModelSpec:
         if alias.lower() == model_name_lower:
             return spec
 
-    raise ValueError(f"{model_name} is not a valid model name")
+    # If model not found, use Opus ModelSpec but with the custom model name
+    # This allows using any model that follows the Anthropic API
+    opus_spec = MODEL_MAP["opus"].copy()
+    opus_spec["title"] = model_name
+    return opus_spec

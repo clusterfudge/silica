@@ -63,6 +63,10 @@ from .persona_tools import (
     read_persona,
     write_persona,
 )
+from .webcam import (
+    get_webcam_capabilities,
+    webcam_snapshot,
+)
 
 ALL_TOOLS = (
     [
@@ -86,6 +90,9 @@ ALL_TOOLS = (
         browser_session_list,
         browser_session_destroy,
         browser_session_get_info,
+        # Webcam tools
+        get_webcam_capabilities,
+        webcam_snapshot,
         # Shell tools (dual architecture)
         shell_execute,
         shell_session_create,

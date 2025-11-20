@@ -37,6 +37,7 @@ For detailed deployment information, see the [Raspberry Pi Deployment Guide](doc
 - **Python**: 3.11 or higher (required)
 - **Package Manager**: `uv` (recommended) or `pip`
 - **Playwright Browser**: Required for web development tools (installed via `playwright install chromium`)
+- **OpenCV**: Optional, required for webcam snapshot capabilities (installed via `pip install opencv-python`)
 - **ripgrep**: Optional but recommended for enhanced file search performance
 
 For complete installation instructions, see [docs/INSTALLATION.md](docs/remote/INSTALLATION.md).

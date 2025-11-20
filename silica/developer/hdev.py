@@ -885,7 +885,7 @@ def cyclopts_main(
     """
 
     # Cache available options for validation
-    available_models = model_names()
+    model_names()
     available_personas = personas.names()
 
     # Store original args for session metadata (simulate sys.argv for compatibility)
@@ -913,13 +913,9 @@ def cyclopts_main(
     if sandbox:
         original_args.extend(sandbox)
 
-    # Validate model choice
-    if model not in available_models:
-        console = Console()
-        console.print(
-            f"[red]Error: Invalid model '{model}'. Available models: {', '.join(available_models)}[/red]"
-        )
-        return
+    # Note: We no longer validate model choice here.
+    # If the model is not in available_models, get_model() will use Opus ModelSpec
+    # as a fallback, allowing custom model names while maintaining pricing/limits.
 
     # Parse sandbox mode with error handling
     try:
