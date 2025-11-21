@@ -76,6 +76,8 @@ from ..knowledge_graph.tools import (
     export_knowledge_graph,
     import_knowledge_graph,
     find_related_entities,
+    get_recent_topics,
+    query_by_date,
 )
 
 ALL_TOOLS = (
@@ -144,6 +146,8 @@ ALL_TOOLS = (
         export_knowledge_graph,
         import_knowledge_graph,
         find_related_entities,
+        get_recent_topics,
+        query_by_date,
     ]
     + GITHUB_TOOLS
     + GITHUB_COMMENT_TOOLS

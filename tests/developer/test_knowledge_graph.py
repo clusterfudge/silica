@@ -341,9 +341,8 @@ class TestStorage:
 
         assert storage.base_dir.exists()
         assert storage.annotations_dir.exists()
-        assert storage.entities_dir.exists()
-        assert storage.relationships_dir.exists()
-        assert (storage.base_dir / "index.json").exists()
+        # No more entities_dir or relationships_dir - using grep-based queries
+        # No more index.json - dynamic queries only
 
     def test_save_and_load_annotation(self, temp_storage_dir, sample_annotated_text):
         """Test saving and loading annotations."""
@@ -364,7 +363,7 @@ class TestStorage:
         assert len(loaded.relationships) == len(annotation.relationships)
 
     def test_entity_indexing(self, temp_storage_dir):
-        """Test entity indexing."""
+        """Test entity querying with ripgrep."""
         storage = AnnotationStorage(base_dir=temp_storage_dir)
 
         annotation = Annotation(
@@ -375,17 +374,13 @@ class TestStorage:
         )
         storage.save_annotation(annotation)
 
-        # Check entity files were created
-        assert (storage.entities_dir / "tech").exists()
-        assert (storage.entities_dir / "language").exists()
-
-        # Query entities
+        # Query entities (now using grep, not indexes)
         tech_entities = storage.query_entities(entity_type="tech")
         assert len(tech_entities) == 1
         assert tech_entities[0].value == "Redis"
 
     def test_relationship_indexing(self, temp_storage_dir):
-        """Test relationship indexing."""
+        """Test relationship querying with ripgrep."""
         storage = AnnotationStorage(base_dir=temp_storage_dir)
 
         annotation = Annotation(
@@ -395,10 +390,7 @@ class TestStorage:
         )
         storage.save_annotation(annotation)
 
-        # Check relationship files were created
-        assert (storage.relationships_dir / "uses").exists()
-
-        # Query relationships
+        # Query relationships (now using grep, not indexes)
         uses_rels = storage.query_relationships(predicate="uses")
         assert len(uses_rels) == 1
         assert uses_rels[0].subject == "Redis"

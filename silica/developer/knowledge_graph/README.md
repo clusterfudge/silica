@@ -120,17 +120,44 @@ save_annotations(
 
 #### `query_knowledge_graph(entity_type=None, entity_value=None, relationship_predicate=None)`
 
-Query the stored knowledge graph.
+Query the stored knowledge graph using ripgrep.
 
 ```python
-# Find all technology entities
+# Find all technology topics
 query_knowledge_graph(entity_type="technology")
 
-# Search for entities containing "Redis"
+# Search for topics containing "Redis"
 query_knowledge_graph(entity_value="Redis")
 
 # Find all "uses" relationships
 query_knowledge_graph(relationship_predicate="uses")
+```
+
+#### `get_recent_topics(days=7)`
+
+Get topics discussed in recent conversations.
+
+```python
+# Topics from yesterday/today
+get_recent_topics(days=1)
+
+# Topics from the last week
+get_recent_topics(days=7)
+
+# Topics from the last month
+get_recent_topics(days=30)
+```
+
+#### `query_by_date(start_date, end_date=None)`
+
+Query annotations by date range for temporal queries.
+
+```python
+# What was I working on yesterday?
+query_by_date("2024-01-15")
+
+# Show topics from last week
+query_by_date("2024-01-15", "2024-01-20")
 ```
 
 #### `get_kg_statistics()`
@@ -264,28 +291,30 @@ graph2 = KnowledgeGraph.from_dict(data)
 
 ## Storage Structure
 
-Annotations are stored in a hierarchical structure, namespaced by persona at `~/.silica/personas/{persona_name}/knowledge_graph/`:
+Annotations are stored in a simple, file-based structure, namespaced by persona at `~/.silica/personas/{persona_name}/knowledge_graph/`:
 
 ```
 ~/.silica/personas/{persona_name}/knowledge_graph/
-├── index.json                           # Master index
-├── annotations/                         # Annotation files
-│   ├── 20240115_120000_000000.json
-│   └── 20240115_130000_000000.json
-├── entities/                            # Entity index
-│   ├── technology/
-│   │   ├── Redis.json
-│   │   └── Docker.json
-│   └── language/
-│       └── Python.json
-└── relationships/                       # Relationship index
-    ├── uses/
-    │   └── Redis_Python.json
-    └── integrates_with/
-        └── Docker_Python.json
+└── annotations/                         # Timestamped annotation files
+    ├── 20240115_120000_000000.json
+    ├── 20240115_130000_000000.json
+    ├── 20240115_140000_000000.json
+    └── 20240116_090000_000000.json
 ```
 
+**Design Philosophy:**
+- **No indexes** - Uses ripgrep for dynamic queries instead of maintaining separate index files
+- **Temporal filenames** - `YYYYMMDD_HHMMSS_ffffff.json` format enables efficient date-range queries
+- **Simple and grep-friendly** - Each annotation is a complete, searchable JSON document
+- **Ripgrep integration** - Leverages silica's existing ripgrep infrastructure (same as memory system)
+
 Each persona maintains its own independent knowledge graph, allowing different agent personalities to build separate knowledge bases.
+
+**Query Strategy:**
+- Entity queries: `rg '"type":\s*"technology"' annotations/ --type json`
+- Relationship queries: `rg '"predicate":\s*"uses"' annotations/ --type json`
+- Date-range queries: Filesystem glob patterns (`20240115_*.json`)
+- Fallback: Python filtering when ripgrep unavailable
 
 ## When to Use Annotations
 
@@ -368,9 +397,12 @@ The test suite includes 30+ tests covering:
 - Annotation parsing
 - Validation
 - Data models
-- Storage operations
-- Query functionality
+- Grep-based storage and queries
+- Temporal queries
+- Export/import functionality
 - Edge cases
+
+All tests pass with both ripgrep and fallback implementations.
 
 ## Future Enhancements
 

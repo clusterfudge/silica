@@ -342,3 +342,126 @@ def find_related_entities(context: "AgentContext", entity_value: str) -> str:
         lines.append(f"  No relationships found for '{entity_value}'")
 
     return "\n".join(lines)
+
+
+@tool
+def get_recent_topics(context: "AgentContext", days: int = 7) -> str:
+    """Get topics discussed in recent conversations.
+
+    Shows what subjects have been discussed in the last N days, useful for
+    understanding recent work and conversation context.
+
+    Args:
+        days: Number of days to look back (default: 7)
+
+    Returns:
+        List of topics discussed in the specified time period
+
+    Examples:
+        - get_recent_topics(days=1) → topics from yesterday/today
+        - get_recent_topics(days=7) → topics from the last week
+        - get_recent_topics(days=30) → topics from the last month
+    """
+    from datetime import date, timedelta
+
+    persona_dir = context.history_base_dir or Path.home() / ".silica" / "personas" / "default"
+    storage = AnnotationStorage(persona_dir=persona_dir)
+
+    topics = storage.get_recent_topics(days=days)
+
+    lines = []
+    end_date = date.today()
+    start_date = end_date - timedelta(days=days)
+
+    lines.append(f"=== Topics Discussed ({start_date} to {end_date}) ===\n")
+
+    if topics:
+        # Group by type
+        by_type = {}
+        for topic in topics:
+            if topic.type not in by_type:
+                by_type[topic.type] = []
+            by_type[topic.type].append(topic.value)
+
+        for topic_type in sorted(by_type.keys()):
+            lines.append(f"--- {topic_type.title()} ---")
+            for value in sorted(by_type[topic_type]):
+                lines.append(f"  • {value}")
+            lines.append("")
+    else:
+        lines.append(f"  No topics found in the last {days} day(s)")
+
+    return "\n".join(lines)
+
+
+@tool
+def query_by_date(context: "AgentContext", start_date: str, end_date: Optional[str] = None) -> str:
+    """Query knowledge graph annotations by date range.
+
+    Search for topics and insights from specific dates, useful for answering
+    questions like "what was I working on yesterday?" or "show me last week's discussions".
+
+    Args:
+        start_date: Start date in YYYY-MM-DD format
+        end_date: End date in YYYY-MM-DD format (optional, defaults to today)
+
+    Returns:
+        Summary of annotations, topics, and insights from the date range
+
+    Examples:
+        - query_by_date("2024-01-15") → annotations from Jan 15, 2024 to today
+        - query_by_date("2024-01-15", "2024-01-20") → annotations from Jan 15-20
+    """
+    from datetime import datetime, date as date_type
+
+    persona_dir = context.history_base_dir or Path.home() / ".silica" / "personas" / "default"
+    storage = AnnotationStorage(persona_dir=persona_dir)
+
+    try:
+        start = datetime.strptime(start_date, "%Y-%m-%d").date()
+        end = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else date_type.today()
+    except ValueError as e:
+        return f"✗ Error: Invalid date format. Use YYYY-MM-DD. {str(e)}"
+
+    annotations = storage.query_by_date_range(start, end)
+
+    lines = []
+    lines.append(f"=== Knowledge Graph: {start} to {end} ===\n")
+    lines.append(f"Total annotations: {len(annotations)}\n")
+
+    if annotations:
+        # Collect all unique topics and insights
+        all_topics = {}
+        all_insights = []
+
+        for annotation in annotations:
+            for entity in annotation.entities:
+                key = (entity.type, entity.value)
+                all_topics[key] = entity
+            all_insights.extend(annotation.insights)
+
+        # Show topics by type
+        lines.append("--- Topics Discussed ---")
+        by_type = {}
+        for (topic_type, value), entity in all_topics.items():
+            if topic_type not in by_type:
+                by_type[topic_type] = []
+            by_type[topic_type].append(value)
+
+        for topic_type in sorted(by_type.keys()):
+            lines.append(f"  {topic_type.title()}:")
+            for value in sorted(by_type[topic_type]):
+                lines.append(f"    • {value}")
+        lines.append("")
+
+        # Show key insights
+        if all_insights:
+            lines.append("--- Key Insights ---")
+            for insight in all_insights[:10]:  # Limit to top 10
+                lines.append(f"  • {insight}")
+            if len(all_insights) > 10:
+                lines.append(f"  ... and {len(all_insights) - 10} more")
+    else:
+        lines.append(f"  No annotations found between {start} and {end}")
+
+    return "\n".join(lines)
