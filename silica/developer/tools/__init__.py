@@ -67,6 +67,16 @@ from .webcam import (
     get_webcam_capabilities,
     webcam_snapshot,
 )
+from ..knowledge_graph.tools import (
+    parse_annotations,
+    save_annotations,
+    query_knowledge_graph,
+    get_kg_statistics,
+    validate_kg_annotations,
+    export_knowledge_graph,
+    import_knowledge_graph,
+    find_related_entities,
+)
 
 ALL_TOOLS = (
     [
@@ -125,6 +135,15 @@ ALL_TOOLS = (
         get_session_tool,
         read_persona,
         write_persona,
+        # Knowledge graph tools
+        parse_annotations,
+        save_annotations,
+        query_knowledge_graph,
+        get_kg_statistics,
+        validate_kg_annotations,
+        export_knowledge_graph,
+        import_knowledge_graph,
+        find_related_entities,
     ]
     + GITHUB_TOOLS
     + GITHUB_COMMENT_TOOLS
