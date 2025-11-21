@@ -72,10 +72,6 @@ from ..knowledge_graph.tools import (
     save_annotations,
     query_knowledge_graph,
     get_kg_statistics,
-    validate_kg_annotations,
-    export_knowledge_graph,
-    import_knowledge_graph,
-    find_related_entities,
     get_recent_topics,
     query_by_date,
 )
@@ -142,10 +138,6 @@ ALL_TOOLS = (
         save_annotations,
         query_knowledge_graph,
         get_kg_statistics,
-        validate_kg_annotations,
-        export_knowledge_graph,
-        import_knowledge_graph,
-        find_related_entities,
         get_recent_topics,
         query_by_date,
     ]

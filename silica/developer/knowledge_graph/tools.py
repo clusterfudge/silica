@@ -1,51 +1,54 @@
 """
 Agent tools for knowledge graph operations.
 
-These tools allow AI agents to interact with the knowledge graph annotation system.
+Simple append-based storage with ripgrep queries.
 """
 
+from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import Optional
+import subprocess
+import shutil
 
 from silica.developer.context import AgentContext
 from silica.developer.tools.framework import tool
 
-from .parser import parse_kg_annotations, KGAnnotationParser, validate_annotation
-from .storage import AnnotationStorage
-from .models import KnowledgeGraph
+from .parser import extract_annotations
+
+
+def _get_annotations_file(persona_dir: Path) -> Path:
+    """Get the annotations file path for a persona."""
+    kg_dir = persona_dir / "knowledge_graph"
+    kg_dir.mkdir(parents=True, exist_ok=True)
+    return kg_dir / "annotations.txt"
+
+
+def _has_ripgrep() -> bool:
+    """Check if ripgrep is available."""
+    return shutil.which("rg") is not None
 
 
 @tool
 def parse_annotations(context: "AgentContext", text: str, source: Optional[str] = None) -> str:
     """Parse knowledge graph annotations from text.
 
-    This tool extracts structured knowledge from annotated text using inline markers:
-    - @@@ insights (key learnings and takeaways)
-    - ^^^ topics (subjects being discussed in the conversation, as type:value pairs)
-    - ||| relationships (subject|predicate|object triples)
+    Extracts @@@ insights, ^^^ topics, and ||| relationships.
 
     Args:
-        text: Text containing knowledge graph annotations
-        source: Optional source identifier (e.g., file path, URL)
+        text: Text containing annotations
+        source: Optional source identifier
 
     Returns:
-        Formatted summary of parsed annotations including:
-        - Number of insights, entities, and relationships found
-        - List of all extracted data
-        - Clean text with annotations removed
+        Summary of extracted annotations
     """
-    result = parse_kg_annotations(text, source)
+    result = extract_annotations(text)
 
-    # Format output
     lines = []
-    lines.append("=== Parsed Knowledge Graph Annotations ===\n")
-
-    # Summary
+    lines.append("=== Parsed Annotations ===\n")
     lines.append(f"Insights: {len(result['insights'])}")
-    lines.append(f"Entities: {len(result['entities'])}")
+    lines.append(f"Topics: {len(result['entities'])}")
     lines.append(f"Relationships: {len(result['relationships'])}\n")
 
-    # Details
     if result['insights']:
         lines.append("--- Insights ---")
         for insight in result['insights']:
@@ -53,57 +56,60 @@ def parse_annotations(context: "AgentContext", text: str, source: Optional[str] 
         lines.append("")
 
     if result['entities']:
-        lines.append("--- Entities ---")
+        lines.append("--- Topics ---")
         for entity_type, value in result['entities']:
             lines.append(f"  • {entity_type}: {value}")
         lines.append("")
 
     if result['relationships']:
         lines.append("--- Relationships ---")
-        for subject, predicate, obj in result['relationships']:
-            lines.append(f"  • {subject} → {predicate} → {obj}")
-        lines.append("")
-
-    lines.append("--- Clean Text ---")
-    lines.append(result['text'])
+        for subj, pred, obj in result['relationships']:
+            lines.append(f"  • {subj} → {pred} → {obj}")
 
     return "\n".join(lines)
 
 
 @tool
 def save_annotations(context: "AgentContext", text: str, source: Optional[str] = None) -> str:
-    """Parse and save knowledge graph annotations to storage.
+    """Save annotations to the knowledge graph.
 
-    Extracts annotations from text and persists them to the knowledge graph storage
-    system for later querying and analysis.
+    Extracts annotations and appends them to the annotations file with timestamp and session ID.
 
     Args:
-        text: Text containing knowledge graph annotations
-        source: Optional source identifier (e.g., file path, URL)
+        text: Text containing annotations
+        source: Optional source identifier
 
     Returns:
-        Confirmation message with annotation ID and statistics
+        Confirmation message
     """
-    # Initialize storage with persona directory
+    result = extract_annotations(text)
+
     persona_dir = context.history_base_dir or Path.home() / ".silica" / "personas" / "default"
-    storage = AnnotationStorage(persona_dir=persona_dir)
+    annotations_file = _get_annotations_file(persona_dir)
 
-    # Parse annotations
-    result = parse_kg_annotations(text, source)
-    annotation = result['annotation']
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    session_id = context.session_id
 
-    # Save to storage
-    annotation_id = storage.save_annotation(annotation)
-
-    # Format output
     lines = []
-    lines.append(f"✓ Saved annotation: {annotation_id}")
-    lines.append(f"  Source: {source or 'unknown'}")
-    lines.append(f"  Insights: {len(annotation.insights)}")
-    lines.append(f"  Entities: {len(annotation.entities)}")
-    lines.append(f"  Relationships: {len(annotation.relationships)}")
 
-    return "\n".join(lines)
+    # Add insights
+    for insight in result['insights']:
+        lines.append(f"[{timestamp}][session:{session_id}] @@@ {insight}")
+
+    # Add entities
+    for entity_type, value in result['entities']:
+        lines.append(f"[{timestamp}][session:{session_id}] ^^^ {entity_type}:{value}")
+
+    # Add relationships
+    for subj, pred, obj in result['relationships']:
+        lines.append(f"[{timestamp}][session:{session_id}] ||| {subj}|{pred}|{obj}")
+
+    if lines:
+        with open(annotations_file, 'a', encoding='utf-8') as f:
+            f.write('\n'.join(lines) + '\n')
+
+    total = len(result['insights']) + len(result['entities']) + len(result['relationships'])
+    return f"✓ Saved {total} annotations ({len(result['insights'])} insights, {len(result['entities'])} topics, {len(result['relationships'])} relationships)"
 
 
 @tool
@@ -113,355 +119,244 @@ def query_knowledge_graph(
     entity_value: Optional[str] = None,
     relationship_predicate: Optional[str] = None
 ) -> str:
-    """Query the knowledge graph for topics and relationships.
-
-    Search the stored knowledge graph annotations by topic type, value, or
-    relationship predicate. Topics represent subjects that have been discussed
-    in conversations.
+    """Query the knowledge graph using ripgrep.
 
     Args:
-        entity_type: Filter topics by type (e.g., "concept", "technology", "language")
-        entity_value: Search for topics containing this value (substring match)
-        relationship_predicate: Filter relationships by predicate (e.g., "uses", "implements")
+        entity_type: Filter by topic type (e.g., "technology", "concept")
+        entity_value: Search for topic value (e.g., "Redis")
+        relationship_predicate: Filter by relationship predicate (e.g., "uses")
 
     Returns:
-        Formatted list of matching topics and/or relationships
-
-    Examples:
-        - query_knowledge_graph(entity_type="technology") → all technology topics
-        - query_knowledge_graph(entity_value="Redis") → topics containing "Redis"
-        - query_knowledge_graph(relationship_predicate="uses") → all "uses" relationships
+        Matching annotations
     """
     persona_dir = context.history_base_dir or Path.home() / ".silica" / "personas" / "default"
-    storage = AnnotationStorage(persona_dir=persona_dir)
-    lines = []
+    annotations_file = _get_annotations_file(persona_dir)
 
-    # Query topics if type or value specified
+    if not annotations_file.exists():
+        return "No annotations yet. Use save_annotations() to add some."
+
+    results = []
+
+    # Query entities
     if entity_type or entity_value:
-        entities = storage.query_entities(entity_type, entity_value)
-
-        lines.append("=== Topics ===")
-        if entities:
-            for entity in entities:
-                annotations_count = len(entity.metadata.get('annotations', []))
-                lines.append(f"  • {entity.type}: {entity.value} ({annotations_count} annotations)")
+        if entity_type:
+            pattern = f"\\^\\^\\^ {entity_type}:"
         else:
-            lines.append("  No matching topics found.")
-        lines.append("")
+            pattern = f"\\^\\^\\^ .*{entity_value}"
 
-    # Query relationships if predicate specified
+        if _has_ripgrep():
+            result = subprocess.run(
+                ['rg', pattern, str(annotations_file)],
+                capture_output=True,
+                text=True
+            )
+            if result.returncode == 0:
+                results.append("=== Topics ===")
+                for line in result.stdout.strip().split('\n'):
+                    if line:
+                        results.append(f"  {line}")
+        else:
+            # Fallback to Python
+            with open(annotations_file, 'r') as f:
+                matches = [line.strip() for line in f if '^^^' in line and (
+                    (entity_type and f"^^^ {entity_type}:" in line) or
+                    (entity_value and entity_value in line)
+                )]
+                if matches:
+                    results.append("=== Topics ===")
+                    results.extend(f"  {m}" for m in matches)
+
+    # Query relationships
     if relationship_predicate:
-        relationships = storage.query_relationships(predicate=relationship_predicate)
+        pattern = f"\\|\\|\\| [^|]+\\|{relationship_predicate}\\|"
 
-        lines.append("=== Relationships ===")
-        if relationships:
-            for rel in relationships:
-                annotations_count = len(rel.metadata.get('annotations', []))
-                lines.append(f"  • {rel.subject} → {rel.predicate} → {rel.object} ({annotations_count} annotations)")
+        if _has_ripgrep():
+            result = subprocess.run(
+                ['rg', pattern, str(annotations_file)],
+                capture_output=True,
+                text=True
+            )
+            if result.returncode == 0:
+                if results:
+                    results.append("")
+                results.append("=== Relationships ===")
+                for line in result.stdout.strip().split('\n'):
+                    if line:
+                        results.append(f"  {line}")
         else:
-            lines.append("  No matching relationships found.")
-        lines.append("")
+            # Fallback
+            with open(annotations_file, 'r') as f:
+                matches = [line.strip() for line in f if '|||' in line and f"|{relationship_predicate}|" in line]
+                if matches:
+                    if results:
+                        results.append("")
+                    results.append("=== Relationships ===")
+                    results.extend(f"  {m}" for m in matches)
 
-    if not lines:
-        return "Please specify at least one query parameter (entity_type, entity_value, or relationship_predicate)"
+    if not results:
+        return "No matching annotations found."
 
-    return "\n".join(lines)
-
-
-@tool
-def get_kg_statistics(context: "AgentContext") -> str:
-    """Get statistics about the stored knowledge graph.
-
-    Returns summary information about the knowledge graph including:
-    - Total number of annotations
-    - Topic type distribution (types of subjects discussed)
-    - Relationship predicate distribution
-    - Storage location
-
-    Returns:
-        Formatted statistics report
-    """
-    persona_dir = context.history_base_dir or Path.home() / ".silica" / "personas" / "default"
-    storage = AnnotationStorage(persona_dir=persona_dir)
-    stats = storage.get_statistics()
-
-    lines = []
-    lines.append("=== Knowledge Graph Statistics ===\n")
-
-    lines.append(f"Total Annotations: {stats['total_annotations']}")
-    lines.append(f"Storage Location: {stats['storage_path']}")
-    if stats.get('created'):
-        lines.append(f"Created: {stats['created']}")
-    lines.append("")
-
-    # Topic types
-    lines.append("--- Topic Types ---")
-    if stats['entity_types']:
-        for entity_type, count in sorted(stats['entity_types'].items(), key=lambda x: -x[1]):
-            lines.append(f"  • {entity_type}: {count}")
-    else:
-        lines.append("  No topics yet.")
-    lines.append("")
-
-    # Relationship predicates
-    lines.append("--- Relationship Predicates ---")
-    if stats['relationship_predicates']:
-        for predicate, count in sorted(stats['relationship_predicates'].items(), key=lambda x: -x[1]):
-            lines.append(f"  • {predicate}: {count}")
-    else:
-        lines.append("  No relationships yet.")
-
-    return "\n".join(lines)
-
-
-@tool
-def validate_kg_annotations(context: "AgentContext", text: str) -> str:
-    """Validate knowledge graph annotation syntax.
-
-    Checks annotation syntax for errors and warnings without saving.
-    Useful for debugging annotation formatting.
-
-    Args:
-        text: Text to validate
-
-    Returns:
-        Validation report with errors and warnings
-    """
-    validation = validate_annotation(text)
-
-    lines = []
-    lines.append("=== Annotation Validation ===\n")
-
-    if validation['valid']:
-        lines.append("✓ Valid annotation syntax")
-    else:
-        lines.append("✗ Invalid annotation syntax")
-
-    if validation['errors']:
-        lines.append("\n--- Errors ---")
-        for error in validation['errors']:
-            lines.append(f"  ✗ {error}")
-
-    if validation['warnings']:
-        lines.append("\n--- Warnings ---")
-        for warning in validation['warnings']:
-            lines.append(f"  ⚠ {warning}")
-
-    if not validation['errors'] and not validation['warnings']:
-        lines.append("\nNo errors or warnings found.")
-
-    return "\n".join(lines)
-
-
-@tool
-def export_knowledge_graph(context: "AgentContext", output_path: str) -> str:
-    """Export the entire knowledge graph to a JSON file.
-
-    Creates a complete export of all annotations, entities, and relationships
-    in JSON format for backup or analysis.
-
-    Args:
-        output_path: Path where the JSON file should be saved
-
-    Returns:
-        Confirmation message with export statistics
-    """
-    persona_dir = context.history_base_dir or Path.home() / ".silica" / "personas" / "default"
-    storage = AnnotationStorage(persona_dir=persona_dir)
-    output_file = Path(output_path)
-
-    # Export to JSON
-    storage.export_to_json(output_file)
-
-    # Get statistics
-    stats = storage.get_statistics()
-
-    lines = []
-    lines.append(f"✓ Knowledge graph exported to: {output_path}")
-    lines.append(f"  Total annotations: {stats['total_annotations']}")
-    lines.append(f"  Entity types: {len(stats['entity_types'])}")
-    lines.append(f"  Relationship predicates: {len(stats['relationship_predicates'])}")
-
-    return "\n".join(lines)
-
-
-@tool
-def import_knowledge_graph(context: "AgentContext", input_path: str) -> str:
-    """Import annotations from a JSON file.
-
-    Loads annotations from a previously exported JSON file and adds them
-    to the knowledge graph storage.
-
-    Args:
-        input_path: Path to the JSON file to import
-
-    Returns:
-        Confirmation message with import statistics
-    """
-    persona_dir = context.history_base_dir or Path.home() / ".silica" / "personas" / "default"
-    storage = AnnotationStorage(persona_dir=persona_dir)
-    input_file = Path(input_path)
-
-    if not input_file.exists():
-        return f"✗ Error: File not found: {input_path}"
-
-    # Import from JSON
-    count = storage.import_from_json(input_file)
-
-    return f"✓ Imported {count} annotations from: {input_path}"
-
-
-@tool
-def find_related_entities(context: "AgentContext", entity_value: str) -> str:
-    """Find all relationships involving a specific topic.
-
-    Searches for all relationships where the given topic appears as either
-    the subject or object. This helps discover how a topic relates to other
-    subjects discussed in conversations.
-
-    Args:
-        entity_value: The topic value to search for
-
-    Returns:
-        List of all relationships involving this topic
-    """
-    persona_dir = context.history_base_dir or Path.home() / ".silica" / "personas" / "default"
-    storage = AnnotationStorage(persona_dir=persona_dir)
-    graph = storage.build_knowledge_graph()
-
-    related = graph.get_related_entities(entity_value)
-
-    lines = []
-    lines.append(f"=== Relationships for '{entity_value}' ===\n")
-
-    if related:
-        for rel in related:
-            annotations_count = len(rel.metadata.get('annotations', []))
-            lines.append(f"  • {rel.subject} → {rel.predicate} → {rel.object} ({annotations_count} annotations)")
-    else:
-        lines.append(f"  No relationships found for '{entity_value}'")
-
-    return "\n".join(lines)
+    return "\n".join(results)
 
 
 @tool
 def get_recent_topics(context: "AgentContext", days: int = 7) -> str:
     """Get topics discussed in recent conversations.
 
-    Shows what subjects have been discussed in the last N days, useful for
-    understanding recent work and conversation context.
-
     Args:
-        days: Number of days to look back (default: 7)
+        days: Number of days to look back
 
     Returns:
-        List of topics discussed in the specified time period
-
-    Examples:
-        - get_recent_topics(days=1) → topics from yesterday/today
-        - get_recent_topics(days=7) → topics from the last week
-        - get_recent_topics(days=30) → topics from the last month
+        Recent topics grouped by type
     """
-    from datetime import date, timedelta
-
     persona_dir = context.history_base_dir or Path.home() / ".silica" / "personas" / "default"
-    storage = AnnotationStorage(persona_dir=persona_dir)
+    annotations_file = _get_annotations_file(persona_dir)
 
-    topics = storage.get_recent_topics(days=days)
+    if not annotations_file.exists():
+        return "No annotations yet."
 
-    lines = []
+    # Calculate date range
     end_date = date.today()
     start_date = end_date - timedelta(days=days)
 
-    lines.append(f"=== Topics Discussed ({start_date} to {end_date}) ===\n")
+    # Read file and filter by date
+    topics_by_type = {}
 
-    if topics:
-        # Group by type
-        by_type = {}
-        for topic in topics:
-            if topic.type not in by_type:
-                by_type[topic.type] = []
-            by_type[topic.type].append(topic.value)
+    with open(annotations_file, 'r') as f:
+        for line in f:
+            if '^^^' not in line:
+                continue
 
-        for topic_type in sorted(by_type.keys()):
-            lines.append(f"--- {topic_type.title()} ---")
-            for value in sorted(by_type[topic_type]):
-                lines.append(f"  • {value}")
-            lines.append("")
-    else:
-        lines.append(f"  No topics found in the last {days} day(s)")
+            # Parse date from line: [2024-01-15 12:00:00]
+            if line.startswith('['):
+                date_str = line[1:11]  # YYYY-MM-DD
+                try:
+                    line_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+                    if line_date < start_date or line_date > end_date:
+                        continue
+                except ValueError:
+                    continue
+
+            # Extract topic
+            if '^^^' in line:
+                topic_part = line.split('^^^')[1].strip()
+                if ':' in topic_part:
+                    topic_type, value = topic_part.split(':', 1)
+                    topic_type = topic_type.strip()
+                    value = value.strip()
+
+                    if topic_type not in topics_by_type:
+                        topics_by_type[topic_type] = set()
+                    topics_by_type[topic_type].add(value)
+
+    if not topics_by_type:
+        return f"No topics found in the last {days} day(s)"
+
+    lines = []
+    lines.append(f"=== Topics ({start_date} to {end_date}) ===\n")
+
+    for topic_type in sorted(topics_by_type.keys()):
+        lines.append(f"--- {topic_type.title()} ---")
+        for value in sorted(topics_by_type[topic_type]):
+            lines.append(f"  • {value}")
+        lines.append("")
 
     return "\n".join(lines)
 
 
 @tool
 def query_by_date(context: "AgentContext", start_date: str, end_date: Optional[str] = None) -> str:
-    """Query knowledge graph annotations by date range.
-
-    Search for topics and insights from specific dates, useful for answering
-    questions like "what was I working on yesterday?" or "show me last week's discussions".
+    """Query annotations by date range.
 
     Args:
-        start_date: Start date in YYYY-MM-DD format
-        end_date: End date in YYYY-MM-DD format (optional, defaults to today)
+        start_date: Start date (YYYY-MM-DD)
+        end_date: End date (YYYY-MM-DD), defaults to today
 
     Returns:
-        Summary of annotations, topics, and insights from the date range
-
-    Examples:
-        - query_by_date("2024-01-15") → annotations from Jan 15, 2024 to today
-        - query_by_date("2024-01-15", "2024-01-20") → annotations from Jan 15-20
+        Annotations from the date range
     """
-    from datetime import datetime, date as date_type
-
     persona_dir = context.history_base_dir or Path.home() / ".silica" / "personas" / "default"
-    storage = AnnotationStorage(persona_dir=persona_dir)
+    annotations_file = _get_annotations_file(persona_dir)
+
+    if not annotations_file.exists():
+        return "No annotations yet."
 
     try:
         start = datetime.strptime(start_date, "%Y-%m-%d").date()
-        end = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else date_type.today()
+        end = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else date.today()
     except ValueError as e:
         return f"✗ Error: Invalid date format. Use YYYY-MM-DD. {str(e)}"
 
-    annotations = storage.query_by_date_range(start, end)
+    # Use ripgrep with date pattern if available
+    if _has_ripgrep():
+        # Build pattern for date range (simple approach)
+        results = []
+        with open(annotations_file, 'r') as f:
+            for line in f:
+                if line.startswith('['):
+                    date_str = line[1:11]
+                    try:
+                        line_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+                        if start <= line_date <= end:
+                            results.append(line.rstrip())
+                    except ValueError:
+                        continue
+
+        if not results:
+            return f"No annotations found between {start} and {end}"
+
+        return f"=== Annotations ({start} to {end}) ===\n\n" + "\n".join(results)
+    else:
+        # Fallback
+        results = []
+        with open(annotations_file, 'r') as f:
+            for line in f:
+                if line.startswith('['):
+                    date_str = line[1:11]
+                    try:
+                        line_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+                        if start <= line_date <= end:
+                            results.append(line.rstrip())
+                    except ValueError:
+                        continue
+
+        if not results:
+            return f"No annotations found between {start} and {end}"
+
+        return f"=== Annotations ({start} to {end}) ===\n\n" + "\n".join(results)
+
+
+@tool
+def get_kg_statistics(context: "AgentContext") -> str:
+    """Get knowledge graph statistics.
+
+    Returns:
+        Summary of annotations
+    """
+    persona_dir = context.history_base_dir or Path.home() / ".silica" / "personas" / "default"
+    annotations_file = _get_annotations_file(persona_dir)
+
+    if not annotations_file.exists():
+        return "No annotations yet."
+
+    insights_count = 0
+    topics_count = 0
+    relationships_count = 0
+
+    with open(annotations_file, 'r') as f:
+        for line in f:
+            if '@@@' in line:
+                insights_count += 1
+            elif '^^^' in line:
+                topics_count += 1
+            elif '|||' in line:
+                relationships_count += 1
 
     lines = []
-    lines.append(f"=== Knowledge Graph: {start} to {end} ===\n")
-    lines.append(f"Total annotations: {len(annotations)}\n")
-
-    if annotations:
-        # Collect all unique topics and insights
-        all_topics = {}
-        all_insights = []
-
-        for annotation in annotations:
-            for entity in annotation.entities:
-                key = (entity.type, entity.value)
-                all_topics[key] = entity
-            all_insights.extend(annotation.insights)
-
-        # Show topics by type
-        lines.append("--- Topics Discussed ---")
-        by_type = {}
-        for (topic_type, value), entity in all_topics.items():
-            if topic_type not in by_type:
-                by_type[topic_type] = []
-            by_type[topic_type].append(value)
-
-        for topic_type in sorted(by_type.keys()):
-            lines.append(f"  {topic_type.title()}:")
-            for value in sorted(by_type[topic_type]):
-                lines.append(f"    • {value}")
-        lines.append("")
-
-        # Show key insights
-        if all_insights:
-            lines.append("--- Key Insights ---")
-            for insight in all_insights[:10]:  # Limit to top 10
-                lines.append(f"  • {insight}")
-            if len(all_insights) > 10:
-                lines.append(f"  ... and {len(all_insights) - 10} more")
-    else:
-        lines.append(f"  No annotations found between {start} and {end}")
+    lines.append("=== Knowledge Graph Statistics ===\n")
+    lines.append(f"Storage: {annotations_file}")
+    lines.append(f"Total insights: {insights_count}")
+    lines.append(f"Total topics: {topics_count}")
+    lines.append(f"Total relationships: {relationships_count}")
 
     return "\n".join(lines)

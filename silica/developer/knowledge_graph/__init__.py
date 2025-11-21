@@ -5,19 +5,10 @@ A lightweight, inline annotation system for coding agents to extract structured
 knowledge from conversational responses using minimally invasive text markers.
 """
 
-from .models import Annotation, Entity, Relationship, KnowledgeGraph
-from .parser import parse_kg_annotations, KGAnnotationParser, validate_annotation
-from .storage import AnnotationStorage
+from .parser import extract_annotations
 
 __all__ = [
-    'Annotation',
-    'Entity',
-    'Relationship',
-    'KnowledgeGraph',
-    'parse_kg_annotations',
-    'KGAnnotationParser',
-    'validate_annotation',
-    'AnnotationStorage',
+    'extract_annotations',
 ]
 
 __version__ = '0.1.0'
