@@ -131,9 +131,10 @@ def test_write_persona_creates_backup(agent_context, temp_persona_dir):
     assert "Backup:" in result
     assert "Successfully write" in result
 
-    # Check that backup file exists
+    # Check that backup file exists in memory/ subdirectory
     persona_dir = agent_context.history_base_dir
-    backups = list(persona_dir.glob("persona.backup.*.md"))
+    memory_dir = persona_dir / "memory"
+    backups = list(memory_dir.glob("persona.backup.*.md"))
     assert len(backups) == 1
 
     # Verify backup contains old content

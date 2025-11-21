@@ -86,10 +86,14 @@ def test_persona_workflow_integration():
     with tempfile.TemporaryDirectory() as tmpdir:
         persona_dir = Path(tmpdir) / "test_persona"
         persona_dir.mkdir()
+        
+        # Create memory directory for new persona.md location
+        memory_dir = persona_dir / "memory"
+        memory_dir.mkdir()
 
-        # Create initial persona.md to enable persona tools
+        # Create initial persona.md in memory/ subdirectory to enable persona tools
         initial_content = "# Initial Persona\nBe helpful."
-        (persona_dir / "persona.md").write_text(initial_content)
+        (memory_dir / "persona.md").write_text(initial_content)
 
         # Create context
         context = AgentContext.create(
@@ -126,8 +130,8 @@ def test_persona_workflow_integration():
         result = write_persona_func(context, content=new_content)
         assert "Successfully" in result
 
-        # Step 3: Verify persona.md was created
-        persona_file = persona_dir / "persona.md"
+        # Step 3: Verify persona.md was created in memory/ subdirectory
+        persona_file = memory_dir / "persona.md"
         assert persona_file.exists()
         assert persona_file.read_text() == new_content
 
@@ -182,9 +186,10 @@ def test_persona_backup_created():
         # Update it
         result = write_persona(context, content="# Updated")
 
-        # Check backup was created
+        # Check backup was created in memory/ subdirectory
         assert "Backup:" in result
-        backups = list(persona_dir.glob("persona.backup.*.md"))
+        memory_dir = persona_dir / "memory"
+        backups = list(memory_dir.glob("persona.backup.*.md"))
         assert len(backups) == 1
         assert backups[0].read_text() == "# Initial"
 
