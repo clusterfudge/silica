@@ -62,9 +62,9 @@ def persona_dir(temp_dir, monkeypatch):
     memory_dir.mkdir()
     (memory_dir / "note1.md").write_text("memory note 1")
     (memory_dir / "note2.md").write_text("memory note 2")
-
-    # Create persona.md
-    (persona_path / "persona.md").write_text("# Test Persona")
+    
+    # Create persona.md in memory/ subdirectory (new location)
+    (memory_dir / "persona.md").write_text("# Test Persona")
 
     # Create history directories with session files
     session1_dir = persona_path / "history" / "session-1"
@@ -139,7 +139,7 @@ class TestMultiNamespaceIndependence:
         assert history_engine.local_index.get_entry("test.md") is None
 
     def test_memory_engine_scans_only_memory_files(self, mock_client, persona_dir):
-        """Test that memory engine only scans memory files and persona.md."""
+        """Test that memory engine only scans memory files (including persona.md)."""
         config = SyncConfig.for_memory("test")
         engine = SyncEngine(client=mock_client, config=config)
 
@@ -149,11 +149,11 @@ class TestMultiNamespaceIndependence:
         # Analyze sync
         plan = engine.analyze_sync_operations()
 
-        # Should include memory files and persona.md
+        # Should include memory files (including persona.md inside memory/)
         upload_paths = {op.path for op in plan.upload}
         assert "memory/note1.md" in upload_paths
         assert "memory/note2.md" in upload_paths
-        assert "persona.md" in upload_paths
+        assert "memory/persona.md" in upload_paths
 
         # Should NOT include history files
         assert not any("history" in path for path in upload_paths)
@@ -178,9 +178,8 @@ class TestMultiNamespaceIndependence:
         # Should NOT include session-2 files
         assert not any("session-2" in path for path in upload_paths)
 
-        # Should NOT include memory files or persona.md
+        # Should NOT include memory files
         assert not any("memory" in path for path in upload_paths)
-        assert "persona.md" not in upload_paths
 
     def test_multiple_history_engines_for_different_sessions(
         self, mock_client, persona_dir
