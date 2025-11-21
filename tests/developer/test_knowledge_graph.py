@@ -8,6 +8,7 @@ import pytest
 from silica.developer.knowledge_graph import extract_annotations
 from silica.developer.knowledge_graph.tools import (
     _get_annotations_file,
+    _save_annotations_to_file,
 )
 
 

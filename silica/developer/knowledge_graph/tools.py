@@ -63,16 +63,14 @@ def _save_annotations_to_file(
     return len(lines)
 
 
-# NOTE: These tools are deprecated - annotations are now automatically extracted
-# from agent responses in the agent loop. They are kept here for backwards compatibility
-# and manual testing purposes only.
+# NOTE: These are utility functions for testing and backwards compatibility.
+# Annotations are now automatically extracted from agent responses in the agent loop.
 
-@tool
-def parse_annotations(context: "AgentContext", text: str, source: Optional[str] = None) -> str:
-    """[DEPRECATED] Parse knowledge graph annotations from text.
+def parse_annotations_util(text: str, source: Optional[str] = None) -> str:
+    """Parse knowledge graph annotations from text (utility function).
 
     NOTE: Annotations are now automatically extracted from agent responses.
-    This tool is only kept for manual testing.
+    This function is only kept for manual testing.
 
     Extracts @@@ insights, ^^^ topics, and ||| relationships.
 
@@ -111,17 +109,20 @@ def parse_annotations(context: "AgentContext", text: str, source: Optional[str] 
     return "\n".join(lines)
 
 
-@tool
-def save_annotations(context: "AgentContext", text: str, source: Optional[str] = None) -> str:
-    """[DEPRECATED] Save annotations to the knowledge graph.
+def save_annotations_util(
+    persona_dir: Path, text: str, session_id: str, source: Optional[str] = None
+) -> str:
+    """Save annotations to the knowledge graph (utility function).
 
     NOTE: Annotations are now automatically extracted from agent responses.
-    This tool is only kept for manual testing.
+    This function is only kept for manual testing.
 
     Extracts annotations and appends them to the annotations file with timestamp and session ID.
 
     Args:
+        persona_dir: Path to persona directory
         text: Text containing annotations
+        session_id: Session ID
         source: Optional source identifier
 
     Returns:
@@ -129,11 +130,9 @@ def save_annotations(context: "AgentContext", text: str, source: Optional[str] =
     """
     result = extract_annotations(text)
 
-    persona_dir = context.history_base_dir or Path.home() / ".silica" / "personas" / "default"
     annotations_file = _get_annotations_file(persona_dir)
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    session_id = context.session_id
 
     total = _save_annotations_to_file(annotations_file, result, timestamp, session_id)
     return f"✓ Saved {total} annotations ({len(result['insights'])} insights, {len(result['entities'])} topics, {len(result['relationships'])} relationships)"
