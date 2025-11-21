@@ -1,9 +1,21 @@
 #!/usr/bin/env bash
 # Source this script to load piku environment variables
-# Usage: source ~/load_env.sh
+# Usage: source load_env.sh [app_name]
 
-# Get the app name from current directory or parameter
-APP_NAME="${1:-$(basename $(pwd))}"
+# Get the app name from parameter, or detect from current directory
+# When sourced from code directory (source ../load_env.sh): pwd ends in /code
+# When sourced from workspace root (source ./load_env.sh): pwd is the workspace
+if [ -z "$1" ]; then
+    if [[ "$(basename $(pwd))" == "code" ]]; then
+        # We're in the code directory, app name is parent
+        APP_NAME="$(basename $(dirname $(pwd)))"
+    else
+        # We're in the workspace root, app name is current directory
+        APP_NAME="$(basename $(pwd))"
+    fi
+else
+    APP_NAME="$1"
+fi
 
 # Piku environment file locations
 ENV_FILE="$HOME/.piku/envs/$APP_NAME/ENV"
