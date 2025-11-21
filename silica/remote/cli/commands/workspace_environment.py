@@ -467,6 +467,24 @@ def _run_impl():
         )
 
     console.print(f"[cyan]Launch command: {launch_command}[/cyan]")
+
+    # Verify critical environment variables are set before launching
+    critical_vars = ["ANTHROPIC_API_KEY"]
+    missing_critical = []
+    for var in critical_vars:
+        if not os.environ.get(var):
+            missing_critical.append(var)
+
+    if missing_critical:
+        console.print(
+            f"[red]✗ Critical environment variables missing: {', '.join(missing_critical)}[/red]"
+        )
+        console.print("[yellow]Check piku environment configuration:[/yellow]")
+        console.print(
+            f"[yellow]  piku config:set {missing_critical[0]}=your-key-value[/yellow]"
+        )
+        sys.exit(1)
+
     console.print(
         f"[green]Starting silica developer from {os.getcwd()} at {datetime.now()}[/green]"
     )

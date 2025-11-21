@@ -353,6 +353,7 @@ def create_remote_workspace(
             "requirements.txt",
             ".gitignore",
             "launch_agent.sh",
+            "load_env.sh",
             "setup_python.sh",
             "verify_setup.py",
         ]
@@ -850,7 +851,7 @@ def create_local_workspace(
 
             # Build the command with environment variables
             env_setup = " ".join(f"export {var};" for var in env_vars)
-            full_command = f"{env_setup} echo 'Starting antennae server from {workspace_dir}...'; uv run silica remote antennae --port {port} --workspace {workspace_name} || (echo 'Antennae failed to start'; read -p 'Press enter to close session')"
+            full_command = f"{env_setup} echo 'Starting antennae server from {workspace_dir}...'; uv run silica remote antennae --port {port} --workspace {workspace_name} --project {repo_name} || (echo 'Antennae failed to start'; read -p 'Press enter to close session')"
 
             subprocess.run(
                 [

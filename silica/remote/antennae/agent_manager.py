@@ -148,7 +148,7 @@ class AgentManager:
                 if value:
                     env_dict[var] = value
 
-            # Create tmux session with environment variables set
+            # Create tmux session
             tmux_create_command = [
                 "tmux",
                 "new-session",
@@ -159,24 +159,26 @@ class AgentManager:
                 str(self.config.get_code_directory()),
             ]
 
-            # Set environment variables for the tmux session
-            env = os.environ.copy()
-            env.update(env_dict)
-
-            subprocess.run(tmux_create_command, env=env, check=True)
+            subprocess.run(tmux_create_command, check=True)
 
             # Wait a moment for the session to fully initialize
             import time
 
             time.sleep(1)
 
-            # Send the agent command directly to the session
+            # Source load_env.sh if it exists (for piku deployments), then run agent
+            # Use test -f to check if file exists before sourcing
+            full_command = (
+                f"[ -f ../load_env.sh ] && source ../load_env.sh; {agent_command}"
+            )
+
+            # Send the agent command to the session
             tmux_send_command = [
                 "tmux",
                 "send-keys",
                 "-t",
                 session_name,
-                agent_command,
+                full_command,
                 "C-m",
             ]
 
