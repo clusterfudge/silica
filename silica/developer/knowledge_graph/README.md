@@ -6,10 +6,11 @@ A lightweight, inline annotation system for coding agents to extract structured 
 
 The Knowledge Graph Annotation System allows AI agents (like those using silica) to extract and store structured knowledge from their own responses using simple inline markers. This enables:
 
-- **Knowledge accumulation** across conversations
-- **Relationship tracking** between concepts and technologies
-- **Insight preservation** for future reference
-- **Queryable knowledge base** that grows over time
+- **Topic tracking** - Capture what subjects are being discussed in conversations
+- **Knowledge accumulation** - Build a semantic index across conversations
+- **Relationship tracking** - Map connections between concepts and technologies
+- **Insight preservation** - Store key learnings for future reference
+- **Queryable knowledge base** - Search topics and relationships as the graph grows
 
 ## Design Goals
 
@@ -25,16 +26,18 @@ The Knowledge Graph Annotation System allows AI agents (like those using silica)
 
 ```markdown
 @@@ insight text here
-^^^ type:value, type:value, type:value
+^^^ type:topic, type:topic, type:topic
 ||| subject|predicate|object
 ```
+
+**Note**: The `^^^` marker captures **topics being discussed in the current conversation**. Each topic is typed (e.g., `technology:Redis`, `concept:caching`) to categorize what's being talked about. This creates a semantic index of conversation subjects.
 
 ### Markers
 
 | Marker | Purpose | Format |
 |--------|---------|--------|
 | `@@@` | Key insights and learnings | Free-form text |
-| `^^^` | Entity type:value pairs | Comma-separated list |
+| `^^^` | Topics in the conversation | Comma-separated type:value pairs |
 | `\|\|\|` | Relationship tuples | Pipe-delimited triple |
 
 ### Rules
@@ -61,9 +64,9 @@ The main consideration is memory usage versus hit rate.
 ||| memory_usage|tradeoff|hit_rate
 ```
 
-## Entity Types
+## Topic Types
 
-These are suggested types - choose appropriate types based on context:
+These are suggested types for categorizing topics in the conversation - choose appropriate types based on context:
 
 - `concept`: Abstract ideas, patterns, principles
 - `tech`/`technology`: Tools, libraries, platforms

@@ -71,15 +71,18 @@ class KGAnnotationParser:
 
     def _parse_entities(self, text: str) -> List[Entity]:
         """
-        Extract and parse entities from ^^^ markers.
+        Extract and parse entities (topics) from ^^^ markers.
 
-        Format: ^^^ type:value, type:value, type:value
+        The ^^^ marker captures topics being discussed in the current conversation.
+        Each topic is typed to categorize what's being talked about.
+
+        Format: ^^^ type:topic, type:topic, type:topic
 
         Args:
             text: Text to parse
 
         Returns:
-            List of Entity objects
+            List of Entity objects representing conversation topics
         """
         entities = []
 

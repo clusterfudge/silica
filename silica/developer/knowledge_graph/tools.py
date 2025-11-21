@@ -22,7 +22,7 @@ def parse_annotations(context: "AgentContext", text: str, source: Optional[str] 
 
     This tool extracts structured knowledge from annotated text using inline markers:
     - @@@ insights (key learnings and takeaways)
-    - ^^^ entities (type:value pairs, comma-separated)
+    - ^^^ topics (subjects being discussed in the conversation, as type:value pairs)
     - ||| relationships (subject|predicate|object triples)
 
     Args:
@@ -113,38 +113,39 @@ def query_knowledge_graph(
     entity_value: Optional[str] = None,
     relationship_predicate: Optional[str] = None
 ) -> str:
-    """Query the knowledge graph for entities and relationships.
+    """Query the knowledge graph for topics and relationships.
 
-    Search the stored knowledge graph annotations by entity type, value, or
-    relationship predicate.
+    Search the stored knowledge graph annotations by topic type, value, or
+    relationship predicate. Topics represent subjects that have been discussed
+    in conversations.
 
     Args:
-        entity_type: Filter entities by type (e.g., "concept", "technology", "language")
-        entity_value: Search for entities containing this value (substring match)
+        entity_type: Filter topics by type (e.g., "concept", "technology", "language")
+        entity_value: Search for topics containing this value (substring match)
         relationship_predicate: Filter relationships by predicate (e.g., "uses", "implements")
 
     Returns:
-        Formatted list of matching entities and/or relationships
+        Formatted list of matching topics and/or relationships
 
     Examples:
-        - query_knowledge_graph(entity_type="technology") → all technology entities
-        - query_knowledge_graph(entity_value="Redis") → entities containing "Redis"
+        - query_knowledge_graph(entity_type="technology") → all technology topics
+        - query_knowledge_graph(entity_value="Redis") → topics containing "Redis"
         - query_knowledge_graph(relationship_predicate="uses") → all "uses" relationships
     """
     storage = AnnotationStorage()
     lines = []
 
-    # Query entities if type or value specified
+    # Query topics if type or value specified
     if entity_type or entity_value:
         entities = storage.query_entities(entity_type, entity_value)
 
-        lines.append("=== Entities ===")
+        lines.append("=== Topics ===")
         if entities:
             for entity in entities:
                 annotations_count = len(entity.metadata.get('annotations', []))
                 lines.append(f"  • {entity.type}: {entity.value} ({annotations_count} annotations)")
         else:
-            lines.append("  No matching entities found.")
+            lines.append("  No matching topics found.")
         lines.append("")
 
     # Query relationships if predicate specified
@@ -172,7 +173,7 @@ def get_kg_statistics(context: "AgentContext") -> str:
 
     Returns summary information about the knowledge graph including:
     - Total number of annotations
-    - Entity type distribution
+    - Topic type distribution (types of subjects discussed)
     - Relationship predicate distribution
     - Storage location
 
@@ -191,13 +192,13 @@ def get_kg_statistics(context: "AgentContext") -> str:
         lines.append(f"Created: {stats['created']}")
     lines.append("")
 
-    # Entity types
-    lines.append("--- Entity Types ---")
+    # Topic types
+    lines.append("--- Topic Types ---")
     if stats['entity_types']:
         for entity_type, count in sorted(stats['entity_types'].items(), key=lambda x: -x[1]):
             lines.append(f"  • {entity_type}: {count}")
     else:
-        lines.append("  No entities yet.")
+        lines.append("  No topics yet.")
     lines.append("")
 
     # Relationship predicates
@@ -308,16 +309,17 @@ def import_knowledge_graph(context: "AgentContext", input_path: str) -> str:
 
 @tool
 def find_related_entities(context: "AgentContext", entity_value: str) -> str:
-    """Find all relationships involving a specific entity.
+    """Find all relationships involving a specific topic.
 
-    Searches for all relationships where the given entity appears as either
-    the subject or object.
+    Searches for all relationships where the given topic appears as either
+    the subject or object. This helps discover how a topic relates to other
+    subjects discussed in conversations.
 
     Args:
-        entity_value: The entity value to search for
+        entity_value: The topic value to search for
 
     Returns:
-        List of all relationships involving this entity
+        List of all relationships involving this topic
     """
     storage = AnnotationStorage()
     graph = storage.build_knowledge_graph()
