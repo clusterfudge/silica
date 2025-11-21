@@ -152,6 +152,7 @@ def create_system_message(
     system_section: dict[str, Any] | None = None,
     include_sandbox: bool = True,
     include_memory: bool = True,
+    include_knowledge_graph: bool = True,
 ):
     sections: list[dict[str, Any]] = []
 
@@ -206,6 +207,41 @@ def create_system_message(
             system_message += topic + "\n"
         system_message += "</memory_topics>\n"
         sections.append({"type": "text", "text": system_message})
+
+    if include_knowledge_graph:
+        kg_message = """
+
+## Knowledge Graph Annotation System
+
+You have access to a knowledge graph annotation system that allows you to extract and store structured knowledge from your responses using inline markers. This creates a queryable knowledge base that grows over time.
+
+### Annotation Markers
+
+Use these markers on their own lines near relevant content in your responses:
+
+**@@@ Insights**
+Key learnings, best practices, or important takeaways from the discussion.
+Example: `@@@ caching reduces database load and improves response times`
+
+**^^^ Topics**
+Important topics being discussed in this conversation, as comma-separated type:value pairs.
+These represent the subjects you're currently discussing.
+Example: `^^^ concept:caching, technology:Redis, language:Python`
+
+**||| Relationships**
+Connections between topics as subject|predicate|object tuples.
+Example: `||| Redis|integrates_with|Python`
+
+### Guidelines
+
+- **Be selective**: Only annotate meaningful technical knowledge, insights, and relationships
+- **Stay contextual**: Place annotations near the relevant text in your response
+- **Not every response needs annotations**: Use them for substantive technical discussions
+- **Think graph-first**: Consider how topics connect across conversations
+
+The knowledge graph is namespaced to your current persona, allowing you to build a personalized knowledge base. Use tools like `save_annotations`, `query_knowledge_graph`, and `get_kg_statistics` to interact with the graph.
+"""
+        sections.append({"type": "text", "text": kg_message})
 
     # add cache_control
     sections[-1]["cache_control"] = {"type": "ephemeral"}
