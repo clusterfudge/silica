@@ -647,6 +647,46 @@ async def run(
             agent_context.report_usage(final_message.usage)
             usage_summary = agent_context.usage_summary()
 
+            # Extract and save knowledge graph annotations from the response
+            try:
+                from silica.developer.knowledge_graph.parser import extract_annotations
+                from silica.developer.knowledge_graph.tools import (
+                    _get_annotations_file,
+                    _save_annotations_to_file,
+                )
+                from datetime import datetime
+                from pathlib import Path
+
+                annotations = extract_annotations(ai_response)
+                if (
+                    annotations["insights"]
+                    or annotations["entities"]
+                    or annotations["relationships"]
+                ):
+                    # Get persona directory (history_base_dir)
+                    persona_dir = (
+                        agent_context.history_base_dir
+                        or Path.home() / ".silica" / "personas" / "default"
+                    )
+                    # Get annotations file path
+                    annotations_file = _get_annotations_file(persona_dir)
+                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    session_id = agent_context.session_id
+
+                    # Save annotations to file
+                    _save_annotations_to_file(
+                        annotations_file, annotations, timestamp, session_id
+                    )
+            except Exception as e:
+                # Don't fail the agent loop if annotation extraction fails
+                import traceback
+
+                user_interface.handle_system_message(
+                    f"[yellow]Warning: Failed to extract knowledge graph annotations: {e}[/yellow]",
+                    markdown=False,
+                )
+                traceback.print_exc()
+
             # Display thinking content if present
             if thinking_content:
                 thinking_tokens = usage_summary.get("total_thinking_tokens", 0)

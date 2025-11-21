@@ -28,9 +28,51 @@ def _has_ripgrep() -> bool:
     return shutil.which("rg") is not None
 
 
+def _save_annotations_to_file(
+    annotations_file: Path, annotations: dict, timestamp: str, session_id: str
+) -> int:
+    """Save annotations to file with timestamp and session ID.
+
+    Args:
+        annotations_file: Path to annotations file
+        annotations: Dict with 'insights', 'entities', 'relationships' keys
+        timestamp: Timestamp string (YYYY-MM-DD HH:MM:SS)
+        session_id: Session ID
+
+    Returns:
+        Total number of annotations saved
+    """
+    lines = []
+
+    # Add insights
+    for insight in annotations['insights']:
+        lines.append(f"[{timestamp}][session:{session_id}] @@@ {insight}")
+
+    # Add entities
+    for entity_type, value in annotations['entities']:
+        lines.append(f"[{timestamp}][session:{session_id}] ^^^ {entity_type}:{value}")
+
+    # Add relationships
+    for subj, pred, obj in annotations['relationships']:
+        lines.append(f"[{timestamp}][session:{session_id}] ||| {subj}|{pred}|{obj}")
+
+    if lines:
+        with open(annotations_file, 'a', encoding='utf-8') as f:
+            f.write('\n'.join(lines) + '\n')
+
+    return len(lines)
+
+
+# NOTE: These tools are deprecated - annotations are now automatically extracted
+# from agent responses in the agent loop. They are kept here for backwards compatibility
+# and manual testing purposes only.
+
 @tool
 def parse_annotations(context: "AgentContext", text: str, source: Optional[str] = None) -> str:
-    """Parse knowledge graph annotations from text.
+    """[DEPRECATED] Parse knowledge graph annotations from text.
+
+    NOTE: Annotations are now automatically extracted from agent responses.
+    This tool is only kept for manual testing.
 
     Extracts @@@ insights, ^^^ topics, and ||| relationships.
 
@@ -71,7 +113,10 @@ def parse_annotations(context: "AgentContext", text: str, source: Optional[str] 
 
 @tool
 def save_annotations(context: "AgentContext", text: str, source: Optional[str] = None) -> str:
-    """Save annotations to the knowledge graph.
+    """[DEPRECATED] Save annotations to the knowledge graph.
+
+    NOTE: Annotations are now automatically extracted from agent responses.
+    This tool is only kept for manual testing.
 
     Extracts annotations and appends them to the annotations file with timestamp and session ID.
 
@@ -90,25 +135,7 @@ def save_annotations(context: "AgentContext", text: str, source: Optional[str] =
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     session_id = context.session_id
 
-    lines = []
-
-    # Add insights
-    for insight in result['insights']:
-        lines.append(f"[{timestamp}][session:{session_id}] @@@ {insight}")
-
-    # Add entities
-    for entity_type, value in result['entities']:
-        lines.append(f"[{timestamp}][session:{session_id}] ^^^ {entity_type}:{value}")
-
-    # Add relationships
-    for subj, pred, obj in result['relationships']:
-        lines.append(f"[{timestamp}][session:{session_id}] ||| {subj}|{pred}|{obj}")
-
-    if lines:
-        with open(annotations_file, 'a', encoding='utf-8') as f:
-            f.write('\n'.join(lines) + '\n')
-
-    total = len(result['insights']) + len(result['entities']) + len(result['relationships'])
+    total = _save_annotations_to_file(annotations_file, result, timestamp, session_id)
     return f"✓ Saved {total} annotations ({len(result['insights'])} insights, {len(result['entities'])} topics, {len(result['relationships'])} relationships)"
 
 

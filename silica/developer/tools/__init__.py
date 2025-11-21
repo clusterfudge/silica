@@ -68,8 +68,8 @@ from .webcam import (
     webcam_snapshot,
 )
 from ..knowledge_graph.tools import (
-    parse_annotations,
-    save_annotations,
+    # parse_annotations and save_annotations are deprecated - annotations are now
+    # automatically extracted in the agent loop
     query_knowledge_graph,
     get_kg_statistics,
     get_recent_topics,
@@ -133,9 +133,7 @@ ALL_TOOLS = (
         get_session_tool,
         read_persona,
         write_persona,
-        # Knowledge graph tools
-        parse_annotations,
-        save_annotations,
+        # Knowledge graph tools (parse/save are automatic now)
         query_knowledge_graph,
         get_kg_statistics,
         get_recent_topics,
