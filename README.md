@@ -42,8 +42,6 @@ For detailed deployment information, see the [Raspberry Pi Deployment Guide](doc
 
 For complete installation instructions, see [docs/INSTALLATION.md](docs/remote/INSTALLATION.md).
 
-For environment variable configuration in remote deployments, see [docs/remote/ENVIRONMENT_VARIABLES.md](docs/remote/ENVIRONMENT_VARIABLES.md).
-
 #### Optional: Install ripgrep for enhanced search performance
 ```bash
 # macOS
