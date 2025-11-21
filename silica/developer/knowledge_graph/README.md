@@ -92,7 +92,7 @@ These are suggested predicates - choose appropriate predicates based on context:
 
 ## Integration with Silica
 
-The knowledge graph system is integrated into silica as a set of agent tools. AI agents can use these tools to work with annotations:
+The knowledge graph system is integrated into silica as a set of agent tools. AI agents can use these tools to work with annotations. The knowledge graph is automatically namespaced by the current persona, so each persona maintains its own independent knowledge base.
 
 ### Available Agent Tools
 
@@ -211,9 +211,14 @@ print(result['text'])           # Clean text without annotations
 
 ```python
 from silica.developer.knowledge_graph import AnnotationStorage
+from pathlib import Path
 
-# Initialize storage
+# Initialize storage (defaults to ~/.silica/personas/default/knowledge_graph)
 storage = AnnotationStorage()
+
+# Or specify a persona directory
+persona_dir = Path.home() / ".silica" / "personas" / "my_persona"
+storage = AnnotationStorage(persona_dir=persona_dir)
 
 # Save an annotation
 annotation = result['annotation']
@@ -259,10 +264,10 @@ graph2 = KnowledgeGraph.from_dict(data)
 
 ## Storage Structure
 
-Annotations are stored in a hierarchical structure at `~/.hdev/knowledge_graph/`:
+Annotations are stored in a hierarchical structure, namespaced by persona at `~/.silica/personas/{persona_name}/knowledge_graph/`:
 
 ```
-~/.hdev/knowledge_graph/
+~/.silica/personas/{persona_name}/knowledge_graph/
 ├── index.json                           # Master index
 ├── annotations/                         # Annotation files
 │   ├── 20240115_120000_000000.json
@@ -279,6 +284,8 @@ Annotations are stored in a hierarchical structure at `~/.hdev/knowledge_graph/`
     └── integrates_with/
         └── Docker_Python.json
 ```
+
+Each persona maintains its own independent knowledge graph, allowing different agent personalities to build separate knowledge bases.
 
 ## When to Use Annotations
 

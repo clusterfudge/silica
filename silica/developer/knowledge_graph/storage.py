@@ -18,17 +18,26 @@ class AnnotationStorage:
     Storage manager for knowledge graph annotations.
 
     Stores annotations in a hierarchical structure compatible with
-    silica's memory system.
+    silica's memory system, namespaced by persona.
     """
 
-    def __init__(self, base_dir: Optional[Path] = None):
+    def __init__(self, base_dir: Optional[Path] = None, persona_dir: Optional[Path] = None):
         """
         Initialize the annotation storage.
 
         Args:
-            base_dir: Base directory for storage (defaults to ~/.hdev/knowledge_graph)
+            base_dir: Base directory for storage (deprecated, use persona_dir instead)
+            persona_dir: Persona directory (defaults to ~/.silica/personas/default)
         """
-        self.base_dir = base_dir or Path.home() / ".hdev" / "knowledge_graph"
+        if base_dir is not None:
+            # Support legacy base_dir for backwards compatibility
+            self.base_dir = base_dir
+        elif persona_dir is not None:
+            self.base_dir = persona_dir / "knowledge_graph"
+        else:
+            # Default to ~/.silica/personas/default/knowledge_graph
+            self.base_dir = Path.home() / ".silica" / "personas" / "default" / "knowledge_graph"
+
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
         # Subdirectories for different data types

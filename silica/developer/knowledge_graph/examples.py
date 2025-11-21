@@ -56,7 +56,7 @@ def example_storage_operations():
     print("Example 2: Storage Operations")
     print("=" * 60)
 
-    # Initialize storage
+    # Initialize storage (uses ~/.silica/personas/default/knowledge_graph by default)
     storage = AnnotationStorage()
 
     # Create and save annotations

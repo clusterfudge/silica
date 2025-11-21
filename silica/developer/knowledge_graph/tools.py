@@ -4,7 +4,6 @@ Agent tools for knowledge graph operations.
 These tools allow AI agents to interact with the knowledge graph annotation system.
 """
 
-import json
 from pathlib import Path
 from typing import Optional
 
@@ -85,8 +84,9 @@ def save_annotations(context: "AgentContext", text: str, source: Optional[str] =
     Returns:
         Confirmation message with annotation ID and statistics
     """
-    # Initialize storage
-    storage = AnnotationStorage()
+    # Initialize storage with persona directory
+    persona_dir = context.history_base_dir or Path.home() / ".silica" / "personas" / "default"
+    storage = AnnotationStorage(persona_dir=persona_dir)
 
     # Parse annotations
     result = parse_kg_annotations(text, source)
@@ -132,7 +132,8 @@ def query_knowledge_graph(
         - query_knowledge_graph(entity_value="Redis") → topics containing "Redis"
         - query_knowledge_graph(relationship_predicate="uses") → all "uses" relationships
     """
-    storage = AnnotationStorage()
+    persona_dir = context.history_base_dir or Path.home() / ".silica" / "personas" / "default"
+    storage = AnnotationStorage(persona_dir=persona_dir)
     lines = []
 
     # Query topics if type or value specified
@@ -180,7 +181,8 @@ def get_kg_statistics(context: "AgentContext") -> str:
     Returns:
         Formatted statistics report
     """
-    storage = AnnotationStorage()
+    persona_dir = context.history_base_dir or Path.home() / ".silica" / "personas" / "default"
+    storage = AnnotationStorage(persona_dir=persona_dir)
     stats = storage.get_statistics()
 
     lines = []
@@ -264,7 +266,8 @@ def export_knowledge_graph(context: "AgentContext", output_path: str) -> str:
     Returns:
         Confirmation message with export statistics
     """
-    storage = AnnotationStorage()
+    persona_dir = context.history_base_dir or Path.home() / ".silica" / "personas" / "default"
+    storage = AnnotationStorage(persona_dir=persona_dir)
     output_file = Path(output_path)
 
     # Export to JSON
@@ -295,7 +298,8 @@ def import_knowledge_graph(context: "AgentContext", input_path: str) -> str:
     Returns:
         Confirmation message with import statistics
     """
-    storage = AnnotationStorage()
+    persona_dir = context.history_base_dir or Path.home() / ".silica" / "personas" / "default"
+    storage = AnnotationStorage(persona_dir=persona_dir)
     input_file = Path(input_path)
 
     if not input_file.exists():
@@ -321,7 +325,8 @@ def find_related_entities(context: "AgentContext", entity_value: str) -> str:
     Returns:
         List of all relationships involving this topic
     """
-    storage = AnnotationStorage()
+    persona_dir = context.history_base_dir or Path.home() / ".silica" / "personas" / "default"
+    storage = AnnotationStorage(persona_dir=persona_dir)
     graph = storage.build_knowledge_graph()
 
     related = graph.get_related_entities(entity_value)
