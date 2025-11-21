@@ -149,6 +149,7 @@ class AgentManager:
                     env_dict[var] = value
 
             # Create tmux session with environment variables set
+            # Use tmux's -e flag to set environment variables in the session
             tmux_create_command = [
                 "tmux",
                 "new-session",
@@ -159,11 +160,11 @@ class AgentManager:
                 str(self.config.get_code_directory()),
             ]
 
-            # Set environment variables for the tmux session
-            env = os.environ.copy()
-            env.update(env_dict)
+            # Add environment variables to the tmux session using -e flags
+            for key, value in env_dict.items():
+                tmux_create_command.extend(["-e", f"{key}={value}"])
 
-            subprocess.run(tmux_create_command, env=env, check=True)
+            subprocess.run(tmux_create_command, check=True)
 
             # Wait a moment for the session to fully initialize
             import time
