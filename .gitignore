@@ -40,7 +40,8 @@ silica/_version.py
 logs/
 data/
 -e 
-# Local session history and memory
-history/
-memory/
+# Local session history and memory (user data, not code)
+# Use specific paths to avoid ignoring code directories
+.silica/personas/*/history/
+.silica/personas/*/memory/
 .persona
