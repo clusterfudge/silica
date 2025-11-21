@@ -45,18 +45,38 @@ def for_name(name: str | None) -> Persona:
         Persona object with system_block and base_directory
 
     Priority:
-        1. Load from persona.md if file exists
-        2. Use built-in template if available
-        3. Use None (no custom system prompt)
+        1. Load from memory/persona.md if file exists (new location)
+        2. Load from persona.md if file exists (legacy location, for migration)
+        3. Use built-in template if available
+        4. Use None (no custom system prompt)
     """
     name = name or DEFAULT_PERSONA_NAME
     base_directory = _PERSONAS_BASE_DIRECTORY / name
-    persona_file = base_directory / "persona.md"
+    
+    # New location: memory/persona.md
+    persona_file_new = base_directory / "memory" / "persona.md"
+    # Legacy location: persona.md (for migration)
+    persona_file_legacy = base_directory / "persona.md"
 
-    # Try to load from persona.md first
-    if persona_file.exists():
+    # Try new location first
+    if persona_file_new.exists():
         try:
-            with open(persona_file, "r") as f:
+            with open(persona_file_new, "r") as f:
+                persona_content = f.read().strip()
+            # Only create system_block if file has content
+            system_block = (
+                wrap_text_as_content_block(persona_content) if persona_content else None
+            )
+        except (IOError, OSError):
+            # Fall back to built-in if file read fails
+            persona_prompt = _personas.get(name.lower(), None)
+            system_block = (
+                wrap_text_as_content_block(persona_prompt) if persona_prompt else None
+            )
+    # Try legacy location
+    elif persona_file_legacy.exists():
+        try:
+            with open(persona_file_legacy, "r") as f:
                 persona_content = f.read().strip()
             # Only create system_block if file has content
             system_block = (
@@ -69,7 +89,7 @@ def for_name(name: str | None) -> Persona:
                 wrap_text_as_content_block(persona_prompt) if persona_prompt else None
             )
     else:
-        # No persona.md - use built-in if available
+        # No persona.md in either location - use built-in if available
         persona_prompt = _personas.get(name.lower(), None)
         system_block = (
             wrap_text_as_content_block(persona_prompt) if persona_prompt else None
@@ -104,7 +124,7 @@ def get_builtin_prompt(name: str) -> str:
 
 
 def create_persona_directory(name: str, base_prompt: str = "") -> Path:
-    """Create a new persona directory with persona.md file.
+    """Create a new persona directory with persona.md file in memory/ subdirectory.
 
     Args:
         name: Name of the persona
@@ -115,8 +135,13 @@ def create_persona_directory(name: str, base_prompt: str = "") -> Path:
     """
     persona_dir = _PERSONAS_BASE_DIRECTORY / name
     persona_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Create memory subdirectory
+    memory_dir = persona_dir / "memory"
+    memory_dir.mkdir(parents=True, exist_ok=True)
 
-    persona_file = persona_dir / "persona.md"
+    # Create persona.md in memory/ subdirectory
+    persona_file = memory_dir / "persona.md"
     if not persona_file.exists():
         with open(persona_file, "w") as f:
             f.write(base_prompt)
@@ -140,6 +165,54 @@ def persona_exists(name: str) -> bool:
     """
     persona_dir = _PERSONAS_BASE_DIRECTORY / name
     return persona_dir.exists()
+
+
+def migrate_persona_md_to_memory(name: str) -> bool:
+    """Migrate persona.md from legacy location to memory/ subdirectory.
+    
+    This function moves persona.md from:
+        ~/.silica/personas/{name}/persona.md
+    to:
+        ~/.silica/personas/{name}/memory/persona.md
+    
+    Args:
+        name: Name of the persona
+        
+    Returns:
+        True if migration was performed, False if not needed or failed
+    """
+    import shutil
+    
+    persona_dir = _PERSONAS_BASE_DIRECTORY / name
+    legacy_file = persona_dir / "persona.md"
+    memory_dir = persona_dir / "memory"
+    new_file = memory_dir / "persona.md"
+    
+    # Check if migration is needed
+    if not legacy_file.exists():
+        return False  # No legacy file to migrate
+        
+    if new_file.exists():
+        # New location already exists, don't overwrite
+        # User should manually resolve this
+        return False
+    
+    try:
+        # Create memory directory if it doesn't exist
+        memory_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Move the file
+        shutil.move(str(legacy_file), str(new_file))
+        
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Migrated persona.md to memory/ subdirectory for persona '{name}'")
+        return True
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to migrate persona.md for persona '{name}': {e}")
+        return False
 
 
 def get_or_create(name: str | None, interactive: bool = True) -> Persona:
@@ -233,15 +306,10 @@ def get_or_create(name: str | None, interactive: bool = True) -> Persona:
             console.print(
                 f"\n[green]Creating persona '{name}' based on '{selected_name}'[/green]"
             )
-            # For template-based personas, write the built-in prompt to persona.md
-            persona_dir = _PERSONAS_BASE_DIRECTORY / name
-            persona_dir.mkdir(parents=True, exist_ok=True)
-
-            # Get the built-in prompt and write it to persona.md
+            # Get the built-in prompt and create persona with it
             base_prompt = get_builtin_prompt(selected_name)
-            persona_file = persona_dir / "persona.md"
-            with open(persona_file, "w") as f:
-                f.write(base_prompt)
+            persona_dir = create_persona_directory(name, base_prompt)
+            persona_file = persona_dir / "memory" / "persona.md"
 
             console.print(f"[green]✓ Created persona directory: {persona_dir}[/green]")
             console.print(f"[green]✓ Created persona file: {persona_file}[/green]")
@@ -249,11 +317,8 @@ def get_or_create(name: str | None, interactive: bool = True) -> Persona:
         else:
             console.print(f"\n[green]Creating blank persona '{name}'[/green]")
             # For blank personas, create directory with empty persona.md
-            persona_dir = _PERSONAS_BASE_DIRECTORY / name
-            persona_dir.mkdir(parents=True, exist_ok=True)
-            persona_file = persona_dir / "persona.md"
-            with open(persona_file, "w") as f:
-                f.write("")
+            persona_dir = create_persona_directory(name, "")
+            persona_file = persona_dir / "memory" / "persona.md"
 
             console.print(f"[green]✓ Created persona directory: {persona_dir}[/green]")
             console.print(
@@ -265,11 +330,8 @@ def get_or_create(name: str | None, interactive: bool = True) -> Persona:
     else:
         console.print(f"\n[green]Creating blank persona '{name}'[/green]")
         # User declined template - create blank persona
-        persona_dir = _PERSONAS_BASE_DIRECTORY / name
-        persona_dir.mkdir(parents=True, exist_ok=True)
-        persona_file = persona_dir / "persona.md"
-        with open(persona_file, "w") as f:
-            f.write("")
+        persona_dir = create_persona_directory(name, "")
+        persona_file = persona_dir / "memory" / "persona.md"
 
         console.print(f"[green]✓ Created persona directory: {persona_dir}[/green]")
         console.print(f"[green]✓ Created empty persona file: {persona_file}[/green]")
@@ -291,4 +353,5 @@ __all__ = [
     get_builtin_prompt,
     create_persona_directory,
     persona_exists,
+    migrate_persona_md_to_memory,
 ]

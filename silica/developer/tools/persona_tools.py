@@ -62,7 +62,12 @@ def read_persona(context: AgentContext) -> str:
     """
     try:
         persona_dir = context.history_base_dir
-        persona_file = persona_dir / "persona.md"
+        # New location: memory/persona.md
+        persona_file = persona_dir / "memory" / "persona.md"
+        
+        # Fallback to legacy location for backward compatibility
+        if not persona_file.exists():
+            persona_file = persona_dir / "persona.md"
 
         if not persona_file.exists():
             return f"Error: Persona file not found at {persona_file}"
@@ -107,16 +112,26 @@ def write_persona(context: AgentContext, content: str) -> str:
     try:
         persona_dir = context.history_base_dir
         persona_name = persona_dir.name
-        persona_file = persona_dir / "persona.md"
-
-        # Create persona directory if it doesn't exist
-        persona_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create memory directory if it doesn't exist
+        memory_dir = persona_dir / "memory"
+        memory_dir.mkdir(parents=True, exist_ok=True)
+        
+        # New location: memory/persona.md
+        persona_file = memory_dir / "persona.md"
+        
+        # Check for legacy location and migrate if needed
+        legacy_file = persona_dir / "persona.md"
+        if not persona_file.exists() and legacy_file.exists():
+            # Migrate from legacy location
+            import shutil
+            shutil.move(str(legacy_file), str(persona_file))
 
         # Create backup if file exists
         backup_path = None
         if persona_file.exists():
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_file = persona_dir / f"persona.backup.{timestamp}.md"
+            backup_file = memory_dir / f"persona.backup.{timestamp}.md"
 
             with open(persona_file, "r") as f:
                 old_content = f.read()

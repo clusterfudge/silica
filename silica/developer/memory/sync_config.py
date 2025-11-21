@@ -29,8 +29,7 @@ class SyncConfig:
         """Create configuration for memory sync.
 
         Memory sync includes:
-        - The persona's memory directory
-        - The persona.md file (persona definition)
+        - The persona's memory directory (including persona.md)
 
         Args:
             persona_name: Name of the persona (e.g., "default")
@@ -51,8 +50,7 @@ class SyncConfig:
         return cls(
             namespace=f"personas/{persona_name}/memory",
             scan_paths=[
-                persona_dir / "memory",
-                persona_dir / "persona.md",  # Special: persona definition
+                persona_dir / "memory",  # Includes persona.md and all memory files
             ],
             index_file=persona_dir / ".sync-index-memory.json",
         )

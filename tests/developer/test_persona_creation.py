@@ -71,8 +71,8 @@ class TestPersonaModule:
         assert persona_dir.is_dir()
         assert persona_dir == temp_persona_dir / persona_name
 
-        # Verify persona.md was created with correct content
-        persona_file = persona_dir / "persona.md"
+        # Verify persona.md was created in memory/ subdirectory with correct content
+        persona_file = persona_dir / "memory" / "persona.md"
         assert persona_file.exists()
         with open(persona_file) as f:
             content = f.read()
@@ -83,10 +83,11 @@ class TestPersonaModule:
         persona_name = "custom_persona"
         custom_prompt = "This is my custom persona prompt."
 
-        # Create persona with custom prompt
+        # Create persona with custom prompt in new location
         persona_dir = temp_persona_dir / persona_name
-        persona_dir.mkdir(parents=True)
-        persona_file = persona_dir / "persona.md"
+        memory_dir = persona_dir / "memory"
+        memory_dir.mkdir(parents=True)
+        persona_file = memory_dir / "persona.md"
         with open(persona_file, "w") as f:
             f.write(custom_prompt)
 
@@ -116,8 +117,9 @@ class TestPersonaModule:
         """Test that for_name handles empty persona.md."""
         persona_name = "empty_persona"
         persona_dir = temp_persona_dir / persona_name
-        persona_dir.mkdir(parents=True)
-        persona_file = persona_dir / "persona.md"
+        memory_dir = persona_dir / "memory"
+        memory_dir.mkdir(parents=True)
+        persona_file = memory_dir / "persona.md"
         with open(persona_file, "w") as f:
             f.write("")  # Empty file
 
@@ -136,7 +138,7 @@ class TestPersonaModule:
 
         # Verify directory and file were created
         assert persona_dir.exists()
-        persona_file = persona_dir / "persona.md"
+        persona_file = persona_dir / "memory" / "persona.md"
         assert persona_file.exists()
 
         # Verify file is empty
@@ -156,7 +158,7 @@ class TestPersonaModule:
         personas.create_persona_directory(persona_name, "New content")
 
         # Verify original content is preserved
-        persona_file = temp_persona_dir / persona_name / "persona.md"
+        persona_file = temp_persona_dir / persona_name / "memory" / "persona.md"
         with open(persona_file) as f:
             content = f.read()
         assert content == original_text
@@ -197,21 +199,22 @@ class TestPersonaIntegration:
         assert persona_dir.parent == temp_persona_dir
         assert persona_dir.name == persona_name
 
-        # Check files
-        persona_file = persona_dir / "persona.md"
-        assert persona_file.exists()
-        assert persona_file.parent == persona_dir
-
-        # Memory and history directories should be created by other components
-        # but the base persona directory should be ready
+        # Check that memory directory was created
         memory_dir = persona_dir / "memory"
+        assert memory_dir.exists()
+        
+        # Check files
+        persona_file = memory_dir / "persona.md"
+        assert persona_file.exists()
+        assert persona_file.parent == memory_dir
+
+        # History directory should be creatable by other components
         history_dir = persona_dir / "history"
 
-        # These should be creatable without error
-        memory_dir.mkdir(exist_ok=True)
+        # This should be creatable without error
         history_dir.mkdir(exist_ok=True)
 
-        assert memory_dir.exists()
+        assert history_dir.exists()
 
 
 class TestGetOrCreate:
@@ -250,8 +253,8 @@ class TestGetOrCreate:
         assert isinstance(result, personas.Persona)
         assert personas.persona_exists(persona_name)
 
-        # Check that blank persona.md was created
-        persona_file = temp_persona_dir / persona_name / "persona.md"
+        # Check that blank persona.md was created in memory/
+        persona_file = temp_persona_dir / persona_name / "memory" / "persona.md"
         assert persona_file.exists()
         with open(persona_file) as f:
             content = f.read()
@@ -274,8 +277,8 @@ class TestGetOrCreate:
         assert isinstance(result, personas.Persona)
         assert personas.persona_exists(persona_name)
 
-        # Check that persona.md contains built-in prompt
-        persona_file = temp_persona_dir / persona_name / "persona.md"
+        # Check that persona.md contains built-in prompt in memory/
+        persona_file = temp_persona_dir / persona_name / "memory" / "persona.md"
         assert persona_file.exists()
         with open(persona_file) as f:
             content = f.read()

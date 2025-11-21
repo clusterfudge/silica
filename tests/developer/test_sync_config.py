@@ -27,8 +27,8 @@ def persona_dir(temp_dir, monkeypatch):
     (persona_path / "history" / "session-1").mkdir(parents=True)
     (persona_path / "history" / "session-2").mkdir(parents=True)
 
-    # Create persona.md
-    (persona_path / "persona.md").write_text("# Test Persona")
+    # Create persona.md in memory/ subdirectory (new location)
+    (persona_path / "memory" / "persona.md").write_text("# Test Persona")
 
     # Mock the personas module to use our temp directory
     from silica.developer import personas
@@ -61,10 +61,9 @@ class TestSyncConfig:
         # Check namespace
         assert config.namespace == "personas/test/memory"
 
-        # Check scan paths include memory directory and persona.md
+        # Check scan paths include memory directory (which contains persona.md)
         scan_path_names = [p.name for p in config.scan_paths]
         assert "memory" in scan_path_names
-        assert "persona.md" in scan_path_names
 
         # Check index file location
         assert config.index_file == persona_dir / ".sync-index-memory.json"
@@ -150,7 +149,7 @@ class TestSyncConfig:
         assert Path("/path3") in config.scan_paths
 
     def test_memory_config_includes_persona_file(self, persona_dir):
-        """Test that memory config includes persona.md file."""
+        """Test that memory config includes persona.md file (via memory directory)."""
         config = SyncConfig.for_memory("test")
 
         # Get the expected persona directory
@@ -159,9 +158,13 @@ class TestSyncConfig:
         persona = personas.get_or_create("test", interactive=False)
         persona_dir = persona.base_directory
 
-        # persona.md should be in scan paths
-        persona_file = persona_dir / "persona.md"
-        assert persona_file in config.scan_paths
+        # memory directory should be in scan paths (which will include persona.md)
+        memory_dir = persona_dir / "memory"
+        assert memory_dir in config.scan_paths
+        
+        # Verify persona.md exists in memory directory
+        persona_file = memory_dir / "persona.md"
+        assert persona_file.exists()
 
     def test_history_config_excludes_other_sessions(self, persona_dir):
         """Test that history config only includes specific session."""
