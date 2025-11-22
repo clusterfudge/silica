@@ -417,10 +417,27 @@ def sync(
 
         console.print(f"[cyan]Syncing memory for persona '{persona_name}'...[/cyan]\n")
 
-        # Perform sync with retry and automatic conflict resolution
-        result = sync_with_retry(
-            sync_engine=sync_engine, max_retries=3, show_progress=True
-        )
+        # Perform sync
+        if conflict_resolver:
+            # Use sync_with_retry if we have a conflict resolver
+            result = sync_with_retry(
+                sync_engine=sync_engine, max_retries=3, show_progress=True
+            )
+        else:
+            # Without conflict resolver, do a simple sync
+            # If conflicts occur, they will be left unresolved
+            plan = sync_engine.analyze_sync_operations()
+            
+            if plan.has_conflicts:
+                console.print(
+                    f"[red]Error: {len(plan.conflicts)} conflict(s) detected but no conflict resolver available.[/red]"
+                )
+                console.print(
+                    "[yellow]Set ANTHROPIC_API_KEY environment variable to enable automatic conflict resolution.[/yellow]"
+                )
+                return
+            
+            result = sync_engine.execute_sync(plan, show_progress=True)
 
         # Display results
         console.print(
