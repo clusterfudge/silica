@@ -8,7 +8,7 @@ from silica.developer.cli.memory_sync import memory_sync_app
 from silica.cron.app import entrypoint as cron_serve
 from silica.cron.cli import cron as cron_commands
 
-app = App(version=__version__)
+app = App(name="silica", version=__version__)
 app.command(remote_app, name="remote")
 app.command(cron_serve, name="cron-serve")
 app.command(cron_commands, name="cron")
