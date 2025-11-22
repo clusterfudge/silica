@@ -45,10 +45,7 @@ class Toolbox:
         if context.history_base_dir is not None and isinstance(
             context.history_base_dir, Path
         ):
-            # Check new location first, then legacy location
             persona_file = context.history_base_dir / "memory" / "persona.md"
-            if not persona_file.exists():
-                persona_file = context.history_base_dir / "persona.md"
             
             if not persona_file.exists():
                 # Built-in persona only - remove persona editing tools

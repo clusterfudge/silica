@@ -60,9 +60,11 @@ def test_persona_tools_in_toolbox():
     with tempfile.TemporaryDirectory() as tmpdir:
         persona_dir = Path(tmpdir) / "test_persona"
         persona_dir.mkdir()
-
-        # Create persona.md to enable persona tools
-        (persona_dir / "persona.md").write_text("# Test Persona")
+        
+        # Create memory directory and persona.md to enable persona tools
+        memory_dir = persona_dir / "memory"
+        memory_dir.mkdir()
+        (memory_dir / "persona.md").write_text("# Test Persona")
 
         context = AgentContext.create(
             model_spec=get_model("sonnet"),
@@ -163,9 +165,11 @@ def test_persona_backup_created():
     with tempfile.TemporaryDirectory() as tmpdir:
         persona_dir = Path(tmpdir) / "test_persona"
         persona_dir.mkdir()
-
-        # Create persona.md to enable persona tools
-        (persona_dir / "persona.md").write_text("# Initial")
+        
+        # Create memory directory and persona.md to enable persona tools
+        memory_dir = persona_dir / "memory"
+        memory_dir.mkdir()
+        (memory_dir / "persona.md").write_text("# Initial")
 
         context = AgentContext.create(
             model_spec=get_model("sonnet"),
@@ -201,9 +205,11 @@ def test_persona_log_created():
     with tempfile.TemporaryDirectory() as tmpdir:
         persona_dir = Path(tmpdir) / "test_persona"
         persona_dir.mkdir()
-
-        # Create persona.md to enable persona tools
-        (persona_dir / "persona.md").write_text("# Initial")
+        
+        # Create memory directory and persona.md to enable persona tools
+        memory_dir = persona_dir / "memory"
+        memory_dir.mkdir()
+        (memory_dir / "persona.md").write_text("# Initial")
 
         context = AgentContext.create(
             model_spec=get_model("sonnet"),

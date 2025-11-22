@@ -85,8 +85,10 @@ def test_persona_tools_available_with_persona_md():
         persona_dir = Path(tmpdir) / "test_persona"
         persona_dir.mkdir()
 
-        # Create persona.md to enable persona tools
-        persona_file = persona_dir / "persona.md"
+        # Create persona.md in memory/ subdirectory to enable persona tools
+        memory_dir = persona_dir / "memory"
+        memory_dir.mkdir(parents=True, exist_ok=True)
+        persona_file = memory_dir / "persona.md"
         persona_file.write_text("# Custom Persona\nBe helpful.")
 
         context = AgentContext.create(
@@ -128,8 +130,10 @@ def test_persona_tools_available_after_creating_file():
         assert "read_persona" not in schema_names1
         assert "write_persona" not in schema_names1
 
-        # Now create persona.md
-        persona_file = persona_dir / "persona.md"
+        # Now create persona.md in memory/ subdirectory
+        memory_dir = persona_dir / "memory"
+        memory_dir.mkdir(parents=True, exist_ok=True)
+        persona_file = memory_dir / "persona.md"
         persona_file.write_text("# Custom Persona")
 
         # Create new context and toolbox

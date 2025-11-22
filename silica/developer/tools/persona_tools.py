@@ -62,12 +62,7 @@ def read_persona(context: AgentContext) -> str:
     """
     try:
         persona_dir = context.history_base_dir
-        # New location: memory/persona.md
         persona_file = persona_dir / "memory" / "persona.md"
-        
-        # Fallback to legacy location for backward compatibility
-        if not persona_file.exists():
-            persona_file = persona_dir / "persona.md"
 
         if not persona_file.exists():
             return f"Error: Persona file not found at {persona_file}"
@@ -117,15 +112,7 @@ def write_persona(context: AgentContext, content: str) -> str:
         memory_dir = persona_dir / "memory"
         memory_dir.mkdir(parents=True, exist_ok=True)
         
-        # New location: memory/persona.md
         persona_file = memory_dir / "persona.md"
-        
-        # Check for legacy location and migrate if needed
-        legacy_file = persona_dir / "persona.md"
-        if not persona_file.exists() and legacy_file.exists():
-            # Migrate from legacy location
-            import shutil
-            shutil.move(str(legacy_file), str(persona_file))
 
         # Create backup if file exists
         backup_path = None
