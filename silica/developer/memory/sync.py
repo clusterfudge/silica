@@ -18,15 +18,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from silica.developer.memory.proxy_client import (
-    FileMetadata,
-    MemoryProxyClient,
-    VersionConflictError,
-    NotFoundError,
-)
 from silica.developer.memory.conflict_resolver import (
     ConflictResolver,
     ConflictResolutionError,
+)
+from silica.developer.memory.md5_cache import MD5Cache
+from silica.developer.memory.proxy_client import (
+    FileMetadata,
+    MemoryProxyClient,
+    NotFoundError,
+    VersionConflictError,
 )
 
 if TYPE_CHECKING:
@@ -306,6 +307,7 @@ class SyncEngine:
         self.conflict_resolver = conflict_resolver
 
         self.local_index = LocalIndex(config.index_file)
+        self.md5_cache = MD5Cache()
 
         # Derive base directory from index file location
         # For memory: ~/.silica/personas/default/.sync-index-memory.json → ~/.silica/personas/default
@@ -863,12 +865,12 @@ class SyncEngine:
             return False
 
         try:
+            # Calculate MD5 using cache
+            md5 = self.md5_cache.calculate_md5(full_path)
+
             # Read file content
             with open(full_path, "rb") as f:
                 content = f.read()
-
-            # Calculate MD5
-            md5 = self._calculate_md5(content)
 
             # Upload to remote
             # write_blob returns tuple (is_new, md5, version)
@@ -929,6 +931,9 @@ class SyncEngine:
             with open(full_path, "wb") as f:
                 f.write(content)
 
+            # Update MD5 cache for the downloaded file
+            self.md5_cache.set(full_path, md5)
+
             # Create metadata object
             file_metadata = FileMetadata(
                 md5=md5,
@@ -967,6 +972,8 @@ class SyncEngine:
         try:
             if full_path.exists():
                 full_path.unlink()
+                # Invalidate cache for deleted file
+                self.md5_cache.invalidate(full_path)
 
             # Update local index (don't remove, mark as deleted to track remote state)
             index_entry = self.local_index.get_entry(path)
@@ -1058,13 +1065,13 @@ class SyncEngine:
                 # Single file (e.g., persona.md)
                 rel_path = scan_path.name
                 try:
-                    with open(scan_path, "rb") as f:
-                        content = f.read()
+                    # Use cache for MD5 calculation
+                    md5 = self.md5_cache.calculate_md5(scan_path)
 
                     files[rel_path] = FileInfo(
                         path=rel_path,
-                        md5=self._calculate_md5(content),
-                        size=len(content),
+                        md5=md5,
+                        size=scan_path.stat().st_size,
                         last_modified=datetime.fromtimestamp(
                             scan_path.stat().st_mtime, tz=timezone.utc
                         ),
@@ -1095,15 +1102,14 @@ class SyncEngine:
                         # If relative_to fails, just use filename
                         rel_path = file_path.name
 
-                    # Read file and calculate MD5
+                    # Calculate MD5 using cache
                     try:
-                        with open(file_path, "rb") as f:
-                            content = f.read()
+                        md5 = self.md5_cache.calculate_md5(file_path)
 
                         files[str(rel_path)] = FileInfo(
                             path=str(rel_path),
-                            md5=self._calculate_md5(content),
-                            size=len(content),
+                            md5=md5,
+                            size=file_path.stat().st_size,
                             last_modified=datetime.fromtimestamp(
                                 file_path.stat().st_mtime, tz=timezone.utc
                             ),
