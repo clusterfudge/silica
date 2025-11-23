@@ -1,6 +1,5 @@
 """Tests for MD5 cache."""
 
-import os
 import pytest
 import time
 from pathlib import Path
@@ -198,7 +197,7 @@ class TestMD5Cache:
         # Just verify it works, don't assert on timing
         assert time_cached >= 0  # Just verify it executed
 
-    def test_cleanup_stale_entries_removes_nonexistent_files(self, cache, temp_dir):
+    def test_cleanup_deleted_files_removes_nonexistent_files(self, cache, temp_dir):
         """Test that cleanup removes cache entries for deleted files."""
         # Create and cache multiple files
         files = []
@@ -218,7 +217,7 @@ class TestMD5Cache:
         files[4].unlink()
 
         # Run cleanup
-        removed = cache.cleanup_stale_entries()
+        removed = cache.cleanup_deleted_files()
         assert removed == 3
 
         # Verify deleted files' cache entries are gone
@@ -230,29 +229,7 @@ class TestMD5Cache:
         assert cache.get(files[1]) is not None
         assert cache.get(files[3]) is not None
 
-    def test_cleanup_stale_entries_with_max_age(self, cache, temp_dir):
-        """Test that cleanup removes old cache entries."""
-        # Create a file and cache it
-        test_file = temp_dir / "test.txt"
-        test_file.write_text("Content")
-        cache.calculate_md5(test_file)
-
-        # Verify cached
-        assert cache.get(test_file) is not None
-
-        # Manually modify cache file mtime to be old
-        cache_path = cache._get_cache_path(test_file)
-        old_time = time.time() - (31 * 86400)  # 31 days ago
-        os.utime(cache_path, (old_time, old_time))
-
-        # Run cleanup with 30 day max age
-        removed = cache.cleanup_stale_entries(max_age_days=30)
-        assert removed == 1
-
-        # Verify cache entry is gone
-        assert cache.get(test_file) is None
-
-    def test_cleanup_stale_entries_with_corrupted_cache(self, cache, temp_dir):
+    def test_cleanup_deleted_files_with_corrupted_cache(self, cache, temp_dir):
         """Test that cleanup removes corrupted cache entries."""
         # Create a file and cache it
         test_file = temp_dir / "test.txt"
@@ -264,13 +241,13 @@ class TestMD5Cache:
         cache_path.write_text("invalid json{")
 
         # Run cleanup
-        removed = cache.cleanup_stale_entries()
+        removed = cache.cleanup_deleted_files()
         assert removed == 1
 
         # Verify corrupted cache is gone
         assert not cache_path.exists()
 
-    def test_cleanup_stale_entries_returns_zero_when_all_valid(self, cache, temp_dir):
+    def test_cleanup_deleted_files_returns_zero_when_all_valid(self, cache, temp_dir):
         """Test that cleanup doesn't remove valid cache entries."""
         # Create and cache files
         files = []
@@ -280,8 +257,8 @@ class TestMD5Cache:
             cache.calculate_md5(file_path)
             files.append(file_path)
 
-        # Run cleanup (all files exist and recent)
-        removed = cache.cleanup_stale_entries()
+        # Run cleanup (all files exist)
+        removed = cache.cleanup_deleted_files()
         assert removed == 0
 
         # Verify all cache entries still exist
