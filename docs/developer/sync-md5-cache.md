@@ -128,12 +128,36 @@ removed_count = cache.clear()
 print(f"Removed {removed_count} cache entries")
 ```
 
-### Automatic Cleanup
+### Cleanup Stale Entries
 
-Future enhancement: Implement automatic cache cleanup:
-- Remove entries for files that no longer exist
-- Remove entries older than N days
-- Limit cache size to prevent unbounded growth
+Remove cache entries for files that no longer exist:
+```python
+cache = MD5Cache()
+
+# Remove entries for deleted files
+removed = cache.cleanup_stale_entries()
+print(f"Removed {removed} stale cache entries")
+
+# Remove entries older than 30 days
+removed = cache.cleanup_stale_entries(max_age_days=30)
+print(f"Removed {removed} old cache entries")
+```
+
+The cleanup method:
+- Removes entries for files that no longer exist
+- Optionally removes entries older than N days
+- Removes corrupted cache entries
+- Safe to run periodically
+
+### When to Run Cleanup
+
+Recommended cleanup scenarios:
+1. **Periodic maintenance**: Run `cleanup_stale_entries(max_age_days=30)` weekly
+2. **After bulk file operations**: When many files are deleted/moved outside sync
+3. **On sync errors**: If sync encounters corrupted cache entries
+4. **Manual investigation**: When cache directory grows unexpectedly large
+
+Future enhancement: Automatic cleanup during sync operations
 
 ## Testing
 
