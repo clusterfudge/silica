@@ -2,23 +2,39 @@
 
 ## Overview
 
-Comprehensive integration tests for the sync client that test against a real memory proxy service. These tests validate the full sync workflow with actual HTTP communication, storage operations, and state management.
+Comprehensive integration tests for the sync client that test against a **real memory proxy service**. These tests validate the full sync workflow with actual HTTP communication, storage operations, and state management.
+
+**Important**: These are true integration tests - they require a running memory proxy service and will skip if the service is not available.
 
 ## Requirements
 
-- Running memory proxy service
-- Moto or LocalStack for S3 (if not using real S3)
+- **Running memory proxy service** (required)
+- Properly configured S3 backend (can use moto, LocalStack, or real S3)
 
 ## Running Tests
+
+### Prerequisites
+
+You **must** start the memory proxy service before running tests:
+
+```bash
+# Terminal 1: Start memory proxy service
+cd silica/memory_proxy
+python -m silica.memory_proxy.app
+
+# Or if you have a .env file configured:
+python -m silica.memory_proxy.app
+```
+
+The service should start on `http://localhost:8000` by default.
 
 ### Default Configuration (localhost:8000)
 
 ```bash
-# Terminal 1: Start memory proxy
-python -m silica.memory_proxy.app
-
 # Terminal 2: Run integration tests
-pytest tests/integration/sync_client/ -v -m integration
+pytest tests/integration/sync_client/ -v
+
+# Tests will skip with helpful message if proxy isn't running
 ```
 
 ### Custom Configuration
@@ -102,6 +118,27 @@ tests/integration/sync_client/
 - No-op when already in sync
 - Tombstone tracking via manifest
 
+## Test Philosophy
+
+These are **true integration tests** - they test the full stack:
+- Real HTTP requests via `httpx`
+- Real MemoryProxyClient (not mocked)
+- Real FastAPI application (memory proxy)
+- Real S3 storage (via moto, LocalStack, or actual S3)
+- Real authentication flow
+
+**We do NOT mock the memory proxy service.** If the service isn't running, tests skip with a helpful message.
+
+This approach:
+- ✅ Tests actual HTTP communication
+- ✅ Catches real integration issues
+- ✅ Validates complete workflows
+- ✅ Ensures client and server are compatible
+- ❌ Requires service to be running
+- ❌ Slower than pure unit tests
+
+For unit tests with mocks, see `tests/developer/test_memory_sync.py`.
+
 ## Environment Variables
 
 | Variable | Default | Purpose |
@@ -163,16 +200,32 @@ jobs:
 
 ### Tests Skip with "Memory proxy not accessible"
 
-**Problem:** Tests are skipped because proxy is not running.
+**Problem:** All tests are skipped with a message like:
+```
+SKIPPED [40] Memory proxy not accessible at http://localhost:8000
+Start the service with: python -m silica.memory_proxy.app
+```
 
 **Solution:**
 ```bash
-# Start the memory proxy service
+# 1. Ensure memory proxy dependencies are installed
+pip install -e .
+
+# 2. Configure the memory proxy (create .env file in silica/memory_proxy/)
+cd silica/memory_proxy
+cp .env.example .env
+# Edit .env with your S3 and auth configuration
+
+# 3. Start the memory proxy service
 python -m silica.memory_proxy.app
 
-# Or check if it's already running
+# 4. Verify it's running
 curl http://localhost:8000/health
+# Should return: {"status":"ok","storage":"connected"}
 ```
+
+**For testing with moto (mock S3):**
+You can configure the memory proxy to use moto for S3 in tests. See `tests/memory_proxy/conftest.py` for examples.
 
 ### Connection Refused Errors
 
