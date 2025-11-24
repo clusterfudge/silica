@@ -31,10 +31,10 @@ class TestManifestOnWrite:
         (temp_persona_dir / "memory/file1.md").write_text("File 1 modified locally")
 
         # Modify file2 on remote
-        index_entry = memory_sync_engine.local_index.get_entry("memory/file2.md")
+        index_entry = memory_sync_engine.local_index.get_entry("file2.md")
         sync_client.write_blob(
             namespace=memory_sync_engine.config.namespace,
-            path="memory/file2.md",
+            path="file2.md",
             content=b"File 2 modified remotely",
             expected_version=index_entry.version,
         )
@@ -44,7 +44,7 @@ class TestManifestOnWrite:
 
         # Before upload, only file1 should be detected as needing upload
         assert len(plan.upload) == 1
-        assert plan.upload[0].path == "memory/file1.md"
+        assert plan.upload[0].path == "file1.md"
 
         # Execute upload - manifest returned will show file2 changed
         result = memory_sync_engine.execute_sync(plan, show_progress=False)
@@ -56,7 +56,7 @@ class TestManifestOnWrite:
         plan2 = memory_sync_engine.analyze_sync_operations()
 
         assert len(plan2.download) == 1
-        assert plan2.download[0].path == "memory/file2.md"
+        assert plan2.download[0].path == "file2.md"
 
         # Download file2
         result2 = memory_sync_engine.execute_sync(plan2, show_progress=False)
@@ -93,9 +93,9 @@ class TestManifestOnWrite:
         # (populated from manifests returned during upload)
         all_entries = memory_sync_engine.local_index.get_all_entries()
 
-        assert "memory/alpha.md" in all_entries
-        assert "memory/beta.md" in all_entries
-        assert "memory/gamma.md" in all_entries
+        assert "alpha.md" in all_entries
+        assert "beta.md" in all_entries
+        assert "gamma.md" in all_entries
         assert "persona.md" in all_entries
 
     def test_sync_when_already_in_sync(
@@ -154,7 +154,7 @@ class TestManifestOnWrite:
 
         # Verify local index shows tombstone
         # (from manifest returned by delete)
-        entry = memory_sync_engine.local_index.get_entry("memory/to_delete.md")
+        entry = memory_sync_engine.local_index.get_entry("to_delete.md")
 
         assert entry is not None
         assert entry.is_deleted is True

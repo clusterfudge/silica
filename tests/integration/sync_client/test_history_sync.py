@@ -93,11 +93,11 @@ class TestHistorySyncSpecific:
         index2 = sync_client.get_sync_index(config2.namespace)
 
         # Each should only have their own files
-        assert "history/session-alpha/data.json" in index1.files
-        assert "history/session-alpha/data.json" not in index2.files
+        assert "data.json" in index1.files
+        assert "data.json" not in index2.files
 
-        assert "history/session-beta/data.json" in index2.files
-        assert "history/session-beta/data.json" not in index1.files
+        assert "data.json" in index2.files
+        assert "data.json" not in index1.files
 
         # Verify independent indices
         assert (session1_dir / ".sync-index-history.json").exists()
@@ -137,13 +137,13 @@ class TestHistorySyncSpecific:
             history_sync_engine.config.namespace
         )
 
-        assert "history/session-test-001/conversation.json" in remote_index.files
+        assert "conversation.json" in remote_index.files
 
         # Verify can download and parse
         content, md5, last_mod, content_type, version = (
             history_sync_engine.client.read_blob(
                 namespace=history_sync_engine.config.namespace,
-                path="history/session-test-001/conversation.json",
+                path="conversation.json",
             )
         )
 
@@ -183,8 +183,8 @@ class TestHistorySyncSpecific:
             history_sync_engine.config.namespace
         )
 
-        assert "history/session-test-001/compacted.json" in remote_index.files
-        assert "history/session-test-001/original.json" in remote_index.files
+        assert "compacted.json" in remote_index.files
+        assert "original.json" in remote_index.files
 
     def test_session_metadata_preserved(
         self, history_sync_engine, create_local_files, temp_persona_dir

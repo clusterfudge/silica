@@ -145,9 +145,10 @@ class MemoryProxyClient:
             ConnectionError: If request fails
             AuthenticationError: If authentication fails
         """
-        # URL-encode namespace to handle slashes
+        # URL-encode namespace and path to handle slashes
         encoded_namespace = quote(namespace, safe="")
-        url = f"{self.base_url}/blob/{encoded_namespace}/{path}"
+        encoded_path = quote(path, safe="")
+        url = f"{self.base_url}/blob/{encoded_namespace}/{encoded_path}"
 
         try:
             response = self.client.get(url)
@@ -213,9 +214,10 @@ class MemoryProxyClient:
             ConnectionError: If request fails
             AuthenticationError: If authentication fails
         """
-        # URL-encode namespace to handle slashes
+        # URL-encode namespace and path to handle slashes
         encoded_namespace = quote(namespace, safe="")
-        url = f"{self.base_url}/blob/{encoded_namespace}/{path}"
+        encoded_path = quote(path, safe="")
+        url = f"{self.base_url}/blob/{encoded_namespace}/{encoded_path}"
 
         headers = {
             "If-Match-Version": str(expected_version),
@@ -292,9 +294,10 @@ class MemoryProxyClient:
             ConnectionError: If request fails
             AuthenticationError: If authentication fails
         """
-        # URL-encode namespace to handle slashes
+        # URL-encode namespace and path to handle slashes
         encoded_namespace = quote(namespace, safe="")
-        url = f"{self.base_url}/blob/{encoded_namespace}/{path}"
+        encoded_path = quote(path, safe="")
+        url = f"{self.base_url}/blob/{encoded_namespace}/{encoded_path}"
 
         headers = {}
         if expected_version is not None:

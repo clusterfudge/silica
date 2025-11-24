@@ -35,11 +35,11 @@ class TestMemorySyncSpecific:
         )
 
         expected_paths = [
-            "memory/projects/alpha/notes.md",
-            "memory/projects/alpha/tasks.md",
-            "memory/projects/beta/notes.md",
-            "memory/reference/docs/guide.md",
-            "memory/reference/docs/api.md",
+            "projects/alpha/notes.md",
+            "projects/alpha/tasks.md",
+            "projects/beta/notes.md",
+            "reference/docs/guide.md",
+            "reference/docs/api.md",
             "persona.md",
         ]
 
@@ -78,7 +78,7 @@ class TestMemorySyncSpecific:
         # Should only see memory files + persona.md, not history
         uploaded_paths = [op.path for op in plan.upload]
 
-        assert "memory/mem_file.md" in uploaded_paths
+        assert "mem_file.md" in uploaded_paths
         assert "persona.md" in uploaded_paths
         assert not any("history" in path for path in uploaded_paths)
 
@@ -89,7 +89,7 @@ class TestMemorySyncSpecific:
             memory_sync_engine.config.namespace
         )
 
-        assert "memory/mem_file.md" in remote_index.files
+        assert "mem_file.md" in remote_index.files
         assert not any("history" in path for path in remote_index.files.keys())
 
     def test_persona_md_included_in_memory_sync(
@@ -156,5 +156,5 @@ Skills: Integration testing
             memory_sync_engine.config.namespace
         )
 
-        assert "memory/active/file1.md" in remote_index.files
-        assert "memory/active/file2.md" in remote_index.files
+        assert "active/file1.md" in remote_index.files
+        assert "active/file2.md" in remote_index.files

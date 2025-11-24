@@ -23,7 +23,7 @@ class TestUploadOperations:
         plan = memory_sync_engine.analyze_sync_operations()
 
         assert len(plan.upload) == 1
-        assert plan.upload[0].path == "memory/new_file.md"
+        assert plan.upload[0].path == "new_file.md"
 
         result = memory_sync_engine.execute_sync(plan, show_progress=False)
 
@@ -58,7 +58,7 @@ class TestUploadOperations:
         assert len(result.succeeded) == 1
 
         # Verify local index updated with new version
-        index_entry = memory_sync_engine.local_index.get_entry("memory/test.md")
+        index_entry = memory_sync_engine.local_index.get_entry("test.md")
         assert index_entry is not None
         assert index_entry.version > 1  # Version incremented
 
@@ -110,9 +110,9 @@ class TestUploadOperations:
             memory_sync_engine.config.namespace
         )
 
-        assert "memory/projects/project1/notes.md" in remote_index.files
-        assert "memory/projects/project2/notes.md" in remote_index.files
-        assert "memory/archive/old/data.md" in remote_index.files
+        assert "projects/project1/notes.md" in remote_index.files
+        assert "projects/project2/notes.md" in remote_index.files
+        assert "archive/old/data.md" in remote_index.files
 
 
 @pytest.mark.integration
@@ -131,14 +131,14 @@ class TestDownloadOperations:
         # Add file to remote
         create_remote_files(
             "/memory",
-            {"memory/remote_new.md": "Remote content"},
+            {"remote_new.md": "Remote content"},
         )
 
         # Sync again - should download
         plan = memory_sync_engine.analyze_sync_operations()
 
         assert len(plan.download) == 1
-        assert plan.download[0].path == "memory/remote_new.md"
+        assert plan.download[0].path == "remote_new.md"
 
         result = memory_sync_engine.execute_sync(plan, show_progress=False)
 
@@ -165,13 +165,13 @@ class TestDownloadOperations:
         memory_sync_engine.execute_sync(plan, show_progress=False)
 
         # Get version from index
-        index_entry = memory_sync_engine.local_index.get_entry("memory/sync_test.md")
+        index_entry = memory_sync_engine.local_index.get_entry("sync_test.md")
         current_version = index_entry.version
 
         # Modify on remote
         sync_client.write_blob(
             namespace=memory_sync_engine.config.namespace,
-            path="memory/sync_test.md",
+            path="sync_test.md",
             content=b"Version 2 - remote",
             expected_version=current_version,
         )
@@ -221,7 +221,7 @@ class TestDeleteOperations:
         plan = memory_sync_engine.analyze_sync_operations()
 
         assert len(plan.delete_remote) == 1
-        assert plan.delete_remote[0].path == "memory/to_delete.md"
+        assert plan.delete_remote[0].path == "to_delete.md"
         assert plan.delete_remote[0].reason == "Deleted locally"
 
         result = memory_sync_engine.execute_sync(plan, show_progress=False)
@@ -233,8 +233,8 @@ class TestDeleteOperations:
             memory_sync_engine.config.namespace
         )
 
-        assert "memory/to_delete.md" in remote_index.files
-        assert remote_index.files["memory/to_delete.md"].is_deleted is True
+        assert "to_delete.md" in remote_index.files
+        assert remote_index.files["to_delete.md"].is_deleted is True
 
         # Next sync should not re-download
         plan2 = memory_sync_engine.analyze_sync_operations()
@@ -255,14 +255,12 @@ class TestDeleteOperations:
         memory_sync_engine.execute_sync(plan, show_progress=False)
 
         # Get version and delete on remote
-        index_entry = memory_sync_engine.local_index.get_entry(
-            "memory/remote_deleted.md"
-        )
+        index_entry = memory_sync_engine.local_index.get_entry("remote_deleted.md")
         current_version = index_entry.version
 
         sync_client.delete_blob(
             namespace=memory_sync_engine.config.namespace,
-            path="memory/remote_deleted.md",
+            path="remote_deleted.md",
             expected_version=current_version,
         )
 
@@ -280,9 +278,7 @@ class TestDeleteOperations:
         assert not (temp_persona_dir / "memory/remote_deleted.md").exists()
 
         # Verify index tracks tombstone
-        index_entry = memory_sync_engine.local_index.get_entry(
-            "memory/remote_deleted.md"
-        )
+        index_entry = memory_sync_engine.local_index.get_entry("remote_deleted.md")
         assert index_entry.is_deleted is True
 
     def test_delete_multiple_files(
@@ -322,6 +318,6 @@ class TestDeleteOperations:
         )
 
         for i in range(1, 4):
-            path = f"memory/delete{i}.md"
+            path = f"delete{i}.md"
             assert path in remote_index.files
             assert remote_index.files[path].is_deleted is True

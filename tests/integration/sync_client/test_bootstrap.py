@@ -85,8 +85,8 @@ class TestBootstrapFromRemote:
         create_remote_files(
             "/memory",
             {
-                "memory/remote1.md": "Remote content 1",
-                "memory/remote2.md": "Remote content 2",
+                "remote1.md": "Remote content 1",
+                "remote2.md": "Remote content 2",
                 "persona.md": "Remote persona",
             },
         )
@@ -94,13 +94,13 @@ class TestBootstrapFromRemote:
         # First sync - should download all files
         plan = memory_sync_engine.analyze_sync_operations()
 
-        assert len(plan.download) == 3
-        assert len(plan.upload) == 1  # Local persona.md exists
+        assert len(plan.download) == 3  # remote1.md, remote2.md, persona.md
+        assert len(plan.upload) == 0  # Remote is authority on bootstrap
 
         # Execute sync
         result = memory_sync_engine.execute_sync(plan, show_progress=False)
 
-        assert len(result.succeeded) == 4
+        assert len(result.succeeded) == 3
 
         # Verify files downloaded
         assert (temp_persona_dir / "memory/remote1.md").exists()
@@ -119,7 +119,7 @@ class TestBootstrapFromRemote:
         create_remote_files(
             "/history/session-test-001",
             {
-                "history/session-test-001/conv.json": '{"remote": true}',
+                "conv.json": '{"remote": true}',
             },
         )
 
@@ -164,8 +164,8 @@ class TestBootstrapBidirectional:
         create_remote_files(
             "/memory",
             {
-                "memory/remote1.md": "Remote content",
-                "memory/remote2.md": "Remote content 2",
+                "remote1.md": "Remote content",
+                "remote2.md": "Remote content 2",
             },
         )
 
@@ -198,7 +198,7 @@ class TestBootstrapBidirectional:
         # Same filename, different content
         create_local_files({"memory/shared.md": "Local version"})
 
-        create_remote_files("/memory", {"memory/shared.md": "Remote version"})
+        create_remote_files("/memory", {"shared.md": "Remote version"})
 
         # First sync - no index means remote wins (remote is authority)
         plan = memory_sync_engine.analyze_sync_operations()

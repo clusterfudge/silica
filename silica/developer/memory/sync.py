@@ -312,6 +312,11 @@ class SyncEngine:
         # Base directory for file operations (where files are read from/written to)
         self._base_dir = config.base_dir
 
+        # Map sync paths to their full local filesystem paths
+        # Since paths in sync are relative to scan_paths, we need this mapping
+        # to find files during upload/download operations
+        self._path_to_full_path: dict[str, Path] = {}
+
     def analyze_sync_operations(self) -> SyncPlan:
         """Analyze local vs remote and create sync plan.
 
@@ -405,7 +410,11 @@ class SyncEngine:
         for conflict in conflicts:
             try:
                 # Get local content
-                local_path = self._base_dir / conflict.path
+                # Look up full path from mapping (built during scan)
+                local_path = self._path_to_full_path.get(conflict.path)
+                if not local_path:
+                    # Fallback for backward compatibility
+                    local_path = self._base_dir / conflict.path
                 if not local_path.exists():
                     logger.warning(
                         f"Local file missing during conflict resolution: {conflict.path}"
@@ -824,7 +833,11 @@ class SyncEngine:
         Returns:
             True if successful, False otherwise
         """
-        full_path = self._base_dir / path
+        # Look up full path from mapping (built during scan)
+        full_path = self._path_to_full_path.get(path)
+        if not full_path:
+            # Fallback for backward compatibility
+            full_path = self._base_dir / path
 
         if not full_path.exists():
             logger.error(f"Cannot upload {path}: file not found")
@@ -869,12 +882,29 @@ class SyncEngine:
         """Download file from remote.
 
         Args:
-            path: File path relative to base directory
+            path: File path relative to namespace (e.g., "test.md" or "projects/alpha.md")
 
         Returns:
             True if successful, False otherwise
         """
-        full_path = self._base_dir / path
+        # Look up full path from mapping (built during scan)
+        full_path = self._path_to_full_path.get(path)
+        if not full_path:
+            # For new files being downloaded, determine where they should go
+            # Use the first directory in scan_paths as the download location
+            target_dir = None
+            for scan_path in self.config.scan_paths:
+                scan_path = Path(scan_path)
+                if scan_path.is_dir() or not scan_path.exists():
+                    # Use this directory (may not exist yet, which is fine)
+                    target_dir = scan_path
+                    break
+
+            if target_dir:
+                full_path = target_dir / path
+            else:
+                # Fallback to base_dir if no directory found
+                full_path = self._base_dir / path
 
         try:
             # Download from remote
@@ -926,7 +956,11 @@ class SyncEngine:
         Returns:
             True if successful, False otherwise
         """
-        full_path = self._base_dir / path
+        # Look up full path from mapping (built during scan)
+        full_path = self._path_to_full_path.get(path)
+        if not full_path:
+            # Fallback for backward compatibility
+            full_path = self._base_dir / path
 
         try:
             if full_path.exists():
@@ -996,15 +1030,22 @@ class SyncEngine:
         return SyncStatus()
 
     def _scan_local_files(self) -> dict[str, FileInfo]:
-        """Scan configured local paths for files to sync.
+        """Scan local files based on configuration.
 
         Uses config.scan_paths to determine which files/directories to scan.
-        This enables multiple engines to scan different subsets of files.
+        Paths are relative to each scan_path to avoid duplication in S3 keys.
+
+        For example:
+        - scan_path: /personas/foo/memory/
+        - file: /personas/foo/memory/notes.md
+        - stored path: notes.md (not memory/notes.md)
 
         Returns:
             Dictionary mapping paths to FileInfo
         """
         files = {}
+        # Clear and rebuild path mapping
+        self._path_to_full_path.clear()
 
         # Scan configured paths
         for scan_path in self.config.scan_paths:
@@ -1016,7 +1057,9 @@ class SyncEngine:
 
             if scan_path.is_file():
                 # Single file (e.g., persona.md)
+                # Use just the filename as the path
                 rel_path = scan_path.name
+
                 try:
                     # Use cache for MD5 calculation
                     md5 = self.md5_cache.calculate_md5(scan_path)
@@ -1029,6 +1072,9 @@ class SyncEngine:
                             scan_path.stat().st_mtime, tz=timezone.utc
                         ),
                     )
+                    # Store mapping for file operations
+                    self._path_to_full_path[rel_path] = scan_path
+
                 except Exception as e:
                     logger.warning(f"Failed to read {scan_path}: {e}")
 
@@ -1042,18 +1088,20 @@ class SyncEngine:
                     if file_path.name in [
                         ".sync-index.json",
                         ".sync-index-memory.json",
+                        ".sync-index-history.json",
                         ".sync-log.jsonl",
                         ".sync-log-memory.jsonl",
+                        ".sync-log-history.jsonl",
                     ]:
                         continue
 
-                    # Get relative path from scan_path's parent
-                    # This preserves directory structure (e.g., "memory/file.md")
+                    # Get path relative to scan_path (not base_dir!)
+                    # This ensures paths don't duplicate directory structure
                     try:
-                        rel_path = file_path.relative_to(scan_path.parent)
+                        rel_path = file_path.relative_to(scan_path)
                     except ValueError:
-                        # If relative_to fails, just use filename
-                        rel_path = file_path.name
+                        # Fallback: just use filename
+                        rel_path = Path(file_path.name)
 
                     # Calculate MD5 using cache
                     try:
@@ -1067,6 +1115,9 @@ class SyncEngine:
                                 file_path.stat().st_mtime, tz=timezone.utc
                             ),
                         )
+                        # Store mapping for file operations
+                        self._path_to_full_path[str(rel_path)] = file_path
+
                     except Exception as e:
                         logger.warning(f"Failed to read {rel_path}: {e}")
                         continue

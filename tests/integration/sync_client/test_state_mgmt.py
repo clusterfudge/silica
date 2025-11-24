@@ -59,7 +59,7 @@ class TestIndexPersistence:
         plan = engine3.analyze_sync_operations()
 
         assert len(plan.upload) == 1
-        assert plan.upload[0].path == "memory/persistent.md"
+        assert plan.upload[0].path == "persistent.md"
 
     def test_index_tracks_remote_state_accurately(
         self,
@@ -111,7 +111,7 @@ class TestIndexPersistence:
         memory_sync_engine.execute_sync(plan, show_progress=False)
 
         # File should be tombstoned in index
-        entry = memory_sync_engine.local_index.get_entry("memory/temporary.md")
+        entry = memory_sync_engine.local_index.get_entry("temporary.md")
         assert entry is not None
         assert entry.is_deleted is True
 
@@ -177,7 +177,7 @@ class TestMD5CacheIntegration:
         plan = memory_sync_engine.analyze_sync_operations()
 
         assert len(plan.upload) == 1
-        assert plan.upload[0].path == "memory/cached.md"
+        assert plan.upload[0].path == "cached.md"
 
     def test_md5_cache_cleanup_removes_deleted_files(
         self,
@@ -248,3 +248,8 @@ class TestSyncMetadataFiles:
         # Should not contain sync metadata files
         assert not any(".sync-index" in path for path in remote_index.files.keys())
         assert not any(".sync-log" in path for path in remote_index.files.keys())
+
+        # Verify index cleaned up (tombstone removed)
+        entry = memory_sync_engine.local_index.get_entry("temporary.md")
+
+        assert entry is None or entry.is_deleted is False
