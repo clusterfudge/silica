@@ -11,13 +11,13 @@ from silica.remote.config.multi_workspace import is_local_workspace_for_cleanup
 console = Console()
 
 
-def agent(
+def enter(
     workspace: Annotated[
         str,
         cyclopts.Parameter(name=["--workspace", "-w"], help="Name for the workspace"),
     ] = "agent",
 ):
-    """Connect to the agent tmux session.
+    """Enter the agent tmux session.
 
     This command gets connection information from the antennae webapp and connects
     to the tmux session running the agent. For local workspaces, it connects directly.
