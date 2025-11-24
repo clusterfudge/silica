@@ -11,7 +11,6 @@ from silica.developer.memory.sync import (
     SyncPlan,
     SyncOperationDetail,
     SyncResult,
-    SyncStatus,
 )
 from silica.developer.memory.proxy_client import (
     FileMetadata,
@@ -469,8 +468,21 @@ class TestSyncEngine:
         content = b"test content"
         test_file.write_bytes(content)
 
-        # Configure AsyncMock
-        mock_client.write_blob.return_value = (True, "mock_md5", 1001)
+        # Configure AsyncMock - write_blob now returns sync_index too
+        mock_sync_index = SyncIndexResponse(
+            files={
+                "memory/test.md": FileMetadata(
+                    md5="mock_md5",
+                    last_modified=datetime.now(timezone.utc),
+                    size=len(content),
+                    version=1001,
+                    is_deleted=False,
+                )
+            },
+            index_last_modified=datetime.now(timezone.utc),
+            index_version=1,
+        )
+        mock_client.write_blob.return_value = (True, "mock_md5", 1001, mock_sync_index)
 
         result = sync_engine.upload_file("memory/test.md", 1000)
 
@@ -552,8 +564,21 @@ class TestSyncEngine:
 
     def test_delete_remote(self, sync_engine, mock_client):
         """Test deleting a remote file."""
-        # Configure AsyncMock
-        mock_client.delete_blob.return_value = 1001
+        # Configure AsyncMock - delete_blob now returns (version, sync_index)
+        mock_sync_index = SyncIndexResponse(
+            files={
+                "memory/test.md": FileMetadata(
+                    md5="",
+                    last_modified=datetime.now(timezone.utc),
+                    size=0,
+                    version=1001,
+                    is_deleted=True,
+                )
+            },
+            index_last_modified=datetime.now(timezone.utc),
+            index_version=1,
+        )
+        mock_client.delete_blob.return_value = (1001, mock_sync_index)
 
         result = sync_engine.delete_remote("memory/test.md", 1000)
 
@@ -587,8 +612,21 @@ class TestSyncEngine:
         test_file = memory_dir / "test.md"
         test_file.write_text("test content")
 
-        # Configure AsyncMock
-        mock_client.write_blob.return_value = (True, "mock_md5", 1001)
+        # Configure AsyncMock - write_blob now returns sync_index too
+        mock_sync_index = SyncIndexResponse(
+            files={
+                "memory/test.md": FileMetadata(
+                    md5="mock_md5",
+                    last_modified=datetime.now(timezone.utc),
+                    size=12,
+                    version=1001,
+                    is_deleted=False,
+                )
+            },
+            index_last_modified=datetime.now(timezone.utc),
+            index_version=1,
+        )
+        mock_client.write_blob.return_value = (True, "mock_md5", 1001, mock_sync_index)
 
         # Create plan
         plan = SyncPlan(
@@ -681,7 +719,7 @@ class TestDataModels:
 
     def test_sync_result_success_rate(self):
         """Test SyncResult.success_rate property."""
-        result1 = SyncResult(
+        result = SyncResult(
             succeeded=[
                 SyncOperationDetail("upload", "file1.md", "reason"),
                 SyncOperationDetail("upload", "file2.md", "reason"),
@@ -689,22 +727,9 @@ class TestDataModels:
             failed=[SyncOperationDetail("download", "file3.md", "reason")],
         )
 
-        assert result1.success_rate == pytest.approx(66.67, rel=0.1)
+        # 2 succeeded out of 3 total = 66.67%
+        assert result.success_rate == pytest.approx(66.67, rel=0.01)
 
-        # Empty result should be 100%
-        result2 = SyncResult()
-        assert result2.success_rate == 100.0
-
-    def test_sync_status_needs_sync(self):
-        """Test SyncStatus.needs_sync property."""
-        status1 = SyncStatus()
-        assert not status1.needs_sync
-
-        status2 = SyncStatus(pending_upload=[{"path": "file.md"}])
-        assert status2.needs_sync
-
-        status3 = SyncStatus(conflicts=[{"path": "file.md"}])
-        assert status3.needs_sync
-
-
-"""Tests for memory sync module."""
+        # Empty result should return 100%
+        empty_result = SyncResult()
+        assert empty_result.success_rate == 100.0

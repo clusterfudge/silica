@@ -187,7 +187,7 @@ class MemoryProxyClient:
         expected_version: int,
         content_type: str = "application/octet-stream",
         content_md5: str | None = None,
-    ) -> Tuple[bool, str, int]:
+    ) -> Tuple[bool, str, int, SyncIndexResponse]:
         """Write a blob to the memory proxy with conditional write.
 
         Args:
@@ -201,7 +201,9 @@ class MemoryProxyClient:
             content_md5: Optional MD5 hash for validation
 
         Returns:
-            Tuple of (is_new, md5, version)
+            Tuple of (is_new, md5, version, sync_index)
+            The sync_index contains the full manifest after the write,
+            allowing immediate staleness detection without an extra round-trip.
 
         Raises:
             VersionConflictError: If version doesn't match (412)
@@ -226,11 +228,16 @@ class MemoryProxyClient:
                 md5 = response.headers.get("ETag", "").strip('"')
                 version = int(response.headers.get("X-Version", "0"))
 
+                # Parse the sync index from response body
+                response_data = response.json()
+                sync_index = SyncIndexResponse(**response_data)
+
                 logger.info(
                     f"{'Created' if is_new else 'Updated'} blob: {namespace}/{path} "
-                    f"(version={version}, size={len(content)})"
+                    f"(version={version}, size={len(content)}) "
+                    f"with manifest of {len(sync_index.files)} files"
                 )
-                return is_new, md5, version
+                return is_new, md5, version, sync_index
 
             elif response.status_code == 412:
                 # Version conflict
@@ -261,13 +268,18 @@ class MemoryProxyClient:
 
     def delete_blob(
         self, namespace: str, path: str, expected_version: int | None = None
-    ) -> None:
+    ) -> Tuple[int, SyncIndexResponse]:
         """Delete a blob from the memory proxy (creates tombstone).
 
         Args:
             namespace: Namespace (persona name)
             path: File path within namespace
             expected_version: Optional expected version for conditional delete
+
+        Returns:
+            Tuple of (new_version, sync_index)
+            The sync_index contains the full manifest after the delete,
+            allowing immediate staleness detection without an extra round-trip.
 
         Raises:
             NotFoundError: If file doesn't exist
@@ -284,9 +296,19 @@ class MemoryProxyClient:
         try:
             response = self.client.delete(url, headers=headers)
 
-            if response.status_code == 204:
-                logger.info(f"Deleted blob: {namespace}/{path}")
-                return
+            if response.status_code == 200:
+                # Parse version from response headers
+                new_version = int(response.headers.get("X-Version", "0"))
+
+                # Parse the sync index from response body
+                response_data = response.json()
+                sync_index = SyncIndexResponse(**response_data)
+
+                logger.info(
+                    f"Deleted blob: {namespace}/{path} (version={new_version}) "
+                    f"with manifest of {len(sync_index.files)} files"
+                )
+                return new_version, sync_index
 
             elif response.status_code == 404:
                 raise NotFoundError(f"File not found: {namespace}/{path}")
