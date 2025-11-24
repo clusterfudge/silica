@@ -65,8 +65,8 @@ On the remote Raspberry Pi, the setup process:
 Connect to your remote workspace to verify setup:
 
 ```bash
-# Connect to remote workspace
-silica agent -w my-agent
+# Enter remote workspace session
+silica enter -w my-agent
 
 # Or use piku directly
 piku shell my-agent-<repo-name>
