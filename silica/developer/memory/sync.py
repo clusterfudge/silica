@@ -309,42 +309,8 @@ class SyncEngine:
         self.local_index = LocalIndex(config.index_file)
         self.md5_cache = MD5Cache()
 
-        # Derive base directory from index file location
-        # For memory: ~/.silica/personas/default/.sync-index-memory.json → ~/.silica/personas/default
-        # For history: ~/.silica/personas/default/history/session-1/.sync-index.json → ~/.silica/personas/default
-        self._base_dir = self._determine_base_dir()
-
-    def _determine_base_dir(self) -> Path:
-        """Determine base directory for file operations from config.
-
-        Returns the directory where actual files are stored, determined from
-        the first scan path in the config.
-        """
-        if not self.config.scan_paths:
-            # Fallback: use index file's parent
-            return self.config.index_file.parent
-
-        first_path = Path(self.config.scan_paths[0])
-
-        # If it's a file (e.g., persona.md), use its parent
-        if first_path.is_file() or not first_path.exists():
-            return first_path.parent
-
-        # If it's a directory, use its parent to get the persona directory
-        # e.g., .../personas/default/memory → .../personas/default
-        # e.g., .../personas/default/history/session-1 → .../personas/default
-        if "history" in first_path.parts:
-            # For history paths, go up to persona dir
-            # Find 'personas' in path and go two levels deep from there
-            parts = first_path.parts
-            if "personas" in parts:
-                persona_idx = parts.index("personas")
-                if persona_idx + 1 < len(parts):
-                    # Return personas/<name>
-                    return Path(*parts[: persona_idx + 2])
-
-        # For memory or other paths, use parent
-        return first_path.parent
+        # Base directory for file operations (where files are read from/written to)
+        self._base_dir = config.base_dir
 
     def analyze_sync_operations(self) -> SyncPlan:
         """Analyze local vs remote and create sync plan.
