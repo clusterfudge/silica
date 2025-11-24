@@ -134,7 +134,7 @@ def test_reproduction_of_original_error_is_fixed(
         # Perform compaction (this was triggering the error)
         metadata = compacter.compact_conversation(
             agent_context_reproduction_scenario,
-            model="claude-opus-4-20250514",
+            model="claude-opus-4-5-20251101",
             force=True,
         )
 
@@ -174,7 +174,7 @@ def test_next_api_call_after_compaction_would_succeed(
         mock_home.return_value = tmp_path
         metadata = compacter.compact_conversation(
             agent_context_reproduction_scenario,
-            model="claude-opus-4-20250514",
+            model="claude-opus-4-5-20251101",
             force=True,
         )
 

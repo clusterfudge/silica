@@ -146,7 +146,7 @@ def test_compaction_ends_with_user_when_thinking_enabled_ending_in_assistant(
         # Perform compaction
         _metadata = compacter.compact_conversation(
             agent_context_with_thinking_ending_in_assistant,
-            model="claude-opus-4-20250514",
+            model="claude-opus-4-5-20251101",
             force=True,
         )
 
@@ -182,7 +182,7 @@ def test_compaction_ends_with_user_when_thinking_enabled_ending_in_user(
         # Perform compaction
         _metadata = compacter.compact_conversation(
             agent_context_with_thinking_ending_in_user,
-            model="claude-opus-4-20250514",
+            model="claude-opus-4-5-20251101",
             force=True,
         )
 
@@ -241,7 +241,7 @@ def test_compaction_with_thinking_disabled_can_end_with_assistant(
 
         # Perform compaction
         _metadata = compacter.compact_conversation(
-            context, model="claude-opus-4-20250514", force=True
+            context, model="claude-opus-4-5-20251101", force=True
         )
 
     # Verify compaction occurred
@@ -267,7 +267,7 @@ def test_compaction_no_thinking_blocks_remain(
         # Perform compaction
         _metadata = compacter.compact_conversation(
             agent_context_with_thinking_ending_in_assistant,
-            model="claude-opus-4-20250514",
+            model="claude-opus-4-5-20251101",
             force=True,
         )
 

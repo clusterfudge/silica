@@ -97,7 +97,7 @@ class TestAgentContextRotate(unittest.TestCase):
 
         # Create a model spec
         self.model_spec = {
-            "title": "claude-opus-4-20250514",
+            "title": "claude-opus-4-5-20251101",
             "pricing": {"input": 3.00, "output": 15.00},
             "cache_pricing": {"write": 3.75, "read": 0.30},
             "max_tokens": 8192,

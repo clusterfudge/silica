@@ -180,7 +180,7 @@ class TestCompactionSessionIDStability(unittest.TestCase):
 
         # Create a model spec
         self.model_spec = {
-            "title": "claude-opus-4-20250514",
+            "title": "claude-opus-4-5-20251101",
             "pricing": {"input": 3.00, "output": 15.00},
             "cache_pricing": {"write": 3.75, "read": 0.30},
             "max_tokens": 8192,
@@ -233,7 +233,7 @@ class TestCompactionSessionIDStability(unittest.TestCase):
         compacter.should_compact = mock.MagicMock(return_value=True)
 
         # Call compact_conversation - mutates context in place and returns metadata
-        metadata = compacter.compact_conversation(context, "claude-opus-4-20250514")
+        metadata = compacter.compact_conversation(context, "claude-opus-4-5-20251101")
 
         # Verify the result
         self.assertIsNotNone(metadata)
@@ -342,7 +342,7 @@ class TestCompactionSessionIDStability(unittest.TestCase):
         # Run compaction - this will archive the old conversation and mutate context
         original_session_id = context.session_id
         metadata = compacter.compact_conversation(
-            context, "claude-opus-4-20250514", force=True
+            context, "claude-opus-4-5-20251101", force=True
         )
 
         # Verify we got metadata
