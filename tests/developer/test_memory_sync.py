@@ -218,6 +218,7 @@ class TestSyncEngine:
             namespace="test-persona",
             scan_paths=[temp_dir / "memory", temp_dir / "history"],
             index_file=temp_dir / ".sync-index.json",
+            base_dir=temp_dir,
         )
         return SyncEngine(
             client=mock_client,
