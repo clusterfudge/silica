@@ -105,20 +105,34 @@ def memory_proxy_server(mock_s3_service, mock_auth_service):
     )
     server = uvicorn.Server(config)
 
+    # Track server errors
+    server_error = []
+
+    def run_server():
+        try:
+            server.run()
+        except Exception as e:
+            server_error.append(e)
+
     # Run server in thread
-    thread = threading.Thread(target=server.run, daemon=True)
+    thread = threading.Thread(target=run_server, daemon=True)
     thread.start()
 
     # Wait for server to start
     import httpx
 
-    for _ in range(50):  # Try for 5 seconds
+    for i in range(50):  # Try for 5 seconds
+        if server_error:
+            raise RuntimeError(
+                f"Memory proxy server failed to start: {server_error[0]}"
+            )
         try:
             response = httpx.get(f"{TEST_PROXY_URL}/health", timeout=1)
             if response.status_code == 200:
                 break
-        except Exception:
-            pass
+        except Exception as e:
+            if i == 49:  # Last attempt
+                raise RuntimeError(f"Memory proxy server not responding after 5s: {e}")
         time.sleep(0.1)
     else:
         raise RuntimeError("Memory proxy server failed to start")
@@ -171,9 +185,8 @@ def memory_sync_engine(sync_client, temp_persona_dir, clean_namespace):
     persona_md = temp_persona_dir / "persona.md"
     persona_md.write_text("Test persona")
 
-    # Use dash instead of slash to avoid URL encoding issues
     config = SyncConfig(
-        namespace=f"{clean_namespace}-memory",
+        namespace=f"{clean_namespace}/memory",
         scan_paths=[
             temp_persona_dir / "memory",
             persona_md,
@@ -194,9 +207,8 @@ def history_sync_engine(sync_client, temp_persona_dir, clean_namespace):
     session_dir = temp_persona_dir / "history" / session_id
     session_dir.mkdir(parents=True)
 
-    # Use dash instead of slash to avoid URL encoding issues
     config = SyncConfig(
-        namespace=f"{clean_namespace}-history-{session_id}",
+        namespace=f"{clean_namespace}/history/{session_id}",
         scan_paths=[session_dir],
         index_file=session_dir / ".sync-index-history.json",
         base_dir=temp_persona_dir,
@@ -249,10 +261,8 @@ def create_remote_files(sync_client, clean_namespace):
         if namespace_suffix.startswith("/"):
             namespace_suffix = namespace_suffix[1:]
 
-        # Use dash instead of slash to avoid URL encoding issues
-        namespace_suffix = namespace_suffix.replace("/", "-")
         namespace = (
-            f"{clean_namespace}-{namespace_suffix}"
+            f"{clean_namespace}/{namespace_suffix}"
             if namespace_suffix
             else clean_namespace
         )
@@ -285,17 +295,3 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "slow: Slow-running tests (e.g., performance)")
     config.addinivalue_line("markers", "memory_sync: Memory sync specific tests")
     config.addinivalue_line("markers", "history_sync: History sync specific tests")
-
-    # Wait for server to start
-    import httpx
-
-    for _ in range(50):  # Try for 5 seconds
-        try:
-            response = httpx.get(f"{TEST_PROXY_URL}/health", timeout=1)
-            if response.status_code == 200:
-                break
-        except Exception:
-            pass
-        time.sleep(0.1)
-    else:
-        raise RuntimeError("Memory proxy server failed to start")

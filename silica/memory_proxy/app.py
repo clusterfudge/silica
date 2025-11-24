@@ -21,12 +21,9 @@ from .storage import (
     StorageError,
 )
 
-# Get settings
-settings = Settings()
-
-# Configure logging
+# Configure logging (basic setup)
 logging.basicConfig(
-    level=settings.log_level,
+    level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
@@ -38,8 +35,22 @@ app = FastAPI(
     version="0.2.0",
 )
 
-# Initialize storage
-storage = S3Storage(settings)
+# Storage will be initialized on startup or can be set externally (for tests)
+# Module-level variable for backwards compatibility
+storage = None
+
+
+def get_storage():
+    """Get storage instance from app state or module level."""
+    if hasattr(app.state, "storage") and app.state.storage is not None:
+        return app.state.storage
+    global storage
+    if storage is None:
+        # Initialize on first use
+        settings = Settings()
+        storage = S3Storage(settings)
+        app.state.storage = storage
+    return storage
 
 
 @app.get("/health", response_model=HealthResponse, tags=["health"])
@@ -49,7 +60,7 @@ async def health_check():
 
     Returns service health and storage connectivity status.
     """
-    storage_ok = storage.health_check()
+    storage_ok = get_storage().health_check()
 
     if storage_ok:
         return HealthResponse(status="ok", storage="connected")
@@ -60,7 +71,7 @@ async def health_check():
         )
 
 
-@app.get("/blob/{namespace}/{path:path}", tags=["blob"])
+@app.get("/blob/{namespace:path}/{path:path}", tags=["blob"])
 async def read_blob(
     namespace: str,
     path: str,
@@ -70,14 +81,14 @@ async def read_blob(
     Read a file from blob storage within a namespace.
 
     Args:
-        namespace: Persona/namespace identifier (e.g., "default", "coding-agent")
+        namespace: Persona/namespace identifier (can include slashes, e.g., "default/memory")
         path: File path within namespace
 
     Returns file contents with ETag, Last-Modified, X-Version, and Content-Type headers.
     Returns 404 if file doesn't exist or is tombstoned.
     """
     try:
-        content, md5, last_modified, content_type, version = storage.read_file(
+        content, md5, last_modified, content_type, version = get_storage().read_file(
             namespace, path
         )
 
@@ -103,7 +114,7 @@ async def read_blob(
         )
 
 
-@app.put("/blob/{namespace}/{path:path}", tags=["blob"])
+@app.put("/blob/{namespace:path}/{path:path}", tags=["blob"])
 async def write_blob(
     namespace: str,
     path: str,
@@ -117,7 +128,7 @@ async def write_blob(
     Write or update a file in blob storage within a namespace.
 
     Args:
-        namespace: Persona/namespace identifier
+        namespace: Persona/namespace identifier (can include slashes)
         path: File path within namespace
 
     Headers (required):
@@ -137,7 +148,7 @@ async def write_blob(
         content = await request.body()
 
         # Perform write with conditional check
-        is_new, new_md5, version, sync_index = storage.write_file(
+        is_new, new_md5, version, sync_index = get_storage().write_file(
             namespace=namespace,
             path=path,
             content=content,
@@ -176,7 +187,7 @@ async def write_blob(
 
 
 @app.delete(
-    "/blob/{namespace}/{path:path}",
+    "/blob/{namespace:path}/{path:path}",
     tags=["blob"],
     response_model=SyncIndexResponse,
 )
@@ -190,14 +201,14 @@ async def delete_blob(
     Delete a file by creating a tombstone within a namespace.
 
     Args:
-        namespace: Persona/namespace identifier
+        namespace: Persona/namespace identifier (can include slashes)
         path: File path within namespace
 
     Supports conditional delete via If-Match-Version header.
     Returns 200 with sync index on success, 404 if file doesn't exist, 412 on precondition failure.
     """
     try:
-        version, sync_index = storage.delete_file(
+        version, sync_index = get_storage().delete_file(
             namespace=namespace, path=path, expected_version=if_match_version
         )
 
@@ -232,19 +243,19 @@ async def delete_blob(
         )
 
 
-@app.get("/sync/{namespace}", response_model=SyncIndexResponse, tags=["sync"])
+@app.get("/sync/{namespace:path}", response_model=SyncIndexResponse, tags=["sync"])
 async def get_sync_index(namespace: str, user_info: Dict = Depends(verify_token)):
     """
     Get the sync index with metadata for all files within a namespace.
 
     Args:
-        namespace: Persona/namespace identifier
+        namespace: Persona/namespace identifier (can include slashes for hierarchy)
 
     Returns a map of file paths to metadata (MD5, last modified, size, version, deleted flag).
     Clients use this to determine which files need syncing.
     """
     try:
-        sync_index = storage.get_sync_index(namespace)
+        sync_index = get_storage().get_sync_index(namespace)
         return sync_index
 
     except StorageError as e:
