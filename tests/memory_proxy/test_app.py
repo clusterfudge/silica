@@ -158,7 +158,13 @@ def test_delete_blob(test_client, auth_headers):
     # Delete file
     delete_response = test_client.delete("/blob/default/test.txt", headers=auth_headers)
 
-    assert delete_response.status_code == 204
+    assert delete_response.status_code == 200
+
+    # Verify response contains sync index
+    sync_data = delete_response.json()
+    assert "files" in sync_data
+    assert "test.txt" in sync_data["files"]
+    assert sync_data["files"]["test.txt"]["is_deleted"] is True
 
     # Verify file is tombstoned (404 on read)
     read_response = test_client.get("/blob/default/test.txt", headers=auth_headers)
@@ -188,7 +194,11 @@ def test_delete_blob_conditional_success(test_client, auth_headers):
         headers={**auth_headers, "If-Match-Version": version},
     )
 
-    assert delete_response.status_code == 204
+    assert delete_response.status_code == 200
+
+    # Verify response contains sync index
+    sync_data = delete_response.json()
+    assert "files" in sync_data
 
 
 def test_delete_blob_conditional_fails_with_wrong_version(test_client, auth_headers):
@@ -450,7 +460,11 @@ def test_namespace_isolation_api(test_client, auth_headers):
     delete_response = test_client.delete(
         "/blob/namespace1/test.txt", headers=auth_headers
     )
-    assert delete_response.status_code == 204
+    assert delete_response.status_code == 200
+
+    # Verify response contains sync index for namespace1
+    sync_data = delete_response.json()
+    assert "files" in sync_data
 
     # Verify namespace1 file is deleted
     read_after_delete = test_client.get(

@@ -137,7 +137,7 @@ async def write_blob(
         content = await request.body()
 
         # Perform write with conditional check
-        is_new, new_md5, version = storage.write_file(
+        is_new, new_md5, version, sync_index = storage.write_file(
             namespace=namespace,
             path=path,
             content=content,
@@ -148,9 +148,10 @@ async def write_blob(
 
         status_code = status.HTTP_201_CREATED if is_new else status.HTTP_200_OK
 
-        return Response(
+        return JSONResponse(
             status_code=status_code,
             headers={"ETag": f'"{new_md5}"', "X-Version": str(version)},
+            content=sync_index.model_dump(mode="json"),
         )
 
     except PreconditionFailedError as e:
@@ -177,7 +178,7 @@ async def write_blob(
 @app.delete(
     "/blob/{namespace}/{path:path}",
     tags=["blob"],
-    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=SyncIndexResponse,
 )
 async def delete_blob(
     namespace: str,
@@ -193,14 +194,18 @@ async def delete_blob(
         path: File path within namespace
 
     Supports conditional delete via If-Match-Version header.
-    Returns 204 on success, 404 if file doesn't exist, 412 on precondition failure.
+    Returns 200 with sync index on success, 404 if file doesn't exist, 412 on precondition failure.
     """
     try:
-        storage.delete_file(
+        version, sync_index = storage.delete_file(
             namespace=namespace, path=path, expected_version=if_match_version
         )
 
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            headers={"X-Version": str(version)},
+            content=sync_index.model_dump(mode="json"),
+        )
 
     except FileNotFoundError as e:
         logger.warning(f"File not found for delete: {namespace}/{path}")
