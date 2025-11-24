@@ -141,6 +141,7 @@ def sync_engine(proxy_client, temp_persona_dir):
             temp_persona_dir / "persona.md",
         ],
         index_file=temp_persona_dir / ".sync-index.json",
+        base_dir=temp_persona_dir,
     )
     return SyncEngine(client=proxy_client, config=config)
 
@@ -455,6 +456,7 @@ class TestEndToEndSync:
             namespace="test-persona",
             scan_paths=[temp_persona_dir / "memory"],
             index_file=temp_persona_dir / ".sync-index.json",
+            base_dir=temp_persona_dir,
         )
 
         # Create first engine and sync a file
@@ -483,6 +485,7 @@ class TestEndToEndSync:
             namespace="test-persona",
             scan_paths=[temp_persona_dir / "memory"],
             index_file=temp_persona_dir / ".sync-index.json",
+            base_dir=temp_persona_dir,
         )
 
         # Perform sync
