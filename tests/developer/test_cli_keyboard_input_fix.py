@@ -125,9 +125,9 @@ class TestCLIKeyboardInputFix:
         assert execution_time < 3  # Should not take too long
 
         # Most importantly: verify that user input was responsive
-        assert ui.input_responsive, (
-            "Keyboard input should remain responsive during timeout"
-        )
+        assert (
+            ui.input_responsive
+        ), "Keyboard input should remain responsive during timeout"
         assert len(ui.user_input_calls) > 0, "User input should have been requested"
 
     @pytest.mark.asyncio
@@ -289,9 +289,9 @@ class TestCLIKeyboardInputFix:
         assert "Exit code: 0" in result
 
         # Verify no timeout prompts were shown for quick commands
-        assert len(ui.user_input_calls) == 0, (
-            "Quick commands should not prompt for timeout"
-        )
+        assert (
+            len(ui.user_input_calls) == 0
+        ), "Quick commands should not prompt for timeout"
 
     @pytest.mark.asyncio
     async def test_concurrent_processes_dont_interfere(self, persona_base_dir):

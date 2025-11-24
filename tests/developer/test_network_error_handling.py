@@ -265,9 +265,9 @@ async def test_network_error_max_retries_exceeded(agent_context):
             )
 
         # Verify it tried multiple times (5 retries as per the code)
-        assert mock_client.messages.stream.call_count == 5, (
-            "Should have attempted max retries"
-        )
+        assert (
+            mock_client.messages.stream.call_count == 5
+        ), "Should have attempted max retries"
 
         # Verify user was informed about retries
         system_messages = [

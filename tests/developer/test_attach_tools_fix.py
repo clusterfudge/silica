@@ -30,9 +30,9 @@ class TestAttachToolsFix:
             result = func()
             expected_command = commands[i]
             actual_command = result.split(": ")[1]
-            assert actual_command == expected_command, (
-                f"Function {i} should capture '{expected_command}'"
-            )
+            assert (
+                actual_command == expected_command
+            ), f"Function {i} should capture '{expected_command}'"
 
     def test_attach_tools_creates_distinct_functions(self):
         """Test that attach_tools creates distinct function objects for each command"""
@@ -65,16 +65,16 @@ class TestAttachToolsFix:
             if len(command_names) >= 2:
                 func1 = mock_app.registered[command_names[0]]
                 func2 = mock_app.registered[command_names[1]]
-                assert func1 != func2, (
-                    "Different commands should have different function objects"
-                )
+                assert (
+                    func1 != func2
+                ), "Different commands should have different function objects"
 
             # Verify expected commands are present
             expected_commands = ["help", "tips", "add", "list"]
             for expected in expected_commands:
-                assert expected in command_names, (
-                    f"Expected command '{expected}' should be registered"
-                )
+                assert (
+                    expected in command_names
+                ), f"Expected command '{expected}' should be registered"
 
         finally:
             # Restore original method

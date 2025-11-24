@@ -103,12 +103,12 @@ class TestWorkspaceCreation:
         # Verify
         workspaces = list_workspaces(silica_dir)
         assert len(workspaces) == 1, "Should only create one workspace"
-        assert workspaces[0]["name"] == custom_workspace, (
-            "The workspace name should match what was provided"
-        )
-        assert "agent" not in [w["name"] for w in workspaces], (
-            "Should not create the 'agent' workspace"
-        )
+        assert (
+            workspaces[0]["name"] == custom_workspace
+        ), "The workspace name should match what was provided"
+        assert "agent" not in [
+            w["name"] for w in workspaces
+        ], "Should not create the 'agent' workspace"
 
         # Verify the loaded config matches what we expect
         loaded_config = load_project_config(silica_dir)

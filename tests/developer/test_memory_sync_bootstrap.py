@@ -306,9 +306,9 @@ class TestBootstrapWithStaleIndex:
         plan = sync_engine.analyze_sync_operations()
 
         # MUST NOT delete local files!
-        assert len(plan.delete_local) == 0, (
-            "CRITICAL: Must not delete local files without tombstone"
-        )
+        assert (
+            len(plan.delete_local) == 0
+        ), "CRITICAL: Must not delete local files without tombstone"
 
         # Should upload both files (re-upload to remote)
         assert len(plan.upload) == 2

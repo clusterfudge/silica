@@ -159,9 +159,9 @@ def test_compaction_preserves_text_content(
             if isinstance(block, dict) and block.get("type") == "text"
         ]
         # Should have text content (thinking stripped, text preserved)
-        assert len(text_blocks) > 0, (
-            "Text content should be preserved after stripping thinking"
-        )
+        assert (
+            len(text_blocks) > 0
+        ), "Text content should be preserved after stripping thinking"
 
 
 def test_strip_all_thinking_blocks_helper():

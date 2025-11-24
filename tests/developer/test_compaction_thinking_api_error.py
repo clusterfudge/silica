@@ -142,9 +142,9 @@ def test_reproduction_of_original_error_is_fixed(
     assert metadata is not None
 
     # THE FIX: Verify thinking mode was disabled
-    assert agent_context_reproduction_scenario.thinking_mode == "off", (
-        "BUG FIX: thinking_mode should be disabled after compaction"
-    )
+    assert (
+        agent_context_reproduction_scenario.thinking_mode == "off"
+    ), "BUG FIX: thinking_mode should be disabled after compaction"
 
     # Verify messages no longer have thinking blocks
     for message in agent_context_reproduction_scenario.chat_history:
@@ -272,9 +272,9 @@ def test_error_would_have_occurred_without_fix(mock_client, persona_base_dir, tm
     thinking_config = get_thinking_config(context.thinking_mode, model_spec)
 
     # THE BUG: thinking_config is NOT None because mode is still "normal"
-    assert thinking_config is not None, (
-        "This demonstrates the bug: thinking still enabled"
-    )
+    assert (
+        thinking_config is not None
+    ), "This demonstrates the bug: thinking still enabled"
     assert context.thinking_mode == "normal", "Mode was never disabled (the bug)"
 
     # Verify messages have no thinking blocks

@@ -76,9 +76,9 @@ def test_load_session_data_uses_persona_directory():
         )
 
         # Verify the session was loaded successfully from engineer persona
-        assert loaded_context is not None, (
-            "Session should be loaded from engineer persona"
-        )
+        assert (
+            loaded_context is not None
+        ), "Session should be loaded from engineer persona"
         assert (
             loaded_context.chat_history[0]["content"] == "Hello from engineer persona"
         )
