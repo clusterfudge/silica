@@ -8,6 +8,7 @@ memory entries, history files, and persona definitions.
 import logging
 from datetime import datetime
 from typing import Tuple
+from urllib.parse import quote
 
 import httpx
 from pydantic import BaseModel
@@ -133,7 +134,7 @@ class MemoryProxyClient:
         """Read a blob from the memory proxy.
 
         Args:
-            namespace: Namespace (persona name)
+            namespace: Namespace (persona name, can include slashes)
             path: File path within namespace
 
         Returns:
@@ -144,7 +145,9 @@ class MemoryProxyClient:
             ConnectionError: If request fails
             AuthenticationError: If authentication fails
         """
-        url = f"{self.base_url}/blob/{namespace}/{path}"
+        # URL-encode namespace to handle slashes
+        encoded_namespace = quote(namespace, safe="")
+        url = f"{self.base_url}/blob/{encoded_namespace}/{path}"
 
         try:
             response = self.client.get(url)
@@ -191,7 +194,7 @@ class MemoryProxyClient:
         """Write a blob to the memory proxy with conditional write.
 
         Args:
-            namespace: Namespace (persona name)
+            namespace: Namespace (persona name, can include slashes)
             path: File path within namespace
             content: File content as bytes
             expected_version: Expected version for conditional write
@@ -210,7 +213,9 @@ class MemoryProxyClient:
             ConnectionError: If request fails
             AuthenticationError: If authentication fails
         """
-        url = f"{self.base_url}/blob/{namespace}/{path}"
+        # URL-encode namespace to handle slashes
+        encoded_namespace = quote(namespace, safe="")
+        url = f"{self.base_url}/blob/{encoded_namespace}/{path}"
 
         headers = {
             "If-Match-Version": str(expected_version),
@@ -272,7 +277,7 @@ class MemoryProxyClient:
         """Delete a blob from the memory proxy (creates tombstone).
 
         Args:
-            namespace: Namespace (persona name)
+            namespace: Namespace (persona name, can include slashes)
             path: File path within namespace
             expected_version: Optional expected version for conditional delete
 
@@ -287,7 +292,9 @@ class MemoryProxyClient:
             ConnectionError: If request fails
             AuthenticationError: If authentication fails
         """
-        url = f"{self.base_url}/blob/{namespace}/{path}"
+        # URL-encode namespace to handle slashes
+        encoded_namespace = quote(namespace, safe="")
+        url = f"{self.base_url}/blob/{encoded_namespace}/{path}"
 
         headers = {}
         if expected_version is not None:
@@ -347,7 +354,7 @@ class MemoryProxyClient:
         which clients use to determine which files need syncing.
 
         Args:
-            namespace: Namespace (persona name)
+            namespace: Namespace (persona name, can include slashes)
 
         Returns:
             SyncIndexResponse with file metadata
@@ -356,7 +363,9 @@ class MemoryProxyClient:
             ConnectionError: If request fails
             AuthenticationError: If authentication fails
         """
-        url = f"{self.base_url}/sync/{namespace}"
+        # URL-encode namespace to handle slashes
+        encoded_namespace = quote(namespace, safe="")
+        url = f"{self.base_url}/sync/{encoded_namespace}"
 
         try:
             response = self.client.get(url)
