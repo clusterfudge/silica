@@ -235,9 +235,9 @@ class TestCompactionTimingFix(unittest.TestCase):
             compaction_ratio=0.1,
         )
 
-        # Mock the compact_conversation method to return metadata
+        # Mock the micro_compact_conversation method to return metadata
         with mock.patch.object(
-            ConversationCompacter, "compact_conversation", return_value=metadata
+            ConversationCompacter, "micro_compact_conversation", return_value=metadata
         ):
             # Create real compacter instance with mock client and test the method
             compacter = ConversationCompacter(client=mock_client)
@@ -251,7 +251,7 @@ class TestCompactionTimingFix(unittest.TestCase):
             self.assertEqual(updated_context.session_id, "test-session")
             # Parent session ID should still be None for root contexts
             self.assertIsNone(updated_context.parent_session_id)
-            self.assertIn("[bold green]Conversation compacted:", ui.system_messages[-1])
+            self.assertIn("[bold green]Micro-compacted conversation:", ui.system_messages[-1])
 
     @mock.patch("anthropic.Client")
     def test_no_compaction_when_disabled(self, mock_client_class):

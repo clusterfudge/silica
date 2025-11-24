@@ -631,14 +631,99 @@ class ConversationCompacter:
 
         return metadata
 
+    def micro_compact_conversation(
+        self, agent_context, model: str, turns: int = 3, force: bool = False
+    ) -> CompactionMetadata | None:
+        """Micro-compact: summarize first N turns and keep the rest.
+
+        Args:
+            agent_context: AgentContext instance (mutated in place if compaction occurs)
+            model: Model name to use for summarization (typically haiku for cost-effectiveness)
+            turns: Number of turns to compact (default 3)
+            force: If True, force compaction even if under threshold
+
+        Returns:
+            CompactionMetadata if compaction occurred, None otherwise
+        """
+        # Calculate number of messages for N turns
+        # Turn structure: must start with user and end with user
+        # Turn 1: 1 message (user)
+        # Turn 2: 3 messages (user, assistant, user)
+        # Turn 3: 5 messages (user, assistant, user, assistant, user)
+        # Turn N: (2N - 1) messages
+        messages_to_compact = (turns * 2) - 1
+
+        # Check if there's enough conversation to compact
+        if len(agent_context.chat_history) <= messages_to_compact:
+            return None
+
+        print(f"Initiating micro-compaction of first {turns} turns...")
+
+        # Separate messages to compact from messages to keep
+        messages_to_summarize = agent_context.chat_history[:messages_to_compact]
+        messages_to_keep = agent_context.chat_history[messages_to_compact:]
+
+        # Create a temporary context with just the messages to summarize
+        from silica.developer.context import AgentContext
+
+        temp_context = AgentContext(
+            parent_session_id=agent_context.parent_session_id,
+            session_id=agent_context.session_id,
+            model_spec=agent_context.model_spec,
+            sandbox=agent_context.sandbox,
+            user_interface=agent_context.user_interface,
+            usage=agent_context.usage,
+            memory_manager=agent_context.memory_manager,
+            history_base_dir=agent_context.history_base_dir,
+        )
+        temp_context._chat_history = messages_to_summarize
+
+        # Use the existing generate_summary method
+        summary_obj = self.generate_summary(temp_context, model)
+        summary = summary_obj.summary
+
+        # Create new message history with summary + kept messages
+        new_messages = [
+            {
+                "role": "user",
+                "content": f"### Micro-Compacted Summary (first {turns} turns)\n\n{summary}\n\n---\n\nContinuing with remaining conversation...",
+            }
+        ]
+        new_messages.extend(messages_to_keep)
+
+        # Strip all thinking blocks from compacted messages
+        new_messages = self._strip_all_thinking_blocks(new_messages)
+
+        # Disable thinking mode after stripping thinking blocks
+        if agent_context.thinking_mode != "off":
+            agent_context.thinking_mode = "off"
+
+        # Create metadata for the compaction
+        metadata = CompactionMetadata(
+            archive_name="",  # Will be updated by _archive_and_rotate
+            original_message_count=len(agent_context.chat_history),
+            compacted_message_count=len(new_messages),
+            original_token_count=summary_obj.original_token_count,
+            summary_token_count=summary_obj.summary_token_count,
+            compaction_ratio=summary_obj.compaction_ratio,
+        )
+
+        # Archive the original conversation, update context in place, and store metadata
+        archive_name = self._archive_and_rotate(agent_context, new_messages, metadata)
+
+        # Update metadata with the actual archive name
+        metadata.archive_name = archive_name
+
+        return metadata
+
     def check_and_apply_compaction(
         self, agent_context, model: str, user_interface, enable_compaction: bool = True
     ) -> tuple:
-        """Check if compaction is needed and apply it if necessary.
+        """Check if compaction is needed and apply micro-compaction if necessary.
 
         Args:
             agent_context: The agent context to check (mutated in place if compaction occurs)
-            model: Model name (string, not ModelSpec dict)
+            model: Model name (string, not ModelSpec dict) - used for token counting only
             user_interface: User interface for notifications
             enable_compaction: Whether compaction is enabled
 
@@ -687,14 +772,16 @@ class ConversationCompacter:
                     print("[Compaction] Not needed yet")
                     return agent_context, False
 
-            # Compact conversation - mutates agent_context in place if compaction occurs
-            # This includes updating messages, clearing buffers, AND setting metadata
-            metadata = self.compact_conversation(agent_context, model)
+            # Use micro-compaction with default 3 turns and haiku model
+            # This is more cost-effective and preserves recent context better
+            metadata = self.micro_compact_conversation(
+                agent_context, "haiku", turns=3, force=False
+            )
 
             if metadata:
                 # Notify user about the compaction
                 user_interface.handle_system_message(
-                    f"[bold green]Conversation compacted: "
+                    f"[bold green]Micro-compacted conversation: "
                     f"{metadata.original_message_count} messages → "
                     f"{metadata.compacted_message_count} messages "
                     f"(archived to {metadata.archive_name})[/bold green]",
