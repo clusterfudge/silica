@@ -343,16 +343,21 @@ class TestConversationCompaction(unittest.TestCase):
         )
 
         # Mock the generate_summary method to return our predefined summary
-        with mock.patch(
-            "silica.developer.compacter.ConversationCompacter.generate_summary",
-            return_value=compaction_summary,
-        ), mock.patch(
-            "silica.developer.compacter.ConversationCompacter.should_compact",
-            return_value=True,
-        ), mock.patch(
-            "silica.developer.compacter.ConversationCompacter.compact_conversation",
-            return_value=compaction_summary,
-        ), mock.patch("pathlib.Path.home", return_value=Path(self.test_dir)):
+        with (
+            mock.patch(
+                "silica.developer.compacter.ConversationCompacter.generate_summary",
+                return_value=compaction_summary,
+            ),
+            mock.patch(
+                "silica.developer.compacter.ConversationCompacter.should_compact",
+                return_value=True,
+            ),
+            mock.patch(
+                "silica.developer.compacter.ConversationCompacter.compact_conversation",
+                return_value=compaction_summary,
+            ),
+            mock.patch("pathlib.Path.home", return_value=Path(self.test_dir)),
+        ):
             # Flush with compaction
             context.flush(self.sample_messages, compact=True)
 

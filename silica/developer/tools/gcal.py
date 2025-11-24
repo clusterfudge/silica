@@ -152,7 +152,7 @@ def calendar_setup(context: "AgentContext") -> str:
                         selected_calendars.append(calendars[idx])
                     else:
                         print(
-                            f"Warning: Index {idx+1} is out of range and will be ignored."
+                            f"Warning: Index {idx + 1} is out of range and will be ignored."
                         )
             except ValueError:
                 return "Invalid selection. Please run the setup again and enter valid numbers."

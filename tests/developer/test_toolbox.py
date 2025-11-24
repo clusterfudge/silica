@@ -104,9 +104,9 @@ def test_agent_schema_matches_schemas(persona_base_dir):
     )
     toolbox = Toolbox(context)
 
-    assert (
-        toolbox.agent_schema == toolbox.schemas()
-    ), "agent_schema should be identical to schemas()"
+    assert toolbox.agent_schema == toolbox.schemas(), (
+        "agent_schema should be identical to schemas()"
+    )
 
 
 def test_schemas_match_tools(persona_base_dir):

@@ -33,7 +33,7 @@ async def _check_opencv_available() -> tuple[bool, Optional[str]]:
         return True, None
     except ImportError:
         return False, (
-            "OpenCV is not installed.\n" "Install with: pip install opencv-python"
+            "OpenCV is not installed.\nInstall with: pip install opencv-python"
         )
     except Exception as e:
         return False, f"Unexpected error checking OpenCV: {str(e)}"

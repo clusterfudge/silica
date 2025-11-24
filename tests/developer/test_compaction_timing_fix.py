@@ -251,7 +251,9 @@ class TestCompactionTimingFix(unittest.TestCase):
             self.assertEqual(updated_context.session_id, "test-session")
             # Parent session ID should still be None for root contexts
             self.assertIsNone(updated_context.parent_session_id)
-            self.assertIn("[bold green]Micro-compacted conversation:", ui.system_messages[-1])
+            self.assertIn(
+                "[bold green]Micro-compacted conversation:", ui.system_messages[-1]
+            )
 
     @mock.patch("anthropic.Client")
     def test_no_compaction_when_disabled(self, mock_client_class):

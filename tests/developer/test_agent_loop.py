@@ -153,8 +153,9 @@ def mock_anthropic():
 
 @pytest.fixture
 def mock_environment():
-    with patch("silica.developer.agent_loop.load_dotenv"), patch(
-        "os.getenv", return_value="test-key"
+    with (
+        patch("silica.developer.agent_loop.load_dotenv"),
+        patch("os.getenv", return_value="test-key"),
     ):
         yield
 

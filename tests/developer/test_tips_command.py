@@ -37,9 +37,9 @@ class TestTipsCommand:
         # Check the docstring
         expected_docstring = "Show usage tips and tricks"
         actual_docstring = toolbox.local["tips"]["docstring"]
-        assert (
-            actual_docstring == expected_docstring
-        ), f"Expected '{expected_docstring}', got '{actual_docstring}'"
+        assert actual_docstring == expected_docstring, (
+            f"Expected '{expected_docstring}', got '{actual_docstring}'"
+        )
 
         # Test that the function exists and is callable
         tips_func = toolbox.local["tips"]["invoke"]
@@ -78,9 +78,9 @@ class TestTipsCommand:
         toolbox._tips(mock_ui, context.sandbox, "", [])
 
         # Check that we got output
-        assert (
-            len(mock_ui.messages) == 1
-        ), "Expected one system message from tips command"
+        assert len(mock_ui.messages) == 1, (
+            "Expected one system message from tips command"
+        )
 
         tips_output = mock_ui.messages[0]
 
@@ -98,9 +98,9 @@ class TestTipsCommand:
         ]
 
         for section in expected_sections:
-            assert (
-                section in tips_output
-            ), f"Expected section '{section}' not found in tips output"
+            assert section in tips_output, (
+                f"Expected section '{section}' not found in tips output"
+            )
 
         # Check for specific tips that were moved from welcome message
         moved_tips = [
@@ -152,17 +152,17 @@ class TestTipsCommand:
         toolbox._help(mock_ui, context.sandbox, "", [])
 
         # Check that we got output
-        assert (
-            len(mock_ui.messages) == 1
-        ), "Expected one system message from help command"
+        assert len(mock_ui.messages) == 1, (
+            "Expected one system message from help command"
+        )
 
         help_output = mock_ui.messages[0]
 
         # Check that tips is mentioned in help output
         assert "/tips" in help_output, "Tips command should be mentioned in help output"
-        assert (
-            "Show usage tips and tricks" in help_output
-        ), "Tips description should be in help output"
+        assert "Show usage tips and tricks" in help_output, (
+            "Tips description should be in help output"
+        )
 
     def test_simplified_welcome_message(self):
         """Test that the welcome message is simplified and lowercase"""
@@ -182,9 +182,9 @@ class TestTipsCommand:
         expected_content = (
             "welcome to silica. /help for commands, /tips to get started."
         )
-        assert (
-            expected_content in welcome_output
-        ), f"Expected simplified content not found: {expected_content}"
+        assert expected_content in welcome_output, (
+            f"Expected simplified content not found: {expected_content}"
+        )
 
         # Check that old verbose content is gone
         old_content = [

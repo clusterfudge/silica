@@ -140,9 +140,9 @@ def test_compaction_disables_thinking_mode_when_normal(
     assert metadata is not None
 
     # Verify thinking mode was disabled
-    assert (
-        agent_context_with_thinking_enabled.thinking_mode == "off"
-    ), "Thinking mode should be disabled after compaction"
+    assert agent_context_with_thinking_enabled.thinking_mode == "off", (
+        "Thinking mode should be disabled after compaction"
+    )
 
 
 def test_compaction_disables_thinking_mode_when_ultra(
@@ -170,9 +170,9 @@ def test_compaction_disables_thinking_mode_when_ultra(
     assert metadata is not None
 
     # Verify thinking mode was disabled
-    assert (
-        agent_context_with_ultra_thinking.thinking_mode == "off"
-    ), "Thinking mode should be disabled after compaction"
+    assert agent_context_with_ultra_thinking.thinking_mode == "off", (
+        "Thinking mode should be disabled after compaction"
+    )
 
 
 def test_compaction_leaves_thinking_off_when_already_off(

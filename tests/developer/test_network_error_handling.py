@@ -170,12 +170,16 @@ def agent_context(model_config, persona_base_dir):
 async def test_network_error_with_successful_retry(agent_context):
     """Test that network errors are retried and eventually succeed."""
 
-    with patch("anthropic.Client") as mock_anthropic_client, patch(
-        "silica.developer.agent_loop.load_dotenv"
-    ), patch("os.getenv", return_value="test-key"), patch(
-        "silica.developer.agent_loop.create_system_message", return_value="Test system"
-    ), patch("silica.developer.agent_loop.Toolbox") as mock_toolbox_class, patch(
-        "time.sleep"
+    with (
+        patch("anthropic.Client") as mock_anthropic_client,
+        patch("silica.developer.agent_loop.load_dotenv"),
+        patch("os.getenv", return_value="test-key"),
+        patch(
+            "silica.developer.agent_loop.create_system_message",
+            return_value="Test system",
+        ),
+        patch("silica.developer.agent_loop.Toolbox") as mock_toolbox_class,
+        patch("time.sleep"),
     ):  # Mock sleep to speed up test
         # Setup mock client with streams that fail once then succeed
         mock_client = Mock()
@@ -226,12 +230,16 @@ async def test_network_error_with_successful_retry(agent_context):
 async def test_network_error_max_retries_exceeded(agent_context):
     """Test that network errors eventually fail after max retries."""
 
-    with patch("anthropic.Client") as mock_anthropic_client, patch(
-        "silica.developer.agent_loop.load_dotenv"
-    ), patch("os.getenv", return_value="test-key"), patch(
-        "silica.developer.agent_loop.create_system_message", return_value="Test system"
-    ), patch("silica.developer.agent_loop.Toolbox") as mock_toolbox_class, patch(
-        "time.sleep"
+    with (
+        patch("anthropic.Client") as mock_anthropic_client,
+        patch("silica.developer.agent_loop.load_dotenv"),
+        patch("os.getenv", return_value="test-key"),
+        patch(
+            "silica.developer.agent_loop.create_system_message",
+            return_value="Test system",
+        ),
+        patch("silica.developer.agent_loop.Toolbox") as mock_toolbox_class,
+        patch("time.sleep"),
     ):  # Mock sleep to speed up test
         # Setup mock client with a stream that always fails
         mock_client = Mock()
@@ -257,9 +265,9 @@ async def test_network_error_max_retries_exceeded(agent_context):
             )
 
         # Verify it tried multiple times (5 retries as per the code)
-        assert (
-            mock_client.messages.stream.call_count == 5
-        ), "Should have attempted max retries"
+        assert mock_client.messages.stream.call_count == 5, (
+            "Should have attempted max retries"
+        )
 
         # Verify user was informed about retries
         system_messages = [
@@ -275,11 +283,16 @@ async def test_network_error_max_retries_exceeded(agent_context):
 async def test_other_errors_not_caught(agent_context):
     """Test that non-network errors are not caught by network error handler."""
 
-    with patch("anthropic.Client") as mock_anthropic_client, patch(
-        "silica.developer.agent_loop.load_dotenv"
-    ), patch("os.getenv", return_value="test-key"), patch(
-        "silica.developer.agent_loop.create_system_message", return_value="Test system"
-    ), patch("silica.developer.agent_loop.Toolbox") as mock_toolbox_class:
+    with (
+        patch("anthropic.Client") as mock_anthropic_client,
+        patch("silica.developer.agent_loop.load_dotenv"),
+        patch("os.getenv", return_value="test-key"),
+        patch(
+            "silica.developer.agent_loop.create_system_message",
+            return_value="Test system",
+        ),
+        patch("silica.developer.agent_loop.Toolbox") as mock_toolbox_class,
+    ):
         # Setup mock client that raises a different error
         mock_client = Mock()
         mock_client.messages.stream.side_effect = ValueError("Some other error")

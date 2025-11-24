@@ -156,9 +156,9 @@ def test_compaction_ends_with_user_when_thinking_enabled_ending_in_assistant(
     # Check that the last message is a user message
     compacted_messages = agent_context_with_thinking_ending_in_assistant.chat_history
     assert len(compacted_messages) > 0
-    assert (
-        compacted_messages[-1]["role"] == "user"
-    ), "Last message should be a user message when thinking is enabled"
+    assert compacted_messages[-1]["role"] == "user", (
+        "Last message should be a user message when thinking is enabled"
+    )
 
     # Verify the conversation structure is valid for thinking mode
     # (no assistant message at the end that would require a thinking block)
@@ -192,9 +192,9 @@ def test_compaction_ends_with_user_when_thinking_enabled_ending_in_user(
     # Check that the last message is still a user message
     compacted_messages = agent_context_with_thinking_ending_in_user.chat_history
     assert len(compacted_messages) > 0
-    assert (
-        compacted_messages[-1]["role"] == "user"
-    ), "Last message should remain a user message when thinking is enabled"
+    assert compacted_messages[-1]["role"] == "user", (
+        "Last message should remain a user message when thinking is enabled"
+    )
 
 
 def test_compaction_with_thinking_disabled_can_end_with_assistant(
