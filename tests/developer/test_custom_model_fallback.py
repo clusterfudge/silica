@@ -10,7 +10,7 @@ def test_get_registered_model():
     assert sonnet["pricing"]["input"] == 3.00
 
     opus = get_model("opus")
-    assert opus["title"] == "claude-opus-4-20250514"
+    assert opus["title"] == "claude-opus-4-5-20251101"
     assert opus["pricing"]["input"] == 15.00
 
     haiku = get_model("haiku")
@@ -94,7 +94,7 @@ def test_model_names_returns_registered_only():
     assert "haiku" in names
 
     # Should include full model titles
-    assert "claude-opus-4-20250514" in names
+    assert "claude-opus-4-5-20251101" in names
     assert "claude-sonnet-4-5-20250929" in names
 
     # Should NOT include arbitrary custom names

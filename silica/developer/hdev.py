@@ -830,7 +830,7 @@ def attach_tools(app):
 def cyclopts_main(
     sandbox: Annotated[list[str], cyclopts.Parameter(help="Sandbox contents")] = [],
     *,
-    model: Annotated[str, cyclopts.Parameter(help="AI model to use")] = "sonnet",
+    model: Annotated[str, cyclopts.Parameter(help="AI model to use")] = "opus",
     summary_cache: Annotated[
         str, cyclopts.Parameter(help="Path to summary cache file")
     ] = os.path.join(os.path.expanduser("~"), ".cache/silica.summary_cache"),
@@ -890,7 +890,7 @@ def cyclopts_main(
 
     # Store original args for session metadata (simulate sys.argv for compatibility)
     original_args = ["hdev"]
-    if model != "sonnet":
+    if model != "opus":
         original_args.extend(["--model", model])
     if summary_cache != os.path.join(
         os.path.expanduser("~"), ".cache/silica.summary_cache"
