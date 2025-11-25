@@ -3,7 +3,7 @@
 import cyclopts
 
 from silica.remote.cli.commands import (
-    agent,
+    agent as agent_cmd,
     antennae,
     config,
     create,
@@ -29,7 +29,7 @@ app.command(create.create)
 app.command(status.status)
 app.command(destroy.destroy)
 app.command(sync.sync)
-app.command(agent.agent)
+app.command(agent_cmd.enter, name="enter")
 app.command(tell.tell)
 app.command(progress.progress)
 app.command(antennae.antennae)

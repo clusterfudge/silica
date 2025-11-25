@@ -343,16 +343,21 @@ class TestConversationCompaction(unittest.TestCase):
         )
 
         # Mock the generate_summary method to return our predefined summary
-        with mock.patch(
-            "silica.developer.compacter.ConversationCompacter.generate_summary",
-            return_value=compaction_summary,
-        ), mock.patch(
-            "silica.developer.compacter.ConversationCompacter.should_compact",
-            return_value=True,
-        ), mock.patch(
-            "silica.developer.compacter.ConversationCompacter.compact_conversation",
-            return_value=compaction_summary,
-        ), mock.patch("pathlib.Path.home", return_value=Path(self.test_dir)):
+        with (
+            mock.patch(
+                "silica.developer.compacter.ConversationCompacter.generate_summary",
+                return_value=compaction_summary,
+            ),
+            mock.patch(
+                "silica.developer.compacter.ConversationCompacter.should_compact",
+                return_value=True,
+            ),
+            mock.patch(
+                "silica.developer.compacter.ConversationCompacter.compact_conversation",
+                return_value=compaction_summary,
+            ),
+            mock.patch("pathlib.Path.home", return_value=Path(self.test_dir)),
+        ):
             # Flush with compaction
             context.flush(self.sample_messages, compact=True)
 
@@ -362,10 +367,11 @@ class TestConversationCompaction(unittest.TestCase):
 
     def test_compact_conversation_force_flag(self):
         """Test that force parameter bypasses should_compact check."""
-        # Create a small conversation below the threshold
+        # Create a small conversation below the threshold (need at least 3 messages for micro-compaction)
         small_messages = [
             {"role": "user", "content": "Hello"},
             {"role": "assistant", "content": "Hi there!"},
+            {"role": "user", "content": "Thanks"},
         ]
 
         # Create agent context
@@ -408,11 +414,10 @@ class TestConversationCompaction(unittest.TestCase):
             self.assertIsNotNone(metadata)
             # Verify context was mutated in place
             self.assertGreater(len(small_context.chat_history), 0)
-            # With 2 messages [user, assistant], we get 1 summary + 1 preserved (last assistant) = 2 messages
-            # So the count stays the same, but the content has changed (now includes summary)
+            # With 3 messages [user, assistant, user], we get 1 summary + 1 preserved (last user) = 2 messages
             self.assertEqual(len(small_context.chat_history), 2)
             # Verify the first message is now the summary
-            self.assertIn("Summary", small_context.chat_history[0]["content"])
+            self.assertIn("Compacted Summary", small_context.chat_history[0]["content"])
 
 
 if __name__ == "__main__":

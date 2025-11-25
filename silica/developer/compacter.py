@@ -530,97 +530,98 @@ class ConversationCompacter:
         return archive_name
 
     def compact_conversation(
-        self, agent_context, model: str, force: bool = False
+        self, agent_context, model: str, turns: int = 3, force: bool = False
     ) -> CompactionMetadata | None:
-        """Compact a conversation by summarizing it, archiving the original, and updating the context.
+        """Compact a conversation by summarizing first N turns and keeping the rest.
 
-        This method does ALL compaction work including:
-        - Checking if compaction is needed
-        - Generating the summary
-        - Creating metadata
-        - Archiving the original conversation
-        - Updating the agent_context with compacted messages AND metadata (mutates in place)
+        This is a micro-compaction approach that:
+        - Summarizes only the first N conversation turns (default 3)
+        - Keeps all remaining messages unchanged
+        - Uses haiku model for cost-effectiveness
+        - Better preserves recent context than full compaction
 
         Args:
             agent_context: AgentContext instance (mutated in place if compaction occurs)
-            model: Model name to use for token counting
+            model: Model name to use for summarization (typically "haiku")
+            turns: Number of turns to compact (default 3)
             force: If True, force compaction even if under threshold
 
         Returns:
             CompactionMetadata if compaction occurred, None otherwise
         """
+        # Calculate number of messages for N turns
+        # Turn structure: must start with user and end with user
+        # Turn 1: 1 message (user)
+        # Turn 2: 3 messages (user, assistant, user)
+        # Turn 3: 5 messages (user, assistant, user, assistant, user)
+        # Turn N: (2N - 1) messages
+        messages_to_compact = (turns * 2) - 1
+
+        # Check if compaction should proceed
         if not force and not self.should_compact(agent_context, model):
             return None
 
-        print("Initiating compaction...")
-        # Generate summary
-        summary = self.generate_summary(agent_context, model)
+        # Check if there's enough conversation to compact with the requested turns
+        # If not enough messages, adjust turns to compact all but the last message
+        if len(agent_context.chat_history) <= messages_to_compact:
+            if len(agent_context.chat_history) <= 2:
+                # Not enough to compact at all
+                return None
+            # Adjust to compact all messages except the last one
+            messages_to_compact = len(agent_context.chat_history) - 1
+            print(
+                f"Initiating compaction of {messages_to_compact} messages (adjusted from {turns} turns)..."
+            )
+        else:
+            print(f"Initiating compaction of first {turns} turns...")
 
-        # Create a new conversation with the summary as the first message
+        # Separate messages to compact from messages to keep
+        messages_to_summarize = agent_context.chat_history[:messages_to_compact]
+        messages_to_keep = agent_context.chat_history[messages_to_compact:]
+
+        # Create a temporary context with just the messages to summarize
+        from silica.developer.context import AgentContext
+
+        temp_context = AgentContext(
+            parent_session_id=agent_context.parent_session_id,
+            session_id=agent_context.session_id,
+            model_spec=agent_context.model_spec,
+            sandbox=agent_context.sandbox,
+            user_interface=agent_context.user_interface,
+            usage=agent_context.usage,
+            memory_manager=agent_context.memory_manager,
+            history_base_dir=agent_context.history_base_dir,
+        )
+        temp_context._chat_history = messages_to_summarize
+
+        # Use the existing generate_summary method
+        summary_obj = self.generate_summary(temp_context, model)
+        summary = summary_obj.summary
+
+        # Create new message history with summary + kept messages
         new_messages = [
             {
                 "role": "user",
-                "content": (
-                    f"### Conversation Summary (Compacted from {summary.original_message_count} previous messages)\n\n"
-                    f"{summary.summary}\n\n"
-                    f"Continue the conversation from this point."
-                ),
+                "content": f"### Compacted Summary (first {turns} turns)\n\n{summary}\n\n---\n\nContinuing with remaining conversation...",
             }
         ]
+        new_messages.extend(messages_to_keep)
 
-        # Optionally, retain the most recent few messages for immediate context
-        # This is configurable - here we're adding the last user/assistant exchange
-        context_dict = agent_context.get_api_context()
-        messages_to_use = context_dict["messages"]
-        preserve_message_count = 2
-
-        # When thinking is enabled, we must ensure the conversation ends with a user message
-        # This is because the API requires that when thinking is enabled, any assistant message
-        # must start with a thinking block. After compaction, we strip thinking blocks, so we
-        # cannot preserve assistant messages as the final message.
-        if len(messages_to_use) >= preserve_message_count:
-            if agent_context.thinking_mode != "off":
-                # With thinking enabled, never preserve the last message if it's an assistant message
-                # Always preserve the last user message (and optionally the assistant before it)
-                if messages_to_use[-1]["role"] == "assistant":
-                    # Skip the last assistant message, look for the previous user message
-                    preserve_message_count = 1
-                    # Find the last user message
-                    for i in range(len(messages_to_use) - 1, -1, -1):
-                        if messages_to_use[i]["role"] == "user":
-                            # Preserve just this user message
-                            new_messages.append(messages_to_use[i])
-                            break
-                else:
-                    # Last message is already a user message, preserve it
-                    preserve_message_count = 1
-                    new_messages.extend(messages_to_use[-preserve_message_count:])
-            else:
-                # Thinking is off, use the standard logic
-                if messages_to_use[-1]["role"] == "assistant":
-                    preserve_message_count = 1
-                new_messages.extend(messages_to_use[-preserve_message_count:])
-
-        # Strip all thinking blocks from compacted messages to avoid API validation errors
-        # When thinking is enabled, the API requires the final assistant message to start
-        # with a thinking block. Since we can't guarantee this structure after compaction
-        # (we're preserving arbitrary messages), we strip all thinking blocks entirely.
+        # Strip all thinking blocks from compacted messages
         new_messages = self._strip_all_thinking_blocks(new_messages)
 
         # Disable thinking mode after stripping thinking blocks
-        # The compacted conversation no longer has thinking context, and keeping thinking
-        # mode enabled would cause API validation errors on the next request
         if agent_context.thinking_mode != "off":
             agent_context.thinking_mode = "off"
 
-        # Create metadata for the compaction (archive_name will be set by rotate())
+        # Create metadata for the compaction
         metadata = CompactionMetadata(
             archive_name="",  # Will be updated by _archive_and_rotate
-            original_message_count=summary.original_message_count,
+            original_message_count=len(agent_context.chat_history),
             compacted_message_count=len(new_messages),
-            original_token_count=summary.original_token_count,
-            summary_token_count=summary.summary_token_count,
-            compaction_ratio=summary.compaction_ratio,
+            original_token_count=summary_obj.original_token_count,
+            summary_token_count=summary_obj.summary_token_count,
+            compaction_ratio=summary_obj.compaction_ratio,
         )
 
         # Archive the original conversation, update context in place, and store metadata
@@ -638,7 +639,7 @@ class ConversationCompacter:
 
         Args:
             agent_context: The agent context to check (mutated in place if compaction occurs)
-            model: Model name (string, not ModelSpec dict)
+            model: Model name (string, not ModelSpec dict) - used for token counting only
             user_interface: User interface for notifications
             enable_compaction: Whether compaction is enabled
 
@@ -687,9 +688,11 @@ class ConversationCompacter:
                     print("[Compaction] Not needed yet")
                     return agent_context, False
 
-            # Compact conversation - mutates agent_context in place if compaction occurs
-            # This includes updating messages, clearing buffers, AND setting metadata
-            metadata = self.compact_conversation(agent_context, model)
+            # Compact with default 3 turns using haiku model
+            # This is cost-effective and preserves recent context better
+            metadata = self.compact_conversation(
+                agent_context, "haiku", turns=3, force=False
+            )
 
             if metadata:
                 # Notify user about the compaction

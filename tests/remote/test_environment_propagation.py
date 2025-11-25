@@ -32,12 +32,15 @@ class TestEnvironmentPropagation:
             live_env_file.write_text(live_env_content)
 
             # Mock Path.home() and Path.cwd()
-            with patch(
-                "silica.remote.cli.commands.workspace_environment.Path.home",
-                return_value=Path(temp_dir),
-            ), patch(
-                "silica.remote.cli.commands.workspace_environment.Path.cwd",
-                return_value=Path(temp_dir) / "test-app",
+            with (
+                patch(
+                    "silica.remote.cli.commands.workspace_environment.Path.home",
+                    return_value=Path(temp_dir),
+                ),
+                patch(
+                    "silica.remote.cli.commands.workspace_environment.Path.cwd",
+                    return_value=Path(temp_dir) / "test-app",
+                ),
             ):
                 # Clear environment variables first
                 original_env = {}
@@ -79,12 +82,15 @@ class TestEnvironmentPropagation:
             live_env_file.write_text(live_env_content)
 
             # Mock Path.home() and Path.cwd()
-            with patch(
-                "silica.remote.cli.commands.workspace_environment.Path.home",
-                return_value=Path(temp_dir),
-            ), patch(
-                "silica.remote.cli.commands.workspace_environment.Path.cwd",
-                return_value=Path(temp_dir) / "test-app",
+            with (
+                patch(
+                    "silica.remote.cli.commands.workspace_environment.Path.home",
+                    return_value=Path(temp_dir),
+                ),
+                patch(
+                    "silica.remote.cli.commands.workspace_environment.Path.cwd",
+                    return_value=Path(temp_dir) / "test-app",
+                ),
             ):
                 # Clear environment variables first
                 original_env = {}
@@ -123,12 +129,15 @@ class TestEnvironmentPropagation:
             env_file.write_text(env_content)
 
             # Mock Path.home() and Path.cwd()
-            with patch(
-                "silica.remote.cli.commands.workspace_environment.Path.home",
-                return_value=Path(temp_dir),
-            ), patch(
-                "silica.remote.cli.commands.workspace_environment.Path.cwd",
-                return_value=Path(temp_dir) / "test-app",
+            with (
+                patch(
+                    "silica.remote.cli.commands.workspace_environment.Path.home",
+                    return_value=Path(temp_dir),
+                ),
+                patch(
+                    "silica.remote.cli.commands.workspace_environment.Path.cwd",
+                    return_value=Path(temp_dir) / "test-app",
+                ),
             ):
                 # Clear environment variables first
                 original_env = {}
@@ -196,12 +205,15 @@ class TestEnvironmentPropagation:
             env_file.write_text(env_content)
 
             # Mock Path.home() and Path.cwd()
-            with patch(
-                "silica.remote.cli.commands.workspace_environment.Path.home",
-                return_value=Path(temp_dir),
-            ), patch(
-                "silica.remote.cli.commands.workspace_environment.Path.cwd",
-                return_value=Path(temp_dir) / "test-app",
+            with (
+                patch(
+                    "silica.remote.cli.commands.workspace_environment.Path.home",
+                    return_value=Path(temp_dir),
+                ),
+                patch(
+                    "silica.remote.cli.commands.workspace_environment.Path.cwd",
+                    return_value=Path(temp_dir) / "test-app",
+                ),
             ):
                 # Clear GH_TOKEN environment variable first
                 original_gh_token = os.environ.pop("GH_TOKEN", None)

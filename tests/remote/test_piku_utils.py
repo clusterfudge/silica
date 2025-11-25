@@ -15,13 +15,14 @@ MOCK_SILICA_DIR = MOCK_GIT_ROOT / ".silica"
 @pytest.fixture
 def mock_environment():
     """Set up mock environment for testing."""
-    with patch("os.chdir") as mock_chdir, patch(
-        "silica.remote.utils.piku.find_git_root"
-    ) as mock_find_git_root, patch(
-        "silica.remote.utils.piku.get_silica_dir"
-    ) as mock_get_silica_dir, patch("pathlib.Path.cwd") as mock_cwd, patch(
-        "pathlib.Path.exists"
-    ) as mock_exists, patch("subprocess.run") as mock_run:
+    with (
+        patch("os.chdir") as mock_chdir,
+        patch("silica.remote.utils.piku.find_git_root") as mock_find_git_root,
+        patch("silica.remote.utils.piku.get_silica_dir") as mock_get_silica_dir,
+        patch("pathlib.Path.cwd") as mock_cwd,
+        patch("pathlib.Path.exists") as mock_exists,
+        patch("subprocess.run") as mock_run,
+    ):
         # Set up mocks
         mock_cwd.return_value = MOCK_CURRENT_DIR
         mock_find_git_root.return_value = MOCK_GIT_ROOT
