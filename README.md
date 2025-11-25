@@ -126,7 +126,7 @@ silica sync -w assistant --clear-cache
 silica status -w assistant
 
 # Enter a specific workspace's agent session
-silica enter -w assistant
+silica remote enter -w assistant
 
 # Send a message to the workspace's agent
 silica tell "Please analyze this code" -w assistant

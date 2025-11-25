@@ -114,7 +114,7 @@ piku app list | grep test-messaging
 silica msg send -t "integration-test" "Testing piku integration"
 
 # Enter workspace session and test agent function
-silica enter -w test-messaging
+silica remote enter -w test-messaging
 # In agent session:
 silica-msg "Hello from piku agent"
 ```

@@ -66,7 +66,7 @@ Connect to your remote workspace to verify setup:
 
 ```bash
 # Enter remote workspace session
-silica enter -w my-agent
+silica remote enter -w my-agent
 
 # Or use piku directly
 piku shell my-agent-<repo-name>
