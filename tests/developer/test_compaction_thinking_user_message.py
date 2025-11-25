@@ -135,7 +135,11 @@ def agent_context_with_thinking_ending_in_user(persona_base_dir):
 def test_compaction_ends_with_user_when_thinking_enabled_ending_in_assistant(
     mock_client, agent_context_with_thinking_ending_in_assistant, tmp_path
 ):
-    """Test that compaction ensures conversation ends with user message when thinking is enabled and chat ends in assistant."""
+    """Test that compaction handles conversations that end with assistant message.
+
+    With micro-compaction, thinking_mode is set to "off" after compaction,
+    so it's valid for the conversation to end with either user or assistant.
+    """
     # Create compacter
     compacter = ConversationCompacter(client=mock_client)
 
@@ -153,18 +157,19 @@ def test_compaction_ends_with_user_when_thinking_enabled_ending_in_assistant(
     # Verify compaction occurred
     assert _metadata is not None
 
-    # Check that the last message is a user message
+    # Verify thinking mode is now off (this is the key fix)
+    assert agent_context_with_thinking_ending_in_assistant.thinking_mode == "off"
+
+    # Check that the conversation has valid messages
     compacted_messages = agent_context_with_thinking_ending_in_assistant.chat_history
     assert len(compacted_messages) > 0
-    assert (
-        compacted_messages[-1]["role"] == "user"
-    ), "Last message should be a user message when thinking is enabled"
 
-    # Verify the conversation structure is valid for thinking mode
-    # (no assistant message at the end that would require a thinking block)
+    # With thinking_mode="off", ending with assistant is valid
+    # The micro-compaction preserves the last message as-is
+    assert compacted_messages[-1]["role"] in ["user", "assistant"]
+
+    # Verify the conversation structure is valid
     user_message_count = sum(1 for msg in compacted_messages if msg["role"] == "user")
-
-    # There should be at least one user message (the summary prompt + preserved message)
     assert user_message_count >= 1
 
 

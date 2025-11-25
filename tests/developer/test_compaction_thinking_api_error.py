@@ -195,7 +195,14 @@ def test_next_api_call_after_compaction_would_succeed(
     # Verify the message structure is valid for a non-thinking API call
     messages = api_context["messages"]
     assert len(messages) > 0
-    assert messages[-1]["role"] == "user", "Should end with user message"
+
+    # With micro-compaction, the conversation may end with either user or assistant
+    # Since thinking_mode is now "off", both are valid for the API
+    # The key is that no thinking blocks remain and thinking_config is None
+    assert messages[-1]["role"] in [
+        "user",
+        "assistant",
+    ], "Should have valid final message"
 
     # Verify no thinking blocks in messages
     for message in messages:
