@@ -211,8 +211,13 @@ class TestHistorySyncSpecific:
 
         assert result.success_rate == 100.0
 
-        # Download to clean environment
+        # Download to clean environment - delete file AND clear index
         (temp_persona_dir / "history/session-test-001/metadata.json").unlink()
+
+        # Clear local index to simulate fresh download
+        history_sync_engine.local_index._index.clear()
+        history_sync_engine.local_index._loaded = True
+        history_sync_engine.local_index.save()
 
         plan = history_sync_engine.analyze_sync_operations()
         history_sync_engine.execute_sync(plan, show_progress=False)

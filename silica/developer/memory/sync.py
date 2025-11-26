@@ -891,18 +891,22 @@ class SyncEngine:
         full_path = self._path_to_full_path.get(path)
         if not full_path:
             # For new files being downloaded, determine where they should go
-            # Use the first directory in scan_paths as the download location
+            # Check if path matches any explicit file in scan_paths
             target_dir = None
             for scan_path in self.config.scan_paths:
                 scan_path = Path(scan_path)
-                if scan_path.is_dir() or not scan_path.exists():
-                    # Use this directory (may not exist yet, which is fine)
-                    target_dir = scan_path
+                # Check if this scan_path is a file and matches our path
+                if not scan_path.is_dir() and scan_path.name == path:
+                    # This is the file itself (e.g., persona.md)
+                    full_path = scan_path
                     break
+                # Otherwise, use first directory as download location
+                elif not target_dir and (scan_path.is_dir() or not scan_path.exists()):
+                    target_dir = scan_path
 
-            if target_dir:
+            if not full_path and target_dir:
                 full_path = target_dir / path
-            else:
+            elif not full_path:
                 # Fallback to base_dir if no directory found
                 full_path = self._base_dir / path
 

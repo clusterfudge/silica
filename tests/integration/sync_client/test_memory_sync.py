@@ -46,10 +46,15 @@ class TestMemorySyncSpecific:
         for path in expected_paths:
             assert path in remote_index.files
 
-        # Clean environment and download
+        # Simulate clean environment (new device) - delete files AND clear index
         for file in temp_persona_dir.rglob("*.md"):
             if file.name != "persona.md":
                 file.unlink()
+
+        # Clear local index to simulate fresh download (new device scenario)
+        memory_sync_engine.local_index._index.clear()
+        memory_sync_engine.local_index._loaded = True
+        memory_sync_engine.local_index.save()
 
         plan = memory_sync_engine.analyze_sync_operations()
         memory_sync_engine.execute_sync(plan, show_progress=False)
@@ -119,8 +124,13 @@ Skills: Integration testing
 
         assert "persona.md" in remote_index.files
 
-        # Download to clean environment
+        # Download to clean environment - delete file AND clear index
         (temp_persona_dir / "persona.md").unlink()
+
+        # Clear local index to simulate fresh download
+        memory_sync_engine.local_index._index.clear()
+        memory_sync_engine.local_index._loaded = True
+        memory_sync_engine.local_index.save()
 
         plan = memory_sync_engine.analyze_sync_operations()
         memory_sync_engine.execute_sync(plan, show_progress=False)
