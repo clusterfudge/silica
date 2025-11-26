@@ -71,7 +71,7 @@ async def health_check():
         )
 
 
-@app.get("/blob/{namespace:path}/{path:path}", tags=["blob"])
+@app.get("/{namespace:path}/blob/{path:path}", tags=["blob"])
 async def read_blob(
     namespace: str,
     path: str,
@@ -114,7 +114,7 @@ async def read_blob(
         )
 
 
-@app.put("/blob/{namespace:path}/{path:path}", tags=["blob"])
+@app.put("/{namespace:path}/blob/{path:path}", tags=["blob"])
 async def write_blob(
     namespace: str,
     path: str,
@@ -187,7 +187,7 @@ async def write_blob(
 
 
 @app.delete(
-    "/blob/{namespace:path}/{path:path}",
+    "/{namespace:path}/blob/{path:path}",
     tags=["blob"],
     response_model=SyncIndexResponse,
 )

@@ -145,10 +145,10 @@ class MemoryProxyClient:
             ConnectionError: If request fails
             AuthenticationError: If authentication fails
         """
-        # URL-encode namespace and path to handle slashes
+        # URL-encode namespace and path to handle slashes; use /blob/ as separator
         encoded_namespace = quote(namespace, safe="")
         encoded_path = quote(path, safe="")
-        url = f"{self.base_url}/blob/{encoded_namespace}/{encoded_path}"
+        url = f"{self.base_url}/{encoded_namespace}/blob/{encoded_path}"
 
         try:
             response = self.client.get(url)
@@ -214,10 +214,10 @@ class MemoryProxyClient:
             ConnectionError: If request fails
             AuthenticationError: If authentication fails
         """
-        # URL-encode namespace and path to handle slashes
+        # URL-encode namespace and path to handle slashes; use /blob/ as separator
         encoded_namespace = quote(namespace, safe="")
         encoded_path = quote(path, safe="")
-        url = f"{self.base_url}/blob/{encoded_namespace}/{encoded_path}"
+        url = f"{self.base_url}/{encoded_namespace}/blob/{encoded_path}"
 
         headers = {
             "If-Match-Version": str(expected_version),
@@ -294,10 +294,10 @@ class MemoryProxyClient:
             ConnectionError: If request fails
             AuthenticationError: If authentication fails
         """
-        # URL-encode namespace and path to handle slashes
+        # URL-encode namespace and path to handle slashes; use /blob/ as separator
         encoded_namespace = quote(namespace, safe="")
         encoded_path = quote(path, safe="")
-        url = f"{self.base_url}/blob/{encoded_namespace}/{encoded_path}"
+        url = f"{self.base_url}/{encoded_namespace}/blob/{encoded_path}"
 
         headers = {}
         if expected_version is not None:

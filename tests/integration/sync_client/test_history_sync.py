@@ -26,22 +26,26 @@ class TestHistorySyncSpecific:
         # Sync only session-test-001
         plan = history_sync_engine.analyze_sync_operations()
 
-        # Should only see session-test-001 files
+        # Should see the files for session-test-001 (paths are relative to session dir)
         uploaded_paths = [op.path for op in plan.upload]
 
-        assert any("session-test-001" in path for path in uploaded_paths)
-        assert not any("session-002" in path for path in uploaded_paths)
-        assert not any("session-003" in path for path in uploaded_paths)
+        # Paths should be just filenames, not include session directory
+        # (session is already in the namespace)
+        assert "conv.json" in uploaded_paths
+        assert "metadata.json" in uploaded_paths
+        assert len(uploaded_paths) == 2  # Only these two files
 
         history_sync_engine.execute_sync(plan, show_progress=False)
 
-        # Verify remote only has target session
+        # Verify remote only has target session files
         remote_index = history_sync_engine.client.get_sync_index(
             history_sync_engine.config.namespace
         )
 
-        assert any("session-test-001" in path for path in remote_index.files.keys())
-        assert not any("session-002" in path for path in remote_index.files.keys())
+        # Should have the two files we uploaded
+        assert "conv.json" in remote_index.files
+        assert "metadata.json" in remote_index.files
+        assert len(remote_index.files) == 2
 
     def test_multiple_sessions_independent_sync(
         self, sync_client, temp_persona_dir, clean_namespace
@@ -94,10 +98,10 @@ class TestHistorySyncSpecific:
 
         # Each should only have their own files
         assert "data.json" in index1.files
-        assert "data.json" not in index2.files
+        assert len(index1.files) == 1
 
         assert "data.json" in index2.files
-        assert "data.json" not in index1.files
+        assert len(index2.files) == 1
 
         # Verify independent indices
         assert (session1_dir / ".sync-index-history.json").exists()
