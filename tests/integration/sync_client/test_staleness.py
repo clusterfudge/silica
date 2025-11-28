@@ -15,7 +15,13 @@ class TestManifestOnWrite:
         create_local_files,
         temp_persona_dir,
     ):
-        """Test detecting that another file changed during upload."""
+        """Test detecting that another file changed remotely.
+
+        When we analyze sync operations, the engine gets the latest remote index,
+        which will show any files that have been modified remotely since the last
+        sync. This test verifies that the sync engine correctly detects and downloads
+        remotely modified files.
+        """
         # Create and sync two files
         create_local_files(
             {
@@ -30,7 +36,7 @@ class TestManifestOnWrite:
         # Modify file1 locally
         (temp_persona_dir / "memory/file1.md").write_text("File 1 modified locally")
 
-        # Modify file2 on remote
+        # Modify file2 on remote (simulating another device making changes)
         index_entry = memory_sync_engine.local_index.get_entry("file2.md")
         sync_client.write_blob(
             namespace=memory_sync_engine.config.namespace,
@@ -39,29 +45,20 @@ class TestManifestOnWrite:
             expected_version=index_entry.version,
         )
 
-        # Upload file1 - manifest should show file2 changed
+        # Analyze operations - should detect both file1 upload and file2 download
+        # because the remote index now shows file2 has a newer version
         plan = memory_sync_engine.analyze_sync_operations()
 
-        # Before upload, only file1 should be detected as needing upload
         assert len(plan.upload) == 1
         assert plan.upload[0].path == "file1.md"
+        assert len(plan.download) == 1
+        assert plan.download[0].path == "file2.md"
 
-        # Execute upload - manifest returned will show file2 changed
+        # Execute sync - should upload file1 and download file2
         result = memory_sync_engine.execute_sync(plan, show_progress=False)
 
         assert result.success_rate == 100.0
-
-        # The manifest from write_blob updated our index
-        # Now analyze again - should detect file2 needs download
-        plan2 = memory_sync_engine.analyze_sync_operations()
-
-        assert len(plan2.download) == 1
-        assert plan2.download[0].path == "file2.md"
-
-        # Download file2
-        result2 = memory_sync_engine.execute_sync(plan2, show_progress=False)
-
-        assert result2.success_rate == 100.0
+        assert len(result.succeeded) == 2
 
         # Verify file2 updated locally
         assert (

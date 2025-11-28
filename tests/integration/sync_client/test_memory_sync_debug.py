@@ -51,12 +51,18 @@ def test_sync_memory_directory_structure_debug(
     for path in expected_paths:
         assert path in remote_index.files, f"Missing: {path}"
 
-    # Clean environment and download
+    # Clean environment and download (simulate fresh checkout/new device)
     print("\n=== Cleaning Local Files ===")
     for file in temp_persona_dir.rglob("*.md"):
         if file.name != "persona.md":
             print(f"  Deleting: {file}")
             file.unlink()
+
+    # Clear index to simulate fresh download (bootstrap scenario)
+    print("  Clearing index...")
+    memory_sync_engine.local_index._index.clear()
+    memory_sync_engine.local_index._loaded = True
+    memory_sync_engine.local_index.save()
 
     # Analyze what needs to be downloaded
     plan = memory_sync_engine.analyze_sync_operations()
