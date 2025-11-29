@@ -258,16 +258,18 @@ class TestSyncEngine:
 
         assert plan.total_operations == 1
         assert len(plan.upload) == 1
-        assert plan.upload[0].path == "memory/test.md"
+        # Path is relative to scan_path (memory/), so just "test.md"
+        assert plan.upload[0].path == "test.md"
         assert plan.upload[0].reason == "New local file"
 
     def test_analyze_new_remote_file(self, sync_engine, mock_client):
         """Test analyzing sync with a new remote file."""
         # Configure AsyncMock
+        # Remote paths should match what local scan produces (relative to scan_path)
         mock_client.get_sync_index.return_value = make_sync_index_response(
             [
                 {
-                    "path": "memory/remote.md",
+                    "path": "remote.md",
                     "md5": "abc123",
                     "size": 100,
                     "version": 1000,
@@ -281,7 +283,7 @@ class TestSyncEngine:
 
         assert plan.total_operations == 1
         assert len(plan.download) == 1
-        assert plan.download[0].path == "memory/remote.md"
+        assert plan.download[0].path == "remote.md"
         assert plan.download[0].reason == "New remote file"
 
     def test_analyze_files_in_sync(self, sync_engine, mock_client, temp_dir):
@@ -298,11 +300,11 @@ class TestSyncEngine:
 
         md5 = hashlib.md5(content).hexdigest()
 
-        # Configure AsyncMock
+        # Configure AsyncMock - path should match what local scan returns
         mock_client.get_sync_index.return_value = make_sync_index_response(
             [
                 {
-                    "path": "memory/test.md",
+                    "path": "test.md",  # Relative to scan_path (memory/)
                     "md5": md5,
                     "size": len(content),
                     "version": 1000,
@@ -331,7 +333,7 @@ class TestSyncEngine:
 
         hashlib.md5(content).hexdigest()
 
-        # Setup local index with old version
+        # Setup local index with old version - path matches scan output
         sync_engine.local_index.load()
         old_metadata = FileMetadata(
             md5="old_md5",
@@ -340,14 +342,14 @@ class TestSyncEngine:
             version=1000,
             is_deleted=False,
         )
-        sync_engine.local_index.update_entry("memory/test.md", old_metadata)
+        sync_engine.local_index.update_entry("test.md", old_metadata)
         sync_engine.local_index.save()  # Save so it persists across load() calls
 
-        # Configure mock
+        # Configure mock - path matches local scan
         mock_client.get_sync_index.return_value = make_sync_index_response(
             [
                 {
-                    "path": "memory/test.md",
+                    "path": "test.md",
                     "md5": "old_md5",
                     "size": 50,
                     "version": 1000,
@@ -361,7 +363,7 @@ class TestSyncEngine:
 
         assert plan.total_operations == 1
         assert len(plan.upload) == 1
-        assert plan.upload[0].path == "memory/test.md"
+        assert plan.upload[0].path == "test.md"
         assert plan.upload[0].reason == "Local file modified"
 
     def test_analyze_remote_modified(self, sync_engine, mock_client, temp_dir):
@@ -378,7 +380,7 @@ class TestSyncEngine:
 
         md5 = hashlib.md5(content).hexdigest()
 
-        # Setup local index with same version as local
+        # Setup local index with same version as local - path matches scan output
         sync_engine.local_index.load()
         old_metadata = FileMetadata(
             md5=md5,
@@ -387,14 +389,14 @@ class TestSyncEngine:
             version=1000,
             is_deleted=False,
         )
-        sync_engine.local_index.update_entry("memory/test.md", old_metadata)
+        sync_engine.local_index.update_entry("test.md", old_metadata)
         sync_engine.local_index.save()  # Save so it persists across load() calls
 
-        # Configure mock
+        # Configure mock - remote has newer version
         mock_client.get_sync_index.return_value = make_sync_index_response(
             [
                 {
-                    "path": "memory/test.md",
+                    "path": "test.md",
                     "md5": "new_remote_md5",
                     "size": 100,
                     "version": 1001,
@@ -408,7 +410,7 @@ class TestSyncEngine:
 
         assert plan.total_operations == 1
         assert len(plan.download) == 1
-        assert plan.download[0].path == "memory/test.md"
+        assert plan.download[0].path == "test.md"
         assert plan.download[0].reason == "Remote file modified"
 
     def test_analyze_both_modified_conflict(self, sync_engine, mock_client, temp_dir):
@@ -425,7 +427,7 @@ class TestSyncEngine:
 
         hashlib.md5(content).hexdigest()
 
-        # Setup local index with old version
+        # Setup local index with old version - path matches scan output
         sync_engine.local_index.load()
         old_metadata = FileMetadata(
             md5="old_md5",
@@ -434,14 +436,14 @@ class TestSyncEngine:
             version=1000,
             is_deleted=False,
         )
-        sync_engine.local_index.update_entry("memory/test.md", old_metadata)
+        sync_engine.local_index.update_entry("test.md", old_metadata)
         sync_engine.local_index.save()  # Save so it persists across load() calls
 
-        # Configure mock
+        # Configure mock - remote also modified
         mock_client.get_sync_index.return_value = make_sync_index_response(
             [
                 {
-                    "path": "memory/test.md",
+                    "path": "test.md",
                     "md5": "new_remote_md5",
                     "size": 100,
                     "version": 1001,
@@ -455,7 +457,7 @@ class TestSyncEngine:
 
         assert plan.has_conflicts
         assert len(plan.conflicts) == 1
-        assert plan.conflicts[0].path == "memory/test.md"
+        assert plan.conflicts[0].path == "test.md"
         assert (
             plan.conflicts[0].reason == "Both local and remote modified since last sync"
         )
@@ -469,10 +471,14 @@ class TestSyncEngine:
         content = b"test content"
         test_file.write_bytes(content)
 
-        # Configure AsyncMock - write_blob now returns sync_index too
+        # Run analyze to populate path mapping
+        mock_client.get_sync_index.return_value = make_sync_index_response([])
+        sync_engine.analyze_sync_operations()
+
+        # Configure AsyncMock - write_blob returns sync_index too
         mock_sync_index = SyncIndexResponse(
             files={
-                "memory/test.md": FileMetadata(
+                "test.md": FileMetadata(
                     md5="mock_md5",
                     last_modified=datetime.now(timezone.utc),
                     size=len(content),
@@ -485,13 +491,13 @@ class TestSyncEngine:
         )
         mock_client.write_blob.return_value = (True, "mock_md5", 1001, mock_sync_index)
 
-        result = sync_engine.upload_file("memory/test.md", 1000)
+        result = sync_engine.upload_file("test.md", 1000)
 
         assert result is True
         mock_client.write_blob.assert_called_once()
 
         # Check local index was updated
-        index_entry = sync_engine.local_index.get_entry("memory/test.md")
+        index_entry = sync_engine.local_index.get_entry("test.md")
         assert index_entry is not None
         assert index_entry.version == 1001
 
@@ -504,6 +510,10 @@ class TestSyncEngine:
 
     def test_download_file(self, sync_engine, mock_client, temp_dir):
         """Test downloading a file."""
+        # Create memory directory for downloads
+        memory_dir = temp_dir / "memory"
+        memory_dir.mkdir()
+
         content = b"downloaded content"
         md5 = "abc123"
         last_modified = datetime.now(timezone.utc)
@@ -520,18 +530,18 @@ class TestSyncEngine:
             version,
         )
 
-        result = sync_engine.download_file("memory/test.md")
+        result = sync_engine.download_file("test.md")
 
         assert result is True
         mock_client.read_blob.assert_called_once()
 
-        # Check file was created
+        # Check file was created - path is relative to first scan_path (memory/)
         test_file = temp_dir / "memory" / "test.md"
         assert test_file.exists()
         assert test_file.read_bytes() == content
 
         # Check local index was updated
-        index_entry = sync_engine.local_index.get_entry("memory/test.md")
+        index_entry = sync_engine.local_index.get_entry("test.md")
         assert index_entry is not None
         assert index_entry.version == 1000
 
@@ -543,7 +553,7 @@ class TestSyncEngine:
         test_file = memory_dir / "test.md"
         test_file.write_text("test")
 
-        # Add to index
+        # Add to index and populate path mapping
         metadata = FileMetadata(
             md5="abc",
             last_modified=datetime.now(timezone.utc),
@@ -551,15 +561,17 @@ class TestSyncEngine:
             version=1000,
             is_deleted=False,
         )
-        sync_engine.local_index.update_entry("memory/test.md", metadata)
+        sync_engine.local_index.update_entry("test.md", metadata)
+        # Populate path mapping
+        sync_engine._path_to_full_path["test.md"] = test_file
 
-        result = sync_engine.delete_local("memory/test.md")
+        result = sync_engine.delete_local("test.md")
 
         assert result is True
         assert not test_file.exists()
 
         # Check index entry is marked as deleted
-        index_entry = sync_engine.local_index.get_entry("memory/test.md")
+        index_entry = sync_engine.local_index.get_entry("test.md")
         assert index_entry is not None
         assert index_entry.is_deleted is True
 
@@ -568,7 +580,7 @@ class TestSyncEngine:
         # Configure AsyncMock - delete_blob now returns (version, sync_index)
         mock_sync_index = SyncIndexResponse(
             files={
-                "memory/test.md": FileMetadata(
+                "test.md": FileMetadata(
                     md5="",
                     last_modified=datetime.now(timezone.utc),
                     size=0,
@@ -581,17 +593,17 @@ class TestSyncEngine:
         )
         mock_client.delete_blob.return_value = (1001, mock_sync_index)
 
-        result = sync_engine.delete_remote("memory/test.md", 1000)
+        result = sync_engine.delete_remote("test.md", 1000)
 
         assert result is True
         mock_client.delete_blob.assert_called_once_with(
             namespace="test-persona",
-            path="memory/test.md",
+            path="test.md",
             expected_version=1000,
         )
 
         # Check local index was updated with tombstone
-        index_entry = sync_engine.local_index.get_entry("memory/test.md")
+        index_entry = sync_engine.local_index.get_entry("test.md")
         assert index_entry is not None
         assert index_entry.is_deleted is True
         assert index_entry.version == 1001
@@ -613,10 +625,13 @@ class TestSyncEngine:
         test_file = memory_dir / "test.md"
         test_file.write_text("test content")
 
+        # Populate path mapping
+        sync_engine._path_to_full_path["test.md"] = test_file
+
         # Configure AsyncMock - write_blob now returns sync_index too
         mock_sync_index = SyncIndexResponse(
             files={
-                "memory/test.md": FileMetadata(
+                "test.md": FileMetadata(
                     md5="mock_md5",
                     last_modified=datetime.now(timezone.utc),
                     size=12,
@@ -634,7 +649,7 @@ class TestSyncEngine:
             upload=[
                 SyncOperationDetail(
                     type="upload",
-                    path="memory/test.md",
+                    path="test.md",
                     reason="New file",
                     remote_version=0,
                 )
@@ -661,10 +676,12 @@ class TestSyncEngine:
 
         files = sync_engine._scan_local_files()
 
-        # Should find files in configured scan paths (memory/ and history/)
-        assert "memory/test1.md" in files
-        assert "memory/test2.md" in files
-        assert "history/session.json" in files
+        # Paths are relative to their scan_path
+        # memory/ files -> relative to memory/
+        # history/ files -> relative to history/
+        assert "test1.md" in files
+        assert "test2.md" in files
+        assert "session.json" in files
 
         # Should not include sync metadata files
         assert ".sync-index.json" not in files

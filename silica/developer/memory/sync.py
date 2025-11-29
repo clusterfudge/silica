@@ -482,8 +482,7 @@ class SyncEngine:
                 ) from e
 
         logger.info(
-            f"Successfully resolved {len(resolved_uploads)} conflicts, "
-            f"ready for upload"
+            f"Successfully resolved {len(resolved_uploads)} conflicts, ready for upload"
         )
         return resolved_uploads
 

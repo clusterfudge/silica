@@ -111,9 +111,10 @@ class TestBootstrapEmptyIndex:
         assert len(plan.delete_remote) == 0
         assert len(plan.conflicts) == 0
 
+        # Paths are relative to scan_path (memory/)
         upload_paths = {op.path for op in plan.upload}
-        assert "memory/file1.md" in upload_paths
-        assert "memory/file2.md" in upload_paths
+        assert "file1.md" in upload_paths
+        assert "file2.md" in upload_paths
 
         # All should be marked as "New local file"
         assert all(op.reason == "New local file" for op in plan.upload)
@@ -127,11 +128,11 @@ class TestBootstrapEmptyIndex:
         memory_dir = temp_dir / "memory"
         memory_dir.mkdir()
 
-        # Configure mock: remote has files
+        # Configure mock: remote has files (paths relative to namespace)
         mock_client.get_sync_index.return_value = make_sync_index_response(
             [
                 {
-                    "path": "memory/remote1.md",
+                    "path": "remote1.md",
                     "md5": "abc123",
                     "size": 100,
                     "version": 1000,
@@ -139,7 +140,7 @@ class TestBootstrapEmptyIndex:
                     "is_deleted": False,
                 },
                 {
-                    "path": "memory/remote2.md",
+                    "path": "remote2.md",
                     "md5": "def456",
                     "size": 200,
                     "version": 1001,
@@ -160,8 +161,8 @@ class TestBootstrapEmptyIndex:
         assert len(plan.conflicts) == 0
 
         download_paths = {op.path for op in plan.download}
-        assert "memory/remote1.md" in download_paths
-        assert "memory/remote2.md" in download_paths
+        assert "remote1.md" in download_paths
+        assert "remote2.md" in download_paths
 
         # All should be marked as "New remote file"
         assert all(op.reason == "New remote file" for op in plan.download)
@@ -182,7 +183,7 @@ class TestBootstrapEmptyIndex:
         mock_client.get_sync_index.return_value = make_sync_index_response(
             [
                 {
-                    "path": "memory/remote_only.md",
+                    "path": "remote_only.md",
                     "md5": "abc123",
                     "size": 100,
                     "version": 1000,
@@ -202,8 +203,8 @@ class TestBootstrapEmptyIndex:
         assert len(plan.delete_remote) == 0
         assert len(plan.conflicts) == 0
 
-        assert plan.upload[0].path == "memory/local_only.md"
-        assert plan.download[0].path == "memory/remote_only.md"
+        assert plan.upload[0].path == "local_only.md"
+        assert plan.download[0].path == "remote_only.md"
 
     def test_bootstrap_with_same_file_different_content(
         self, sync_engine, mock_client, temp_dir
@@ -224,7 +225,7 @@ class TestBootstrapEmptyIndex:
         mock_client.get_sync_index.return_value = make_sync_index_response(
             [
                 {
-                    "path": "memory/file.md",
+                    "path": "file.md",
                     "md5": remote_md5,
                     "size": 200,
                     "version": 1000,
@@ -244,7 +245,7 @@ class TestBootstrapEmptyIndex:
         assert len(plan.delete_local) == 0
         assert len(plan.conflicts) == 0
 
-        assert plan.download[0].path == "memory/file.md"
+        assert plan.download[0].path == "file.md"
         assert plan.download[0].reason == "Remote is authority, bootstrap scenario"
 
 
@@ -277,9 +278,10 @@ class TestBootstrapWithStaleIndex:
         (memory_dir / "file2.md").write_bytes(content2)
 
         # Setup local index with old entries (simulating previous sync)
+        # Paths match what scan produces (relative to scan_path)
         sync_engine.local_index.load()
         sync_engine.local_index.update_entry(
-            "memory/file1.md",
+            "file1.md",
             FileMetadata(
                 md5=calculate_md5(content1),
                 last_modified=datetime.now(timezone.utc),
@@ -289,7 +291,7 @@ class TestBootstrapWithStaleIndex:
             ),
         )
         sync_engine.local_index.update_entry(
-            "memory/file2.md",
+            "file2.md",
             FileMetadata(
                 md5=calculate_md5(content2),
                 last_modified=datetime.now(timezone.utc),
@@ -317,8 +319,8 @@ class TestBootstrapWithStaleIndex:
         assert len(plan.delete_remote) == 0
 
         upload_paths = {op.path for op in plan.upload}
-        assert "memory/file1.md" in upload_paths
-        assert "memory/file2.md" in upload_paths
+        assert "file1.md" in upload_paths
+        assert "file2.md" in upload_paths
 
         # Reason should indicate re-upload
         for op in plan.upload:
@@ -345,7 +347,7 @@ class TestTombstoneHandling:
         # Setup local index
         sync_engine.local_index.load()
         sync_engine.local_index.update_entry(
-            "memory/file.md",
+            "file.md",
             FileMetadata(
                 md5=calculate_md5(content),
                 last_modified=datetime.now(timezone.utc),
@@ -360,7 +362,7 @@ class TestTombstoneHandling:
         mock_client.get_sync_index.return_value = make_sync_index_response(
             [
                 {
-                    "path": "memory/file.md",
+                    "path": "file.md",
                     "md5": calculate_md5(content),
                     "size": 0,
                     "version": 1001,  # Newer version
@@ -379,7 +381,7 @@ class TestTombstoneHandling:
         assert len(plan.download) == 0
         assert len(plan.conflicts) == 0
 
-        assert plan.delete_local[0].path == "memory/file.md"
+        assert plan.delete_local[0].path == "file.md"
         assert (
             "delet" in plan.delete_local[0].reason.lower()
         )  # Matches "delete" or "deletion"
@@ -403,7 +405,7 @@ class TestTombstoneHandling:
         mock_client.get_sync_index.return_value = make_sync_index_response(
             [
                 {
-                    "path": "memory/file.md",
+                    "path": "file.md",
                     "md5": "abc123",
                     "size": 0,
                     "version": 1000,
@@ -418,7 +420,7 @@ class TestTombstoneHandling:
 
         # Should delete local file (tombstone is explicit)
         assert len(plan.delete_local) == 1
-        assert plan.delete_local[0].path == "memory/file.md"
+        assert plan.delete_local[0].path == "file.md"
 
     def test_no_tombstone_no_local_deletion(self, sync_engine, mock_client, temp_dir):
         """Without a tombstone, local files should NEVER be deleted.
@@ -431,11 +433,11 @@ class TestTombstoneHandling:
         (memory_dir / "file1.md").write_text("content 1")
         (memory_dir / "file2.md").write_text("content 2")
 
-        # Setup local index with entries
+        # Setup local index with entries (paths relative to scan_path)
         sync_engine.local_index.load()
         for i in [1, 2]:
             sync_engine.local_index.update_entry(
-                f"memory/file{i}.md",
+                f"file{i}.md",
                 FileMetadata(
                     md5=f"md5_{i}",
                     last_modified=datetime.now(timezone.utc),
@@ -478,7 +480,7 @@ class TestConflictScenarios:
         # Setup local index (file was known)
         sync_engine.local_index.load()
         sync_engine.local_index.update_entry(
-            "memory/file.md",
+            "file.md",
             FileMetadata(
                 md5=calculate_md5(content),
                 last_modified=datetime.now(timezone.utc),
@@ -493,7 +495,7 @@ class TestConflictScenarios:
         mock_client.get_sync_index.return_value = make_sync_index_response(
             [
                 {
-                    "path": "memory/file.md",
+                    "path": "file.md",
                     "md5": calculate_md5(content),
                     "size": 0,
                     "version": 1001,
@@ -509,7 +511,7 @@ class TestConflictScenarios:
         # Should be a clean delete, not a conflict
         assert len(plan.delete_local) == 1
         assert len(plan.conflicts) == 0
-        assert plan.delete_local[0].path == "memory/file.md"
+        assert plan.delete_local[0].path == "file.md"
 
     def test_local_deleted_remote_exists_deletes_remote(
         self, sync_engine, mock_client, temp_dir
@@ -525,7 +527,7 @@ class TestConflictScenarios:
         # Setup local index (file was known)
         sync_engine.local_index.load()
         sync_engine.local_index.update_entry(
-            "memory/file.md",
+            "file.md",
             FileMetadata(
                 md5="old_md5",
                 last_modified=datetime.now(timezone.utc),
@@ -540,7 +542,7 @@ class TestConflictScenarios:
         mock_client.get_sync_index.return_value = make_sync_index_response(
             [
                 {
-                    "path": "memory/file.md",
+                    "path": "file.md",
                     "md5": "old_md5",
                     "size": 100,
                     "version": 1000,
@@ -557,7 +559,7 @@ class TestConflictScenarios:
         assert len(plan.delete_remote) == 1
         assert len(plan.delete_local) == 0
         assert len(plan.conflicts) == 0
-        assert plan.delete_remote[0].path == "memory/file.md"
+        assert plan.delete_remote[0].path == "file.md"
 
 
 class TestIndexConsistency:
@@ -578,7 +580,7 @@ class TestIndexConsistency:
         mock_client.get_sync_index.return_value = make_sync_index_response(
             [
                 {
-                    "path": "memory/file.md",
+                    "path": "file.md",
                     "md5": md5,
                     "size": len(content),
                     "version": 1000,
@@ -595,7 +597,7 @@ class TestIndexConsistency:
         assert plan.total_operations == 0
 
         # Index should have been updated
-        index_entry = sync_engine.local_index.get_entry("memory/file.md")
+        index_entry = sync_engine.local_index.get_entry("file.md")
         assert index_entry is not None
         assert index_entry.md5 == md5
         assert index_entry.version == 1000
@@ -674,7 +676,7 @@ class TestEdgeCases:
 
         # Should only upload the regular file, not metadata
         assert len(plan.upload) == 1
-        assert plan.upload[0].path == "memory/file.md"
+        assert plan.upload[0].path == "file.md"
 
     def test_both_sides_gone_clears_index(self, sync_engine, mock_client, temp_dir):
         """When file is gone from both local and remote, clear index entry."""
@@ -685,7 +687,7 @@ class TestEdgeCases:
         # Setup local index with entry
         sync_engine.local_index.load()
         sync_engine.local_index.update_entry(
-            "memory/file.md",
+            "file.md",
             FileMetadata(
                 md5="old_md5",
                 last_modified=datetime.now(timezone.utc),
