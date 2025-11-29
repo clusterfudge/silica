@@ -47,6 +47,7 @@ class TestSyncConfig:
             namespace="test/namespace",
             scan_paths=[Path("/test/path")],
             index_file=Path("/test/.sync-index.json"),
+            base_dir=Path("/test"),
         )
 
         assert config.namespace == "test/namespace"
@@ -142,6 +143,7 @@ class TestSyncConfig:
                 Path("/path3"),
             ],
             index_file=Path("/test/.sync-index.json"),
+            base_dir=Path("/test"),
         )
 
         assert len(config.scan_paths) == 3

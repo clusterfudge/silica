@@ -42,7 +42,7 @@ def test_write_new_file(mock_s3):
     storage = S3Storage()
     content = b"Hello, World!"
 
-    is_new, md5, version = storage.write_file("default", "test/file.txt", content)
+    is_new, md5, version, _ = storage.write_file("default", "test/file.txt", content)
 
     assert is_new is True
     assert md5 == "65a8e27d8879283831b664bd8b7f0ad4"
@@ -63,7 +63,7 @@ def test_write_update_file(mock_s3):
 
     # Write initial file
     initial_content = b"Initial content"
-    is_new, initial_md5, initial_version = storage.write_file(
+    is_new, initial_md5, initial_version, _ = storage.write_file(
         "default", "test/file.txt", initial_content
     )
     assert is_new is True
@@ -71,7 +71,7 @@ def test_write_update_file(mock_s3):
 
     # Update file
     updated_content = b"Updated content"
-    is_new, updated_md5, updated_version = storage.write_file(
+    is_new, updated_md5, updated_version, _ = storage.write_file(
         "default", "test/file.txt", updated_content
     )
 
@@ -91,7 +91,7 @@ def test_write_conditional_new_file_success(mock_s3):
     storage = S3Storage()
     content = b"New file"
 
-    is_new, md5, version = storage.write_file(
+    is_new, md5, version, _ = storage.write_file(
         "default", "test/file.txt", content, expected_version=0
     )
 
@@ -121,12 +121,12 @@ def test_write_conditional_update_success(mock_s3):
 
     # Create file
     content1 = b"Version 1"
-    _, md5_1, version_1 = storage.write_file("default", "test/file.txt", content1)
+    _, md5_1, version_1, _ = storage.write_file("default", "test/file.txt", content1)
     assert version_1 > 0
 
     # Update with correct version
     content2 = b"Version 2"
-    is_new, md5_2, version_2 = storage.write_file(
+    is_new, md5_2, version_2, _ = storage.write_file(
         "default", "test/file.txt", content2, expected_version=version_1
     )
 
@@ -140,7 +140,7 @@ def test_write_conditional_update_fails_with_wrong_version(mock_s3):
     storage = S3Storage()
 
     # Create file
-    _, _, version_1 = storage.write_file("default", "test/file.txt", b"Version 1")
+    _, _, version_1, _ = storage.write_file("default", "test/file.txt", b"Version 1")
 
     # Try to update with wrong version
     wrong_version = version_1 - 1000  # Use a different version
@@ -171,7 +171,7 @@ def test_read_file(mock_s3):
 
     # Write file
     content = b"Test content"
-    _, expected_md5, expected_version = storage.write_file(
+    _, expected_md5, expected_version, _ = storage.write_file(
         "default", "test/file.txt", content
     )
 
@@ -216,7 +216,7 @@ def test_delete_file(mock_s3):
 
     # Create file
     content = b"Content to delete"
-    _, original_md5, _ = storage.write_file("default", "test/file.txt", content)
+    _, original_md5, _, _ = storage.write_file("default", "test/file.txt", content)
 
     # Delete file
     storage.delete_file("default", "test/file.txt")
@@ -243,7 +243,7 @@ def test_delete_conditional_success(mock_s3):
     storage = S3Storage()
 
     # Create file
-    _, md5, version = storage.write_file("default", "test/file.txt", b"Content")
+    _, md5, version, _ = storage.write_file("default", "test/file.txt", b"Content")
 
     # Delete with correct version
     storage.delete_file("default", "test/file.txt", expected_version=version)
@@ -260,7 +260,7 @@ def test_delete_conditional_fails_with_wrong_version(mock_s3):
     storage = S3Storage()
 
     # Create file
-    _, _, version = storage.write_file("default", "test/file.txt", b"Content")
+    _, _, version, _ = storage.write_file("default", "test/file.txt", b"Content")
 
     # Try to delete with wrong version
     wrong_version = version - 1000
@@ -378,19 +378,19 @@ def test_version_increases_on_updates(mock_s3):
     storage = S3Storage()
 
     # Create file
-    _, _, version1 = storage.write_file("default", "test/file.txt", b"Version 1")
+    _, _, version1, _ = storage.write_file("default", "test/file.txt", b"Version 1")
     assert version1 > 0
 
     # First update
-    _, _, version2 = storage.write_file("default", "test/file.txt", b"Version 2")
+    _, _, version2, _ = storage.write_file("default", "test/file.txt", b"Version 2")
     assert version2 > version1
 
     # Second update
-    _, _, version3 = storage.write_file("default", "test/file.txt", b"Version 3")
+    _, _, version3, _ = storage.write_file("default", "test/file.txt", b"Version 3")
     assert version3 > version2
 
     # Third update
-    _, _, version4 = storage.write_file("default", "test/file.txt", b"Version 4")
+    _, _, version4, _ = storage.write_file("default", "test/file.txt", b"Version 4")
     assert version4 > version3
 
     # Verify version is returned on read
@@ -403,15 +403,15 @@ def test_version_tracked_in_sync_index(mock_s3):
     storage = S3Storage()
 
     # Create file
-    _, _, v1 = storage.write_file("default", "file1.txt", b"Content 1")
+    _, _, v1, _ = storage.write_file("default", "file1.txt", b"Content 1")
 
     # Update multiple times
-    _, _, v2 = storage.write_file("default", "file1.txt", b"Content 1 updated")
-    _, _, v3 = storage.write_file("default", "file1.txt", b"Content 1 updated again")
+    _, _, v2, _ = storage.write_file("default", "file1.txt", b"Content 1 updated")
+    _, _, v3, _ = storage.write_file("default", "file1.txt", b"Content 1 updated again")
 
     # Create another file and update once
-    _, _, v4 = storage.write_file("default", "file2.txt", b"Content 2")
-    _, _, v5 = storage.write_file("default", "file2.txt", b"Content 2 updated")
+    _, _, v4, _ = storage.write_file("default", "file2.txt", b"Content 2")
+    _, _, v5, _ = storage.write_file("default", "file2.txt", b"Content 2 updated")
 
     # Get sync index
     index = storage.get_sync_index("default")

@@ -133,7 +133,7 @@ class S3Storage:
         content_type: str = "application/octet-stream",
         expected_version: int | None = None,
         content_md5: str | None = None,
-    ) -> Tuple[bool, str, int]:
+    ) -> Tuple[bool, str, int, "SyncIndexResponse"]:
         """
         Write a file to S3 with optional conditional write.
 
@@ -149,7 +149,8 @@ class S3Storage:
             content_md5: Optional MD5 for payload integrity validation
 
         Returns:
-            Tuple of (is_new, md5_hash, version)
+            Tuple of (is_new, md5_hash, version, sync_index)
+            The sync_index contains the full manifest after the write.
 
         Raises:
             PreconditionFailedError: If conditional write fails
@@ -246,7 +247,11 @@ class S3Storage:
                 f"{'Created' if is_new else 'Updated'} file: {namespace}/{path} "
                 f"(md5={new_md5}, version={version})"
             )
-            return is_new, new_md5, version
+
+            # Get sync index after write
+            sync_index = self.get_sync_index(namespace)
+
+            return is_new, new_md5, version, sync_index
 
         except Exception as e:
             logger.error(f"Error writing file {namespace}/{path}: {e}")
@@ -254,7 +259,7 @@ class S3Storage:
 
     def delete_file(
         self, namespace: str, path: str, expected_version: int | None = None
-    ) -> None:
+    ) -> Tuple[int, "SyncIndexResponse"]:
         """
         Delete a file by creating a tombstone.
 
@@ -262,6 +267,10 @@ class S3Storage:
             namespace: Namespace identifier
             path: File path
             expected_version: Optional expected version for conditional delete
+
+        Returns:
+            Tuple of (version, sync_index)
+            The sync_index contains the full manifest after the delete.
 
         Raises:
             FileNotFoundError: If file doesn't exist
@@ -313,6 +322,11 @@ class S3Storage:
             logger.info(
                 f"Deleted (tombstoned) file: {namespace}/{path} (version={version})"
             )
+
+            # Get sync index after delete
+            sync_index = self.get_sync_index(namespace)
+
+            return version, sync_index
 
         except ClientError as e:
             if e.response["Error"]["Code"] == "404":

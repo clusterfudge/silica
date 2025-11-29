@@ -16,6 +16,7 @@ class SyncConfig:
     - Remote namespace (where files are stored remotely)
     - Local scan paths (which files/directories to sync)
     - Index file location (where to track sync state)
+    - Base directory (where files are read from / written to)
 
     By using separate configs, multiple sync engines can operate independently.
     """
@@ -23,6 +24,7 @@ class SyncConfig:
     namespace: str  # Remote namespace (e.g., "personas/default/memory")
     scan_paths: list[Path]  # Local directories/files to scan
     index_file: Path  # Local index file path
+    base_dir: Path  # Base directory for file operations
 
     @classmethod
     def for_memory(cls, persona_name: str) -> "SyncConfig":
@@ -55,6 +57,7 @@ class SyncConfig:
                 persona_dir / "persona.md",  # Special: persona definition
             ],
             index_file=persona_dir / ".sync-index-memory.json",
+            base_dir=persona_dir,  # Files are read/written from persona directory
         )
 
     @classmethod
@@ -87,4 +90,5 @@ class SyncConfig:
             namespace=f"personas/{persona_name}/history/{session_id}",
             scan_paths=[session_dir],
             index_file=session_dir / ".sync-index-history.json",
+            base_dir=persona_dir,  # Files are read/written from persona directory
         )

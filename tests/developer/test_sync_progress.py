@@ -25,6 +25,7 @@ def sync_engine(tmp_path, mock_client):
         namespace="test",
         scan_paths=[tmp_path],
         index_file=tmp_path / ".sync-index.json",
+        base_dir=tmp_path,
     )
     engine = SyncEngine(
         client=mock_client,
