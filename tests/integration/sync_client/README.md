@@ -2,51 +2,28 @@
 
 ## Overview
 
-Comprehensive integration tests for the sync client that test against a **real memory proxy service**. These tests validate the full sync workflow with actual HTTP communication, storage operations, and state management.
+Comprehensive integration tests for the sync client that test against an **in-process memory proxy service** using moto for S3 mocking. These tests validate the full sync workflow with actual HTTP communication, storage operations, and state management.
 
-**Important**: These are true integration tests - they require a running memory proxy service and will skip if the service is not available.
+## Architecture
 
-## Requirements
+The tests use:
+- **In-process memory proxy** - A real FastAPI app running in a background thread via uvicorn
+- **Moto S3 mock** - AWS S3 is mocked using moto, no real AWS credentials needed
+- **Mocked authentication** - Auth service is mocked to always succeed
+- **Real HTTP communication** - Tests make actual HTTP requests via httpx
 
-- **Running memory proxy service** (required)
-- Properly configured S3 backend (can use moto, LocalStack, or real S3)
+This approach gives us true integration testing without external dependencies.
 
 ## Running Tests
 
-### Prerequisites
-
-You **must** start the memory proxy service before running tests:
+### Run All Integration Tests
 
 ```bash
-# Terminal 1: Start memory proxy service
-cd silica/memory_proxy
-python -m silica.memory_proxy.app
-
-# Or if you have a .env file configured:
-python -m silica.memory_proxy.app
-```
-
-The service should start on `http://localhost:8000` by default.
-
-### Default Configuration (localhost:8000)
-
-```bash
-# Terminal 2: Run integration tests
+# Run all sync client integration tests
 pytest tests/integration/sync_client/ -v
 
-# Tests will skip with helpful message if proxy isn't running
-```
-
-### Custom Configuration
-
-```bash
-# Set environment variables
-export MEMORY_PROXY_PORT=9000
-export MEMORY_PROXY_HOST=test-proxy.local
-export MEMORY_PROXY_TOKEN=custom-token
-
-# Run tests
-pytest tests/integration/sync_client/ -v
+# Or use the marker
+pytest -m integration tests/integration/sync_client/ -v
 ```
 
 ### Skip Integration Tests
@@ -56,200 +33,139 @@ pytest tests/integration/sync_client/ -v
 pytest -m "not integration"
 ```
 
-### Run Specific Test Categories
+### Run Specific Test Files
 
 ```bash
-# Memory sync tests only
-pytest tests/integration/sync_client/ -v -m memory_sync
+# Bootstrap scenarios
+pytest tests/integration/sync_client/test_bootstrap.py -v
 
-# History sync tests only
-pytest tests/integration/sync_client/ -v -m history_sync
+# Normal operations
+pytest tests/integration/sync_client/test_normal_ops.py -v
 
-# Slow tests (performance)
-pytest tests/integration/sync_client/ -v -m slow
+# Staleness detection
+pytest tests/integration/sync_client/test_staleness.py -v
 ```
 
 ## Test Structure
 
 ```
 tests/integration/sync_client/
-├── conftest.py              # Shared fixtures and configuration
-├── test_bootstrap.py        # Bootstrap scenarios (6 tests)
-├── test_normal_ops.py       # Upload/download/delete (12 tests)
-├── test_memory_sync.py      # Memory-specific tests (5 tests)
-├── test_history_sync.py     # History-specific tests (6 tests)
-├── test_state_mgmt.py       # Index/cache management (7 tests)
-└── test_staleness.py        # Manifest-on-write (4 tests)
+├── conftest.py                  # Fixtures: in-process proxy, moto S3, test helpers
+├── test_bootstrap.py            # Bootstrap scenarios (7 tests)
+├── test_download_after_clear.py # Index clearing edge case (1 test)
+├── test_history_sync.py         # History-specific tests (5 tests)
+├── test_memory_sync.py          # Memory-specific tests (5 tests)
+├── test_namespace_first.py      # URL routing tests (4 tests)
+├── test_normal_ops.py           # Upload/download/delete (9 tests)
+├── test_staleness.py            # Manifest-on-write (4 tests)
+└── test_state_mgmt.py           # Index/cache management (7 tests)
 ```
 
 ## Test Categories
 
 ### Bootstrap Tests (`test_bootstrap.py`)
-- Bootstrap from existing local content
-- Bootstrap from remote content  
-- Bidirectional merge scenarios
+Tests sync engine initialization scenarios:
+- Bootstrap from existing local content only
+- Bootstrap from remote content only
+- Bidirectional merge (local + remote files)
+- Content mismatch detection (same file, different content)
 
 ### Normal Operations (`test_normal_ops.py`)
+Tests standard sync operations:
 - Upload new and modified files
 - Download new and modified files
 - Delete propagation (local→remote, remote→local)
 - Nested directory structures
+- Multiple files in single sync
 
 ### Memory Sync (`test_memory_sync.py`)
+Tests memory-specific sync behavior:
 - Memory directory structure preservation
-- History file exclusion from memory sync
-- persona.md inclusion in memory sync
+- persona.md inclusion in sync
+- Proper namespace handling
 
 ### History Sync (`test_history_sync.py`)
+Tests history-specific sync behavior:
 - Session isolation (only target session synced)
-- Multiple independent sessions
 - Conversation history files
-- Session metadata preservation
+- Session metadata handling
 
 ### State Management (`test_state_mgmt.py`)
+Tests index and cache behavior:
 - Index persistence across engine instances
-- Index accuracy tracking
-- MD5 cache integration and cleanup
+- Index accuracy after operations
+- MD5 cache integration
 - Sync metadata file exclusion
 
 ### Staleness Detection (`test_staleness.py`)
-- Manifest-on-write optimization
+Tests manifest-on-write optimization:
+- Local index updates from write responses
 - Concurrent modification detection
-- No-op when already in sync
-- Tombstone tracking via manifest
+- No unnecessary fetches when in sync
+
+## Key Fixtures
+
+### `memory_proxy_server` (module-scoped)
+Starts an in-process memory proxy:
+- Runs on `http://127.0.0.1:18000` (avoids conflicts with default port)
+- Uses moto for S3 storage
+- Mocked authentication (always succeeds)
+- Automatically cleaned up after tests
+
+### `sync_client`
+Pre-configured `MemoryProxyClient` connected to the test server.
+
+### `memory_sync_engine` / `history_sync_engine`
+Pre-configured `SyncEngine` instances for memory or history sync testing.
+
+### `create_local_files` / `create_remote_files`
+Helper functions to set up test data:
+```python
+# Create local files
+create_local_files({
+    "memory/notes.md": "# Notes",
+    "memory/projects/alpha.md": "Alpha project"
+})
+
+# Create remote files
+create_remote_files("memory", {
+    "remote-only.md": "Content from remote"
+})
+```
+
+### `clean_namespace`
+Provides a unique namespace for each test to ensure isolation.
 
 ## Test Philosophy
 
-These are **true integration tests** - they test the full stack:
-- Real HTTP requests via `httpx`
-- Real MemoryProxyClient (not mocked)
-- Real FastAPI application (memory proxy)
-- Real S3 storage (via moto, LocalStack, or actual S3)
-- Real authentication flow
+These are **true integration tests** that test the full stack:
+- ✅ Real HTTP requests via httpx
+- ✅ Real MemoryProxyClient (not mocked)
+- ✅ Real FastAPI application
+- ✅ Real S3 operations (via moto)
+- ✅ No external dependencies required
 
-**We do NOT mock the memory proxy service.** If the service isn't running, tests skip with a helpful message.
-
-This approach:
-- ✅ Tests actual HTTP communication
-- ✅ Catches real integration issues
-- ✅ Validates complete workflows
-- ✅ Ensures client and server are compatible
-- ❌ Requires service to be running
-- ❌ Slower than pure unit tests
-
-For unit tests with mocks, see `tests/developer/test_memory_sync.py`.
-
-## Environment Variables
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `MEMORY_PROXY_PORT` | 8000 | Memory proxy service port |
-| `MEMORY_PROXY_HOST` | localhost | Memory proxy hostname |
-| `MEMORY_PROXY_TOKEN` | test-integration-token | Auth token |
-
-## Test Markers
-
-- `@pytest.mark.integration` - Integration test (requires proxy)
-- `@pytest.mark.requires_proxy` - Explicitly requires proxy service
-- `@pytest.mark.slow` - Slow-running test (performance tests)
-- `@pytest.mark.memory_sync` - Memory sync specific
-- `@pytest.mark.history_sync` - History sync specific
+For unit tests with mocked HTTP, see `tests/developer/test_memory_sync.py`.
 
 ## CI/CD Integration
 
-### GitHub Actions Example
+The tests run automatically in GitHub Actions. See `.github/workflows/integration-tests.yml`.
 
-```yaml
-name: Integration Tests
-
-on: [push, pull_request]
-
-jobs:
-  integration:
-    runs-on: ubuntu-latest
-    
-    services:
-      moto:
-        image: motoserver/moto
-        ports:
-          - 5000:5000
-    
-    steps:
-      - uses: actions/checkout@v2
-      
-      - name: Set up Python
-        uses: actions/setup-python@v2
-        with:
-          python-version: 3.11
-      
-      - name: Install dependencies
-        run: |
-          pip install -e .
-          pip install pytest
-      
-      - name: Start memory proxy
-        run: |
-          python -m silica.memory_proxy.app &
-          sleep 5
-      
-      - name: Run integration tests
-        run: pytest tests/integration/sync_client/ -v -m integration
-```
+No special setup is required - the in-process server and moto handle everything.
 
 ## Troubleshooting
 
-### Tests Skip with "Memory proxy not accessible"
+### Port Already in Use
 
-**Problem:** All tests are skipped with a message like:
-```
-SKIPPED [40] Memory proxy not accessible at http://localhost:8000
-Start the service with: python -m silica.memory_proxy.app
-```
+If you see `OSError: address already in use`:
+- Another test run may be using port 18000
+- Kill any orphaned processes: `lsof -i :18000`
 
-**Solution:**
-```bash
-# 1. Ensure memory proxy dependencies are installed
-pip install -e .
+### Tests Hanging
 
-# 2. Configure the memory proxy (create .env file in silica/memory_proxy/)
-cd silica/memory_proxy
-cp .env.example .env
-# Edit .env with your S3 and auth configuration
-
-# 3. Start the memory proxy service
-python -m silica.memory_proxy.app
-
-# 4. Verify it's running
-curl http://localhost:8000/health
-# Should return: {"status":"ok","storage":"connected"}
-```
-
-**For testing with moto (mock S3):**
-You can configure the memory proxy to use moto for S3 in tests. See `tests/memory_proxy/conftest.py` for examples.
-
-### Connection Refused Errors
-
-**Problem:** Tests fail with connection errors.
-
-**Solution:** Verify proxy configuration:
-```bash
-# Check proxy is running on correct port
-netstat -an | grep 8000
-
-# Set correct environment variables
-export MEMORY_PROXY_PORT=8000
-export MEMORY_PROXY_HOST=localhost
-```
-
-### S3 Storage Errors
-
-**Problem:** Tests fail with S3 errors.
-
-**Solution:** Ensure moto or LocalStack is configured:
-```bash
-# Memory proxy should be configured with moto
-# Check memory_proxy/config.py settings
-```
+The server fixture has a 5-second startup timeout. If tests hang:
+- Check for import errors in the memory proxy code
+- Ensure all dependencies are installed: `uv pip install -e ".[dev]"`
 
 ## Test Coverage
 
@@ -257,25 +173,9 @@ Current test suite covers:
 - ✅ Bootstrap scenarios (local, remote, bidirectional)
 - ✅ Normal operations (upload, download, delete)
 - ✅ Memory sync specifics
-- ✅ History sync specifics  
+- ✅ History sync specifics
 - ✅ Index and cache state management
 - ✅ Manifest-on-write optimization
-- ✅ Error handling (basic)
+- ✅ Namespace URL encoding
 
-Total: **40+ integration tests**
-
-## Future Enhancements
-
-- [ ] Conflict resolution tests (with LLM resolver)
-- [ ] Network error handling (timeout, retry)
-- [ ] Version conflict scenarios (412 errors)
-- [ ] Performance tests (large files, many files)
-- [ ] Multi-namespace concurrent tests
-- [ ] Compression integration (when implemented)
-
-## Notes
-
-- Tests use temporary directories (cleaned up automatically)
-- Each test gets a unique namespace (isolated)
-- Tests are designed to be repeatable and non-flaky
-- No manual cleanup required between test runs
+Total: **41 integration tests**
