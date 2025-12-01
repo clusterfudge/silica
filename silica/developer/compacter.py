@@ -95,11 +95,15 @@ class ConversationCompacter:
 
         Args:
             agent_context: AgentContext instance to get full API context from
-            model: Model name to use for token counting
+            model: Model name or alias to use for token counting
 
         Returns:
             int: Number of tokens for the complete context
         """
+        # Resolve model alias to full model name for the API
+        model_spec = get_model(model)
+        model = model_spec["title"]
+
         try:
             # Get the full context that would be sent to the API
             context_dict = agent_context.get_api_context()
@@ -387,12 +391,16 @@ class ConversationCompacter:
 
         Args:
             agent_context: AgentContext instance to get full API context from
-            model: Model name to use for token counting
+            model: Model name or alias to use for token counting
             debug: If True, print debug information about the compaction check
 
         Returns:
             bool: True if the conversation should be compacted
         """
+        # Resolve model alias to full model name
+        model_spec = get_model(model)
+        model = model_spec["title"]
+
         # Use accurate token counting method
         token_count = self.count_tokens(agent_context, model)
 
@@ -422,11 +430,15 @@ class ConversationCompacter:
 
         Args:
             agent_context: AgentContext instance to get full API context from
-            model: Model name to use for token counting
+            model: Model name or alias to use for summarization
 
         Returns:
             CompactionSummary: Summary of the compacted conversation
         """
+        # Resolve model alias to full model name for the API
+        model_spec = get_model(model)
+        model = model_spec["title"]
+
         # Get original token count using accurate method
         original_token_count = self.count_tokens(agent_context, model)
 
