@@ -470,7 +470,21 @@ class TestSyncEngine:
         test_file.write_bytes(content)
 
         # Configure AsyncMock
-        mock_client.write_blob.return_value = (True, "mock_md5", 1001)
+        # Include the uploaded file in the returned manifest
+        mock_file_metadata = FileMetadata(
+            md5="mock_md5",
+            last_modified=datetime.now(timezone.utc),
+            size=len(content),
+            version=1001,
+            is_deleted=False,
+        )
+        mock_sync_index = SyncIndexResponse(
+            namespace="test",
+            files={"memory/test.md": mock_file_metadata},
+            index_last_modified="2024-01-01T00:00:00Z",
+            index_version=1,
+        )
+        mock_client.write_blob.return_value = (True, "mock_md5", 1001, mock_sync_index)
 
         result = sync_engine.upload_file("memory/test.md", 1000)
 
@@ -553,7 +567,21 @@ class TestSyncEngine:
     def test_delete_remote(self, sync_engine, mock_client):
         """Test deleting a remote file."""
         # Configure AsyncMock
-        mock_client.delete_blob.return_value = 1001
+        # Include the tombstone in the returned manifest
+        mock_tombstone = FileMetadata(
+            md5="",
+            last_modified=datetime.now(timezone.utc),
+            size=0,
+            version=1001,
+            is_deleted=True,
+        )
+        mock_sync_index = SyncIndexResponse(
+            namespace="test",
+            files={"memory/test.md": mock_tombstone},
+            index_last_modified="2024-01-01T00:00:00Z",
+            index_version=1,
+        )
+        mock_client.delete_blob.return_value = (1001, mock_sync_index)
 
         result = sync_engine.delete_remote("memory/test.md", 1000)
 
@@ -588,7 +616,13 @@ class TestSyncEngine:
         test_file.write_text("test content")
 
         # Configure AsyncMock
-        mock_client.write_blob.return_value = (True, "mock_md5", 1001)
+        mock_sync_index = SyncIndexResponse(
+            namespace="test",
+            files={},
+            index_last_modified="2024-01-01T00:00:00Z",
+            index_version=1,
+        )
+        mock_client.write_blob.return_value = (True, "mock_md5", 1001, mock_sync_index)
 
         # Create plan
         plan = SyncPlan(
