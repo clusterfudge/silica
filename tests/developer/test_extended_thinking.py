@@ -32,11 +32,11 @@ class TestModelThinkingSupport:
         assert "thinking_pricing" in model
         assert model["thinking_pricing"]["thinking"] == 15.00  # Same as output price
 
-    def test_haiku_no_thinking_support(self):
-        """Haiku should not support thinking."""
+    def test_haiku_supports_thinking(self):
+        """Haiku 4.5 should support thinking."""
         model = get_model("haiku")
-        assert model["thinking_support"] is False
-        assert model["thinking_pricing"]["thinking"] == 0.0
+        assert model["thinking_support"] is True
+        assert model["thinking_pricing"]["thinking"] == 5.00  # Same as output price
 
     def test_sonnet_35_no_thinking_support(self):
         """Sonnet 3.5 should not support thinking."""
@@ -72,7 +72,7 @@ class TestThinkingConfiguration:
 
     def test_thinking_config_unsupported_model(self):
         """Unsupported model should return disabled config."""
-        model = get_model("haiku")
+        model = get_model("sonnet-3.5")
         config = get_thinking_config("normal", model)
         assert config == {"type": "disabled"}
 

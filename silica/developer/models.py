@@ -31,13 +31,13 @@ MODEL_MAP: dict[str, ModelSpec] = {
         "thinking_pricing": {"thinking": 15.00},  # Same as output tokens
     },
     "haiku": {
-        "title": "claude-3-5-haiku-20241022",
-        "pricing": {"input": 0.80, "output": 4.00},
-        "cache_pricing": {"write": 1.00, "read": 0.08},
+        "title": "claude-haiku-4-5-20251001",
+        "pricing": {"input": 1.00, "output": 5.00},
+        "cache_pricing": {"write": 1.25, "read": 0.10},
         "max_tokens": 8192,
-        "context_window": 100000,  # 100k tokens context window
-        "thinking_support": False,
-        "thinking_pricing": {"thinking": 0.00},  # Not supported
+        "context_window": 200000,  # 200k tokens context window
+        "thinking_support": True,
+        "thinking_pricing": {"thinking": 5.00},  # Same as output tokens
     },
     # Legacy model aliases for backwards compatibility
     "sonnet-3.5": {
