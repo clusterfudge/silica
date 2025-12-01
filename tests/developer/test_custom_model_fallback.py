@@ -11,7 +11,7 @@ def test_get_registered_model():
 
     opus = get_model("opus")
     assert opus["title"] == "claude-opus-4-5-20251101"
-    assert opus["pricing"]["input"] == 15.00
+    assert opus["pricing"]["input"] == 5.00
 
     haiku = get_model("haiku")
     assert haiku["title"] == "claude-haiku-4-5-20251001"

@@ -16,7 +16,7 @@ class TestModelThinkingSupport:
         model = get_model("opus")
         assert model["thinking_support"] is True
         assert "thinking_pricing" in model
-        assert model["thinking_pricing"]["thinking"] == 18.75  # Same as output price
+        assert model["thinking_pricing"]["thinking"] == 25.00  # Same as output price
 
     def test_sonnet_supports_thinking(self):
         """Sonnet 4.5 should support thinking."""
@@ -200,8 +200,8 @@ class TestUsageSummaryWithThinking:
         assert summary["total_output_tokens"] == 500
         assert summary["total_thinking_tokens"] == 4500
 
-        # Calculate expected thinking cost: 4500 tokens * $18.75/MTok (same as output) = $0.084375
-        expected_thinking_cost = 4500 * 18.75 / 1_000_000
+        # Calculate expected thinking cost: 4500 tokens * $25/MTok (same as output) = $0.1125
+        expected_thinking_cost = 4500 * 25.00 / 1_000_000
         assert abs(summary["thinking_cost"] - expected_thinking_cost) < 0.0001
 
     def test_usage_summary_with_dict_style_thinking(self, persona_base_dir):
