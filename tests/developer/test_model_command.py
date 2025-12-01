@@ -61,11 +61,11 @@ def test_model_command_change_model_by_short_name(mock_context):
     )
 
     assert "Model changed to:" in result
-    assert "claude-3-5-haiku-20241022" in result
+    assert "claude-haiku-4-5-20251001" in result
     assert "haiku" in result
 
     # Verify the context was updated
-    assert mock_context.model_spec["title"] == "claude-3-5-haiku-20241022"
+    assert mock_context.model_spec["title"] == "claude-haiku-4-5-20251001"
 
 
 def test_model_command_change_model_by_full_name(mock_context):
@@ -124,7 +124,7 @@ def test_model_command_case_insensitive(mock_context):
 
     # Should still work
     assert "Model changed to:" in result
-    assert mock_context.model_spec["title"] == "claude-3-5-haiku-20241022"
+    assert mock_context.model_spec["title"] == "claude-haiku-4-5-20251001"
 
 
 def test_model_command_whitespace_handling(mock_context):
@@ -138,4 +138,4 @@ def test_model_command_whitespace_handling(mock_context):
     )
 
     assert "Model changed to:" in result
-    assert mock_context.model_spec["title"] == "claude-3-5-haiku-20241022"
+    assert mock_context.model_spec["title"] == "claude-haiku-4-5-20251001"

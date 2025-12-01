@@ -89,7 +89,7 @@ These can be combined with primary tags as needed:
 
     try:
         response = anthropic.messages.create(
-            model="claude-3-haiku-20240307",
+            model="claude-haiku-4-5-20251001",
             max_tokens=500,
             temperature=0.7,
             system=system_message,

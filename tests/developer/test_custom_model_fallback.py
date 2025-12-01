@@ -14,8 +14,8 @@ def test_get_registered_model():
     assert opus["pricing"]["input"] == 15.00
 
     haiku = get_model("haiku")
-    assert haiku["title"] == "claude-3-5-haiku-20241022"
-    assert haiku["pricing"]["input"] == 0.80
+    assert haiku["title"] == "claude-haiku-4-5-20251001"
+    assert haiku["pricing"]["input"] == 1.00
 
 
 def test_get_model_case_insensitive():
