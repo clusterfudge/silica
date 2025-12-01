@@ -7,6 +7,13 @@ on:
     branches: [ main, develop ]
   workflow_dispatch:  # Allow manual trigger
 
+# Permissions needed for publish-unit-test-result-action
+permissions:
+  contents: read
+  issues: read
+  checks: write
+  pull-requests: write
+
 jobs:
   integration-tests:
     name: Run integration tests
