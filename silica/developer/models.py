@@ -14,12 +14,12 @@ class ModelSpec(TypedDict):
 MODEL_MAP: dict[str, ModelSpec] = {
     "opus": {
         "title": "claude-opus-4-5-20251101",
-        "pricing": {"input": 15.00, "output": 18.75},
-        "cache_pricing": {"write": 3.75, "read": 0.30},
+        "pricing": {"input": 5.00, "output": 25.00},
+        "cache_pricing": {"write": 6.25, "read": 0.50},
         "max_tokens": 8192,
         "context_window": 200000,  # 200k tokens context window
         "thinking_support": True,
-        "thinking_pricing": {"thinking": 18.75},  # Same as output tokens
+        "thinking_pricing": {"thinking": 25.00},  # Same as output tokens
     },
     "sonnet": {
         "title": "claude-sonnet-4-5-20250929",
