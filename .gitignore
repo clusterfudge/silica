@@ -42,5 +42,5 @@ data/
 -e 
 # Local session history and memory
 history/
-memory/
+/memory/
 .persona
