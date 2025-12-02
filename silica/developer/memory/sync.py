@@ -18,15 +18,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from silica.developer.memory.proxy_client import (
-    FileMetadata,
-    MemoryProxyClient,
-    VersionConflictError,
-    NotFoundError,
-)
 from silica.developer.memory.conflict_resolver import (
     ConflictResolver,
     ConflictResolutionError,
+)
+from silica.developer.memory.md5_cache import MD5Cache
+from silica.developer.memory.proxy_client import (
+    FileMetadata,
+    MemoryProxyClient,
+    NotFoundError,
+    VersionConflictError,
 )
 
 if TYPE_CHECKING:
@@ -306,43 +307,15 @@ class SyncEngine:
         self.conflict_resolver = conflict_resolver
 
         self.local_index = LocalIndex(config.index_file)
+        self.md5_cache = MD5Cache()
 
-        # Derive base directory from index file location
-        # For memory: ~/.silica/personas/default/.sync-index-memory.json → ~/.silica/personas/default
-        # For history: ~/.silica/personas/default/history/session-1/.sync-index.json → ~/.silica/personas/default
-        self._base_dir = self._determine_base_dir()
+        # Base directory for file operations (where files are read from/written to)
+        self._base_dir = config.base_dir
 
-    def _determine_base_dir(self) -> Path:
-        """Determine base directory for file operations from config.
-
-        Returns the directory where actual files are stored, determined from
-        the first scan path in the config.
-        """
-        if not self.config.scan_paths:
-            # Fallback: use index file's parent
-            return self.config.index_file.parent
-
-        first_path = Path(self.config.scan_paths[0])
-
-        # If it's a file (e.g., persona.md), use its parent
-        if first_path.is_file() or not first_path.exists():
-            return first_path.parent
-
-        # If it's a directory, use its parent to get the persona directory
-        # e.g., .../personas/default/memory → .../personas/default
-        # e.g., .../personas/default/history/session-1 → .../personas/default
-        if "history" in first_path.parts:
-            # For history paths, go up to persona dir
-            # Find 'personas' in path and go two levels deep from there
-            parts = first_path.parts
-            if "personas" in parts:
-                persona_idx = parts.index("personas")
-                if persona_idx + 1 < len(parts):
-                    # Return personas/<name>
-                    return Path(*parts[: persona_idx + 2])
-
-        # For memory or other paths, use parent
-        return first_path.parent
+        # Map sync paths to their full local filesystem paths
+        # Since paths in sync are relative to scan_paths, we need this mapping
+        # to find files during upload/download operations
+        self._path_to_full_path: dict[str, Path] = {}
 
     def analyze_sync_operations(self) -> SyncPlan:
         """Analyze local vs remote and create sync plan.
@@ -437,7 +410,11 @@ class SyncEngine:
         for conflict in conflicts:
             try:
                 # Get local content
-                local_path = self._base_dir / conflict.path
+                # Look up full path from mapping (built during scan)
+                local_path = self._path_to_full_path.get(conflict.path)
+                if not local_path:
+                    # Fallback for backward compatibility
+                    local_path = self._base_dir / conflict.path
                 if not local_path.exists():
                     logger.warning(
                         f"Local file missing during conflict resolution: {conflict.path}"
@@ -505,8 +482,7 @@ class SyncEngine:
                 ) from e
 
         logger.info(
-            f"Successfully resolved {len(resolved_uploads)} conflicts, "
-            f"ready for upload"
+            f"Successfully resolved {len(resolved_uploads)} conflicts, ready for upload"
         )
         return resolved_uploads
 
@@ -856,19 +832,23 @@ class SyncEngine:
         Returns:
             True if successful, False otherwise
         """
-        full_path = self._base_dir / path
+        # Look up full path from mapping (built during scan)
+        full_path = self._path_to_full_path.get(path)
+        if not full_path:
+            # Fallback for backward compatibility
+            full_path = self._base_dir / path
 
         if not full_path.exists():
             logger.error(f"Cannot upload {path}: file not found")
             return False
 
         try:
+            # Calculate MD5 using cache
+            self.md5_cache.calculate_md5(full_path)
+
             # Read file content
             with open(full_path, "rb") as f:
                 content = f.read()
-
-            # Calculate MD5
-            self._calculate_md5(content)
 
             # Upload to remote
             # write_blob returns tuple (is_new, md5, version, sync_index)
@@ -901,12 +881,33 @@ class SyncEngine:
         """Download file from remote.
 
         Args:
-            path: File path relative to base directory
+            path: File path relative to namespace (e.g., "test.md" or "projects/alpha.md")
 
         Returns:
             True if successful, False otherwise
         """
-        full_path = self._base_dir / path
+        # Look up full path from mapping (built during scan)
+        full_path = self._path_to_full_path.get(path)
+        if not full_path:
+            # For new files being downloaded, determine where they should go
+            # Check if path matches any explicit file in scan_paths
+            target_dir = None
+            for scan_path in self.config.scan_paths:
+                scan_path = Path(scan_path)
+                # Check if this scan_path is a file and matches our path
+                if not scan_path.is_dir() and scan_path.name == path:
+                    # This is the file itself (e.g., persona.md)
+                    full_path = scan_path
+                    break
+                # Otherwise, use first directory as download location
+                elif not target_dir and (scan_path.is_dir() or not scan_path.exists()):
+                    target_dir = scan_path
+
+            if not full_path and target_dir:
+                full_path = target_dir / path
+            elif not full_path:
+                # Fallback to base_dir if no directory found
+                full_path = self._base_dir / path
 
         try:
             # Download from remote
@@ -921,6 +922,9 @@ class SyncEngine:
             # Write file
             with open(full_path, "wb") as f:
                 f.write(content)
+
+            # Update MD5 cache for the downloaded file
+            self.md5_cache.set(full_path, md5)
 
             # Create metadata object
             file_metadata = FileMetadata(
@@ -955,11 +959,17 @@ class SyncEngine:
         Returns:
             True if successful, False otherwise
         """
-        full_path = self._base_dir / path
+        # Look up full path from mapping (built during scan)
+        full_path = self._path_to_full_path.get(path)
+        if not full_path:
+            # Fallback for backward compatibility
+            full_path = self._base_dir / path
 
         try:
             if full_path.exists():
                 full_path.unlink()
+                # Invalidate cache for deleted file
+                self.md5_cache.invalidate(full_path)
 
             # Update local index (don't remove, mark as deleted to track remote state)
             index_entry = self.local_index.get_entry(path)
@@ -1023,15 +1033,22 @@ class SyncEngine:
         return SyncStatus()
 
     def _scan_local_files(self) -> dict[str, FileInfo]:
-        """Scan configured local paths for files to sync.
+        """Scan local files based on configuration.
 
         Uses config.scan_paths to determine which files/directories to scan.
-        This enables multiple engines to scan different subsets of files.
+        Paths are relative to each scan_path to avoid duplication in S3 keys.
+
+        For example:
+        - scan_path: /personas/foo/memory/
+        - file: /personas/foo/memory/notes.md
+        - stored path: notes.md (not memory/notes.md)
 
         Returns:
             Dictionary mapping paths to FileInfo
         """
         files = {}
+        # Clear and rebuild path mapping
+        self._path_to_full_path.clear()
 
         # Scan configured paths
         for scan_path in self.config.scan_paths:
@@ -1043,19 +1060,24 @@ class SyncEngine:
 
             if scan_path.is_file():
                 # Single file (e.g., persona.md)
+                # Use just the filename as the path
                 rel_path = scan_path.name
+
                 try:
-                    with open(scan_path, "rb") as f:
-                        content = f.read()
+                    # Use cache for MD5 calculation
+                    md5 = self.md5_cache.calculate_md5(scan_path)
 
                     files[rel_path] = FileInfo(
                         path=rel_path,
-                        md5=self._calculate_md5(content),
-                        size=len(content),
+                        md5=md5,
+                        size=scan_path.stat().st_size,
                         last_modified=datetime.fromtimestamp(
                             scan_path.stat().st_mtime, tz=timezone.utc
                         ),
                     )
+                    # Store mapping for file operations
+                    self._path_to_full_path[rel_path] = scan_path
+
                 except Exception as e:
                     logger.warning(f"Failed to read {scan_path}: {e}")
 
@@ -1069,32 +1091,36 @@ class SyncEngine:
                     if file_path.name in [
                         ".sync-index.json",
                         ".sync-index-memory.json",
+                        ".sync-index-history.json",
                         ".sync-log.jsonl",
                         ".sync-log-memory.jsonl",
+                        ".sync-log-history.jsonl",
                     ]:
                         continue
 
-                    # Get relative path from scan_path's parent
-                    # This preserves directory structure (e.g., "memory/file.md")
+                    # Get path relative to scan_path (not base_dir!)
+                    # This ensures paths don't duplicate directory structure
                     try:
-                        rel_path = file_path.relative_to(scan_path.parent)
+                        rel_path = file_path.relative_to(scan_path)
                     except ValueError:
-                        # If relative_to fails, just use filename
-                        rel_path = file_path.name
+                        # Fallback: just use filename
+                        rel_path = Path(file_path.name)
 
-                    # Read file and calculate MD5
+                    # Calculate MD5 using cache
                     try:
-                        with open(file_path, "rb") as f:
-                            content = f.read()
+                        md5 = self.md5_cache.calculate_md5(file_path)
 
                         files[str(rel_path)] = FileInfo(
                             path=str(rel_path),
-                            md5=self._calculate_md5(content),
-                            size=len(content),
+                            md5=md5,
+                            size=file_path.stat().st_size,
                             last_modified=datetime.fromtimestamp(
                                 file_path.stat().st_mtime, tz=timezone.utc
                             ),
                         )
+                        # Store mapping for file operations
+                        self._path_to_full_path[str(rel_path)] = file_path
+
                     except Exception as e:
                         logger.warning(f"Failed to read {rel_path}: {e}")
                         continue
