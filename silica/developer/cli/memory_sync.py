@@ -404,15 +404,16 @@ def sync(
 
         if dry_run:
             console.print(
-                f"[cyan]Analyzing sync plan for persona '{persona_name}'...[/cyan]\n"
+                f"[cyan]Analyzing sync plan for persona '{persona_name}'...[/cyan]"
             )
 
-            # This is a placeholder - the actual sync_with_retry doesn't have a dry-run mode yet
-            # We would need to add a method to just analyze without executing
-            console.print(
-                "[yellow]Dry-run mode: Would perform sync analysis here[/yellow]"
-            )
-            console.print("[dim]Full dry-run implementation coming soon[/dim]")
+            # Analyze what would be synced
+            plan = sync_engine.analyze_sync_operations()
+
+            # Display the plan using shared helper
+            from silica.developer.cli.sync_helpers import display_sync_plan
+
+            display_sync_plan(console, plan, context=f"persona '{persona_name}'")
             return
 
         console.print(f"[cyan]Syncing memory for persona '{persona_name}'...[/cyan]\n")

@@ -294,37 +294,16 @@ def sync(
 
         if dry_run:
             console.print(
-                f"[cyan]Analyzing sync plan for session '{session}'...[/cyan]\n"
+                f"[cyan]Analyzing sync plan for session '{session}'...[/cyan]"
             )
 
             # Analyze what would be synced
             plan = sync_engine.analyze_sync_operations()
 
-            console.print("[bold]Sync Plan:[/bold]")
-            console.print(f"  Uploads:        {len(plan.upload)}")
-            console.print(f"  Downloads:      {len(plan.download)}")
-            console.print(f"  Conflicts:      {len(plan.conflicts)}")
-            console.print(f"  Total ops:      {plan.total_operations}")
+            # Display the plan using shared helper
+            from silica.developer.cli.sync_helpers import display_sync_plan
 
-            if plan.upload:
-                console.print("\n[bold cyan]Files to upload:[/bold cyan]")
-                for op in plan.upload[:10]:  # Show first 10
-                    console.print(f"  • {op.path}")
-                if len(plan.upload) > 10:
-                    console.print(f"  ... and {len(plan.upload) - 10} more")
-
-            if plan.download:
-                console.print("\n[bold cyan]Files to download:[/bold cyan]")
-                for op in plan.download[:10]:  # Show first 10
-                    console.print(f"  • {op.path}")
-                if len(plan.download) > 10:
-                    console.print(f"  ... and {len(plan.download) - 10} more")
-
-            if plan.conflicts:
-                console.print("\n[bold yellow]Conflicts:[/bold yellow]")
-                for op in plan.conflicts:
-                    console.print(f"  • {op.path}")
-
+            display_sync_plan(console, plan, context=f"session '{session}'")
             return
 
         console.print(f"[cyan]Syncing history for session '{session}'...[/cyan]\n")
