@@ -330,10 +330,14 @@ def test_sync_command_all_sessions(mock_config, mock_persona, capsys):
                         sync()
 
                         captured = capsys.readouterr()
-                        # Should mention syncing multiple sessions
-                        assert "3 sessions" in captured.out
+                        # Should mention syncing multiple sessions (title is "Syncing 3 Sessions")
+                        assert "3 Sessions" in captured.out
                         # Should show aggregated results
                         assert "Sessions synced: 3/3" in captured.out
+                        # Should show each session in the progress display
+                        assert "session-abc123" in captured.out
+                        assert "session-def456" in captured.out
+                        assert "session-ghi789" in captured.out
                         # sync_with_retry should be called 3 times
                         assert mock_sync.call_count == 3
 
