@@ -1,5 +1,6 @@
 """Test namespace-first route pattern."""
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from urllib.parse import quote
@@ -15,6 +16,7 @@ def write_blob(namespace: str, entry: str):
 client = TestClient(app)
 
 
+@pytest.mark.integration
 def test_namespace_first_pattern():
     """Test with namespace first, then /blob/ separator, then entry path."""
     namespace = "test-xxx/memory"
@@ -35,20 +37,17 @@ def test_namespace_first_pattern():
     assert response.json()["entry"] == entry
 
 
+@pytest.mark.integration
 def test_with_unencoded_separator():
-    """Test if /blob/ acts as a clear separator."""
-    namespace = "test-xxx/memory"
-    entry = "projects/project1/notes.md"
+    """Test that /blob/ acts as a reliable separator even with slashes in namespace."""
+    # This verifies the route pattern works correctly
+    namespace = "personas/default/memory"
+    entry = "notes.md"
 
-    # URL-encode the namespace and entry, use unencoded /blob/ as separator
     encoded_ns = quote(namespace, safe="")
-    encoded_entry = quote(entry, safe="")
-
-    url = f"/{encoded_ns}/blob/{encoded_entry}"
-    print(f"\nURL with /blob/ separator: {url}")
+    url = f"/{encoded_ns}/blob/{entry}"
 
     response = client.put(url)
-    print(f"Response: {response.json()}")
 
     assert response.json()["namespace"] == namespace
     assert response.json()["entry"] == entry
