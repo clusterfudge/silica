@@ -174,6 +174,7 @@ def sync_engine_with_resolver(temp_dir, proxy_client):
         namespace="test",
         scan_paths=[temp_dir / "memory"],
         index_file=temp_dir / ".sync-index.json",
+        base_dir=temp_dir,
     )
     engine = SyncEngine(
         client=proxy_client,
@@ -205,9 +206,9 @@ class TestConflictResolution:
 
         # Modify remotely
         remote_index = proxy_client.get_sync_index("test")
-        version = remote_index.files["memory/test.md"].version
+        version = remote_index.files["test.md"].version
         proxy_client.write_blob(
-            "test", "memory/test.md", b"Remote modification", expected_version=version
+            "test", "test.md", b"Remote modification", expected_version=version
         )
 
         # Detect conflict
@@ -219,7 +220,7 @@ class TestConflictResolution:
 
         assert len(resolved_uploads) == 1
         assert resolved_uploads[0].type == "upload"
-        assert resolved_uploads[0].path == "memory/test.md"
+        assert resolved_uploads[0].path == "test.md"
 
         # File should contain local content (mock resolver uses local strategy)
         assert test_file.read_text() == "Local modification"
@@ -241,15 +242,15 @@ class TestConflictResolution:
         # Modify both sides
         test_file.write_text("Local modification")
         remote_index = proxy_client.get_sync_index("test")
-        version = remote_index.files["memory/test.md"].version
+        version = remote_index.files["test.md"].version
         proxy_client.write_blob(
-            "test", "memory/test.md", b"Remote modification", expected_version=version
+            "test", "test.md", b"Remote modification", expected_version=version
         )
 
         # Sync should automatically resolve conflict
         result2 = sync_with_retry(sync_engine_with_resolver, max_retries=3)
         assert len(result2.succeeded) == 1
-        assert result2.succeeded[0].path == "memory/test.md"
+        assert result2.succeeded[0].path == "test.md"
 
     def test_sync_without_resolver_raises_error(self, temp_dir, proxy_client):
         """Test that sync_with_retry requires a resolver."""
@@ -259,6 +260,7 @@ class TestConflictResolution:
             namespace="test",
             scan_paths=[temp_dir / "memory"],
             index_file=temp_dir / ".sync-index.json",
+            base_dir=temp_dir,
         )
         engine = SyncEngine(
             client=proxy_client,
@@ -289,7 +291,7 @@ class TestConflictResolution:
             result.failed.append(
                 SyncOperationDetail(
                     type="upload",
-                    path="memory/test.md",
+                    path="test.md",
                     reason="Mock failure",
                 )
             )
@@ -320,11 +322,11 @@ class TestConflictResolution:
         # Simulate version conflict by modifying remote twice
         # (once before our upload, causing 412)
         remote_index = proxy_client.get_sync_index("test")
-        version = remote_index.files["memory/test.md"].version
+        version = remote_index.files["test.md"].version
 
         # Remote changes
         proxy_client.write_blob(
-            "test", "memory/test.md", b"Remote mod 1", expected_version=version
+            "test", "test.md", b"Remote mod 1", expected_version=version
         )
 
         # Now our sync will get 412 when trying to upload

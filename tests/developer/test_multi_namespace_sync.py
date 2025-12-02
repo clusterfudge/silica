@@ -149,10 +149,12 @@ class TestMultiNamespaceIndependence:
         # Analyze sync
         plan = engine.analyze_sync_operations()
 
-        # Should include memory files and persona.md
+        # Should include memory files (relative to memory/) and persona.md
         upload_paths = {op.path for op in plan.upload}
-        assert "memory/note1.md" in upload_paths
-        assert "memory/note2.md" in upload_paths
+        # Memory files are relative to memory/ scan_path
+        assert "note1.md" in upload_paths
+        assert "note2.md" in upload_paths
+        # persona.md is a single file scan_path
         assert "persona.md" in upload_paths
 
         # Should NOT include history files
@@ -170,10 +172,10 @@ class TestMultiNamespaceIndependence:
         # Analyze sync
         plan = engine.analyze_sync_operations()
 
-        # Should include session-1 files (relative to history/)
+        # Should include session-1 files (relative to session-1/)
         upload_paths = {op.path for op in plan.upload}
-        assert "session-1/001_user.md" in upload_paths
-        assert "session-1/002_assistant.md" in upload_paths
+        assert "001_user.md" in upload_paths
+        assert "002_assistant.md" in upload_paths
 
         # Should NOT include session-2 files
         assert not any("session-2" in path for path in upload_paths)
@@ -181,6 +183,8 @@ class TestMultiNamespaceIndependence:
         # Should NOT include memory files or persona.md
         assert not any("memory" in path for path in upload_paths)
         assert "persona.md" not in upload_paths
+        assert "note1.md" not in upload_paths
+        assert "note2.md" not in upload_paths
 
     def test_multiple_history_engines_for_different_sessions(
         self, mock_client, persona_dir
@@ -209,13 +213,13 @@ class TestMultiNamespaceIndependence:
         plan2 = engine2.analyze_sync_operations()
         upload_paths2 = {op.path for op in plan2.upload}
 
-        # session-1 should only see session-1 files
-        assert "session-1/001_user.md" in upload_paths1
-        assert not any("session-2" in path for path in upload_paths1)
+        # Both sessions have the same file names (relative to their session dir)
+        assert "001_user.md" in upload_paths1
+        assert "002_assistant.md" in upload_paths1
+        assert "001_user.md" in upload_paths2
+        assert "002_assistant.md" in upload_paths2
 
-        # session-2 should only see session-2 files
-        assert "session-2/001_user.md" in upload_paths2
-        assert not any("session-1" in path for path in upload_paths2)
+        # But they're in different namespaces so they don't interfere
 
     def test_engines_use_independent_indices(self, mock_client, persona_dir):
         """Test that different engines use independent indices (no shared state)."""
@@ -233,7 +237,7 @@ class TestMultiNamespaceIndependence:
 
         # Update in memory engine
         memory_engine.local_index.update_entry(
-            "memory/test.md",
+            "test.md",
             FileMetadata(
                 md5="test_md5",
                 last_modified=datetime.now(timezone.utc),
@@ -244,7 +248,7 @@ class TestMultiNamespaceIndependence:
         )
 
         # History engine should not see this entry
-        assert history_engine.local_index.get_entry("memory/test.md") is None
+        assert history_engine.local_index.get_entry("test.md") is None
 
     def test_concurrent_sync_operations_dont_interfere(self, mock_client, persona_dir):
         """Test that syncing different namespaces doesn't cause conflicts."""
@@ -269,7 +273,8 @@ class TestMultiNamespaceIndependence:
         memory_paths = {op.path for op in memory_plan.upload}
         history_paths = {op.path for op in history_plan.upload}
 
-        # No overlap
+        # No overlap - memory has note1.md, note2.md, persona.md
+        # history has 001_user.md, 002_assistant.md
         assert len(memory_paths & history_paths) == 0
 
     def test_index_persistence_per_namespace(self, mock_client, persona_dir):
@@ -280,7 +285,7 @@ class TestMultiNamespaceIndependence:
         # Create engines and update indices
         memory_engine = SyncEngine(client=mock_client, config=memory_config)
         memory_engine.local_index.update_entry(
-            "memory/note.md",
+            "note.md",
             FileMetadata(
                 md5="memory_md5",
                 last_modified=datetime.now(timezone.utc),
@@ -293,7 +298,7 @@ class TestMultiNamespaceIndependence:
 
         history_engine = SyncEngine(client=mock_client, config=history_config)
         history_engine.local_index.update_entry(
-            "history/session-1/msg.md",
+            "msg.md",
             FileMetadata(
                 md5="history_md5",
                 last_modified=datetime.now(timezone.utc),
@@ -313,25 +318,19 @@ class TestMultiNamespaceIndependence:
         new_history_engine.local_index.load()
 
         # Memory index should have memory entry only
-        memory_entry = new_memory_engine.local_index.get_entry("memory/note.md")
+        memory_entry = new_memory_engine.local_index.get_entry("note.md")
         assert memory_entry is not None
         assert memory_entry.md5 == "memory_md5"
 
-        history_entry_in_memory = new_memory_engine.local_index.get_entry(
-            "history/session-1/msg.md"
-        )
+        history_entry_in_memory = new_memory_engine.local_index.get_entry("msg.md")
         assert history_entry_in_memory is None
 
         # History index should have history entry only
-        history_entry = new_history_engine.local_index.get_entry(
-            "history/session-1/msg.md"
-        )
+        history_entry = new_history_engine.local_index.get_entry("msg.md")
         assert history_entry is not None
         assert history_entry.md5 == "history_md5"
 
-        memory_entry_in_history = new_history_engine.local_index.get_entry(
-            "memory/note.md"
-        )
+        memory_entry_in_history = new_history_engine.local_index.get_entry("note.md")
         assert memory_entry_in_history is None
 
 
