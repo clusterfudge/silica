@@ -35,6 +35,7 @@ class HealthResponse(BaseModel):
 
     status: str = Field(..., description="Health status")
     storage: str = Field(..., description="Storage connectivity status")
+    version: str = Field(..., description="API version")
 
 
 class ErrorResponse(BaseModel):

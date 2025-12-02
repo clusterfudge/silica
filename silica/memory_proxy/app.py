@@ -28,11 +28,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# API version - update this when making changes to help track deployments
+API_VERSION = "0.3.0"
+
 # Create FastAPI app
 app = FastAPI(
     title="Memory Proxy Service",
     description="Remote KV proxy for blob storage with sync support and namespaces",
-    version="0.2.0",
+    version=API_VERSION,
 )
 
 # Storage will be initialized on startup or can be set externally (for tests)
@@ -58,16 +61,20 @@ async def health_check():
     """
     Health check endpoint (no authentication required).
 
-    Returns service health and storage connectivity status.
+    Returns service health, storage connectivity status, and API version.
     """
     storage_ok = get_storage().health_check()
 
     if storage_ok:
-        return HealthResponse(status="ok", storage="connected")
+        return HealthResponse(status="ok", storage="connected", version=API_VERSION)
     else:
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            content={"status": "error", "storage": "disconnected"},
+            content={
+                "status": "error",
+                "storage": "disconnected",
+                "version": API_VERSION,
+            },
         )
 
 
