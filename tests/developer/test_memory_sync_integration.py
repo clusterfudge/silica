@@ -141,6 +141,7 @@ def sync_engine(proxy_client, temp_persona_dir):
             temp_persona_dir / "persona.md",
         ],
         index_file=temp_persona_dir / ".sync-index.json",
+        base_dir=temp_persona_dir,
     )
     return SyncEngine(client=proxy_client, config=config)
 
@@ -183,19 +184,21 @@ class TestEndToEndSync:
         remote_index = proxy_client.get_sync_index("test-persona")
         assert len(remote_index.files) == 3
 
+        # Paths in remote match what local scan produces
         paths = set(remote_index.files.keys())
-        assert "memory/file1.md" in paths
-        assert "memory/file2.md" in paths
+        assert "file1.md" in paths
+        assert "file2.md" in paths
         assert "persona.md" in paths
 
     def test_download_remote_files(self, sync_engine, temp_persona_dir, proxy_client):
         """Test downloading files from remote when local is empty."""
         # Upload files directly to remote (expected_version=0 means create new)
+        # Use paths that match what sync engine expects
         proxy_client.write_blob(
-            "test-persona", "memory/remote1.md", b"Remote content 1", expected_version=0
+            "test-persona", "remote1.md", b"Remote content 1", expected_version=0
         )
         proxy_client.write_blob(
-            "test-persona", "memory/remote2.md", b"Remote content 2", expected_version=0
+            "test-persona", "remote2.md", b"Remote content 2", expected_version=0
         )
 
         # Analyze sync
@@ -212,7 +215,7 @@ class TestEndToEndSync:
         assert len(result.succeeded) == 2
         assert len(result.failed) == 0
 
-        # Verify files exist locally
+        # Verify files exist locally (downloaded to first scan_path directory)
         memory_dir = temp_persona_dir / "memory"
         assert (memory_dir / "remote1.md").exists()
         assert (memory_dir / "remote2.md").exists()
@@ -227,7 +230,7 @@ class TestEndToEndSync:
 
         # Create remote file (expected_version=0 means create new)
         proxy_client.write_blob(
-            "test-persona", "memory/remote.md", b"Remote content", expected_version=0
+            "test-persona", "remote.md", b"Remote content", expected_version=0
         )
 
         # Analyze sync
@@ -252,8 +255,8 @@ class TestEndToEndSync:
         # Verify both files exist remotely
         remote_index = proxy_client.get_sync_index("test-persona")
         paths = set(remote_index.files.keys())
-        assert "memory/local.md" in paths
-        assert "memory/remote.md" in paths
+        assert "local.md" in paths
+        assert "remote.md" in paths
 
     def test_no_sync_when_in_sync(self, sync_engine, temp_persona_dir, proxy_client):
         """Test that files already in sync don't get re-synced."""
@@ -292,7 +295,7 @@ class TestEndToEndSync:
         # Second sync should detect change
         plan2 = sync_engine.analyze_sync_operations()
         assert len(plan2.upload) == 1
-        assert plan2.upload[0].path == "memory/modified.md"
+        assert plan2.upload[0].path == "modified.md"
         assert plan2.upload[0].reason == "Local file modified"
 
         # Execute and verify
@@ -302,7 +305,7 @@ class TestEndToEndSync:
         # Verify remote has new content
         # read_blob returns: (content, md5, last_modified, content_type, version)
         content, md5, last_modified, content_type, version = proxy_client.read_blob(
-            "test-persona", "memory/modified.md"
+            "test-persona", "modified.md"
         )
         assert content == b"Modified content"
 
@@ -321,11 +324,11 @@ class TestEndToEndSync:
 
         # Modify remotely (get current version first)
         remote_index = proxy_client.get_sync_index("test-persona")
-        current_version = remote_index.files["memory/modified.md"].version
+        current_version = remote_index.files["modified.md"].version
 
         proxy_client.write_blob(
             "test-persona",
-            "memory/modified.md",
+            "modified.md",
             b"Remotely modified content",
             expected_version=current_version,
         )
@@ -333,7 +336,7 @@ class TestEndToEndSync:
         # Second sync should detect change
         plan2 = sync_engine.analyze_sync_operations()
         assert len(plan2.download) == 1
-        assert plan2.download[0].path == "memory/modified.md"
+        assert plan2.download[0].path == "modified.md"
         assert plan2.download[0].reason == "Remote file modified"
 
         # Execute and verify
@@ -359,11 +362,11 @@ class TestEndToEndSync:
 
         # Modify remotely
         remote_index = proxy_client.get_sync_index("test-persona")
-        current_version = remote_index.files["memory/conflict.md"].version
+        current_version = remote_index.files["conflict.md"].version
 
         proxy_client.write_blob(
             "test-persona",
-            "memory/conflict.md",
+            "conflict.md",
             b"Remote modification",
             expected_version=current_version,
         )
@@ -371,7 +374,7 @@ class TestEndToEndSync:
         # Second sync should detect conflict
         plan2 = sync_engine.analyze_sync_operations()
         assert len(plan2.conflicts) == 1
-        assert plan2.conflicts[0].path == "memory/conflict.md"
+        assert plan2.conflicts[0].path == "conflict.md"
         assert (
             plan2.conflicts[0].reason
             == "Both local and remote modified since last sync"
@@ -394,7 +397,7 @@ class TestEndToEndSync:
         for i in range(10, 15):
             proxy_client.write_blob(
                 "test-persona",
-                f"memory/file{i}.md",
+                f"file{i}.md",
                 f"Remote content {i}".encode(),
                 expected_version=0,
             )
@@ -438,12 +441,13 @@ class TestEndToEndSync:
 
         # Should succeed
         assert len(result.succeeded) == 1
-        assert result.succeeded[0].path == "memory/subdir/deep/nested_file.md"
+        # Path is relative to scan_path (memory/)
+        assert result.succeeded[0].path == "subdir/deep/nested_file.md"
 
         # Verify remotely
         remote_index = proxy_client.get_sync_index("test-persona")
         paths = set(remote_index.files.keys())
-        assert "memory/subdir/deep/nested_file.md" in paths
+        assert "subdir/deep/nested_file.md" in paths
 
     def test_local_index_persists(self, proxy_client, temp_persona_dir):
         """Test that local index persists across SyncEngine instances."""
@@ -455,6 +459,7 @@ class TestEndToEndSync:
             namespace="test-persona",
             scan_paths=[temp_persona_dir / "memory"],
             index_file=temp_persona_dir / ".sync-index.json",
+            base_dir=temp_persona_dir,
         )
 
         # Create first engine and sync a file
@@ -483,6 +488,7 @@ class TestEndToEndSync:
             namespace="test-persona",
             scan_paths=[temp_persona_dir / "memory"],
             index_file=temp_persona_dir / ".sync-index.json",
+            base_dir=temp_persona_dir,
         )
 
         # Perform sync
@@ -501,7 +507,7 @@ class TestEndToEndSync:
         engine2 = SyncEngine(client=proxy_client, config=config)
 
         # Index should track the synced file
-        index_entry = engine2.local_index.get_entry("memory/logged.md")
+        index_entry = engine2.local_index.get_entry("logged.md")
         assert index_entry is not None
         assert index_entry.md5 is not None
         assert index_entry.size > 0
