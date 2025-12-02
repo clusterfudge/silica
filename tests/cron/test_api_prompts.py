@@ -223,11 +223,6 @@ class TestPromptExecutionBackgroundTask:
         self, mock_session_local, mock_scheduler, client, sample_prompt
     ):
         """Test successful background execution."""
-        import threading
-
-        # Use an Event to signal when the background thread has called _call_agent
-        call_completed = threading.Event()
-
         # Mock the background database session
         mock_bg_session = MagicMock()
         mock_session_local.return_value = mock_bg_session
@@ -238,26 +233,21 @@ class TestPromptExecutionBackgroundTask:
             mock_execution
         )
 
-        # Mock scheduler success with synchronization
-        def mock_call_agent(**kwargs):
-            try:
-                return ("Success response", "session-456")
-            finally:
-                call_completed.set()
-
-        mock_scheduler._call_agent.side_effect = mock_call_agent
+        # Mock scheduler success
+        mock_scheduler._call_agent.return_value = ("Success response", "session-456")
 
         # Start execution
         response = client.post(f"/api/prompts/{sample_prompt.id}/execute")
-        response.json()["execution_id"]
-
-        # Wait for background thread to complete (with timeout for safety)
-        # Using an Event is more reliable than a fixed sleep, especially in CI
-        assert call_completed.wait(
-            timeout=5.0
-        ), "Background thread did not complete in time"
 
         assert response.status_code == 200
+
+        # Give background thread time to complete
+        import time
+
+        for _ in range(50):  # Try for 5 seconds
+            if mock_scheduler._call_agent.called:
+                break
+            time.sleep(0.1)
 
         # Verify scheduler was called with correct parameters
         mock_scheduler._call_agent.assert_called_once_with(
@@ -272,11 +262,6 @@ class TestPromptExecutionBackgroundTask:
         self, mock_session_local, mock_scheduler, client, sample_prompt
     ):
         """Test background execution with agent failure."""
-        import threading
-
-        # Use an Event to signal when the background thread has called _call_agent
-        call_completed = threading.Event()
-
         # Mock the background database session
         mock_bg_session = MagicMock()
         mock_session_local.return_value = mock_bg_session
@@ -287,22 +272,24 @@ class TestPromptExecutionBackgroundTask:
             mock_execution
         )
 
-        # Mock scheduler failure with synchronization
-        def mock_call_agent_failure(**kwargs):
-            call_completed.set()
-            raise Exception("Agent execution failed")
-
-        mock_scheduler._call_agent.side_effect = mock_call_agent_failure
+        # Mock scheduler failure
+        mock_scheduler._call_agent.side_effect = Exception("Agent execution failed")
 
         # Start execution
         response = client.post(f"/api/prompts/{sample_prompt.id}/execute")
 
-        # Wait for background thread to complete (with timeout for safety)
-        assert call_completed.wait(
-            timeout=5.0
-        ), "Background thread did not complete in time"
-
         assert response.status_code == 200  # Request succeeds even if execution fails
+
+        # Give background thread time to complete
+        import time
+
+        for _ in range(50):  # Try for 5 seconds
+            if mock_scheduler._call_agent.called:
+                break
+            time.sleep(0.1)
+
+        # Verify the scheduler was called (even though it failed)
+        mock_scheduler._call_agent.assert_called_once()
 
     @patch("threading.Thread")
     def test_background_thread_creation(self, mock_thread, client, sample_prompt):
