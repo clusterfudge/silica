@@ -224,60 +224,52 @@ def status(
         raise
 
 
-@history_sync_app.command
-def sync(
-    *,
-    session: Annotated[str, cyclopts.Parameter(help="Session ID to sync")],
-    persona: Annotated[Optional[str], cyclopts.Parameter(help="Persona name")] = None,
-    dry_run: Annotated[
-        bool, cyclopts.Parameter(help="Show plan without executing")
-    ] = False,
-):
-    """Sync conversation history for a specific session.
+def _sync_single_session(
+    console: Console,
+    config: MemoryProxyConfig,
+    persona_name: str,
+    session: str,
+    session_dir: Path,
+    dry_run: bool = False,
+) -> dict:
+    """Sync a single session.
 
-    Performs bi-directional sync between local session history and remote storage.
-    Uses automatic conflict resolution via LLM when needed.
+    Args:
+        console: Rich console for output
+        config: Memory proxy configuration
+        persona_name: Name of the persona
+        session: Session ID
+        session_dir: Path to the session directory
+        dry_run: If True, only analyze without executing
 
-    Example:
-        silica history-sync sync --session session-123
-        silica history-sync sync --session session-123 --dry-run
-        silica history-sync sync --session session-123 --persona autonomous_engineer
+    Returns:
+        Dict with keys: session_id, succeeded, failed, conflicts, skipped, duration, error
     """
-    console = _get_console()
+    import os
+
+    from silica.developer.cli.sync_helpers import display_sync_plan
+
+    result_info = {
+        "session_id": session,
+        "succeeded": 0,
+        "failed": 0,
+        "conflicts": 0,
+        "skipped": 0,
+        "duration": 0.0,
+        "error": None,
+    }
 
     try:
-        config = MemoryProxyConfig()
-        persona_dir, persona_name = _get_persona_directory(persona)
-
-        # Check configuration
-        if not config.is_configured:
-            console.print(
-                "[red]Error: Memory proxy not configured. Run 'silica memory-sync setup' first.[/red]"
-            )
-            return
-
-        # Check if session exists
-        session_dir = persona_dir / "history" / session
-        if not session_dir.exists():
-            console.print(f"[red]Error: Session '{session}' not found[/red]")
-            return
-
         # Get Anthropic API key for LLM conflict resolution
-        import os
-
         anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
-        if not anthropic_key:
-            console.print(
-                "[yellow]Warning: ANTHROPIC_API_KEY not set. Conflict resolution will fail if conflicts occur.[/yellow]"
-            )
 
         # Create conflict resolver if we have an API key
         conflict_resolver = None
         if anthropic_key:
             from anthropic import Anthropic
 
-            client = Anthropic(api_key=anthropic_key)
-            conflict_resolver = LLMConflictResolver(client=client)
+            anthropic_client = Anthropic(api_key=anthropic_key)
+            conflict_resolver = LLMConflictResolver(client=anthropic_client)
 
         # Create proxy client
         client = MemoryProxyClient(base_url=config.remote_url, token=config.auth_token)
@@ -293,69 +285,240 @@ def sync(
         )
 
         if dry_run:
-            console.print(
-                f"[cyan]Analyzing sync plan for session '{session}'...[/cyan]"
-            )
-
             # Analyze what would be synced
             plan = sync_engine.analyze_sync_operations()
-
-            # Display the plan using shared helper
-            from silica.developer.cli.sync_helpers import display_sync_plan
-
             display_sync_plan(console, plan, context=f"session '{session}'")
-            return
-
-        console.print(f"[cyan]Syncing history for session '{session}'...[/cyan]\n")
+            result_info["succeeded"] = plan.total_operations
+            result_info["conflicts"] = len(plan.conflicts)
+            return result_info
 
         # Perform sync with retry and automatic conflict resolution
         result = sync_with_retry(
-            sync_engine=sync_engine, max_retries=3, show_progress=True
+            sync_engine=sync_engine, max_retries=3, show_progress=False
         )
 
-        # Display results
-        console.print(
-            Panel(
-                Text.assemble(
-                    ("✓ ", "green bold"),
-                    ("Sync completed\n\n", "green"),
-                    ("Succeeded: ", "cyan"),
-                    (str(len(result.succeeded)), "white"),
-                    ("\n"),
-                    ("Failed: ", "cyan"),
-                    (str(len(result.failed)), "white"),
-                    ("\n"),
-                    ("Conflicts: ", "cyan"),
-                    (str(len(result.conflicts)), "white"),
-                    ("\n"),
-                    ("Skipped: ", "cyan"),
-                    (str(len(result.skipped)), "white"),
-                    ("\n"),
-                    ("Duration: ", "cyan"),
-                    (f"{result.duration:.2f}s", "white"),
-                ),
-                title="Sync Results",
-                border_style="green"
-                if not result.failed and not result.conflicts
-                else "yellow",
+        result_info["succeeded"] = len(result.succeeded)
+        result_info["failed"] = len(result.failed)
+        result_info["conflicts"] = len(result.conflicts)
+        result_info["skipped"] = len(result.skipped)
+        result_info["duration"] = result.duration
+
+        return result_info
+
+    except Exception as e:
+        result_info["error"] = str(e)
+        return result_info
+
+
+@history_sync_app.command
+def sync(
+    *,
+    session: Annotated[
+        Optional[str], cyclopts.Parameter(help="Session ID to sync (omit to sync all)")
+    ] = None,
+    persona: Annotated[Optional[str], cyclopts.Parameter(help="Persona name")] = None,
+    dry_run: Annotated[
+        bool, cyclopts.Parameter(help="Show plan without executing")
+    ] = False,
+):
+    """Sync conversation history for sessions.
+
+    If --session is specified, syncs only that session.
+    If --session is omitted, syncs ALL sessions for the persona.
+
+    Performs bi-directional sync between local session history and remote storage.
+    Uses automatic conflict resolution via LLM when needed.
+
+    Example:
+        silica history-sync sync                              # Sync all sessions
+        silica history-sync sync --session session-123        # Sync specific session
+        silica history-sync sync --dry-run                    # Preview all sessions
+        silica history-sync sync --session session-123 --dry-run
+        silica history-sync sync --persona autonomous_engineer
+    """
+    console = _get_console()
+
+    try:
+        config = MemoryProxyConfig()
+        persona_dir, persona_name = _get_persona_directory(persona)
+
+        # Check configuration
+        if not config.is_configured:
+            console.print(
+                "[red]Error: Memory proxy not configured. Run 'silica memory-sync setup' first.[/red]"
             )
-        )
+            return
 
-        # Show details about failures
-        if result.failed:
-            console.print("\n[red]Failed operations:[/red]")
-            for op in result.failed[:5]:  # Show first 5
-                console.print(f"  • {op.type}: {op.path}")
-            if len(result.failed) > 5:
-                console.print(f"  ... and {len(result.failed) - 5} more")
+        # Get Anthropic API key warning
+        import os
 
-        # Show details about conflicts
-        if result.conflicts:
-            console.print("\n[yellow]Conflicts:[/yellow]")
-            for op in result.conflicts[:5]:  # Show first 5
-                console.print(f"  • {op.path}")
-            if len(result.conflicts) > 5:
-                console.print(f"  ... and {len(result.conflicts) - 5} more")
+        anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not anthropic_key:
+            console.print(
+                "[yellow]Warning: ANTHROPIC_API_KEY not set. Conflict resolution will fail if conflicts occur.[/yellow]"
+            )
+
+        # Determine which sessions to sync
+        if session:
+            # Single session mode
+            session_dir = persona_dir / "history" / session
+            if not session_dir.exists():
+                console.print(f"[red]Error: Session '{session}' not found[/red]")
+                return
+            sessions_to_sync = [{"session_id": session, "path": session_dir}]
+        else:
+            # All sessions mode
+            sessions_to_sync = _list_sessions(persona_dir)
+            if not sessions_to_sync:
+                console.print(
+                    f"[yellow]No history sessions found for persona '{persona_name}'[/yellow]"
+                )
+                return
+
+        # Show what we're about to do
+        if len(sessions_to_sync) == 1:
+            if dry_run:
+                console.print(
+                    f"[cyan]Analyzing sync plan for session '{sessions_to_sync[0]['session_id']}'...[/cyan]"
+                )
+            else:
+                console.print(
+                    f"[cyan]Syncing history for session '{sessions_to_sync[0]['session_id']}'...[/cyan]\n"
+                )
+        else:
+            if dry_run:
+                console.print(
+                    f"[cyan]Analyzing sync plan for {len(sessions_to_sync)} sessions...[/cyan]\n"
+                )
+            else:
+                console.print(
+                    f"[cyan]Syncing history for {len(sessions_to_sync)} sessions...[/cyan]\n"
+                )
+
+        # Sync each session
+        all_results = []
+        total_succeeded = 0
+        total_failed = 0
+        total_conflicts = 0
+        total_skipped = 0
+        total_duration = 0.0
+        errors = []
+
+        for session_info in sessions_to_sync:
+            session_id = session_info["session_id"]
+            session_path = session_info["path"]
+
+            if len(sessions_to_sync) > 1 and not dry_run:
+                console.print(f"[dim]Syncing {session_id}...[/dim]")
+
+            result = _sync_single_session(
+                console=console,
+                config=config,
+                persona_name=persona_name,
+                session=session_id,
+                session_dir=session_path,
+                dry_run=dry_run,
+            )
+
+            all_results.append(result)
+            total_succeeded += result["succeeded"]
+            total_failed += result["failed"]
+            total_conflicts += result["conflicts"]
+            total_skipped += result["skipped"]
+            total_duration += result["duration"]
+
+            if result["error"]:
+                errors.append((session_id, result["error"]))
+
+        # For dry-run, the display is already done per-session
+        if dry_run:
+            return
+
+        # Display aggregated results
+        if len(sessions_to_sync) == 1:
+            # Single session - show detailed results
+            result = all_results[0]
+            if result["error"]:
+                console.print(
+                    Panel(
+                        Text.assemble(
+                            ("✗ ", "red bold"),
+                            ("Sync failed\n\n", "red"),
+                            ("Error: ", "cyan"),
+                            (result["error"], "white"),
+                        ),
+                        title="Sync Results",
+                        border_style="red",
+                    )
+                )
+            else:
+                console.print(
+                    Panel(
+                        Text.assemble(
+                            ("✓ ", "green bold"),
+                            ("Sync completed\n\n", "green"),
+                            ("Succeeded: ", "cyan"),
+                            (str(result["succeeded"]), "white"),
+                            ("\n"),
+                            ("Failed: ", "cyan"),
+                            (str(result["failed"]), "white"),
+                            ("\n"),
+                            ("Conflicts: ", "cyan"),
+                            (str(result["conflicts"]), "white"),
+                            ("\n"),
+                            ("Skipped: ", "cyan"),
+                            (str(result["skipped"]), "white"),
+                            ("\n"),
+                            ("Duration: ", "cyan"),
+                            (f"{result['duration']:.2f}s", "white"),
+                        ),
+                        title="Sync Results",
+                        border_style="green"
+                        if not result["failed"] and not result["conflicts"]
+                        else "yellow",
+                    )
+                )
+        else:
+            # Multiple sessions - show summary
+            sessions_succeeded = len([r for r in all_results if not r["error"]])
+
+            console.print(
+                Panel(
+                    Text.assemble(
+                        ("✓ ", "green bold") if not errors else ("⚠ ", "yellow bold"),
+                        (
+                            "Sync completed\n\n"
+                            if not errors
+                            else "Sync completed with errors\n\n"
+                        ),
+                        ("green" if not errors else "yellow",),
+                        ("Sessions synced: ", "cyan"),
+                        (f"{sessions_succeeded}/{len(sessions_to_sync)}", "white"),
+                        ("\n"),
+                        ("Total operations: ", "cyan"),
+                        (str(total_succeeded), "white"),
+                        ("\n"),
+                        ("Total failed: ", "cyan"),
+                        (str(total_failed), "white"),
+                        ("\n"),
+                        ("Total conflicts: ", "cyan"),
+                        (str(total_conflicts), "white"),
+                        ("\n"),
+                        ("Total duration: ", "cyan"),
+                        (f"{total_duration:.2f}s", "white"),
+                    ),
+                    title="Sync Results (All Sessions)",
+                    border_style="green" if not errors else "yellow",
+                )
+            )
+
+            # Show errors if any
+            if errors:
+                console.print("\n[red]Session errors:[/red]")
+                for session_id, error in errors[:5]:
+                    console.print(f"  • {session_id}: {error}")
+                if len(errors) > 5:
+                    console.print(f"  ... and {len(errors) - 5} more")
 
     except Exception as e:
         console.print(f"[red]Error during sync: {e}[/red]")

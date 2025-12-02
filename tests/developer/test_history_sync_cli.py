@@ -296,4 +296,144 @@ def test_sync_command_with_failures(mock_config, mock_persona, capsys):
                         captured = capsys.readouterr()
                         assert "Sync completed" in captured.out
                         assert "Failed: 1" in captured.out
-                        assert "Failed operations" in captured.out
+
+
+def test_sync_command_all_sessions(mock_config, mock_persona, capsys):
+    """Test sync command without session argument syncs all sessions."""
+    mock, persona_dir = mock_persona
+
+    # Create multiple session directories
+    for session_id in ["session-abc123", "session-def456", "session-ghi789"]:
+        session_dir = persona_dir / "history" / session_id
+        session_dir.mkdir(parents=True)
+        (session_dir / "conversation.json").write_text("{}")
+
+    mock_config.setup("https://memory.example.com", "test_token", enable=True)
+
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test_key"}):
+        with patch("silica.developer.cli.history_sync.MemoryProxyClient"):
+            with patch("silica.developer.cli.history_sync.SyncEngine"):
+                with patch("silica.developer.cli.history_sync.LLMConflictResolver"):
+                    with patch(
+                        "silica.developer.cli.history_sync.sync_with_retry"
+                    ) as mock_sync:
+                        # Create a mock result
+                        mock_result = Mock()
+                        mock_result.succeeded = [Mock(type="upload", path="test.md")]
+                        mock_result.failed = []
+                        mock_result.conflicts = []
+                        mock_result.skipped = []
+                        mock_result.duration = 0.5
+                        mock_sync.return_value = mock_result
+
+                        # Call sync without session argument
+                        sync()
+
+                        captured = capsys.readouterr()
+                        # Should mention syncing multiple sessions
+                        assert "3 sessions" in captured.out
+                        # Should show aggregated results
+                        assert "Sessions synced: 3/3" in captured.out
+                        # sync_with_retry should be called 3 times
+                        assert mock_sync.call_count == 3
+
+
+def test_sync_command_all_sessions_no_sessions(mock_config, mock_persona, capsys):
+    """Test sync command without session when no sessions exist."""
+    mock, persona_dir = mock_persona
+
+    mock_config.setup("https://memory.example.com", "test_token", enable=True)
+
+    # Don't create any sessions
+    sync()
+
+    captured = capsys.readouterr()
+    assert "No history sessions found" in captured.out
+
+
+def test_sync_command_all_sessions_dry_run(mock_config, mock_persona, capsys):
+    """Test sync command dry-run for all sessions."""
+    from silica.developer.memory.sync import SyncPlan, SyncOperationDetail
+
+    mock, persona_dir = mock_persona
+
+    # Create multiple session directories
+    for session_id in ["session-abc123", "session-def456"]:
+        session_dir = persona_dir / "history" / session_id
+        session_dir.mkdir(parents=True)
+        (session_dir / "conversation.json").write_text("{}")
+
+    mock_config.setup("https://memory.example.com", "test_token", enable=True)
+
+    # Create a mock plan
+    mock_plan = SyncPlan(
+        upload=[
+            SyncOperationDetail(
+                type="upload",
+                path="conversation.json",
+                reason="New local file",
+            )
+        ],
+    )
+
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test_key"}):
+        with patch("silica.developer.cli.history_sync.MemoryProxyClient"):
+            with patch("silica.developer.cli.history_sync.SyncEngine") as MockEngine:
+                mock_engine = MockEngine.return_value
+                mock_engine.analyze_sync_operations.return_value = mock_plan
+                with patch("silica.developer.cli.history_sync.LLMConflictResolver"):
+                    sync(dry_run=True)
+
+    captured = capsys.readouterr()
+    # Should show plans for both sessions
+    assert "2 sessions" in captured.out
+    assert "session-abc123" in captured.out
+    assert "session-def456" in captured.out
+
+
+def test_sync_command_all_sessions_with_errors(mock_config, mock_persona, capsys):
+    """Test sync command all sessions with some errors."""
+    mock, persona_dir = mock_persona
+
+    # Create multiple session directories
+    for session_id in ["session-abc123", "session-def456"]:
+        session_dir = persona_dir / "history" / session_id
+        session_dir.mkdir(parents=True)
+        (session_dir / "conversation.json").write_text("{}")
+
+    mock_config.setup("https://memory.example.com", "test_token", enable=True)
+
+    call_count = [0]
+
+    def mock_sync_side_effect(*args, **kwargs):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            # First session succeeds
+            result = Mock()
+            result.succeeded = [Mock(type="upload", path="test.md")]
+            result.failed = []
+            result.conflicts = []
+            result.skipped = []
+            result.duration = 0.5
+            return result
+        else:
+            # Second session fails
+            raise Exception("Network error")
+
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test_key"}):
+        with patch("silica.developer.cli.history_sync.MemoryProxyClient"):
+            with patch("silica.developer.cli.history_sync.SyncEngine"):
+                with patch("silica.developer.cli.history_sync.LLMConflictResolver"):
+                    with patch(
+                        "silica.developer.cli.history_sync.sync_with_retry"
+                    ) as mock_sync:
+                        mock_sync.side_effect = mock_sync_side_effect
+
+                        sync()
+
+                        captured = capsys.readouterr()
+                        # Should show partial success
+                        assert "Sessions synced: 1/2" in captured.out
+                        # Should mention errors
+                        assert "Session errors" in captured.out
+                        assert "Network error" in captured.out
