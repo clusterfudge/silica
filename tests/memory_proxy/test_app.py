@@ -9,6 +9,8 @@ def test_health_check_no_auth(test_client):
     data = response.json()
     assert data["status"] == "ok"
     assert data["storage"] == "connected"
+    assert "version" in data
+    assert data["version"]  # Should be non-empty string
 
 
 def test_read_blob_requires_auth(test_client, mock_auth_failure):
@@ -405,6 +407,33 @@ def test_auth_failure_on_protected_endpoints(test_client, mock_auth_failure):
             )
 
         assert response.status_code == 401, f"{method} {path} should require auth"
+
+
+def test_hierarchical_namespace(test_client, auth_headers):
+    """Test that namespaces with slashes work correctly."""
+    # Write file to hierarchical namespace
+    content = b"Content in hierarchical namespace"
+    write_response = test_client.put(
+        "/personas/default/memory/blob/test.txt",
+        content=content,
+        headers={**auth_headers, "If-Match-Version": "0"},
+    )
+    assert write_response.status_code == 201
+
+    # Read file back
+    read_response = test_client.get(
+        "/personas/default/memory/blob/test.txt", headers=auth_headers
+    )
+    assert read_response.status_code == 200
+    assert read_response.content == content
+
+    # Get sync index for hierarchical namespace
+    sync_response = test_client.get(
+        "/sync/personas/default/memory", headers=auth_headers
+    )
+    assert sync_response.status_code == 200
+    data = sync_response.json()
+    assert "test.txt" in data["files"]
 
 
 def test_namespace_isolation_api(test_client, auth_headers):
