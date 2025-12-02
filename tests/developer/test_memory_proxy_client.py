@@ -110,8 +110,9 @@ def test_read_blob_success(proxy_client, mock_httpx_client):
     assert content_type == "text/markdown"
     assert version == 12345
 
+    # URL pattern: /{namespace}/blob/{path} with both namespace and path URL-encoded
     mock_httpx_client.get.assert_called_once_with(
-        "https://memory-proxy.example.com/blob/default/memory/test.md"
+        "https://memory-proxy.example.com/default/blob/memory%2Ftest.md"
     )
 
 
@@ -151,9 +152,22 @@ def test_write_blob_create_success(proxy_client, mock_httpx_client):
         "ETag": '"def456"',
         "X-Version": "12350",
     }
+    mock_response.json.return_value = {
+        "files": {
+            "memory/new.md": {
+                "md5": "def456",
+                "last_modified": "2025-01-15T10:30:00Z",
+                "size": 11,
+                "version": 12350,
+                "is_deleted": False,
+            }
+        },
+        "index_last_modified": "2025-01-15T10:30:00Z",
+        "index_version": 12350,
+    }
     mock_httpx_client.put.return_value = mock_response
 
-    is_new, md5, version = proxy_client.write_blob(
+    is_new, md5, version, sync_index = proxy_client.write_blob(
         namespace="default",
         path="memory/new.md",
         content=b"new content",
@@ -164,11 +178,14 @@ def test_write_blob_create_success(proxy_client, mock_httpx_client):
     assert is_new is True
     assert md5 == "def456"
     assert version == 12350
+    assert isinstance(sync_index, SyncIndexResponse)
+    assert len(sync_index.files) == 1
 
-    # Verify the request
+    # Verify the request - URL pattern: /{namespace}/blob/{path}
     call_args = mock_httpx_client.put.call_args
     assert (
-        call_args[0][0] == "https://memory-proxy.example.com/blob/default/memory/new.md"
+        call_args[0][0]
+        == "https://memory-proxy.example.com/default/blob/memory%2Fnew.md"
     )
     assert call_args[1]["content"] == b"new content"
     assert call_args[1]["headers"]["If-Match-Version"] == "0"
@@ -183,9 +200,22 @@ def test_write_blob_update_success(proxy_client, mock_httpx_client):
         "ETag": '"ghi789"',
         "X-Version": "12360",
     }
+    mock_response.json.return_value = {
+        "files": {
+            "memory/existing.md": {
+                "md5": "ghi789",
+                "last_modified": "2025-01-15T10:35:00Z",
+                "size": 15,
+                "version": 12360,
+                "is_deleted": False,
+            }
+        },
+        "index_last_modified": "2025-01-15T10:35:00Z",
+        "index_version": 12360,
+    }
     mock_httpx_client.put.return_value = mock_response
 
-    is_new, md5, version = proxy_client.write_blob(
+    is_new, md5, version, sync_index = proxy_client.write_blob(
         namespace="default",
         path="memory/existing.md",
         content=b"updated content",
@@ -195,6 +225,7 @@ def test_write_blob_update_success(proxy_client, mock_httpx_client):
     assert is_new is False
     assert md5 == "ghi789"
     assert version == 12360
+    assert isinstance(sync_index, SyncIndexResponse)
 
 
 def test_write_blob_version_conflict(proxy_client, mock_httpx_client):
@@ -231,6 +262,19 @@ def test_write_blob_with_md5(proxy_client, mock_httpx_client):
         "ETag": '"abc123"',
         "X-Version": "12370",
     }
+    mock_response.json.return_value = {
+        "files": {
+            "memory/test.md": {
+                "md5": "abc123",
+                "last_modified": "2025-01-15T10:40:00Z",
+                "size": 7,
+                "version": 12370,
+                "is_deleted": False,
+            }
+        },
+        "index_last_modified": "2025-01-15T10:40:00Z",
+        "index_version": 12370,
+    }
     mock_httpx_client.put.return_value = mock_response
 
     proxy_client.write_blob(
@@ -248,15 +292,37 @@ def test_write_blob_with_md5(proxy_client, mock_httpx_client):
 def test_delete_blob_success(proxy_client, mock_httpx_client):
     """Test successful blob deletion."""
     mock_response = Mock()
-    mock_response.status_code = 204
+    mock_response.status_code = 200
+    mock_response.headers = {
+        "X-Version": "12380",
+    }
+    mock_response.json.return_value = {
+        "files": {
+            "memory/test.md": {
+                "md5": "abc123",
+                "last_modified": "2025-01-15T10:45:00Z",
+                "size": 0,
+                "version": 12380,
+                "is_deleted": True,
+            }
+        },
+        "index_last_modified": "2025-01-15T10:45:00Z",
+        "index_version": 12380,
+    }
     mock_httpx_client.delete.return_value = mock_response
 
-    proxy_client.delete_blob("default", "memory/test.md", expected_version=12345)
+    new_version, sync_index = proxy_client.delete_blob(
+        "default", "memory/test.md", expected_version=12345
+    )
 
+    assert new_version == 12380
+    assert isinstance(sync_index, SyncIndexResponse)
+
+    # URL pattern: /{namespace}/blob/{path}
     call_args = mock_httpx_client.delete.call_args
     assert (
         call_args[0][0]
-        == "https://memory-proxy.example.com/blob/default/memory/test.md"
+        == "https://memory-proxy.example.com/default/blob/memory%2Ftest.md"
     )
     assert call_args[1]["headers"]["If-Match-Version"] == "12345"
 
@@ -342,6 +408,50 @@ def test_get_sync_index_empty(proxy_client, mock_httpx_client):
     result = proxy_client.get_sync_index("empty-persona")
 
     assert len(result.files) == 0
+
+
+def test_read_blob_with_slashes_in_namespace(proxy_client, mock_httpx_client):
+    """Test blob read with namespace containing slashes."""
+    mock_response = Mock()
+    mock_response.status_code = 200
+    mock_response.content = b"test content"
+    mock_response.headers = {
+        "ETag": '"abc123"',
+        "Last-Modified": "Mon, 15 Jan 2025 10:30:00 GMT",
+        "Content-Type": "text/markdown",
+        "X-Version": "12345",
+    }
+    mock_httpx_client.get.return_value = mock_response
+
+    content, md5, last_modified, content_type, version = proxy_client.read_blob(
+        "memory/sub", "test.md"
+    )
+
+    assert content == b"test content"
+
+    # Namespace with slashes should be URL-encoded: memory/sub -> memory%2Fsub
+    mock_httpx_client.get.assert_called_once_with(
+        "https://memory-proxy.example.com/memory%2Fsub/blob/test.md"
+    )
+
+
+def test_get_sync_index_with_slashes_in_namespace(proxy_client, mock_httpx_client):
+    """Test sync index retrieval with namespace containing slashes."""
+    mock_response = Mock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "files": {},
+        "index_last_modified": "2025-01-15T10:30:00Z",
+        "index_version": 0,
+    }
+    mock_httpx_client.get.return_value = mock_response
+
+    proxy_client.get_sync_index("memory/sub")
+
+    # Namespace with slashes should be URL-encoded: memory/sub -> memory%2Fsub
+    mock_httpx_client.get.assert_called_once_with(
+        "https://memory-proxy.example.com/sync/memory%2Fsub"
+    )
 
 
 def test_context_manager():

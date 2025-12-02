@@ -868,11 +868,11 @@ class SyncEngine:
                 content = f.read()
 
             # Calculate MD5
-            md5 = self._calculate_md5(content)
+            self._calculate_md5(content)
 
             # Upload to remote
-            # write_blob returns tuple (is_new, md5, version)
-            is_new, returned_md5, new_version = self.client.write_blob(
+            # write_blob returns tuple (is_new, md5, version, sync_index)
+            is_new, returned_md5, new_version, sync_index = self.client.write_blob(
                 namespace=self.config.namespace,
                 path=path,
                 content=content,
@@ -880,17 +880,10 @@ class SyncEngine:
                 content_type="application/octet-stream",
             )
 
-            # Update local index
-            self.local_index.update_entry(
-                path,
-                FileMetadata(
-                    md5=md5,
-                    last_modified=datetime.now(timezone.utc),
-                    size=len(content),
-                    version=new_version,
-                    is_deleted=False,
-                ),
-            )
+            # Update local index with the entire manifest from response
+            # This keeps us in sync with remote state after write
+            for file_path, metadata in sync_index.files.items():
+                self.local_index.update_entry(file_path, metadata)
 
             # Log success
 
@@ -995,23 +988,17 @@ class SyncEngine:
         """
         try:
             # Delete on remote (creates tombstone)
-            new_version = self.client.delete_blob(
+            # delete_blob returns tuple (new_version, sync_index)
+            new_version, sync_index = self.client.delete_blob(
                 namespace=self.config.namespace,
                 path=path,
                 expected_version=remote_version,
             )
 
-            # Update local index
-            self.local_index.update_entry(
-                path,
-                FileMetadata(
-                    md5="",
-                    last_modified=datetime.now(timezone.utc),
-                    size=0,
-                    version=new_version,
-                    is_deleted=True,
-                ),
-            )
+            # Update local index with the entire manifest from response
+            # This keeps us in sync with remote state after delete
+            for file_path, metadata in sync_index.files.items():
+                self.local_index.update_entry(file_path, metadata)
 
             # Log success
 
