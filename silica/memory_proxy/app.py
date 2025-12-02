@@ -21,6 +21,12 @@ from .storage import (
     StorageError,
 )
 
+# Import version from silica package (set by setuptools-scm during build)
+try:
+    from silica._version import __version__
+except ImportError:
+    __version__ = "unknown"
+
 # Configure logging (basic setup)
 logging.basicConfig(
     level=logging.INFO,
@@ -28,14 +34,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# API version - update this when making changes to help track deployments
-API_VERSION = "0.3.0"
-
 # Create FastAPI app
 app = FastAPI(
     title="Memory Proxy Service",
     description="Remote KV proxy for blob storage with sync support and namespaces",
-    version=API_VERSION,
+    version=__version__,
 )
 
 # Storage will be initialized on startup or can be set externally (for tests)
@@ -66,14 +69,14 @@ async def health_check():
     storage_ok = get_storage().health_check()
 
     if storage_ok:
-        return HealthResponse(status="ok", storage="connected", version=API_VERSION)
+        return HealthResponse(status="ok", storage="connected", version=__version__)
     else:
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={
                 "status": "error",
                 "storage": "disconnected",
-                "version": API_VERSION,
+                "version": __version__,
             },
         )
 
