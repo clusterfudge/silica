@@ -123,7 +123,7 @@ def test_sync_command_session_not_found(mock_config, mock_persona, capsys):
 
 
 def test_sync_command_dry_run(mock_config, mock_persona, capsys):
-    """Test sync command with dry-run."""
+    """Test sync command with dry-run shows summary table."""
     from silica.developer.memory.sync import SyncPlan, SyncOperationDetail
 
     mock, persona_dir = mock_persona
@@ -156,9 +156,48 @@ def test_sync_command_dry_run(mock_config, mock_persona, capsys):
                     sync(session="session-abc123", dry_run=True)
 
     captured = capsys.readouterr()
-    # Check that sync plan is displayed
+    # Check that summary table is displayed
+    assert "Dry Run Summary" in captured.out
+    assert "session-abc123" in captured.out
+    assert "Upload" in captured.out
+
+
+def test_sync_command_dry_run_verbose(mock_config, mock_persona, capsys):
+    """Test sync command with dry-run --verbose shows detailed plan."""
+    from silica.developer.memory.sync import SyncPlan, SyncOperationDetail
+
+    mock, persona_dir = mock_persona
+
+    # Create session directory
+    session_dir = persona_dir / "history" / "session-abc123"
+    session_dir.mkdir(parents=True)
+    (session_dir / "conversation.json").write_text("{}")
+
+    mock_config.setup("https://memory.example.com", "test_token", enable=True)
+
+    # Create a mock plan
+    mock_plan = SyncPlan(
+        upload=[
+            SyncOperationDetail(
+                type="upload",
+                path="conversation.json",
+                reason="New local file",
+                local_size=1024,
+            )
+        ],
+    )
+
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test_key"}):
+        with patch("silica.developer.cli.history_sync.MemoryProxyClient"):
+            with patch("silica.developer.cli.history_sync.SyncEngine") as MockEngine:
+                mock_engine = MockEngine.return_value
+                mock_engine.analyze_sync_operations.return_value = mock_plan
+                with patch("silica.developer.cli.history_sync.LLMConflictResolver"):
+                    sync(session="session-abc123", dry_run=True, verbose=True)
+
+    captured = capsys.readouterr()
+    # Check that detailed plan is displayed (not just summary)
     assert "Sync Plan" in captured.out
-    assert "Uploads" in captured.out
     assert "conversation.json" in captured.out
 
 
@@ -192,7 +231,7 @@ def test_sync_command_dry_run_no_changes(mock_config, mock_persona, capsys):
 
 
 def test_sync_command_dry_run_with_conflicts(mock_config, mock_persona, capsys):
-    """Test sync command with dry-run showing conflicts."""
+    """Test sync command with dry-run showing conflicts in summary."""
     from silica.developer.memory.sync import SyncPlan, SyncOperationDetail
 
     mock, persona_dir = mock_persona
@@ -224,9 +263,10 @@ def test_sync_command_dry_run_with_conflicts(mock_config, mock_persona, capsys):
                     sync(session="session-abc123", dry_run=True)
 
     captured = capsys.readouterr()
-    # Check that conflicts are displayed
+    # Check that conflicts are shown in summary
+    assert "Dry Run Summary" in captured.out
     assert "Conflicts" in captured.out
-    assert "conversation.json" in captured.out
+    assert "session-abc123" in captured.out
     assert "LLM merge" in captured.out
 
 
@@ -356,7 +396,7 @@ def test_sync_command_all_sessions_no_sessions(mock_config, mock_persona, capsys
 
 
 def test_sync_command_all_sessions_dry_run(mock_config, mock_persona, capsys):
-    """Test sync command dry-run for all sessions."""
+    """Test sync command dry-run for all sessions shows summary table."""
     from silica.developer.memory.sync import SyncPlan, SyncOperationDetail
 
     mock, persona_dir = mock_persona
@@ -389,10 +429,11 @@ def test_sync_command_all_sessions_dry_run(mock_config, mock_persona, capsys):
                     sync(dry_run=True)
 
     captured = capsys.readouterr()
-    # Should show plans for both sessions
-    assert "2 sessions" in captured.out
+    # Should show summary table with both sessions
+    assert "Dry Run Summary" in captured.out
     assert "session-abc123" in captured.out
     assert "session-def456" in captured.out
+    assert "Total" in captured.out
 
 
 def test_sync_command_all_sessions_with_errors(mock_config, mock_persona, capsys):

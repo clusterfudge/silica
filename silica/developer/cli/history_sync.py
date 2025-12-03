@@ -251,6 +251,68 @@ def status(
         raise
 
 
+@dataclass
+class SessionPlanResult:
+    """Result of analyzing a single session's sync plan."""
+
+    session_id: str
+    uploads: int = 0
+    downloads: int = 0
+    delete_local: int = 0
+    delete_remote: int = 0
+    conflicts: int = 0
+    total_ops: int = 0
+    error: str | None = None
+
+
+def _analyze_session_plan(
+    config: MemoryProxyConfig,
+    persona_name: str,
+    session: str,
+) -> SessionPlanResult:
+    """Analyze sync plan for a single session without displaying.
+
+    Args:
+        config: Memory proxy configuration
+        persona_name: Name of the persona
+        session: Session ID
+
+    Returns:
+        SessionPlanResult with plan summary
+    """
+    result = SessionPlanResult(session_id=session)
+
+    try:
+        # Create proxy client
+        client = MemoryProxyClient(base_url=config.remote_url, token=config.auth_token)
+
+        # Create sync configuration for this session
+        sync_config = SyncConfig.for_history(persona_name, session)
+
+        # Create sync engine (no conflict resolver needed for analysis)
+        sync_engine = SyncEngine(
+            client=client,
+            config=sync_config,
+            conflict_resolver=None,
+        )
+
+        # Analyze what would be synced
+        plan = sync_engine.analyze_sync_operations()
+
+        result.uploads = len(plan.upload)
+        result.downloads = len(plan.download)
+        result.delete_local = len(plan.delete_local)
+        result.delete_remote = len(plan.delete_remote)
+        result.conflicts = len(plan.conflicts)
+        result.total_ops = plan.total_operations
+
+        return result
+
+    except Exception as e:
+        result.error = str(e)
+        return result
+
+
 def _sync_single_session(
     console: Console,
     config: MemoryProxyConfig,
@@ -258,6 +320,7 @@ def _sync_single_session(
     session: str,
     session_dir: Path,
     dry_run: bool = False,
+    verbose: bool = False,
 ) -> SessionSyncResult:
     """Sync a single session.
 
@@ -268,6 +331,7 @@ def _sync_single_session(
         session: Session ID
         session_dir: Path to the session directory
         dry_run: If True, only analyze without executing
+        verbose: If True and dry_run, show detailed plan
 
     Returns:
         SessionSyncResult with sync outcome
@@ -304,7 +368,8 @@ def _sync_single_session(
         if dry_run:
             # Analyze what would be synced
             plan = sync_engine.analyze_sync_operations()
-            display_sync_plan(console, plan, context=f"session '{session}'")
+            if verbose:
+                display_sync_plan(console, plan, context=f"session '{session}'")
             result_info.succeeded = plan.total_operations
             result_info.conflicts = len(plan.conflicts)
             result_info.status = "done"
@@ -444,6 +509,93 @@ def _sync_all_sessions_with_progress(
     return results
 
 
+def _display_dry_run_summary(
+    console: Console,
+    plans: list[SessionPlanResult],
+) -> None:
+    """Display a summary table for dry-run analysis.
+
+    Args:
+        console: Rich console for output
+        plans: List of session plan results
+    """
+    # Calculate totals
+    total_uploads = sum(p.uploads for p in plans)
+    total_downloads = sum(p.downloads for p in plans)
+    total_delete_local = sum(p.delete_local for p in plans)
+    total_delete_remote = sum(p.delete_remote for p in plans)
+    total_conflicts = sum(p.conflicts for p in plans)
+    total_ops = sum(p.total_ops for p in plans)
+    errors = [p for p in plans if p.error]
+
+    # Create table
+    table = Table(
+        title="Dry Run Summary",
+        show_header=True,
+        header_style="bold cyan",
+    )
+    table.add_column("Session", style="white")
+    table.add_column("↑ Upload", justify="right", style="green")
+    table.add_column("↓ Download", justify="right", style="blue")
+    table.add_column("✗ Delete", justify="right", style="yellow")
+    table.add_column("⚠ Conflicts", justify="right", style="red")
+    table.add_column("Total", justify="right", style="white bold")
+
+    for plan in plans:
+        if plan.error:
+            table.add_row(
+                plan.session_id,
+                "[red]Error[/red]",
+                "",
+                "",
+                "",
+                f"[red]{plan.error[:20]}...[/red]"
+                if len(plan.error) > 20
+                else f"[red]{plan.error}[/red]",
+            )
+        else:
+            deletes = plan.delete_local + plan.delete_remote
+            table.add_row(
+                plan.session_id,
+                str(plan.uploads) if plan.uploads else "-",
+                str(plan.downloads) if plan.downloads else "-",
+                str(deletes) if deletes else "-",
+                str(plan.conflicts) if plan.conflicts else "-",
+                str(plan.total_ops) if plan.total_ops else "[dim]In sync[/dim]",
+            )
+
+    # Add totals row
+    table.add_row(
+        "[bold]Total[/bold]",
+        f"[bold]{total_uploads}[/bold]",
+        f"[bold]{total_downloads}[/bold]",
+        f"[bold]{total_delete_local + total_delete_remote}[/bold]",
+        f"[bold]{total_conflicts}[/bold]",
+        f"[bold]{total_ops}[/bold]",
+        style="on dark_blue" if total_ops > 0 else None,
+    )
+
+    console.print(table)
+
+    # Show summary message
+    if total_ops == 0 and total_conflicts == 0 and not errors:
+        console.print(
+            "\n[green]✓ All sessions are in sync. No operations needed.[/green]"
+        )
+    else:
+        if total_conflicts > 0:
+            console.print(
+                f"\n[yellow]Note: {total_conflicts} conflict(s) will be resolved via LLM merge during actual sync.[/yellow]"
+            )
+        if total_ops > 0 or total_conflicts > 0:
+            console.print(
+                "[dim]Run without --dry-run to execute these operations.[/dim]"
+            )
+
+    if errors:
+        console.print(f"\n[red]⚠ {len(errors)} session(s) failed to analyze.[/red]")
+
+
 @history_sync_app.command
 def sync(
     *,
@@ -453,6 +605,10 @@ def sync(
     persona: Annotated[Optional[str], cyclopts.Parameter(help="Persona name")] = None,
     dry_run: Annotated[
         bool, cyclopts.Parameter(help="Show plan without executing")
+    ] = False,
+    verbose: Annotated[
+        bool,
+        cyclopts.Parameter(help="Show detailed plan for each session (with --dry-run)"),
     ] = False,
 ):
     """Sync conversation history for sessions.
@@ -466,8 +622,8 @@ def sync(
     Example:
         silica history-sync sync                              # Sync all sessions
         silica history-sync sync --session session-123        # Sync specific session
-        silica history-sync sync --dry-run                    # Preview all sessions
-        silica history-sync sync --session session-123 --dry-run
+        silica history-sync sync --dry-run                    # Preview all sessions (summary)
+        silica history-sync sync --dry-run --verbose          # Preview with detailed plans
         silica history-sync sync --persona autonomous_engineer
     """
     console = _get_console()
@@ -483,12 +639,13 @@ def sync(
             )
             return
 
-        # Get Anthropic API key warning
-        anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
-        if not anthropic_key:
-            console.print(
-                "[yellow]Warning: ANTHROPIC_API_KEY not set. Conflict resolution will fail if conflicts occur.[/yellow]"
-            )
+        # Get Anthropic API key warning (only for actual sync, not dry-run)
+        if not dry_run:
+            anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+            if not anthropic_key:
+                console.print(
+                    "[yellow]Warning: ANTHROPIC_API_KEY not set. Conflict resolution will fail if conflicts occur.[/yellow]"
+                )
 
         # Determine which sessions to sync
         if session:
@@ -509,24 +666,34 @@ def sync(
 
         # Handle dry-run mode
         if dry_run:
-            if len(sessions_to_sync) == 1:
-                console.print(
-                    f"[cyan]Analyzing sync plan for session '{sessions_to_sync[0]['session_id']}'...[/cyan]"
-                )
-            else:
-                console.print(
-                    f"[cyan]Analyzing sync plan for {len(sessions_to_sync)} sessions...[/cyan]\n"
-                )
+            console.print(
+                f"[cyan]Analyzing sync plan for {len(sessions_to_sync)} session(s)...[/cyan]\n"
+            )
 
-            for session_info in sessions_to_sync:
-                _sync_single_session(
-                    console=console,
-                    config=config,
-                    persona_name=persona_name,
-                    session=session_info["session_id"],
-                    session_dir=session_info["path"],
-                    dry_run=True,
-                )
+            if verbose:
+                # Verbose mode: show detailed plan for each session
+                for session_info in sessions_to_sync:
+                    _sync_single_session(
+                        console=console,
+                        config=config,
+                        persona_name=persona_name,
+                        session=session_info["session_id"],
+                        session_dir=session_info["path"],
+                        dry_run=True,
+                        verbose=True,
+                    )
+            else:
+                # Summary mode: show table with all sessions
+                plans = []
+                for session_info in sessions_to_sync:
+                    plan = _analyze_session_plan(
+                        config=config,
+                        persona_name=persona_name,
+                        session=session_info["session_id"],
+                    )
+                    plans.append(plan)
+
+                _display_dry_run_summary(console, plans)
             return
 
         # Handle single session sync (simple output)
