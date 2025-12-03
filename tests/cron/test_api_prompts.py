@@ -223,6 +223,8 @@ class TestPromptExecutionBackgroundTask:
         self, mock_session_local, mock_scheduler, client, sample_prompt
     ):
         """Test successful background execution."""
+        import threading
+
         # Mock the background database session
         mock_bg_session = MagicMock()
         mock_session_local.return_value = mock_bg_session
@@ -233,21 +235,22 @@ class TestPromptExecutionBackgroundTask:
             mock_execution
         )
 
-        # Mock scheduler success
-        mock_scheduler._call_agent.return_value = ("Success response", "session-456")
+        # Use an event to signal when the scheduler is called
+        scheduler_called = threading.Event()
+
+        def side_effect_with_signal(*args, **kwargs):
+            scheduler_called.set()
+            return ("Success response", "session-456")
+
+        mock_scheduler._call_agent.side_effect = side_effect_with_signal
 
         # Start execution
         response = client.post(f"/api/prompts/{sample_prompt.id}/execute")
 
         assert response.status_code == 200
 
-        # Give background thread time to complete
-        import time
-
-        for _ in range(50):  # Try for 5 seconds
-            if mock_scheduler._call_agent.called:
-                break
-            time.sleep(0.1)
+        # Wait for background thread to complete (with timeout)
+        scheduler_called.wait(timeout=10.0)
 
         # Verify scheduler was called with correct parameters
         mock_scheduler._call_agent.assert_called_once_with(
@@ -262,6 +265,8 @@ class TestPromptExecutionBackgroundTask:
         self, mock_session_local, mock_scheduler, client, sample_prompt
     ):
         """Test background execution with agent failure."""
+        import threading
+
         # Mock the background database session
         mock_bg_session = MagicMock()
         mock_session_local.return_value = mock_bg_session
@@ -272,21 +277,23 @@ class TestPromptExecutionBackgroundTask:
             mock_execution
         )
 
-        # Mock scheduler failure
-        mock_scheduler._call_agent.side_effect = Exception("Agent execution failed")
+        # Use an event to signal when the scheduler is called
+        scheduler_called = threading.Event()
+        original_side_effect = Exception("Agent execution failed")
+
+        def side_effect_with_signal(*args, **kwargs):
+            scheduler_called.set()
+            raise original_side_effect
+
+        mock_scheduler._call_agent.side_effect = side_effect_with_signal
 
         # Start execution
         response = client.post(f"/api/prompts/{sample_prompt.id}/execute")
 
         assert response.status_code == 200  # Request succeeds even if execution fails
 
-        # Give background thread time to complete
-        import time
-
-        for _ in range(50):  # Try for 5 seconds
-            if mock_scheduler._call_agent.called:
-                break
-            time.sleep(0.1)
+        # Wait for background thread to complete (with timeout)
+        scheduler_called.wait(timeout=10.0)
 
         # Verify the scheduler was called (even though it failed)
         mock_scheduler._call_agent.assert_called_once()
