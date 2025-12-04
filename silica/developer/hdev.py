@@ -1013,7 +1013,6 @@ def cyclopts_main(
 
     # Cache available options for validation
     model_names()
-    available_personas = personas.names()
 
     # Store original args for session metadata (simulate sys.argv for compatibility)
     original_args = ["hdev"]
@@ -1083,13 +1082,6 @@ def cyclopts_main(
     else:
         # Default to "default" persona
         persona_name = "default"
-
-    # Validate persona
-    if persona_name not in available_personas:
-        console.print(
-            f"[red]Error: Invalid persona '{persona_name}'. Available personas: {', '.join(available_personas)}[/red]"
-        )
-        return
 
     # Get or create persona (prompts user if needed)
     try:
