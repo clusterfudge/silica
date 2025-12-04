@@ -18,6 +18,12 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.document import Document
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.application import Application
+from prompt_toolkit.key_binding.key_processor import KeyPressEvent
+from prompt_toolkit.layout import Layout
+from prompt_toolkit.layout.containers import HSplit, Window
+from prompt_toolkit.layout.controls import FormattedTextControl
+from prompt_toolkit.formatted_text import FormattedText
 
 from silica.developer import personas
 from silica.developer.agent_loop import run
@@ -648,6 +654,127 @@ class CLIUserInterface(UserInterface):
         """Update the status display with thinking progress (not implemented in CLI yet)."""
         # This would require live status updates during streaming
         # For now, we'll just track the final thinking content
+
+    async def get_user_choice(self, question: str, options: list[str]) -> str:
+        """Present an interactive selector for multiple options.
+
+        Renders a keyboard-navigable list of options. Use arrow keys or j/k to move,
+        Enter to select. The last option is always "Say something else..." which
+        allows free-form text input.
+
+        Args:
+            question: The question or prompt to display
+            options: List of option strings to choose from
+
+        Returns:
+            The selected option or custom text input
+        """
+        # Add "Say something else..." as the final option
+        all_options = list(options) + ["Say something else..."]
+        selected_index = 0
+
+        def get_formatted_options() -> FormattedText:
+            """Generate the formatted text for the option list."""
+            result = []
+            # Add the question with styling
+            result.append(("class:question", f"\n{question}\n\n"))
+            result.append(
+                ("class:hint", "  Use ↑/↓ or j/k to navigate, Enter to select\n\n")
+            )
+
+            for i, option in enumerate(all_options):
+                if i == selected_index:
+                    # Selected item: highlighted with arrow indicator
+                    result.append(("class:selected", f"  ❯ {option}\n"))
+                else:
+                    # Unselected item
+                    result.append(("class:option", f"    {option}\n"))
+
+            return FormattedText(result)
+
+        # Create key bindings for navigation
+        kb = KeyBindings()
+
+        @kb.add("up")
+        @kb.add("k")
+        def move_up(event: KeyPressEvent):
+            nonlocal selected_index
+            selected_index = (selected_index - 1) % len(all_options)
+
+        @kb.add("down")
+        @kb.add("j")
+        def move_down(event: KeyPressEvent):
+            nonlocal selected_index
+            selected_index = (selected_index + 1) % len(all_options)
+
+        @kb.add("enter")
+        def select_option(event: KeyPressEvent):
+            event.app.exit(result=selected_index)
+
+        @kb.add("c-c")
+        def cancel(event: KeyPressEvent):
+            event.app.exit(result=None)
+
+        # Also allow number keys for quick selection
+        for i in range(min(9, len(all_options))):
+
+            @kb.add(str(i + 1))
+            def select_by_number(event: KeyPressEvent, index=i):
+                nonlocal selected_index
+                selected_index = index
+                event.app.exit(result=index)
+
+        # Create the layout
+        layout = Layout(
+            HSplit(
+                [
+                    Window(
+                        content=FormattedTextControl(get_formatted_options),
+                        wrap_lines=True,
+                    )
+                ]
+            )
+        )
+
+        # Define style
+        from prompt_toolkit.styles import Style
+
+        style = Style.from_dict(
+            {
+                "question": "bold cyan",
+                "hint": "italic #888888",
+                "selected": "bold reverse",
+                "option": "",
+            }
+        )
+
+        # Create and run the application
+        app: Application[int | None] = Application(
+            layout=layout,
+            key_bindings=kb,
+            style=style,
+            full_screen=False,
+            mouse_support=False,
+        )
+
+        result = await app.run_async()
+
+        # Handle result
+        if result is None:
+            # User cancelled with Ctrl+C
+            return "cancelled"
+
+        selected_option = all_options[result]
+
+        if selected_option == "Say something else...":
+            # Get free-form text input
+            self.console.print()  # Add spacing
+            custom_input = await self.session.prompt_async(
+                rich_to_prompt_toolkit(Text("Enter your response: ", style="bold cyan"))
+            )
+            return custom_input
+
+        return selected_option
 
 
 class CustomCompleter(Completer):

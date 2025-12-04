@@ -1,6 +1,6 @@
 import contextlib
 from abc import ABC, abstractmethod
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 from silica.developer.sandbox import SandboxMode
 
@@ -169,3 +169,23 @@ class UserInterface(ABC):
         :param cost: Current cost of thinking tokens
         """
         # Default implementation does nothing - subclasses can override
+
+    async def get_user_choice(self, question: str, options: List[str]) -> str:
+        """
+        Present multiple options to the user and get their selection.
+
+        This method renders an interactive selector in the terminal with the
+        given options. A "Say something else..." option is automatically
+        added at the end, allowing the user to provide free-form text input.
+
+        :param question: The question or prompt to display
+        :param options: List of option strings to choose from
+        :return: The user's selection or custom text input
+        """
+        # Default implementation falls back to get_user_input
+        # Subclasses can override for interactive selector support
+        options_text = "\n".join(f"  {i + 1}. {opt}" for i, opt in enumerate(options))
+        options_text += f"\n  {len(options) + 1}. Say something else..."
+
+        prompt = f"{question}\n\n{options_text}\n\nEnter choice (number or text): "
+        return await self.get_user_input(prompt)
