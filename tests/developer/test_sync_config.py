@@ -181,3 +181,40 @@ class TestSyncConfig:
 
         # Should not include session-2
         assert (persona_dir / "history" / "session-2") not in config.scan_paths
+
+
+class TestSyncConfigCompression:
+    """Tests for compression settings in SyncConfig."""
+
+    def test_default_compression_is_false(self):
+        """Test that compression defaults to False."""
+        config = SyncConfig(
+            namespace="test/namespace",
+            scan_paths=[Path("/test/path")],
+            index_file=Path("/test/.sync-index.json"),
+            base_dir=Path("/test"),
+        )
+        assert config.compress is False
+
+    def test_explicit_compression_setting(self):
+        """Test setting compression explicitly."""
+        config = SyncConfig(
+            namespace="test/namespace",
+            scan_paths=[Path("/test/path")],
+            index_file=Path("/test/.sync-index.json"),
+            base_dir=Path("/test"),
+            compress=True,
+        )
+        assert config.compress is True
+
+    def test_memory_config_has_compression_disabled(self, persona_dir):
+        """Test that memory config has compression disabled by default."""
+        config = SyncConfig.for_memory("test")
+        # Memory files are small, compression not needed
+        assert config.compress is False
+
+    def test_history_config_has_compression_enabled(self, persona_dir):
+        """Test that history config has compression enabled by default."""
+        config = SyncConfig.for_history("test", "session-1")
+        # History files can be large, compression is beneficial
+        assert config.compress is True

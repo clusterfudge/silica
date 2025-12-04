@@ -10,6 +10,7 @@ Components:
 - SyncEngine: Orchestrate sync operations
 """
 
+import gzip
 import hashlib
 import json
 import logging
@@ -348,16 +349,57 @@ class SyncEngine:
         # remote_index_response.files is a dict[str, FileMetadata]
         remote_files = remote_index_response.files
 
-        # Get all unique paths
-        all_paths = set(local_files.keys()) | set(remote_files.keys())
+        # Build path mappings for compression support
+        # When compression is enabled, local "foo.json" maps to remote "foo.json.gz"
+        local_to_remote: dict[str, str] = {}
+        remote_to_local: dict[str, str] = {}
 
-        for path in all_paths:
-            local_file = local_files.get(path)
-            remote_entry = remote_files.get(path)
-            index_entry = self.local_index.get_entry(path)
+        for local_path in local_files.keys():
+            if self.config.compress:
+                remote_path = f"{local_path}.gz"
+            else:
+                remote_path = local_path
+            local_to_remote[local_path] = remote_path
+            remote_to_local[remote_path] = local_path
+
+        # Also map any remote .gz files to their local counterparts
+        for remote_path in remote_files.keys():
+            if remote_path.endswith(".gz"):
+                local_path = remote_path[:-3]
+                if local_path not in local_to_remote:
+                    local_to_remote[local_path] = remote_path
+                remote_to_local[remote_path] = local_path
+            elif remote_path not in remote_to_local:
+                remote_to_local[remote_path] = remote_path
+                if remote_path not in local_to_remote:
+                    local_to_remote[remote_path] = remote_path
+
+        # Get all unique LOCAL paths (we work in local path space)
+        all_local_paths = set(local_files.keys()) | set(remote_to_local.values())
+
+        for local_path in all_local_paths:
+            local_file = local_files.get(local_path)
+
+            # Find corresponding remote path (may be .gz version)
+            remote_path = local_to_remote.get(local_path, local_path)
+            # Also check for non-.gz version if .gz not found
+            remote_entry = remote_files.get(remote_path)
+            if remote_entry is None and self.config.compress:
+                # Maybe remote doesn't have .gz yet, check uncompressed
+                remote_entry = remote_files.get(local_path)
+                if remote_entry is not None:
+                    remote_path = local_path
+
+            # Index may track either compressed or uncompressed path
+            index_entry = self.local_index.get_entry(remote_path)
+            if index_entry is None:
+                index_entry = self.local_index.get_entry(local_path)
 
             # Determine what operation is needed
-            op = self._determine_operation(path, local_file, remote_entry, index_entry)
+            # Pass local_path for file operations, remote_path for remote operations
+            op = self._determine_operation(
+                local_path, local_file, remote_entry, index_entry, remote_path
+            )
 
             if op:
                 if op.type == "upload":
@@ -492,6 +534,7 @@ class SyncEngine:
         local_file: FileInfo | None,
         remote_entry: FileMetadata | None,
         index_entry: FileMetadata | None,
+        remote_path: str | None = None,
     ) -> SyncOperationDetail | None:
         """Determine what operation is needed for a file.
 
@@ -507,14 +550,17 @@ class SyncEngine:
            - Neither exists → No operation
 
         Args:
-            path: File path
+            path: Local file path
             local_file: Local file info (None if doesn't exist)
             remote_entry: Remote metadata (None if doesn't exist)
             index_entry: Last known remote state (None if never synced)
+            remote_path: Remote file path (may differ from local if compressed)
 
         Returns:
             SyncOperationDetail if an operation is needed, None if in sync
         """
+        # Use remote_path for operations if provided, otherwise use local path
+        effective_remote_path = remote_path if remote_path else path
         # ==========================================
         # STEP 1: Check for explicit tombstone
         # ==========================================
@@ -527,7 +573,7 @@ class SyncEngine:
                 # Local file exists, remote has tombstone → delete local
                 return SyncOperationDetail(
                     type="delete_local",
-                    path=path,
+                    path=path,  # Use local path for delete_local
                     reason="Explicit remote deletion (tombstone)",
                     local_md5=local_file.md5,
                     remote_version=remote_entry.version,
@@ -536,7 +582,7 @@ class SyncEngine:
                 # Local already deleted, just update index to track tombstone
                 if index_entry and not index_entry.is_deleted:
                     # Update our index to reflect the tombstone
-                    self.local_index.update_entry(path, remote_entry)
+                    self.local_index.update_entry(effective_remote_path, remote_entry)
                 return None  # No operation needed
 
         # ==========================================
@@ -547,8 +593,8 @@ class SyncEngine:
         if local_file and remote_entry:
             # Files match - in sync
             if local_file.md5 == remote_entry.md5:
-                # Update index to track current state
-                self.local_index.update_entry(path, remote_entry)
+                # Update index to track current state (use remote path for index)
+                self.local_index.update_entry(effective_remote_path, remote_entry)
                 return None  # In sync
 
             # Files differ - determine sync direction
@@ -558,7 +604,7 @@ class SyncEngine:
                 # Remote is authority on bootstrap - download remote version
                 return SyncOperationDetail(
                     type="download",
-                    path=path,
+                    path=effective_remote_path,
                     reason="Remote is authority, bootstrap scenario",
                     remote_md5=remote_entry.md5,
                     remote_version=remote_entry.version,
@@ -594,7 +640,7 @@ class SyncEngine:
                 # Only remote changed - download
                 return SyncOperationDetail(
                     type="download",
-                    path=path,
+                    path=effective_remote_path,
                     reason="Remote file modified",
                     remote_md5=remote_entry.md5,
                     remote_version=remote_entry.version,
@@ -656,7 +702,7 @@ class SyncEngine:
                 # Propagate deletion to remote (create tombstone)
                 return SyncOperationDetail(
                     type="delete_remote",
-                    path=path,
+                    path=effective_remote_path,
                     reason="Deleted locally",
                     remote_md5=remote_entry.md5,
                     remote_version=remote_entry.version,
@@ -666,7 +712,7 @@ class SyncEngine:
                 # Download it
                 return SyncOperationDetail(
                     type="download",
-                    path=path,
+                    path=effective_remote_path,
                     reason="New remote file",
                     remote_md5=remote_entry.md5,
                     remote_size=remote_entry.size,
@@ -831,6 +877,11 @@ class SyncEngine:
 
         Returns:
             True if successful, False otherwise
+
+        Note:
+            If compression is enabled in config, files are gzip compressed before
+            upload and stored with .gz extension on remote. The local index tracks
+            the compressed remote path.
         """
         # Look up full path from mapping (built during scan)
         full_path = self._path_to_full_path.get(path)
@@ -843,21 +894,40 @@ class SyncEngine:
             return False
 
         try:
-            # Calculate MD5 using cache
+            # Calculate MD5 using cache (of original uncompressed content)
             self.md5_cache.calculate_md5(full_path)
 
             # Read file content
             with open(full_path, "rb") as f:
                 content = f.read()
 
+            original_size = len(content)
+
+            # Determine remote path and content type
+            remote_path = path
+            content_type = "application/octet-stream"
+
+            # Compress if enabled
+            if self.config.compress:
+                compressed_content = gzip.compress(content, compresslevel=6)
+                # Only use compression if it actually helps
+                if len(compressed_content) < original_size:
+                    content = compressed_content
+                    remote_path = f"{path}.gz"
+                    content_type = "application/gzip"
+                    logger.debug(
+                        f"Compressed {path}: {original_size} -> {len(content)} bytes "
+                        f"({100 - len(content) * 100 // original_size}% reduction)"
+                    )
+
             # Upload to remote
             # write_blob returns tuple (is_new, md5, version, sync_index)
             is_new, returned_md5, new_version, sync_index = self.client.write_blob(
                 namespace=self.config.namespace,
-                path=path,
+                path=remote_path,
                 content=content,
                 expected_version=remote_version,
-                content_type="application/octet-stream",
+                content_type=content_type,
             )
 
             # Update local index with the entire manifest from response
@@ -866,8 +936,13 @@ class SyncEngine:
                 self.local_index.update_entry(file_path, metadata)
 
             # Log success
+            compression_note = ""
+            if self.config.compress and remote_path != path:
+                compression_note = (
+                    f" (compressed: {original_size} -> {len(content)} bytes)"
+                )
 
-            logger.info(f"Uploaded {path} (v{new_version})")
+            logger.info(f"Uploaded {remote_path} (v{new_version}){compression_note}")
             return True
 
         except VersionConflictError as e:
@@ -882,12 +957,24 @@ class SyncEngine:
 
         Args:
             path: File path relative to namespace (e.g., "test.md" or "projects/alpha.md")
+                  May include .gz extension for compressed files.
 
         Returns:
             True if successful, False otherwise
+
+        Note:
+            If the remote path ends with .gz, the content is automatically
+            decompressed before writing locally. The local file will not have
+            the .gz extension.
         """
+        # Determine local path (strip .gz extension if present)
+        local_path = path
+        is_compressed = path.endswith(".gz")
+        if is_compressed:
+            local_path = path[:-3]  # Remove .gz extension
+
         # Look up full path from mapping (built during scan)
-        full_path = self._path_to_full_path.get(path)
+        full_path = self._path_to_full_path.get(local_path)
         if not full_path:
             # For new files being downloaded, determine where they should go
             # Check if path matches any explicit file in scan_paths
@@ -895,7 +982,7 @@ class SyncEngine:
             for scan_path in self.config.scan_paths:
                 scan_path = Path(scan_path)
                 # Check if this scan_path is a file and matches our path
-                if not scan_path.is_dir() and scan_path.name == path:
+                if not scan_path.is_dir() and scan_path.name == local_path:
                     # This is the file itself (e.g., persona.md)
                     full_path = scan_path
                     break
@@ -904,10 +991,10 @@ class SyncEngine:
                     target_dir = scan_path
 
             if not full_path and target_dir:
-                full_path = target_dir / path
+                full_path = target_dir / local_path
             elif not full_path:
                 # Fallback to base_dir if no directory found
-                full_path = self._base_dir / path
+                full_path = self._base_dir / local_path
 
         try:
             # Download from remote
@@ -916,31 +1003,55 @@ class SyncEngine:
                 namespace=self.config.namespace, path=path
             )
 
+            remote_size = len(content)
+
+            # Decompress if needed (check both extension and content type)
+            if is_compressed or content_type == "application/gzip":
+                try:
+                    content = gzip.decompress(content)
+                    logger.debug(
+                        f"Decompressed {path}: {remote_size} -> {len(content)} bytes"
+                    )
+                except gzip.BadGzipFile:
+                    # Not actually gzipped, use as-is
+                    logger.warning(
+                        f"File {path} has .gz extension but is not gzip compressed"
+                    )
+
             # Ensure directory exists
             full_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # Write file
+            # Write file (decompressed)
             with open(full_path, "wb") as f:
                 f.write(content)
 
-            # Update MD5 cache for the downloaded file
-            self.md5_cache.set(full_path, md5)
+            # Update MD5 cache for the downloaded file (hash of decompressed content)
+            local_md5 = hashlib.md5(content).hexdigest()
+            self.md5_cache.set(full_path, local_md5)
 
-            # Create metadata object
+            # Create metadata object for the REMOTE file (compressed)
+            # We track the remote state in the index
             file_metadata = FileMetadata(
-                md5=md5,
+                md5=md5,  # MD5 of compressed content on remote
                 last_modified=last_modified,
-                size=len(content),
+                size=remote_size,  # Size on remote (compressed)
                 version=version,
                 is_deleted=False,
             )
 
-            # Update local index
+            # Update local index with the remote path (including .gz)
             self.local_index.update_entry(path, file_metadata)
 
             # Log success
+            compression_note = ""
+            if is_compressed or content_type == "application/gzip":
+                compression_note = (
+                    f" (decompressed: {remote_size} -> {len(content)} bytes)"
+                )
 
-            logger.info(f"Downloaded {path} (v{version})")
+            logger.info(
+                f"Downloaded {path} -> {local_path} (v{version}){compression_note}"
+            )
             return True
 
         except NotFoundError:
