@@ -408,13 +408,17 @@ class TestConversationCompaction(unittest.TestCase):
             # Get original message count to verify mutation
             len(small_context.chat_history)
 
+            # Use explicit turns=2 to compact 2 turns (3 messages) and leave 1
+            # When turns is None, auto-calculation may compact fewer turns for small conversations
             metadata = compacter.compact_conversation(
-                small_context, "claude-3-5-sonnet-20241022", force=True
+                small_context, "claude-3-5-sonnet-20241022", turns=2, force=True
             )
             self.assertIsNotNone(metadata)
             # Verify context was mutated in place
             self.assertGreater(len(small_context.chat_history), 0)
-            # With 3 messages [user, assistant, user], we get 1 summary + 1 preserved (last user) = 2 messages
+            # With 3 messages [user, assistant, user] and turns=2 (3 messages to compact),
+            # we compact all 3 but the code adjusts to leave at least 1, so we get:
+            # 1 summary message + 1 remaining message = 2 messages
             self.assertEqual(len(small_context.chat_history), 2)
             # Verify the first message is now the summary
             self.assertIn("Compacted Summary", small_context.chat_history[0]["content"])
