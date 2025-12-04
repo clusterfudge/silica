@@ -215,97 +215,118 @@ class TestPromptsAPI:
 
 
 class TestPromptExecutionBackgroundTask:
-    """Test the background execution functionality."""
+    """Test the background execution functionality.
 
-    @patch("silica.cron.routes.prompts.scheduler")
-    @patch("silica.cron.routes.prompts.SessionLocal")
-    def test_background_execution_success(
-        self, mock_session_local, mock_scheduler, client, sample_prompt
-    ):
-        """Test successful background execution."""
-        import threading
+    These tests verify the background execution logic by intercepting thread
+    creation and running the target function synchronously. This avoids
+    race conditions and makes tests deterministic.
+    """
 
-        # Mock the background database session
-        mock_bg_session = MagicMock()
-        mock_session_local.return_value = mock_bg_session
+    def test_background_execution_success(self, client, sample_prompt):
+        """Test successful background execution by running synchronously."""
+        # Capture the thread target function
+        captured_target = None
 
-        mock_execution = MagicMock()
-        mock_execution.id = "exec_test123"
-        mock_bg_session.query.return_value.filter.return_value.first.return_value = (
-            mock_execution
-        )
+        def capture_thread(*args, **kwargs):
+            nonlocal captured_target
+            captured_target = kwargs.get("target")
+            # Return a mock thread that doesn't actually start
+            mock_thread = MagicMock()
+            return mock_thread
 
-        # Use an event to signal when the scheduler is called
-        scheduler_called = threading.Event()
+        with patch(
+            "silica.cron.routes.prompts.threading.Thread", side_effect=capture_thread
+        ):
+            with patch("silica.cron.routes.prompts.scheduler") as mock_scheduler:
+                with patch(
+                    "silica.cron.routes.prompts.SessionLocal"
+                ) as mock_session_local:
+                    # Mock the background database session
+                    mock_bg_session = MagicMock()
+                    mock_session_local.return_value = mock_bg_session
 
-        def side_effect_with_signal(*args, **kwargs):
-            scheduler_called.set()
-            return ("Success response", "session-456")
+                    mock_execution = MagicMock()
+                    mock_execution.id = "exec_test123"
+                    mock_bg_session.query.return_value.filter.return_value.first.return_value = mock_execution
 
-        mock_scheduler._call_agent.side_effect = side_effect_with_signal
+                    # Mock scheduler success
+                    mock_scheduler._call_agent.return_value = (
+                        "Success response",
+                        "session-456",
+                    )
 
-        # Start execution
-        response = client.post(f"/api/prompts/{sample_prompt.id}/execute")
+                    # Start execution - this captures the background function
+                    response = client.post(f"/api/prompts/{sample_prompt.id}/execute")
 
-        assert response.status_code == 200
+                    assert response.status_code == 200
+                    assert (
+                        captured_target is not None
+                    ), "Background function was not captured"
 
-        # Wait for background thread to complete (with timeout)
-        scheduler_called.wait(timeout=10.0)
+                    # Run the captured function synchronously (within mock context)
+                    captured_target()
 
-        # Verify scheduler was called with correct parameters
-        mock_scheduler._call_agent.assert_called_once_with(
-            prompt=sample_prompt.prompt_text,
-            model=sample_prompt.model,
-            persona=sample_prompt.persona,
-        )
+                    # Verify scheduler was called with correct parameters
+                    mock_scheduler._call_agent.assert_called_once_with(
+                        prompt=sample_prompt.prompt_text,
+                        model=sample_prompt.model,
+                        persona=sample_prompt.persona,
+                    )
 
-    @patch("silica.cron.routes.prompts.scheduler")
-    @patch("silica.cron.routes.prompts.SessionLocal")
-    def test_background_execution_failure(
-        self, mock_session_local, mock_scheduler, client, sample_prompt
-    ):
-        """Test background execution with agent failure."""
-        import threading
+    def test_background_execution_failure(self, client, sample_prompt):
+        """Test background execution with agent failure by running synchronously."""
+        # Capture the thread target function
+        captured_target = None
 
-        # Mock the background database session
-        mock_bg_session = MagicMock()
-        mock_session_local.return_value = mock_bg_session
+        def capture_thread(*args, **kwargs):
+            nonlocal captured_target
+            captured_target = kwargs.get("target")
+            # Return a mock thread that doesn't actually start
+            mock_thread = MagicMock()
+            return mock_thread
 
-        mock_execution = MagicMock()
-        mock_execution.id = "exec_test456"
-        mock_bg_session.query.return_value.filter.return_value.first.return_value = (
-            mock_execution
-        )
+        with patch(
+            "silica.cron.routes.prompts.threading.Thread", side_effect=capture_thread
+        ):
+            with patch("silica.cron.routes.prompts.scheduler") as mock_scheduler:
+                with patch(
+                    "silica.cron.routes.prompts.SessionLocal"
+                ) as mock_session_local:
+                    # Mock the background database session
+                    mock_bg_session = MagicMock()
+                    mock_session_local.return_value = mock_bg_session
 
-        # Use an event to signal when the scheduler is called
-        scheduler_called = threading.Event()
-        original_side_effect = Exception("Agent execution failed")
+                    mock_execution = MagicMock()
+                    mock_execution.id = "exec_test456"
+                    mock_bg_session.query.return_value.filter.return_value.first.return_value = mock_execution
 
-        def side_effect_with_signal(*args, **kwargs):
-            scheduler_called.set()
-            raise original_side_effect
+                    # Mock scheduler failure
+                    mock_scheduler._call_agent.side_effect = Exception(
+                        "Agent execution failed"
+                    )
 
-        mock_scheduler._call_agent.side_effect = side_effect_with_signal
+                    # Start execution - this captures the background function
+                    response = client.post(f"/api/prompts/{sample_prompt.id}/execute")
 
-        # Start execution
-        response = client.post(f"/api/prompts/{sample_prompt.id}/execute")
+                    assert response.status_code == 200
+                    assert (
+                        captured_target is not None
+                    ), "Background function was not captured"
 
-        assert response.status_code == 200  # Request succeeds even if execution fails
+                    # Run the captured function synchronously (errors are caught inside)
+                    captured_target()
 
-        # Wait for background thread to complete (with timeout)
-        scheduler_called.wait(timeout=10.0)
+                    # Verify the scheduler was called (even though it failed)
+                    mock_scheduler._call_agent.assert_called_once()
 
-        # Verify the scheduler was called (even though it failed)
-        mock_scheduler._call_agent.assert_called_once()
-
-    @patch("threading.Thread")
-    def test_background_thread_creation(self, mock_thread, client, sample_prompt):
+    def test_background_thread_creation(self, client, sample_prompt):
         """Test that background thread is created for execution."""
-        mock_thread_instance = MagicMock()
-        mock_thread.return_value = mock_thread_instance
+        with patch("silica.cron.routes.prompts.threading.Thread") as mock_thread:
+            mock_thread_instance = MagicMock()
+            mock_thread.return_value = mock_thread_instance
 
-        response = client.post(f"/api/prompts/{sample_prompt.id}/execute")
+            response = client.post(f"/api/prompts/{sample_prompt.id}/execute")
 
-        assert response.status_code == 200
-        mock_thread.assert_called_once()
-        mock_thread_instance.start.assert_called_once()
+            assert response.status_code == 200
+            mock_thread.assert_called_once()
+            mock_thread_instance.start.assert_called_once()
