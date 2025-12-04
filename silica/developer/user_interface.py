@@ -189,3 +189,44 @@ class UserInterface(ABC):
 
         prompt = f"{question}\n\n{options_text}\n\nEnter choice (number or text): "
         return await self.get_user_input(prompt)
+
+    async def get_session_choice(self, sessions: List[Dict[str, Any]]) -> str | None:
+        """
+        Present an interactive selector for session resumption.
+
+        This method displays sessions with their metadata and allows the user
+        to select one to resume. Unlike get_user_choice, this does not include
+        a "Say something else..." option.
+
+        :param sessions: List of session dictionaries with metadata
+        :return: Selected session ID, or None if cancelled
+        """
+        # Default implementation falls back to get_user_choice
+        # Subclasses can override for better formatting
+        if not sessions:
+            return None
+
+        options = []
+        for session in sessions:
+            short_id = session.get("session_id", "")[:8]
+            msg_count = session.get("message_count", 0)
+            first_msg = session.get("first_message", "")
+            if first_msg and len(first_msg) > 40:
+                first_msg = first_msg[:37] + "..."
+            option = f"[{short_id}] ({msg_count} msgs)"
+            if first_msg:
+                option += f' "{first_msg}"'
+            options.append(option)
+
+        result = await self.get_user_choice("Select a session to resume:", options)
+
+        if result == "cancelled":
+            return None
+
+        # Find which option was selected
+        for i, option in enumerate(options):
+            if result == option:
+                return sessions[i]["session_id"]
+
+        # User typed something else - return as session ID
+        return result if result else None
