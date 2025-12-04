@@ -442,6 +442,16 @@ def _sync_all_sessions_with_progress(
     # Add overall task
     overall_task = overall_progress.add_task("Syncing...", total=len(sessions_to_sync))
 
+    # Add a summary row for skipped (in-sync) sessions - starts hidden
+    skipped_count = 0
+    skipped_task = session_progress.add_task(
+        "skipped",
+        status_icon="[dim]○[/dim]",
+        session_id="",
+        status_text="",
+        visible=False,
+    )
+
     # Add task for each session
     session_tasks = {}
     for session_info in sessions_to_sync:
@@ -494,14 +504,24 @@ def _sync_all_sessions_with_progress(
                     status_text=f"[yellow]{result.succeeded} ok, {result.failed} failed[/yellow]",
                 )
             else:
-                ops_text = (
-                    f"{result.succeeded} ops" if result.succeeded > 0 else "In sync"
-                )
-                session_progress.update(
-                    task_id,
-                    status_icon="[green]✓[/green]",
-                    status_text=f"[green]{ops_text}[/green] [dim]({result.duration:.1f}s)[/dim]",
-                )
+                if result.succeeded > 0:
+                    # Show sessions that had actual operations
+                    session_progress.update(
+                        task_id,
+                        status_icon="[green]✓[/green]",
+                        status_text=f"[green]{result.succeeded} ops[/green] [dim]({result.duration:.1f}s)[/dim]",
+                    )
+                else:
+                    # Hide sessions that were already in sync and update counter
+                    session_progress.update(task_id, visible=False)
+                    skipped_count += 1
+                    session_progress.update(
+                        skipped_task,
+                        visible=True,
+                        status_icon="[dim]─[/dim]",
+                        session_id=f"[dim]({skipped_count} session(s) already in sync)[/dim]",
+                        status_text="",
+                    )
 
             # Update overall progress
             overall_progress.update(overall_task, advance=1)
@@ -541,6 +561,11 @@ def _display_dry_run_summary(
     table.add_column("⚠ Conflicts", justify="right", style="red")
     table.add_column("Total", justify="right", style="white bold")
 
+    # Count sessions in sync (no operations or conflicts)
+    in_sync_count = sum(
+        1 for p in plans if not p.error and p.total_ops == 0 and p.conflicts == 0
+    )
+
     for plan in plans:
         if plan.error:
             table.add_row(
@@ -553,7 +578,8 @@ def _display_dry_run_summary(
                 if len(plan.error) > 20
                 else f"[red]{plan.error}[/red]",
             )
-        else:
+        elif plan.total_ops > 0 or plan.conflicts > 0:
+            # Show sessions that have operations or conflicts
             deletes = plan.delete_local + plan.delete_remote
             table.add_row(
                 plan.session_id,
@@ -561,8 +587,9 @@ def _display_dry_run_summary(
                 str(plan.downloads) if plan.downloads else "-",
                 str(deletes) if deletes else "-",
                 str(plan.conflicts) if plan.conflicts else "-",
-                str(plan.total_ops) if plan.total_ops else "[dim]In sync[/dim]",
+                str(plan.total_ops) if plan.total_ops else "-",
             )
+        # Skip sessions that are already in sync (no output row)
 
     # Add totals row
     table.add_row(
@@ -578,9 +605,14 @@ def _display_dry_run_summary(
     console.print(table)
 
     # Show summary message
+    if in_sync_count > 0:
+        console.print(
+            f"\n[dim]({in_sync_count} session(s) already in sync, not shown)[/dim]"
+        )
+
     if total_ops == 0 and total_conflicts == 0 and not errors:
         console.print(
-            "\n[green]✓ All sessions are in sync. No operations needed.[/green]"
+            "[green]✓ All sessions are in sync. No operations needed.[/green]"
         )
     else:
         if total_conflicts > 0:
