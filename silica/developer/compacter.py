@@ -19,6 +19,9 @@ from silica.developer.models import model_names, get_model
 # Default threshold ratio of model's context window to trigger compaction
 DEFAULT_COMPACTION_THRESHOLD_RATIO = 0.80  # Trigger compaction at 80% of context window
 
+# Default minimum token reduction ratio to achieve during compaction
+DEFAULT_MIN_REDUCTION_RATIO = 0.30  # Compact enough to remove at least 30% of tokens
+
 
 @dataclass
 class CompactionSummary:
@@ -50,6 +53,7 @@ class ConversationCompacter:
         self,
         client: anthropic.Client,
         threshold_ratio: float = DEFAULT_COMPACTION_THRESHOLD_RATIO,
+        min_reduction_ratio: float = DEFAULT_MIN_REDUCTION_RATIO,
         logger=None,
     ):
         """Initialize the conversation compacter.
@@ -57,6 +61,7 @@ class ConversationCompacter:
         Args:
             client: Anthropic client instance (required)
             threshold_ratio: Ratio of model's context window to trigger compaction
+            min_reduction_ratio: Minimum token reduction to achieve (default 30%)
             logger: RequestResponseLogger instance (optional, for logging API calls)
         """
         # Allow threshold to be configured via environment variable
@@ -77,7 +82,26 @@ class ConversationCompacter:
                 )
                 threshold_ratio = DEFAULT_COMPACTION_THRESHOLD_RATIO
 
+        # Allow min reduction to be configured via environment variable
+        env_min_reduction = os.getenv("SILICA_COMPACTION_MIN_REDUCTION")
+        if env_min_reduction:
+            try:
+                min_reduction_ratio = float(env_min_reduction)
+                if not 0.0 < min_reduction_ratio < 1.0:
+                    print(
+                        f"Warning: SILICA_COMPACTION_MIN_REDUCTION must be between 0 and 1, "
+                        f"got {min_reduction_ratio}. Using default {DEFAULT_MIN_REDUCTION_RATIO}"
+                    )
+                    min_reduction_ratio = DEFAULT_MIN_REDUCTION_RATIO
+            except ValueError:
+                print(
+                    f"Warning: Invalid SILICA_COMPACTION_MIN_REDUCTION value '{env_min_reduction}'. "
+                    f"Using default {DEFAULT_MIN_REDUCTION_RATIO}"
+                )
+                min_reduction_ratio = DEFAULT_MIN_REDUCTION_RATIO
+
         self.threshold_ratio = threshold_ratio
+        self.min_reduction_ratio = min_reduction_ratio
         self.logger = logger
         self.client = client
 
@@ -303,6 +327,43 @@ class ConversationCompacter:
             total_chars += len(messages_str)
 
         # Rough estimate: 1 token per 3-4 characters for English text
+        return int(total_chars / 3.5)
+
+    def _estimate_message_tokens(self, message: dict) -> int:
+        """Estimate token count for a single message.
+
+        Args:
+            message: A single message dict with 'role' and 'content'
+
+        Returns:
+            int: Estimated token count for the message
+        """
+        total_chars = 0
+
+        # Count role overhead (roughly 4 tokens for role markers)
+        total_chars += 15
+
+        content = message.get("content", "")
+        if isinstance(content, str):
+            total_chars += len(content)
+        elif isinstance(content, list):
+            for item in content:
+                if isinstance(item, dict):
+                    if "text" in item:
+                        total_chars += len(item["text"])
+                    elif item.get("type") == "tool_use":
+                        total_chars += len(item.get("name", ""))
+                        total_chars += len(json.dumps(item.get("input", {})))
+                    elif item.get("type") == "tool_result":
+                        result_content = item.get("content", "")
+                        if isinstance(result_content, str):
+                            total_chars += len(result_content)
+                        elif isinstance(result_content, list):
+                            for block in result_content:
+                                if isinstance(block, dict) and "text" in block:
+                                    total_chars += len(block["text"])
+
+        # Rough estimate: 1 token per 3.5 characters
         return int(total_chars / 3.5)
 
     def _messages_to_string(
@@ -541,13 +602,129 @@ class ConversationCompacter:
         archive_name = agent_context.rotate(archive_suffix, new_messages, metadata)
         return archive_name
 
+    def calculate_turns_for_target_reduction(
+        self,
+        agent_context,
+        model: str,
+        target_reduction_ratio: float = None,
+        debug: bool = False,
+    ) -> int:
+        """Calculate the number of turns to compact to achieve target token reduction.
+
+        This method estimates tokens per turn and finds the minimum number of turns
+        to compact that will achieve at least the target reduction ratio.
+
+        The goal is to compact enough content to "buy" several turns of headroom,
+        rather than compacting just a tiny bit and needing to compact again soon.
+
+        Args:
+            agent_context: AgentContext instance to analyze
+            model: Model name for token counting
+            target_reduction_ratio: Minimum reduction to achieve (default: self.min_reduction_ratio)
+            debug: If True, print debug information
+
+        Returns:
+            int: Number of turns to compact (minimum 1)
+        """
+        if target_reduction_ratio is None:
+            target_reduction_ratio = self.min_reduction_ratio
+
+        messages = agent_context.chat_history
+        if len(messages) < 3:
+            return 1  # Can't really compact less than 1 turn
+
+        # Get total token count for context
+        total_tokens = self.count_tokens(agent_context, model)
+
+        # Estimate the "base" tokens (system prompt + tools) that won't be reduced
+        # These stay constant regardless of how many messages we compact
+        context_dict = agent_context.get_api_context()
+        base_tokens = 0
+        if context_dict.get("system"):
+            for block in context_dict["system"]:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    base_tokens += int(len(block.get("text", "")) / 3.5)
+        if context_dict.get("tools"):
+            base_tokens += int(len(json.dumps(context_dict["tools"])) / 3.5)
+
+        # Estimate message tokens (total - base)
+        message_tokens = total_tokens - base_tokens
+
+        # Calculate tokens to remove for target reduction
+        # We want: (total - removed_tokens) / total <= (1 - target_reduction_ratio)
+        # So: removed_tokens >= total * target_reduction_ratio
+        tokens_to_remove = int(total_tokens * target_reduction_ratio)
+
+        if debug:
+            print("\n[Smart Compaction Calculation]")
+            print(f"  Total tokens: {total_tokens:,}")
+            print(f"  Base tokens (system+tools): {base_tokens:,}")
+            print(f"  Message tokens: {message_tokens:,}")
+            print(f"  Target reduction: {target_reduction_ratio:.0%}")
+            print(f"  Tokens to remove: {tokens_to_remove:,}")
+
+        # Estimate tokens per message by sampling
+        # A "turn" is user+assistant, so we estimate pairs
+        cumulative_tokens = 0
+        turns_needed = 0
+        messages_counted = 0
+
+        # Iterate through messages, accumulating token estimates
+        # until we reach our target
+        for i, message in enumerate(messages):
+            msg_tokens = self._estimate_message_tokens(message)
+            cumulative_tokens += msg_tokens
+            messages_counted += 1
+
+            # Check if this completes a turn (user+assistant pair)
+            # We need to keep at least 1 message (the current user query context)
+            if i > 0 and messages_counted >= 2:
+                # Calculate turns: ceil(messages / 2) roughly
+                # Turn 1 = 1 msg (user), Turn 2 = 3 msgs (u,a,u), etc.
+                # So messages_counted maps to turns as: (messages_counted + 1) / 2
+                potential_turns = (messages_counted + 1) // 2
+
+                if debug and i < 10:  # Only print first few for brevity
+                    print(
+                        f"  Message {i}: +{msg_tokens:,} tokens, "
+                        f"cumulative: {cumulative_tokens:,}, turns: {potential_turns}"
+                    )
+
+                # Check if we've accumulated enough tokens
+                if cumulative_tokens >= tokens_to_remove:
+                    turns_needed = potential_turns
+                    break
+
+        # If we went through all messages without hitting target,
+        # compact as much as possible (leave 1 message)
+        if turns_needed == 0:
+            # Calculate max turns we can compact (leave at least 1 message)
+            max_messages_to_compact = len(messages) - 1
+            turns_needed = max((max_messages_to_compact + 1) // 2, 1)
+
+        # Ensure minimum of 1 turn
+        turns_needed = max(turns_needed, 1)
+
+        # Cap at a reasonable maximum (don't compact everything)
+        # Leave at least 2 messages (1 turn of context)
+        max_turns = max((len(messages) - 2 + 1) // 2, 1)
+        turns_needed = min(turns_needed, max_turns)
+
+        if debug:
+            print(f"  Final turns to compact: {turns_needed}")
+            expected_reduction = cumulative_tokens / total_tokens if total_tokens else 0
+            print(f"  Expected reduction: {expected_reduction:.0%}")
+
+        return turns_needed
+
     def compact_conversation(
-        self, agent_context, model: str, turns: int = 3, force: bool = False
+        self, agent_context, model: str, turns: int = None, force: bool = False
     ) -> CompactionMetadata | None:
         """Compact a conversation by summarizing first N turns and keeping the rest.
 
         This is a micro-compaction approach that:
-        - Summarizes only the first N conversation turns (default 3)
+        - Summarizes only the first N conversation turns
+        - If turns is None, automatically calculates turns to achieve 30% reduction
         - Keeps all remaining messages unchanged
         - Uses haiku model for cost-effectiveness
         - Better preserves recent context than full compaction
@@ -555,12 +732,29 @@ class ConversationCompacter:
         Args:
             agent_context: AgentContext instance (mutated in place if compaction occurs)
             model: Model name to use for summarization (typically "haiku")
-            turns: Number of turns to compact (default 3)
+            turns: Number of turns to compact (if None, auto-calculate for 30% reduction)
             force: If True, force compaction even if under threshold
 
         Returns:
             CompactionMetadata if compaction occurred, None otherwise
         """
+        # Check if compaction should proceed
+        if not force and not self.should_compact(agent_context, model):
+            return None
+
+        # Check if debug mode is enabled
+        debug_compaction = os.getenv("SILICA_DEBUG_COMPACTION", "").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+
+        # Auto-calculate turns if not specified
+        if turns is None:
+            turns = self.calculate_turns_for_target_reduction(
+                agent_context, model, debug=debug_compaction
+            )
+
         # Calculate number of messages for N turns
         # Turn structure: must start with user and end with user
         # Turn 1: 1 message (user)
@@ -568,10 +762,6 @@ class ConversationCompacter:
         # Turn 3: 5 messages (user, assistant, user, assistant, user)
         # Turn N: (2N - 1) messages
         messages_to_compact = (turns * 2) - 1
-
-        # Check if compaction should proceed
-        if not force and not self.should_compact(agent_context, model):
-            return None
 
         # Check if there's enough conversation to compact with the requested turns
         # If not enough messages, adjust turns to compact all but the last message
@@ -581,11 +771,16 @@ class ConversationCompacter:
                 return None
             # Adjust to compact all messages except the last one
             messages_to_compact = len(agent_context.chat_history) - 1
+            adjusted_turns = (messages_to_compact + 1) // 2
             print(
-                f"Initiating compaction of {messages_to_compact} messages (adjusted from {turns} turns)..."
+                f"Initiating compaction of {messages_to_compact} messages "
+                f"({adjusted_turns} turns, adjusted from {turns})..."
             )
+            turns = adjusted_turns
         else:
-            print(f"Initiating compaction of first {turns} turns...")
+            print(
+                f"Initiating compaction of first {turns} turns ({messages_to_compact} messages)..."
+            )
 
         # Separate messages to compact from messages to keep
         messages_to_summarize = agent_context.chat_history[:messages_to_compact]
@@ -649,6 +844,11 @@ class ConversationCompacter:
     ) -> tuple:
         """Check if compaction is needed and apply it if necessary.
 
+        Uses smart compaction to automatically determine how many turns to compact
+        based on achieving at least 30% token reduction. This ensures that when we
+        compact, we remove enough content to provide headroom for several more turns
+        before needing to compact again.
+
         Args:
             agent_context: The agent context to check (mutated in place if compaction occurs)
             model: Model name (string, not ModelSpec dict) - used for token counting only
@@ -700,19 +900,30 @@ class ConversationCompacter:
                     print("[Compaction] Not needed yet")
                     return agent_context, False
 
-            # Compact with default 3 turns using haiku model
-            # This is cost-effective and preserves recent context better
+            # Use smart compaction: auto-calculate turns for 30% reduction
+            # Uses haiku model for cost-effectiveness
             metadata = self.compact_conversation(
-                agent_context, "haiku", turns=3, force=False
+                agent_context, "haiku", turns=None, force=False
             )
 
             if metadata:
+                # Calculate actual reduction for user feedback
+                if metadata.original_token_count > 0:
+                    reduction_pct = (
+                        1
+                        - metadata.compacted_message_count
+                        / metadata.original_message_count
+                    ) * 100
+                else:
+                    reduction_pct = 0
+
                 # Notify user about the compaction
                 user_interface.handle_system_message(
                     f"[bold green]Conversation compacted: "
                     f"{metadata.original_message_count} messages → "
                     f"{metadata.compacted_message_count} messages "
-                    f"(archived to {metadata.archive_name})[/bold green]",
+                    f"({reduction_pct:.0f}% reduction, "
+                    f"archived to {metadata.archive_name})[/bold green]",
                     markdown=False,
                 )
 
