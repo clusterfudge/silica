@@ -67,6 +67,9 @@ from .webcam import (
     get_webcam_capabilities,
     webcam_snapshot,
 )
+from .user_choice import (
+    user_choice,
+)
 
 ALL_TOOLS = (
     [
@@ -125,6 +128,7 @@ ALL_TOOLS = (
         get_session_tool,
         read_persona,
         write_persona,
+        user_choice,
     ]
     + GITHUB_TOOLS
     + GITHUB_COMMENT_TOOLS
