@@ -17,6 +17,7 @@ class SyncConfig:
     - Local scan paths (which files/directories to sync)
     - Index file location (where to track sync state)
     - Base directory (where files are read from / written to)
+    - Compression settings (whether to gzip files in transit/storage)
 
     By using separate configs, multiple sync engines can operate independently.
     """
@@ -25,6 +26,7 @@ class SyncConfig:
     scan_paths: list[Path]  # Local directories/files to scan
     index_file: Path  # Local index file path
     base_dir: Path  # Base directory for file operations
+    compress: bool = False  # Whether to gzip compress files for remote storage
 
     @classmethod
     def for_memory(cls, persona_name: str) -> "SyncConfig":
@@ -91,4 +93,5 @@ class SyncConfig:
             scan_paths=[session_dir],
             index_file=session_dir / ".sync-index-history.json",
             base_dir=persona_dir,  # Files are read/written from persona directory
+            compress=True,  # History files benefit greatly from compression
         )
