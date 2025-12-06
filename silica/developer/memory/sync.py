@@ -672,16 +672,15 @@ class SyncEngine:
             if index_entry:
                 # We have history - file was known before
                 # Upload to restore/re-create on remote
+                # NOTE: Use version 0 because remote doesn't have the file anymore.
+                # The old index version is stale and would cause a version conflict.
                 return SyncOperationDetail(
                     type="upload",
                     path=path,
                     reason="Re-upload to remote (missing remote entry, preserving local work)",
                     local_md5=local_file.md5,
                     local_size=local_file.size,
-                    # Use index version as expected version if available
-                    remote_version=index_entry.version
-                    if not index_entry.is_deleted
-                    else 0,
+                    remote_version=0,  # New file on remote
                 )
             else:
                 # No history - new local file
@@ -907,6 +906,9 @@ class SyncEngine:
             remote_path = path
             content_type = "application/octet-stream"
 
+            # Track the effective version to use for conditional write
+            effective_version = remote_version
+
             # Compress if enabled
             if self.config.compress:
                 compressed_content = gzip.compress(content, compresslevel=6)
@@ -915,6 +917,12 @@ class SyncEngine:
                     content = compressed_content
                     remote_path = f"{path}.gz"
                     content_type = "application/gzip"
+                    # When path changes due to compression, the remote_version
+                    # refers to the uncompressed file. Use 0 for new compressed file.
+                    # NOTE: We intentionally do NOT delete the old uncompressed file.
+                    # Both versions may coexist until explicit cleanup is requested.
+                    # This preserves data integrity and avoids accidental data loss.
+                    effective_version = 0
                     logger.debug(
                         f"Compressed {path}: {original_size} -> {len(content)} bytes "
                         f"({100 - len(content) * 100 // original_size}% reduction)"
@@ -926,7 +934,7 @@ class SyncEngine:
                 namespace=self.config.namespace,
                 path=remote_path,
                 content=content,
-                expected_version=remote_version,
+                expected_version=effective_version,
                 content_type=content_type,
             )
 
