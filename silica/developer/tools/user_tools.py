@@ -5,16 +5,12 @@ the PEP 723 inline script metadata format with uv for dependency management.
 """
 
 import json
-import os
 import re
 import subprocess
-import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
-
-from .framework import generate_schema
 
 
 def get_tools_dir() -> Path:
@@ -433,7 +429,9 @@ def validate_tool(path: Path) -> ValidationResult:
 
     # Check if file exists
     if not path.exists():
-        return ValidationResult(valid=False, errors=["File does not exist"], warnings=[])
+        return ValidationResult(
+            valid=False, errors=["File does not exist"], warnings=[]
+        )
 
     source = path.read_text()
 

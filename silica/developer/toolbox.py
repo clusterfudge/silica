@@ -1,5 +1,5 @@
 import json
-from typing import Callable, List, Dict, Any
+from typing import Callable, List, Dict
 
 from anthropic.types import MessageParam
 
@@ -275,7 +275,11 @@ class Toolbox:
                 parsed = json.loads(result.output)
                 content = json.dumps(parsed, indent=2)
             except (json.JSONDecodeError, TypeError):
-                content = result.output.strip() if result.output else "Tool completed successfully."
+                content = (
+                    result.output.strip()
+                    if result.output
+                    else "Tool completed successfully."
+                )
         else:
             # Format error response
             error_parts = []

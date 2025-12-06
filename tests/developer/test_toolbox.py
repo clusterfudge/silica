@@ -128,4 +128,6 @@ def test_schemas_match_tools(persona_base_dir):
     all_tool_names = builtin_tool_names | user_tool_names
     schema_names = {schema["name"] for schema in schemas}
 
-    assert all_tool_names == schema_names, "Schema names should match tool names (built-in + user)"
+    assert (
+        all_tool_names == schema_names
+    ), "Schema names should match tool names (built-in + user)"
