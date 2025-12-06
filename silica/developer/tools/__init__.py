@@ -70,6 +70,13 @@ from .webcam import (
 from .user_choice import (
     user_choice,
 )
+from .toolbox_tools import (
+    toolbox_list,
+    toolbox_create,
+    toolbox_inspect,
+    toolbox_shelve,
+    toolbox_test,
+)
 
 ALL_TOOLS = (
     [
@@ -129,6 +136,12 @@ ALL_TOOLS = (
         read_persona,
         write_persona,
         user_choice,
+        # Toolbox tools for managing user-created tools
+        toolbox_list,
+        toolbox_create,
+        toolbox_inspect,
+        toolbox_shelve,
+        toolbox_test,
     ]
     + GITHUB_TOOLS
     + GITHUB_COMMENT_TOOLS

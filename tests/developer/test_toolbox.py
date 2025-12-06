@@ -110,7 +110,7 @@ def test_agent_schema_matches_schemas(persona_base_dir):
 
 
 def test_schemas_match_tools(persona_base_dir):
-    """Test that schemas() generates a schema for each tool"""
+    """Test that schemas() generates a schema for each tool (built-in and user tools)"""
     context = AgentContext.create(
         model_spec={},
         sandbox_mode=SandboxMode.ALLOW_ALL,
@@ -122,7 +122,12 @@ def test_schemas_match_tools(persona_base_dir):
 
     schemas = toolbox.schemas()
     # Compare with actually loaded tools (not ALL_TOOLS) since some may be filtered
-    tool_names = {tool.__name__ for tool in toolbox.agent_tools}
+    # Include both built-in tools and user tools
+    builtin_tool_names = {tool.__name__ for tool in toolbox.agent_tools}
+    user_tool_names = {name for name in toolbox.user_tools.keys()}
+    all_tool_names = builtin_tool_names | user_tool_names
     schema_names = {schema["name"] for schema in schemas}
 
-    assert tool_names == schema_names, "Schema names should match tool names"
+    assert (
+        all_tool_names == schema_names
+    ), "Schema names should match tool names (built-in + user)"
