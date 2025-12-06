@@ -1,7 +1,7 @@
 import asyncio
 import inspect
 from functools import wraps
-from typing import get_origin, Union, get_args, List, Callable, Optional
+from typing import get_origin, Union, get_args, List, Callable, Optional, Tuple
 
 import anthropic
 
@@ -9,6 +9,126 @@ from silica.developer.context import AgentContext
 
 # Global dictionary to store semaphores for tools with concurrency limits
 _TOOL_SEMAPHORES = {}
+
+
+def generate_schema(
+    func,
+    name: str = None,
+    skip_params: Tuple[str, ...] = ("context", "tool_use_id"),
+) -> dict:
+    """Generate Anthropic tool schema from a function signature and docstring.
+
+    This function introspects a Python function to create a tool specification
+    compatible with the Anthropic API. It extracts parameter information from
+    type hints and documentation from docstrings.
+
+    Args:
+        func: The function to generate schema for
+        name: Tool name (defaults to func.__name__)
+        skip_params: Parameter names to exclude from schema (e.g., internal params)
+
+    Returns:
+        A dictionary with 'name', 'description', and 'input_schema' keys
+        matching the Anthropic tool specification format.
+    """
+    tool_name = name or func.__name__
+
+    # Parse the docstring to get description and param docs
+    docstring = inspect.getdoc(func)
+    if docstring:
+        # Split into description and param sections
+        parts = docstring.split("\n\nArgs:")
+        description = parts[0].strip()
+
+        param_docs = {}
+        if len(parts) > 1:
+            param_section = parts[1].strip()
+            # Parse each parameter description
+            for line in param_section.split("\n"):
+                line = line.strip()
+                if line and ":" in line:
+                    param_name, param_desc = line.split(":", 1)
+                    param_docs[param_name.strip()] = param_desc.strip()
+    else:
+        description = ""
+        param_docs = {}
+
+    # Get type hints
+    type_hints = inspect.get_annotations(func)
+
+    # Create schema
+    schema = {
+        "name": tool_name,
+        "description": description,
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    }
+
+    # Process parameters
+    sig = inspect.signature(func)
+    for param_name, param in sig.parameters.items():
+        if param_name in skip_params:
+            continue
+
+        # Skip *args and **kwargs style parameters
+        if param.kind in (
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+        ):
+            continue
+
+        # Check if parameter is optional
+        type_hint = type_hints.get(param_name)
+        is_optional = False
+
+        # Check if parameter has a default value
+        has_default = param.default != inspect.Parameter.empty
+
+        # Check if parameter is Union type (like Optional)
+        if type_hint is not None:
+            origin = get_origin(type_hint)
+            if origin is Union:
+                args = get_args(type_hint)
+                is_optional = type(None) in args
+
+        # Parameter is optional if it has a default value OR is a Union type with None
+        is_optional = is_optional or has_default
+
+        if not is_optional:
+            schema["input_schema"]["required"].append(param_name)
+
+        # Get parameter description from docstring
+        param_desc = param_docs.get(param_name, "")
+
+        # Add to properties with proper type detection
+        param_type = "string"  # Default type
+
+        # Determine proper type based on type hint
+        if param_name in type_hints:
+            hint = type_hints[param_name]
+            # Handle Union types (like Optional)
+            if get_origin(hint) is Union:
+                args = get_args(hint)
+                # Get the non-None type for Optional
+                hint = next((arg for arg in args if arg is not type(None)), hint)
+
+            # Map Python types to JSON Schema types
+            if hint == bool or (isinstance(hint, type) and issubclass(hint, bool)):
+                param_type = "boolean"
+            elif hint in (int, int) or (
+                isinstance(hint, type) and issubclass(hint, int)
+            ):
+                param_type = "integer"
+            elif hint in (float,) or (
+                isinstance(hint, type) and issubclass(hint, float)
+            ):
+                param_type = "number"
+
+        schema["input_schema"]["properties"][param_name] = {
+            "type": param_type,
+            "description": param_desc,
+        }
+
+    return schema
 
 
 def tool(func=None, *, max_concurrency: Optional[int] = None):
@@ -65,98 +185,8 @@ def tool(func=None, *, max_concurrency: Optional[int] = None):
         # Store max_concurrency on the wrapper for introspection
         wrapper._max_concurrency = max_concurrency
 
-        def schema():
-            # Parse the docstring to get description and param docs
-            docstring = inspect.getdoc(f)
-            if docstring:
-                # Split into description and param sections
-                parts = docstring.split("\n\nArgs:")
-                description = parts[0].strip()
-
-                param_docs = {}
-                if len(parts) > 1:
-                    param_section = parts[1].strip()
-                    # Parse each parameter description
-                    for line in param_section.split("\n"):
-                        line = line.strip()
-                        if line and ":" in line:
-                            param_name, param_desc = line.split(":", 1)
-                            param_docs[param_name.strip()] = param_desc.strip()
-            else:
-                description = ""
-                param_docs = {}
-
-            # Get type hints
-            type_hints = inspect.get_annotations(f)
-
-            # Create schema
-            schema = {
-                "name": f.__name__,
-                "description": description,
-                "input_schema": {"type": "object", "properties": {}, "required": []},
-            }
-
-            # Process parameters
-            sig = inspect.signature(f)
-            for param_name, param in sig.parameters.items():
-                if param_name in ("context", "tool_use_id"):  # Skip internal parameters
-                    continue
-
-                # Check if parameter is optional
-                type_hint = type_hints.get(param_name)
-                is_optional = False
-
-                # Check if parameter has a default value
-                has_default = param.default != inspect.Parameter.empty
-
-                # Check if parameter is Union type (like Optional)
-                if type_hint is not None:
-                    origin = get_origin(type_hint)
-                    if origin is Union:
-                        args = get_args(type_hint)
-                        is_optional = type(None) in args
-
-                # Parameter is optional if it has a default value OR is a Union type with None
-                is_optional = is_optional or has_default
-
-                if not is_optional:
-                    schema["input_schema"]["required"].append(param_name)
-
-                # Get parameter description from docstring
-                param_desc = param_docs.get(param_name, "")
-
-                # Add to properties with proper type detection
-                param_type = "string"  # Default type
-
-                # Determine proper type based on type hint
-                if param_name in type_hints:
-                    hint = type_hints[param_name]
-                    # Handle Union types (like Optional)
-                    if get_origin(hint) is Union:
-                        args = get_args(hint)
-                        # Get the non-None type for Optional
-                        hint = next(
-                            (arg for arg in args if arg is not type(None)), hint
-                        )
-
-                    # Map Python types to JSON Schema types
-                    if hint in (int, int) or (
-                        isinstance(hint, type) and issubclass(hint, int)
-                    ):
-                        param_type = "integer"
-                    elif hint in (float,) or (
-                        isinstance(hint, type) and issubclass(hint, float)
-                    ):
-                        param_type = "number"
-
-                schema["input_schema"]["properties"][param_name] = {
-                    "type": param_type,
-                    "description": param_desc,
-                }
-
-            return schema
-
-        wrapper.schema = schema
+        # Use the standalone generate_schema function
+        wrapper.schema = lambda: generate_schema(f)
         return wrapper
 
     # Handle both @tool and @tool(max_concurrency=N) syntax

@@ -1,5 +1,5 @@
 import json
-from typing import Callable, List
+from typing import Callable, List, Dict, Any
 
 from anthropic.types import MessageParam
 
@@ -14,6 +14,12 @@ from .tools import ALL_TOOLS
 from .utils import render_tree
 from .web.app import run_memory_webapp
 from .tools.sessions import list_sessions, print_session_list, resume_session
+from .tools.user_tools import (
+    discover_tools,
+    invoke_user_tool,
+    find_tool,
+    DiscoveredTool,
+)
 
 
 try:
@@ -53,6 +59,10 @@ class Toolbox:
                     for tool in self.agent_tools
                     if tool.__name__ not in ["read_persona", "write_persona"]
                 ]
+
+        # Discover user-created tools from ~/.silica/tools/
+        self.user_tools: Dict[str, DiscoveredTool] = {}
+        self._discover_user_tools()
 
         # Register CLI tools
         self.register_cli_tool("help", self._help, "Show help", aliases=["h"])
@@ -215,7 +225,21 @@ class Toolbox:
                     "content": "Invalid tool specification: missing required attributes",
                 }
 
-            # Convert agent tools to a list matching tools format
+            tool_name = tool_use.name
+            tool_use_id = getattr(tool_use, "id", "unknown_id")
+
+            # Check if this is a user-created tool (cached)
+            if tool_name in self.user_tools:
+                return await self._invoke_user_tool(tool_use)
+
+            # Not in cache - try dynamic lookup for newly created user tools
+            user_tool = find_tool(tool_name)
+            if user_tool and user_tool.spec:
+                # Add to cache for future invocations
+                self.user_tools[tool_name] = user_tool
+                return await self._invoke_user_tool(tool_use)
+
+            # Fall back to built-in tool invocation (handles unknown tools too)
             return await invoke_tool(self.context, tool_use, tools=self.agent_tools)
         except DoSomethingElseError:
             # Let the exception propagate up to the agent to be handled
@@ -229,6 +253,44 @@ class Toolbox:
                 "tool_use_id": tool_use_id,
                 "content": f"Error invoking tool '{tool_name}': {str(e)}",
             }
+
+    async def _invoke_user_tool(self, tool_use) -> dict:
+        """Invoke a user-created tool."""
+        import asyncio
+
+        tool_name = tool_use.name
+        tool_use_id = getattr(tool_use, "id", "unknown_id")
+        args = tool_use.input or {}
+
+        # Run the user tool in a thread pool to avoid blocking
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: invoke_user_tool(tool_name, args),
+        )
+
+        if result.success:
+            # Try to parse JSON output for better formatting
+            try:
+                parsed = json.loads(result.output)
+                content = json.dumps(parsed, indent=2)
+            except (json.JSONDecodeError, TypeError):
+                content = result.output.strip() if result.output else "Tool completed successfully."
+        else:
+            # Format error response
+            error_parts = []
+            error_parts.append(f"Tool execution failed (exit code {result.exit_code})")
+            if result.output:
+                error_parts.append(f"Stdout:\n{result.output.strip()}")
+            if result.error:
+                error_parts.append(f"Stderr:\n{result.error.strip()}")
+            content = "\n\n".join(error_parts)
+
+        return {
+            "type": "tool_result",
+            "tool_use_id": tool_use_id,
+            "content": content,
+        }
 
     async def invoke_agent_tools(self, tool_uses):
         """Invoke multiple agent tools, potentially in parallel."""
@@ -1282,16 +1344,52 @@ class Toolbox:
             )
             return f"Error: Micro-compaction failed - {e}"
 
+    def _discover_user_tools(self):
+        """Discover user-created tools from ~/.silica/tools/."""
+        try:
+            discovered = discover_tools()
+            for tool in discovered:
+                if tool.error:
+                    # Log error but don't fail - tool will just be unavailable
+                    self.context.user_interface.handle_system_message(
+                        f"Warning: User tool '{tool.name}' failed to load: {tool.error}",
+                        markdown=False,
+                    )
+                elif tool.spec:
+                    self.user_tools[tool.name] = tool
+        except Exception as e:
+            # Don't fail if user tool discovery fails
+            self.context.user_interface.handle_system_message(
+                f"Warning: Failed to discover user tools: {e}",
+                markdown=False,
+            )
+
+    def refresh_user_tools(self):
+        """Re-discover user tools (call after creating/modifying tools)."""
+        self.user_tools.clear()
+        self._discover_user_tools()
+        # Regenerate schema
+        self.agent_schema = self.schemas()
+
     def schemas(self, enable_caching: bool = True) -> List[dict]:
         """Generate schemas for all tools in the toolbox.
 
         Returns a list of schema dictionaries matching the format of TOOLS_SCHEMA.
         Each schema has name, description, and input_schema with properties and required fields.
+        Includes both built-in tools and user-created tools.
         """
         schemas = []
+
+        # Built-in tools
         for tool in self.agent_tools:
             if hasattr(tool, "schema"):
                 schemas.append(tool.schema())
+
+        # User-created tools
+        for name, tool in self.user_tools.items():
+            if tool.spec:
+                schemas.append(tool.spec)
+
         if schemas and enable_caching:
             schemas[-1]["cache_control"] = {"type": "ephemeral"}
         return schemas
