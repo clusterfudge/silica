@@ -112,7 +112,7 @@ def generate_schema(
                 hint = next((arg for arg in args if arg is not type(None)), hint)
 
             # Map Python types to JSON Schema types
-            if hint == bool or (isinstance(hint, type) and issubclass(hint, bool)):
+            if hint is bool or (isinstance(hint, type) and issubclass(hint, bool)):
                 param_type = "boolean"
             elif hint in (int, int) or (
                 isinstance(hint, type) and issubclass(hint, int)

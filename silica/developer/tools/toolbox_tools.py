@@ -5,17 +5,11 @@ stored in ~/.silica/tools/.
 """
 
 import json
-from datetime import datetime
-from pathlib import Path
-from typing import Optional
 
 from silica.developer.context import AgentContext
 
 from .framework import tool
 from .user_tools import (
-    DiscoveredTool,
-    ValidationResult,
-    discover_tools,
     ensure_hello_world_tool,
     ensure_toolspec_helper,
     get_archive_dir,
@@ -51,16 +45,16 @@ def toolbox_list(context: AgentContext, category: str = None) -> str:
     output = []
     output.append(f"Found {len(tools)} user tool(s):\n")
 
-    for tool in tools:
-        status = "OK" if not tool.error else f"ERROR: {tool.error}"
-        desc = tool.spec.get("description", "No description") if tool.spec else "N/A"
+    for t in tools:
+        status = "OK" if not t.error else f"ERROR: {t.error}"
+        desc = t.spec.get("description", "No description") if t.spec else "N/A"
 
-        output.append(f"**{tool.name}** [{status}]")
+        output.append(f"**{t.name}** [{status}]")
         output.append(f"  Description: {desc}")
-        output.append(f"  Category: {tool.metadata.category}")
-        if tool.metadata.tags:
-            output.append(f"  Tags: {', '.join(tool.metadata.tags)}")
-        if tool.metadata.long_running:
+        output.append(f"  Category: {t.metadata.category}")
+        if t.metadata.tags:
+            output.append(f"  Tags: {', '.join(t.metadata.tags)}")
+        if t.metadata.long_running:
             output.append("  Note: Long-running tool, consider using shell sessions")
         output.append("")
 
@@ -97,7 +91,9 @@ def toolbox_create(
 
     # Reserved names
     if name.startswith("_"):
-        return "Error: Tool names cannot start with underscore (reserved for internal use)"
+        return (
+            "Error: Tool names cannot start with underscore (reserved for internal use)"
+        )
 
     tool_path = tools_dir / f"{name}.py"
     is_update = tool_path.exists()
@@ -117,7 +113,7 @@ def toolbox_create(
     if not validation.valid:
         # Delete the invalid tool
         tool_path.unlink()
-        output.append(f"Tool validation failed. The tool was not saved.\n")
+        output.append("Tool validation failed. The tool was not saved.\n")
         output.append("Errors:")
         for error in validation.errors:
             output.append(f"  - {error}")
@@ -138,7 +134,7 @@ def toolbox_create(
 
     # Show the generated spec
     if validation.spec:
-        output.append(f"\nTool specification:")
+        output.append("\nTool specification:")
         output.append(f"  Name: {validation.spec.get('name')}")
         output.append(f"  Description: {validation.spec.get('description', 'N/A')}")
         params = validation.spec.get("input_schema", {}).get("properties", {})
@@ -161,7 +157,7 @@ def toolbox_create(
             result = invoke_user_tool(name, test_args)
 
             if result.success:
-                output.append(f"Test succeeded!")
+                output.append("Test succeeded!")
                 output.append(f"Output: {result.output.strip()}")
             else:
                 output.append(f"Test failed (exit code {result.exit_code})")
@@ -200,8 +196,9 @@ def toolbox_inspect(context: AgentContext, name: str) -> str:
         archive_dir = get_archive_dir()
         archived = list(archive_dir.glob(f"{name}_*.py"))
         if archived:
-            return f"Tool '{name}' not found, but found archived versions:\n" + "\n".join(
-                f"  - {p.name}" for p in archived
+            return (
+                f"Tool '{name}' not found, but found archived versions:\n"
+                + "\n".join(f"  - {p.name}" for p in archived)
             )
         return f"Tool '{name}' not found in {tools_dir}"
 
@@ -228,7 +225,7 @@ def toolbox_inspect(context: AgentContext, name: str) -> str:
         for error in validation.errors:
             output.append(f"  - {error}")
 
-    output.append(f"\n## Metadata")
+    output.append("\n## Metadata")
     output.append(f"- Category: {metadata.category}")
     output.append(f"- Tags: {', '.join(metadata.tags) if metadata.tags else 'none'}")
     output.append(f"- Creator: {metadata.creator_persona or 'unknown'}")
@@ -237,10 +234,10 @@ def toolbox_inspect(context: AgentContext, name: str) -> str:
     output.append(f"- Requires auth: {metadata.requires_auth}")
 
     if validation.spec:
-        output.append(f"\n## Tool Specification")
+        output.append("\n## Tool Specification")
         output.append(f"```json\n{json.dumps(validation.spec, indent=2)}\n```")
 
-    output.append(f"\n## Source Code")
+    output.append("\n## Source Code")
     output.append(f"```python\n{source}\n```")
 
     return "\n".join(output)
@@ -293,7 +290,7 @@ def toolbox_test(
     try:
         parsed_args = json.loads(args)
     except json.JSONDecodeError as e:
-        return f"Invalid JSON in args: {e}\n\nExpected format: {{\"param1\": \"value1\", \"param2\": 123}}"
+        return f'Invalid JSON in args: {e}\n\nExpected format: {{"param1": "value1", "param2": 123}}'
 
     if not isinstance(parsed_args, dict):
         return "args must be a JSON object (dictionary)"
@@ -308,7 +305,7 @@ def toolbox_test(
     output.append(f"**Success:** {result.success}")
 
     if result.output:
-        output.append(f"\n## Output")
+        output.append("\n## Output")
         # Try to parse as JSON for better formatting
         try:
             parsed = json.loads(result.output)
@@ -317,7 +314,7 @@ def toolbox_test(
             output.append(f"```\n{result.output.strip()}\n```")
 
     if result.error:
-        output.append(f"\n## Errors")
+        output.append("\n## Errors")
         output.append(f"```\n{result.error.strip()}\n```")
 
     return "\n".join(output)
