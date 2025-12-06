@@ -42,7 +42,7 @@ def create_bash_live_display():
     return BashLiveDisplayManager()
 
 
-@tool
+@tool(group="Python")
 def python_repl(context: "AgentContext", code: str):
     """Run Python code in a sandboxed environment and return the output.
     This tool allows execution of Python code in a secure, isolated environment.
@@ -218,7 +218,7 @@ def python_repl(context: "AgentContext", code: str):
         return f"Error executing code:\n{tb}"
 
 
-@tool
+@tool(group="Python")
 async def run_bash_command(context: "AgentContext", command: str):
     """Run a bash command in a sandboxed environment with safety checks.
 

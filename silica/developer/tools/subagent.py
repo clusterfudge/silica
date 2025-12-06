@@ -11,7 +11,7 @@ from silica.developer.user_interface import UserInterface
 from ..utils import wrap_text_as_content_block
 
 
-@tool
+@tool(group="Agent")
 async def agent(
     context: "AgentContext",
     prompt: str,

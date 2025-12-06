@@ -39,7 +39,7 @@ async def _check_opencv_available() -> tuple[bool, Optional[str]]:
         return False, f"Unexpected error checking OpenCV: {str(e)}"
 
 
-@tool
+@tool(group="Webcam")
 async def get_webcam_capabilities(context: AgentContext) -> str:
     """Check if webcam capture is available in the current environment.
 
@@ -88,7 +88,7 @@ async def get_webcam_capabilities(context: AgentContext) -> str:
     return "".join(response)
 
 
-@tool
+@tool(group="Webcam")
 async def webcam_snapshot(
     context: AgentContext,
     camera_index: int = 0,

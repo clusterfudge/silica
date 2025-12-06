@@ -250,7 +250,7 @@ def validate_priority(priority_str: str) -> TodoPriority:
     return TodoPriority(priority_str)
 
 
-@tool
+@tool(group="Todos")
 def todo_read(context: AgentContext) -> str:
     """
     Read the current todo list for the session.
@@ -263,7 +263,7 @@ def todo_read(context: AgentContext) -> str:
     return format_todo_list(todos)
 
 
-@tool
+@tool(group="Todos")
 def todo_add(context: AgentContext, content: str, priority: str = "medium") -> str:
     """
     Add a new todo item to the current session.
@@ -293,7 +293,7 @@ def todo_add(context: AgentContext, content: str, priority: str = "medium") -> s
         return f"❌ Error adding todo: {str(e)}"
 
 
-@tool
+@tool(group="Todos")
 def todo_update(
     context: AgentContext,
     todo_id: str,
@@ -366,7 +366,7 @@ def todo_update(
         return f"❌ Error updating todo: {str(e)}"
 
 
-@tool
+@tool(group="Todos")
 def todo_complete(context: AgentContext, todo_id: str) -> str:
     """
     Mark a todo item as completed.
@@ -401,7 +401,7 @@ def todo_complete(context: AgentContext, todo_id: str) -> str:
         return f"❌ Error completing todo: {str(e)}"
 
 
-@tool
+@tool(group="Todos")
 def todo_delete(context: AgentContext, todo_id: str) -> str:
     """
     Delete a todo item.
@@ -433,7 +433,7 @@ def todo_delete(context: AgentContext, todo_id: str) -> str:
 
 
 # Keep the original todo_write tool for backward compatibility
-@tool
+@tool(group="Todos")
 def todo_write(context: AgentContext, todos: List[Dict[str, Any]]) -> str:
     """
     Create or update todos in the current session.
