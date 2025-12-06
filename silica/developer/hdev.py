@@ -776,6 +776,161 @@ class CLIUserInterface(UserInterface):
 
         return selected_option
 
+    async def get_session_choice(self, sessions: list[dict]) -> str | None:
+        """Present an interactive selector for session resumption.
+
+        Uses Rich formatting to adapt to terminal width and displays sessions
+        with their metadata. No "Say something else..." option - just direct
+        session selection.
+
+        Args:
+            sessions: List of session dictionaries with metadata
+
+        Returns:
+            Selected session ID, or None if cancelled
+        """
+        from silica.developer.tools.sessions import (
+            parse_iso_date,
+            _truncate_message,
+        )
+
+        if not sessions:
+            return None
+
+        selected_index = 0
+        terminal_width = self.console.width or 80
+
+        def get_formatted_options() -> FormattedText:
+            """Generate the formatted text for the session list."""
+            result = []
+            # Add the question with styling
+            result.append(("class:question", "\nSelect a session to resume:\n\n"))
+            result.append(
+                (
+                    "class:hint",
+                    "  Use ↑/↓ or j/k to navigate, Enter to select, Ctrl+C to cancel\n\n",
+                )
+            )
+
+            for i, session in enumerate(sessions):
+                # Format each session line with Rich-aware width
+                short_id = session.get("session_id", "")[:8]
+                updated = parse_iso_date(session.get("last_updated", ""))
+                msg_count = session.get("message_count", 0)
+
+                # Build the fixed-width prefix
+                prefix = f"[{short_id}] {updated} ({msg_count} msgs)"
+
+                # Calculate available space for the message
+                # Account for: selector prefix "  ❯ " (4 chars), quotes (2), space (1)
+                overhead = 4 + len(prefix) + 3
+                available_width = max(20, terminal_width - overhead)
+
+                first_message = _truncate_message(
+                    session.get("first_message"), max_length=available_width
+                )
+
+                if i == selected_index:
+                    # Selected item: highlighted with arrow indicator
+                    result.append(("class:selected-id", f"  ❯ [{short_id}] "))
+                    result.append(("class:selected", f"{updated} "))
+                    result.append(("class:selected-dim", f"({msg_count} msgs) "))
+                    if first_message:
+                        result.append(("class:selected-msg", f'"{first_message}"'))
+                    result.append(("", "\n"))
+                else:
+                    # Unselected item
+                    result.append(("class:id", f"    [{short_id}] "))
+                    result.append(("class:date", f"{updated} "))
+                    result.append(("class:count", f"({msg_count} msgs) "))
+                    if first_message:
+                        result.append(("class:msg", f'"{first_message}"'))
+                    result.append(("", "\n"))
+
+            return FormattedText(result)
+
+        # Create key bindings for navigation
+        kb = KeyBindings()
+
+        @kb.add("up")
+        @kb.add("k")
+        def move_up(event: KeyPressEvent):
+            nonlocal selected_index
+            selected_index = (selected_index - 1) % len(sessions)
+
+        @kb.add("down")
+        @kb.add("j")
+        def move_down(event: KeyPressEvent):
+            nonlocal selected_index
+            selected_index = (selected_index + 1) % len(sessions)
+
+        @kb.add("enter")
+        def select_option(event: KeyPressEvent):
+            event.app.exit(result=selected_index)
+
+        @kb.add("c-c")
+        def cancel(event: KeyPressEvent):
+            event.app.exit(result=None)
+
+        # Also allow number keys for quick selection (1-9)
+        for i in range(min(9, len(sessions))):
+
+            @kb.add(str(i + 1))
+            def select_by_number(event: KeyPressEvent, index=i):
+                nonlocal selected_index
+                selected_index = index
+                event.app.exit(result=index)
+
+        # Create the layout
+        layout = Layout(
+            HSplit(
+                [
+                    Window(
+                        content=FormattedTextControl(get_formatted_options),
+                        wrap_lines=False,  # Don't wrap - we handle width ourselves
+                    )
+                ]
+            )
+        )
+
+        # Define style with colors matching the table output
+        from prompt_toolkit.styles import Style
+
+        style = Style.from_dict(
+            {
+                "question": "bold cyan",
+                "hint": "italic #888888",
+                # Selected row
+                "selected-id": "bold reverse cyan",
+                "selected": "bold reverse",
+                "selected-dim": "bold reverse #888888",
+                "selected-msg": "bold reverse",
+                # Unselected rows
+                "id": "cyan",
+                "date": "blue",
+                "count": "magenta",
+                "msg": "",
+            }
+        )
+
+        # Create and run the application
+        app: Application[int | None] = Application(
+            layout=layout,
+            key_bindings=kb,
+            style=style,
+            full_screen=False,
+            mouse_support=False,
+        )
+
+        result = await app.run_async()
+
+        # Handle result
+        if result is None:
+            # User cancelled with Ctrl+C
+            return None
+
+        return sessions[result]["session_id"]
+
 
 class CustomCompleter(Completer):
     def __init__(self, commands, history):

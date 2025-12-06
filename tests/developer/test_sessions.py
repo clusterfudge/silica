@@ -7,10 +7,15 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from silica.developer.tools.sessions import (
     list_sessions,
     parse_iso_date,
     get_session_data,
+    _extract_first_user_message,
+    _truncate_message,
+    format_session_option,
+    interactive_resume,
 )
 
 
@@ -208,6 +213,318 @@ class TestSessionManagement(unittest.TestCase):
         self.assertEqual(result, mock_context)
         self.assertEqual(result.chat_history, mock_context.chat_history)
         self.assertEqual(result.session_id, "test-session")
+
+
+class TestFirstMessageExtraction(unittest.TestCase):
+    def test_extract_simple_string_message(self):
+        """Test extracting first message when content is a simple string."""
+        messages = [
+            {"role": "user", "content": "Hello, how are you?"},
+            {"role": "assistant", "content": "I'm doing well!"},
+        ]
+        result = _extract_first_user_message(messages)
+        self.assertEqual(result, "Hello, how are you?")
+
+    def test_extract_structured_message(self):
+        """Test extracting first message when content is a list of blocks."""
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Please review this code"},
+                    {"type": "image", "source": {"type": "base64", "data": "..."}},
+                ],
+            }
+        ]
+        result = _extract_first_user_message(messages)
+        self.assertEqual(result, "Please review this code")
+
+    def test_extract_no_user_messages(self):
+        """Test when there are no user messages."""
+        messages = [{"role": "assistant", "content": "Hello!"}]
+        result = _extract_first_user_message(messages)
+        self.assertIsNone(result)
+
+    def test_extract_empty_messages(self):
+        """Test with empty message list."""
+        result = _extract_first_user_message([])
+        self.assertIsNone(result)
+
+    def test_extract_tool_result_message(self):
+        """Test extracting from a tool_result message (common in sessions)."""
+        messages = [
+            {"role": "user", "content": "refresh plane cache"},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "123", "content": "Done"}
+                ],
+            },
+        ]
+        result = _extract_first_user_message(messages)
+        self.assertEqual(result, "refresh plane cache")
+
+
+class TestTruncateMessage(unittest.TestCase):
+    def test_truncate_short_message(self):
+        """Test that short messages are not truncated."""
+        result = _truncate_message("Hello world", max_length=60)
+        self.assertEqual(result, "Hello world")
+
+    def test_truncate_long_message(self):
+        """Test that long messages are truncated with ellipsis."""
+        long_message = "A" * 100
+        result = _truncate_message(long_message, max_length=60)
+        self.assertEqual(len(result), 60)
+        self.assertTrue(result.endswith("..."))
+        self.assertEqual(result, "A" * 57 + "...")
+
+    def test_truncate_none_message(self):
+        """Test handling of None input."""
+        result = _truncate_message(None)
+        self.assertEqual(result, "")
+
+    def test_truncate_empty_message(self):
+        """Test handling of empty string."""
+        result = _truncate_message("")
+        self.assertEqual(result, "")
+
+    def test_truncate_with_newlines(self):
+        """Test that newlines are collapsed."""
+        message = "Hello\nWorld\nThis is a test"
+        result = _truncate_message(message)
+        self.assertEqual(result, "Hello World This is a test")
+
+
+class TestFormatSessionOption(unittest.TestCase):
+    def test_format_with_all_fields(self):
+        """Test formatting a session with all fields present."""
+        session = {
+            "session_id": "abcd1234-5678-90ef",
+            "last_updated": "2025-01-15T14:30:00Z",
+            "message_count": 15,
+            "first_message": "Help me fix this bug",
+        }
+        result = format_session_option(session)
+        self.assertIn("[abcd1234]", result)
+        self.assertIn("2025-01-15 14:30", result)
+        self.assertIn("(15 msgs)", result)
+        self.assertIn('"Help me fix this bug"', result)
+
+    def test_format_without_first_message(self):
+        """Test formatting a session without first message."""
+        session = {
+            "session_id": "abcd1234-5678-90ef",
+            "last_updated": "2025-01-15T14:30:00Z",
+            "message_count": 0,
+            "first_message": None,
+        }
+        result = format_session_option(session)
+        self.assertIn("[abcd1234]", result)
+        self.assertNotIn('"', result)
+
+
+class TestInteractiveResume(unittest.TestCase):
+    def setUp(self):
+        # Create a temporary directory for test files
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.history_dir = Path(self.temp_dir.name)
+
+        # Create sessions with messages
+        for i, session_id in enumerate(["session-a", "session-b"]):
+            session_dir = self.history_dir / session_id
+            session_dir.mkdir(parents=True)
+
+            root_file = session_dir / "root.json"
+            with open(root_file, "w") as f:
+                json.dump(
+                    {
+                        "session_id": session_id,
+                        "model_spec": {"title": "claude-sonnet-4"},
+                        "messages": [
+                            {"role": "user", "content": f"Message for {session_id}"},
+                        ],
+                        "metadata": {
+                            "created_at": f"2025-01-{15+i}T12:00:00Z",
+                            "last_updated": f"2025-01-{15+i}T12:30:00Z",
+                            "root_dir": "/path/to/project",
+                        },
+                    },
+                    f,
+                )
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    @patch("silica.developer.tools.sessions.get_history_dir")
+    def test_format_session_option_includes_message(self, mock_get_history_dir):
+        """Test that format_session_option includes the first message."""
+        mock_get_history_dir.return_value = self.history_dir
+
+        sessions = list_sessions()
+        self.assertEqual(len(sessions), 2)
+
+        # Format first session option
+        option = format_session_option(sessions[0])
+
+        # Should contain session ID, date, message count, and first message
+        self.assertIn("[session-", option)
+        self.assertIn("msgs)", option)
+        self.assertIn('"Message for session-', option)
+
+
+@pytest.mark.asyncio
+async def test_interactive_resume_returns_session_id():
+    """Test that interactive_resume returns the selected session ID."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    # Create temp directory for test
+    with tempfile.TemporaryDirectory() as temp_dir:
+        history_dir = Path(temp_dir)
+
+        # Create a test session
+        session_dir = history_dir / "test-session-123"
+        session_dir.mkdir(parents=True)
+
+        root_file = session_dir / "root.json"
+        with open(root_file, "w") as f:
+            json.dump(
+                {
+                    "session_id": "test-session-123",
+                    "model_spec": {"title": "claude-sonnet-4"},
+                    "messages": [
+                        {"role": "user", "content": "Test message"},
+                    ],
+                    "metadata": {
+                        "created_at": "2025-01-15T12:00:00Z",
+                        "last_updated": "2025-01-15T12:30:00Z",
+                        "root_dir": "/path/to/project",
+                    },
+                },
+                f,
+            )
+
+        # Create mock user interface that returns the session ID via get_session_choice
+        mock_ui = MagicMock()
+        # Mock get_session_choice to return the session ID directly
+        mock_ui.get_session_choice = AsyncMock(return_value="test-session-123")
+
+        with patch(
+            "silica.developer.tools.sessions.get_history_dir"
+        ) as mock_get_history_dir:
+            mock_get_history_dir.return_value = history_dir
+
+            result = await interactive_resume(user_interface=mock_ui)
+
+            # Should return the full session ID
+            assert result == "test-session-123"
+
+
+@pytest.mark.asyncio
+async def test_interactive_resume_cancelled():
+    """Test that interactive_resume returns None when cancelled."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        history_dir = Path(temp_dir)
+
+        # Create a test session
+        session_dir = history_dir / "test-session-123"
+        session_dir.mkdir(parents=True)
+
+        root_file = session_dir / "root.json"
+        with open(root_file, "w") as f:
+            json.dump(
+                {
+                    "session_id": "test-session-123",
+                    "model_spec": {"title": "claude-sonnet-4"},
+                    "messages": [{"role": "user", "content": "Test"}],
+                    "metadata": {
+                        "created_at": "2025-01-15T12:00:00Z",
+                        "last_updated": "2025-01-15T12:30:00Z",
+                        "root_dir": "/path/to/project",
+                    },
+                },
+                f,
+            )
+
+        mock_ui = MagicMock()
+        # Mock get_session_choice to return None (cancelled)
+        mock_ui.get_session_choice = AsyncMock(return_value=None)
+
+        with patch(
+            "silica.developer.tools.sessions.get_history_dir"
+        ) as mock_get_history_dir:
+            mock_get_history_dir.return_value = history_dir
+
+            result = await interactive_resume(user_interface=mock_ui)
+
+            # Should return None when cancelled
+            assert result is None
+
+
+@pytest.mark.asyncio
+async def test_interactive_resume_no_sessions():
+    """Test that interactive_resume returns None when no sessions exist."""
+    from unittest.mock import MagicMock
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        history_dir = Path(temp_dir)
+        # Empty directory - no sessions
+
+        mock_ui = MagicMock()
+
+        with patch(
+            "silica.developer.tools.sessions.get_history_dir"
+        ) as mock_get_history_dir:
+            mock_get_history_dir.return_value = history_dir
+
+            result = await interactive_resume(user_interface=mock_ui)
+
+            # Should return None when no sessions exist
+            assert result is None
+
+
+class TestListSessionsWithFirstMessage(unittest.TestCase):
+    def setUp(self):
+        # Create a temporary directory for test files
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.history_dir = Path(self.temp_dir.name)
+
+        # Create a session with messages
+        session_dir = self.history_dir / "session-with-messages"
+        session_dir.mkdir(parents=True)
+
+        root_file = session_dir / "root.json"
+        with open(root_file, "w") as f:
+            json.dump(
+                {
+                    "session_id": "session-with-messages",
+                    "model_spec": {"title": "claude-sonnet-4"},
+                    "messages": [
+                        {"role": "user", "content": "Help me debug this issue"},
+                        {"role": "assistant", "content": "I'd be happy to help!"},
+                    ],
+                    "metadata": {
+                        "created_at": "2025-01-15T12:00:00Z",
+                        "last_updated": "2025-01-15T12:30:00Z",
+                        "root_dir": "/path/to/project",
+                    },
+                },
+                f,
+            )
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    @patch("silica.developer.tools.sessions.get_history_dir")
+    def test_list_sessions_includes_first_message(self, mock_get_history_dir):
+        """Test that list_sessions includes the first_message field."""
+        mock_get_history_dir.return_value = self.history_dir
+
+        sessions = list_sessions()
+        self.assertEqual(len(sessions), 1)
+        self.assertEqual(sessions[0]["first_message"], "Help me debug this issue")
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from unittest.mock import Mock, patch
+import pytest
 from silica.developer.toolbox import Toolbox
 from silica.developer.context import AgentContext
 from silica.developer.sandbox import Sandbox
@@ -39,7 +40,8 @@ def test_sessions_command_uses_context_persona(tmp_path):
         )
 
 
-def test_resume_command_uses_context_persona(tmp_path):
+@pytest.mark.asyncio
+async def test_resume_command_uses_context_persona(tmp_path):
     """Test that the /resume command uses the persona from the context."""
     # Create a mock context with a specific persona directory
     persona_dir = tmp_path / "test_persona"
@@ -57,8 +59,8 @@ def test_resume_command_uses_context_persona(tmp_path):
     with patch("silica.developer.toolbox.resume_session") as mock_resume:
         mock_resume.return_value = True
 
-        # Call the resume command
-        toolbox._resume_session(
+        # Call the resume command (now async)
+        await toolbox._resume_session(
             user_interface=mock_context.user_interface,
             sandbox=mock_context.sandbox,
             user_input="test-session-123",
@@ -121,8 +123,9 @@ def test_sessions_command_defaults_to_none_when_no_persona(tmp_path):
         mock_list_sessions.assert_called_once_with(None, history_base_dir=None)
 
 
-def test_resume_command_handles_empty_session_id():
-    """Test that /resume handles empty session ID gracefully."""
+@pytest.mark.asyncio
+async def test_resume_command_handles_empty_session_id():
+    """Test that /resume handles empty session ID gracefully with interactive menu."""
     mock_context = Mock(spec=AgentContext)
     mock_context.history_base_dir = Path("/tmp/test")
     mock_context.sandbox = Mock(spec=Sandbox)
@@ -130,16 +133,16 @@ def test_resume_command_handles_empty_session_id():
 
     toolbox = Toolbox(mock_context)
 
-    with patch("silica.developer.toolbox.resume_session") as mock_resume:
-        result = toolbox._resume_session(
+    # When session ID is empty, the interactive menu is shown
+    # If there are no sessions, it returns "No sessions available"
+    with patch("silica.developer.toolbox.list_sessions") as mock_list_sessions:
+        mock_list_sessions.return_value = []
+
+        result = await toolbox._resume_session(
             user_interface=mock_context.user_interface,
             sandbox=mock_context.sandbox,
             user_input="",  # Empty session ID
         )
 
-        # Should not call resume_session
-        mock_resume.assert_not_called()
-
-        # Should return error message
-        assert "Error" in result
-        assert "No session ID" in result
+        # Should return message about no sessions
+        assert "No sessions" in result

@@ -169,12 +169,20 @@ class Toolbox:
         chat_history: list[MessageParam] = None,
         confirm_to_add: bool = True,
     ) -> tuple[str, bool]:
-        content = self.local[name]["invoke"](
+        import inspect
+
+        result = self.local[name]["invoke"](
             sandbox=self.context.sandbox,
             user_interface=self.context.user_interface,
             user_input=arg_str,
             chat_history=chat_history or [],
         )
+
+        # Handle async CLI tools
+        if inspect.iscoroutine(result):
+            content = await result
+        else:
+            content = result
 
         # Render info command output as markdown for better formatting
         render_as_markdown = name == "info"
@@ -859,18 +867,41 @@ class Toolbox:
             f" for {workdir}" if workdir else ""
         )
 
-    def _resume_session(self, user_interface, sandbox, user_input, *args, **kwargs):
+    async def _resume_session(
+        self, user_interface, sandbox, user_input, *args, **kwargs
+    ):
         """Resume a previous developer session."""
-        session_id = user_input.strip()
+        from .tools.sessions import interactive_resume
 
-        if not session_id:
-            user_interface.handle_system_message(
-                "Please provide a session ID to resume", markdown=False
-            )
-            return "Error: No session ID provided"
+        session_id = user_input.strip()
 
         # Get history_base_dir from context (persona-aware)
         history_base_dir = getattr(self.context, "history_base_dir", None)
+
+        # If no session ID provided, show interactive menu
+        if not session_id:
+            # Get list of sessions first to check if any exist
+            sessions = list_sessions(history_base_dir=history_base_dir)
+
+            if not sessions:
+                user_interface.handle_system_message(
+                    "No sessions found to resume.", markdown=False
+                )
+                return "No sessions available"
+
+            # Show interactive menu
+            selected_id = await interactive_resume(
+                user_interface=user_interface,
+                history_base_dir=history_base_dir,
+            )
+
+            if not selected_id:
+                user_interface.handle_system_message(
+                    "Resume cancelled.", markdown=False
+                )
+                return "Resume cancelled"
+
+            session_id = selected_id
 
         # Attempt to resume the session
         success = resume_session(session_id, history_base_dir=history_base_dir)

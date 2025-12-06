@@ -31,6 +31,51 @@ def get_history_dir(history_base_dir: Optional[Path] = None) -> Path:
     return base / "history"
 
 
+def _extract_first_user_message(messages: List[Dict]) -> Optional[str]:
+    """Extract the text content of the first user message.
+
+    Args:
+        messages: List of message dictionaries
+
+    Returns:
+        The text content of the first user message, or None if not found
+    """
+    for message in messages:
+        if message.get("role") == "user":
+            content = message.get("content")
+            if isinstance(content, str):
+                return content
+            elif isinstance(content, list):
+                # Handle structured content (list of content blocks)
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        return block.get("text", "")
+            break
+    return None
+
+
+def _truncate_message(message: Optional[str], max_length: int = 60) -> str:
+    """Truncate a message to a maximum length with ellipsis.
+
+    Args:
+        message: The message to truncate
+        max_length: Maximum length including ellipsis
+
+    Returns:
+        Truncated message with ellipsis if needed
+    """
+    if not message:
+        return ""
+
+    # Clean up whitespace and newlines
+    message = " ".join(message.split())
+
+    if len(message) <= max_length:
+        return message
+
+    return message[: max_length - 3] + "..."
+
+
 def list_sessions(
     workdir: Optional[str] = None, history_base_dir: Optional[Path] = None
 ) -> List[Dict]:
@@ -79,14 +124,19 @@ def list_sessions(
                 if session_root != workdir_norm:
                     continue
 
+            # Extract the first user message for context hint
+            messages = session_data.get("messages", [])
+            first_message = _extract_first_user_message(messages)
+
             # Extract relevant information
             session_info = {
                 "session_id": session_data.get("session_id", session_dir.name),
                 "created_at": metadata.get("created_at"),
                 "last_updated": metadata.get("last_updated"),
                 "root_dir": metadata.get("root_dir"),
-                "message_count": len(session_data.get("messages", [])),
+                "message_count": len(messages),
                 "model": session_data.get("model_spec", {}).get("title", "Unknown"),
+                "first_message": first_message,
             }
 
             sessions.append(session_info)
@@ -154,27 +204,27 @@ def print_session_list(sessions: List[Dict]) -> None:
 
     table = Table(title="Developer Sessions", box=box.ROUNDED)
     table.add_column("ID", style="cyan")
-    table.add_column("Created", style="green")
     table.add_column("Last Updated", style="blue")
     table.add_column("Messages", style="magenta")
-    table.add_column("Model", style="yellow")
+    table.add_column("First Message", style="white")
     table.add_column("Root Directory", style="bright_black")
 
     for session in sessions:
         # Parse and format dates
-        created = parse_iso_date(session.get("created_at", ""))
         updated = parse_iso_date(session.get("last_updated", ""))
 
         # Format session ID (use first 8 chars)
         short_id = session.get("session_id", "")[:8]
 
+        # Truncate first message for display
+        first_message = _truncate_message(session.get("first_message"), max_length=40)
+
         # Add row to table
         table.add_row(
             short_id,
-            created,
             updated,
             str(session.get("message_count", 0)),
-            session.get("model", "Unknown"),
+            first_message or "[dim]No messages[/dim]",
             session.get("root_dir", "Unknown"),
         )
 
@@ -256,6 +306,104 @@ def get_session_tool(context: Any, **kwargs) -> str:
     )
 
     return result
+
+
+def format_session_option(
+    session: Dict, terminal_width: int = 80, fixed_width: int = 0
+) -> str:
+    """Format a session for display in the interactive menu.
+
+    Args:
+        session: Session data dictionary
+        terminal_width: Width of the terminal for calculating message space
+        fixed_width: Fixed width for non-message parts (calculated if 0)
+
+    Returns:
+        Formatted string for menu display
+    """
+    short_id = session.get("session_id", "")[:8]
+    updated = parse_iso_date(session.get("last_updated", ""))
+    msg_count = session.get("message_count", 0)
+
+    # Build the fixed-width prefix
+    prefix = f"[{short_id}] {updated} ({msg_count} msgs)"
+
+    # Calculate available space for the message
+    # Account for: "  ❯ " prefix (4 chars), quotes around message (2 chars), space before message (1 char)
+    overhead = 4 + 2 + 1 + len(prefix) + 1  # +1 for space after prefix
+    available_width = max(20, terminal_width - overhead)
+
+    first_message = _truncate_message(
+        session.get("first_message"), max_length=available_width
+    )
+
+    if first_message:
+        return f'{prefix} "{first_message}"'
+    return prefix
+
+
+async def interactive_resume(
+    user_interface: Any,
+    workdir: Optional[str] = None,
+    history_base_dir: Optional[Path] = None,
+    max_sessions: int = 10,
+) -> Optional[str]:
+    """Present an interactive menu to select a session to resume.
+
+    Uses Rich and prompt_toolkit to display an interactive session picker
+    that adapts to terminal width.
+
+    Args:
+        user_interface: The user interface for displaying the menu
+        workdir: Optional working directory to filter sessions by
+        history_base_dir: Optional base directory for history
+        max_sessions: Maximum number of sessions to show in the menu
+
+    Returns:
+        Selected session ID, or None if cancelled
+    """
+    # Get available sessions
+    sessions = list_sessions(workdir=workdir, history_base_dir=history_base_dir)
+
+    if not sessions:
+        return None
+
+    # Limit to max_sessions
+    sessions = sessions[:max_sessions]
+
+    # Check if UI has our custom session picker method
+    if hasattr(user_interface, "get_session_choice"):
+        return await user_interface.get_session_choice(sessions)
+
+    # Fallback to generic get_user_choice if available
+    if hasattr(user_interface, "get_user_choice"):
+        # Get terminal width for formatting
+        console = Console()
+        terminal_width = console.width or 80
+
+        # Format options for the menu
+        options = [
+            format_session_option(session, terminal_width=terminal_width)
+            for session in sessions
+        ]
+
+        # Present the menu
+        question = "Select a session to resume:"
+        result = await user_interface.get_user_choice(question, options)
+
+        if result == "cancelled":
+            return None
+
+        # Check if user selected one of our options
+        for i, option in enumerate(options):
+            if result == option:
+                return sessions[i]["session_id"]
+
+        # User typed something else - try to match it as a session ID
+        return result if result else None
+
+    # No interactive UI available
+    return None
 
 
 def resume_session(session_id: str, history_base_dir: Optional[Path] = None) -> bool:
