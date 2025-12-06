@@ -11,7 +11,7 @@ GMAIL_SCOPES = [
 ]
 
 
-@tool
+@tool(group="Gmail")
 def gmail_search(context: "AgentContext", query: str, max_results: int = 10) -> str:
     """Search for emails in Gmail using Google's search syntax.
 
@@ -78,7 +78,7 @@ def gmail_search(context: "AgentContext", query: str, max_results: int = 10) -> 
         return f"Error searching Gmail: {str(e)}"
 
 
-@tool
+@tool(group="Gmail")
 def gmail_read(context: "AgentContext", email_id: str) -> str:
     """Read the content of a specific email by its ID.
 
@@ -150,7 +150,7 @@ def gmail_read(context: "AgentContext", email_id: str) -> str:
         return f"Error reading email: {str(e)}"
 
 
-@tool
+@tool(group="Gmail")
 def gmail_send(
     context: "AgentContext",
     to: str,
@@ -308,7 +308,7 @@ def gmail_send(
         return f"Error sending email: {str(e)}"
 
 
-@tool
+@tool(group="Gmail")
 def gmail_read_thread(context: "AgentContext", thread_or_message_id: str) -> str:
     """Read all messages in a Gmail thread without duplicated content.
 
@@ -473,7 +473,7 @@ def gmail_read_thread(context: "AgentContext", thread_or_message_id: str) -> str
         return f"Error reading thread: {str(e)}"
 
 
-@tool
+@tool(group="Gmail")
 def find_emails_needing_response(
     context: "AgentContext", recipient_email: str = "me"
 ) -> str:
@@ -591,7 +591,7 @@ def find_emails_needing_response(
         return f"Error finding emails needing response: {str(e)}"
 
 
-@tool
+@tool(group="Gmail")
 def gmail_forward(
     context: "AgentContext",
     message_or_thread_id: str,

@@ -131,11 +131,24 @@ def generate_schema(
     return schema
 
 
-def tool(func=None, *, max_concurrency: Optional[int] = None):
+def get_tool_group(func) -> Optional[str]:
+    """Get the group name for a tool function.
+
+    Args:
+        func: A function decorated with @tool
+
+    Returns:
+        The group name if set, None otherwise.
+    """
+    return getattr(func, "_group", None)
+
+
+def tool(func=None, *, group: Optional[str] = None, max_concurrency: Optional[int] = None):
     """Decorator that adds a schema method to a function and validates sandbox parameter.
 
     Args:
         func: The function to decorate
+        group: Optional group name for permission management (not sent to API)
         max_concurrency: Maximum number of concurrent calls to this tool (None = unlimited)
     """
 
@@ -184,6 +197,9 @@ def tool(func=None, *, max_concurrency: Optional[int] = None):
 
         # Store max_concurrency on the wrapper for introspection
         wrapper._max_concurrency = max_concurrency
+
+        # Store group on the wrapper for permission management
+        wrapper._group = group
 
         # Use the standalone generate_schema function
         wrapper.schema = lambda: generate_schema(f)
