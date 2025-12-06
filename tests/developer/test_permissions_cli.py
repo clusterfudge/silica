@@ -6,7 +6,6 @@ from within the Toolbox.
 """
 
 import json
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -400,7 +399,6 @@ class TestToolboxIntegration:
     def test_refresh_tools_updates_schemas(self, toolbox_with_permissions):
         """Test that refreshing tools updates the schema."""
         toolbox = toolbox_with_permissions
-        original_schema_count = len(toolbox.agent_schema)
         
         # Add a group to allow list
         toolbox._permissions(
