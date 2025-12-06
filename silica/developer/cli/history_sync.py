@@ -490,12 +490,11 @@ def _sync_all_sessions_with_progress(
 
             # Update status based on result
             if result.error:
+                # Show a brief status in the progress view; full error shown at end
                 session_progress.update(
                     task_id,
                     status_icon="[red]✗[/red]",
-                    status_text=f"[red]Error: {result.error[:30]}...[/red]"
-                    if len(result.error) > 30
-                    else f"[red]Error: {result.error}[/red]",
+                    status_text="[red]Failed (see details below)[/red]",
                 )
             elif result.failed > 0:
                 session_progress.update(
@@ -752,6 +751,15 @@ def sync(
                             ("Sync failed\n\n", "red"),
                             ("Error: ", "cyan"),
                             (result.error, "white"),
+                            ("\n\n"),
+                            (
+                                "Tip: For transient network errors, try running the sync again.\n",
+                                "dim",
+                            ),
+                            (
+                                "For persistent errors, check your network connection and proxy configuration.",
+                                "dim",
+                            ),
                         ),
                         title="Sync Results",
                         border_style="red",
@@ -836,11 +844,18 @@ def sync(
 
         # Show errors if any
         if errors:
-            console.print("\n[red]Session errors:[/red]")
-            for session_id, error in errors[:5]:
-                console.print(f"  • {session_id}: {error}")
-            if len(errors) > 5:
-                console.print(f"  ... and {len(errors) - 5} more")
+            console.print("\n[red bold]Session errors:[/red bold]")
+            for session_id, error in errors:
+                console.print(f"\n[cyan]{session_id}:[/cyan]")
+                console.print(f"  {error}")
+
+            # Show hint about debugging
+            console.print(
+                "\n[dim]Tip: For transient network errors, try running the sync again.[/dim]"
+            )
+            console.print(
+                "[dim]For persistent errors, check your network connection and proxy configuration.[/dim]"
+            )
 
     except Exception as e:
         console.print(f"[red]Error during sync: {e}[/red]")
