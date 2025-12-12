@@ -25,7 +25,9 @@ class MockUserInterface(UserInterface):
         """Record system messages."""
         self.system_messages.append(message)
 
-    def permission_callback(self, action, resource, sandbox_mode, action_arguments):
+    def permission_callback(
+        self, action, resource, sandbox_mode, action_arguments, group=None
+    ):
         """Always allow."""
         return True
 

@@ -22,7 +22,12 @@ class MockUserInterface(UserInterface):
     """Mock user interface for testing."""
 
     def permission_callback(
-        self, action: str, resource: str, sandbox_mode: SandboxMode, action_arguments
+        self,
+        action: str,
+        resource: str,
+        sandbox_mode: SandboxMode,
+        action_arguments,
+        group=None,
     ):
         return True
 

@@ -24,7 +24,9 @@ from silica.developer.tools.shell import (
 class TestUserInterface(UserInterface):
     """Test user interface that automatically approves all permissions."""
 
-    def permission_callback(self, action, resource, sandbox_mode, action_arguments):
+    def permission_callback(
+        self, action, resource, sandbox_mode, action_arguments, group=None
+    ):
         return True
 
     def permission_rendering_callback(self, action, resource, action_arguments):

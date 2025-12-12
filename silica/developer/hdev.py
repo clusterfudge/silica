@@ -350,21 +350,114 @@ class CLIUserInterface(UserInterface):
         resource: str,
         sandbox_mode: SandboxMode,
         action_arguments: Dict | None,
-    ) -> bool:
-        response = (
-            str(
-                self.console.input(
-                    "[bold yellow]Allow this action? (y/N/D for 'do something else'): [/bold yellow]"
-                )
-            )
-            .strip()
-            .lower()
-        )
-        if response == "d":
-            from silica.developer.sandbox import DoSomethingElseError
+        group: Optional[str] = None,
+    ):
+        """Permission callback with enhanced options for always-allow.
 
+        Returns:
+            bool: True/False for allow/deny this time
+            str: "always_tool" or "always_group" for permanent allow
+            tuple: ("always_commands", set) for shell commands
+        """
+        # Build prompt based on action type
+        if action == "shell":
+            return self._shell_permission_prompt(resource, group, action_arguments)
+        else:
+            return self._tool_permission_prompt(
+                action, resource, group, action_arguments
+            )
+
+    def _tool_permission_prompt(
+        self,
+        action: str,
+        resource: str,
+        group: Optional[str],
+        action_arguments: Dict | None,
+    ):
+        """Permission prompt for non-shell tools."""
+        from silica.developer.sandbox import DoSomethingElseError
+
+        self.console.print(f"\n[bold cyan]Allow {action} on '{resource}'?[/bold cyan]")
+        self.console.print("  [Y] Yes, this time")
+        self.console.print("  [N] No")
+        self.console.print(f"  [A] Always allow {action}")
+        if group:
+            self.console.print(f"  [G] Always allow group ({group})")
+        self.console.print("  [D] Do something else")
+
+        response = (
+            str(self.console.input("[bold yellow]Choice: [/bold yellow]"))
+            .strip()
+            .upper()
+        )
+
+        if response == "D":
             raise DoSomethingElseError()
-        return response == "y"
+        elif response == "A":
+            return "always_tool"
+        elif response == "G" and group:
+            return "always_group"
+        elif response == "Y":
+            return True
+        else:
+            return False
+
+    def _shell_permission_prompt(
+        self, command: str, group: Optional[str], action_arguments: Dict | None
+    ):
+        """Permission prompt for shell commands with parser integration."""
+        from silica.developer.sandbox import DoSomethingElseError
+        from silica.developer.tools.shell_parser import parse_shell_command
+
+        parsed = action_arguments.get("parsed") if action_arguments else None
+        if parsed is None:
+            parsed = parse_shell_command(command)
+
+        denied = action_arguments.get("denied") if action_arguments else None
+
+        self.console.print(f"\n[bold cyan]Allow shell: '{command}'?[/bold cyan]")
+
+        # Show detected commands for compound commands
+        if parsed.commands and len(parsed.commands) > 1:
+            self.console.print(
+                f"  [dim]Detected commands: {', '.join(parsed.commands)}[/dim]"
+            )
+
+        # Show denied warning if any
+        if denied:
+            self.console.print(f"  [bold red]⛔ Denied: {', '.join(denied)}[/bold red]")
+
+        self.console.print("  [Y] Yes, this time")
+        self.console.print("  [N] No")
+
+        # Offer prefix option based on parse result
+        if not parsed.parse_error and parsed.commands:
+            if parsed.is_simple:
+                cmd = parsed.commands[0]
+                self.console.print(f"  [P] Always allow '{cmd}' commands")
+            else:
+                self.console.print(f"  [P] Always allow: {', '.join(parsed.commands)}")
+
+        if group:
+            self.console.print(f"  [G] Always allow group ({group})")
+        self.console.print("  [D] Do something else")
+
+        response = (
+            str(self.console.input("[bold yellow]Choice: [/bold yellow]"))
+            .strip()
+            .upper()
+        )
+
+        if response == "D":
+            raise DoSomethingElseError()
+        elif response == "P" and parsed.commands and not parsed.parse_error:
+            return ("always_commands", set(parsed.commands))
+        elif response == "G" and group:
+            return "always_group"
+        elif response == "Y":
+            return True
+        else:
+            return False
 
     def permission_rendering_callback(
         self,

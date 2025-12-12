@@ -22,7 +22,7 @@ from .user_tools import (
 )
 
 
-@tool
+@tool(group="Toolbox")
 def toolbox_list(context: AgentContext, category: str = None) -> str:
     """List all tools in the user toolbox.
 
@@ -61,7 +61,7 @@ def toolbox_list(context: AgentContext, category: str = None) -> str:
     return "\n".join(output)
 
 
-@tool
+@tool(group="Toolbox")
 def toolbox_create(
     context: AgentContext,
     name: str,
@@ -173,7 +173,7 @@ def toolbox_create(
     return "\n".join(output)
 
 
-@tool
+@tool(group="Toolbox")
 def toolbox_inspect(context: AgentContext, name: str) -> str:
     """Inspect a tool - show its source code, specification, and metadata.
 
@@ -243,7 +243,7 @@ def toolbox_inspect(context: AgentContext, name: str) -> str:
     return "\n".join(output)
 
 
-@tool
+@tool(group="Toolbox")
 def toolbox_shelve(context: AgentContext, name: str) -> str:
     """Archive a tool (move to .archive directory with timestamp).
 
@@ -266,7 +266,7 @@ def toolbox_shelve(context: AgentContext, name: str) -> str:
         return f"Failed to archive tool: {message}"
 
 
-@tool
+@tool(group="Toolbox")
 def toolbox_test(
     context: AgentContext,
     name: str,

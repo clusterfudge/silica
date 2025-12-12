@@ -3,7 +3,7 @@ from silica.developer.context import AgentContext
 from .framework import tool
 
 
-@tool
+@tool(group="Debug")
 def sandbox_debug(context: "AgentContext"):
     """Show sandbox configuration and debug information.
 

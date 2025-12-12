@@ -50,7 +50,7 @@ async def _check_playwright_available() -> tuple[bool, Optional[str]]:
         return False, f"Unexpected error checking Playwright: {str(e)}"
 
 
-@tool
+@tool(group="Browser")
 async def get_browser_capabilities(context: AgentContext) -> str:
     """Check what browser tools are available in the current environment.
 
@@ -100,7 +100,7 @@ async def get_browser_capabilities(context: AgentContext) -> str:
     return "".join(response)
 
 
-@tool
+@tool(group="Browser")
 async def browser_session_create(
     context: AgentContext,
     session_name: str,
@@ -135,7 +135,7 @@ async def browser_session_create(
     return message
 
 
-@tool
+@tool(group="Browser")
 async def browser_session_navigate(
     context: AgentContext,
     session_name: str,
@@ -182,7 +182,7 @@ async def browser_session_navigate(
         return f"Error navigating to {url}: {str(e)}"
 
 
-@tool
+@tool(group="Browser")
 async def browser_session_interact(
     context: AgentContext,
     session_name: str,
@@ -310,7 +310,7 @@ async def browser_session_interact(
         return f"Error during browser interaction: {str(e)}"
 
 
-@tool
+@tool(group="Browser")
 async def browser_session_inspect(
     context: AgentContext,
     session_name: str,
@@ -441,7 +441,7 @@ async def browser_session_inspect(
         )
 
 
-@tool
+@tool(group="Browser")
 async def browser_session_screenshot(
     context: AgentContext,
     session_name: str,
@@ -518,7 +518,7 @@ async def browser_session_screenshot(
         return f"Error taking screenshot: {str(e)}"
 
 
-@tool
+@tool(group="Browser")
 def browser_session_list(context: AgentContext) -> str:
     """List all active browser sessions.
 
@@ -552,7 +552,7 @@ def browser_session_list(context: AgentContext) -> str:
     return result
 
 
-@tool
+@tool(group="Browser")
 async def browser_session_destroy(context: AgentContext, session_name: str) -> str:
     """Close and destroy a browser session.
 
@@ -567,7 +567,7 @@ async def browser_session_destroy(context: AgentContext, session_name: str) -> s
     return message
 
 
-@tool
+@tool(group="Browser")
 async def browser_session_get_info(context: AgentContext, session_name: str) -> str:
     """Get detailed information about a browser session.
 

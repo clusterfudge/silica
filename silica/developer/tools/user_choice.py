@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from silica.developer.context import AgentContext
 
 
-@tool
+@tool(group="UserInterface")
 async def user_choice(
     context: "AgentContext",
     question: str,

@@ -84,7 +84,9 @@ class MockUserInterface(UserInterface):
     def handle_system_message(self, message, markdown=True):
         self.system_messages.append(message)
 
-    def permission_callback(self, action, resource, sandbox_mode, action_arguments):
+    def permission_callback(
+        self, action, resource, sandbox_mode, action_arguments, group=None
+    ):
         return True
 
     def permission_rendering_callback(self, action, resource, action_arguments):

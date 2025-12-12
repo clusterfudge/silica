@@ -46,7 +46,7 @@ def _log_persona_edit(
         f.write(json.dumps(log_entry) + "\n")
 
 
-@tool
+@tool(group="Persona")
 def read_persona(context: AgentContext) -> str:
     """Read the content of the current persona file.
 
@@ -77,7 +77,7 @@ def read_persona(context: AgentContext) -> str:
         return f"Error reading persona: {str(e)}"
 
 
-@tool
+@tool(group="Persona")
 def write_persona(context: AgentContext, content: str) -> str:
     """Write or update the current persona file.
 

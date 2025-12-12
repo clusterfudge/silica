@@ -62,7 +62,7 @@ def _format_as_markdown(data: Dict[str, Any], title: str = "") -> str:
     return md
 
 
-@tool
+@tool(group="GitHub")
 def github_list_prs(
     context: "AgentContext",
     state: Optional[str] = None,
@@ -118,7 +118,7 @@ def github_list_prs(
         return f"Error parsing JSON response:\n{result['data']}"
 
 
-@tool
+@tool(group="GitHub")
 def github_view_pr(
     context: "AgentContext",
     number: str,
@@ -229,7 +229,7 @@ def github_view_pr(
         return f"Error parsing JSON response:\n{result['data']}"
 
 
-@tool
+@tool(group="GitHub")
 def github_list_issues(
     context: "AgentContext",
     state: Optional[str] = None,
@@ -293,7 +293,7 @@ def github_list_issues(
         return f"Error parsing JSON response:\n{result['data']}"
 
 
-@tool
+@tool(group="GitHub")
 def github_view_issue(
     context: "AgentContext",
     number: str,
@@ -369,7 +369,7 @@ def github_view_issue(
         return f"Error parsing JSON response:\n{result['data']}"
 
 
-@tool
+@tool(group="GitHub")
 def github_api(
     context: "AgentContext",
     endpoint: str,
@@ -445,7 +445,7 @@ def github_api(
 
 
 # GitHub Pull Request Comments (Specific functionality)
-@tool
+@tool(group="GitHub")
 def github_pr_comments(
     context: "AgentContext",
     number: str,
@@ -568,7 +568,7 @@ def github_pr_comments(
 
 
 # GitHub Actions
-@tool
+@tool(group="GitHub")
 def github_workflow_runs(
     context: "AgentContext",
     workflow: Optional[str] = None,

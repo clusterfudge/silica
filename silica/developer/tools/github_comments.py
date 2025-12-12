@@ -93,7 +93,7 @@ def _format_markdown_comments(
     return output
 
 
-@tool
+@tool(group="GitHub")
 def github_list_pr_comments(
     context: "AgentContext",
     pr_number: Union[int, str],
@@ -210,7 +210,7 @@ def github_list_pr_comments(
     return output
 
 
-@tool
+@tool(group="GitHub")
 def github_get_comment(
     context: "AgentContext",
     comment_id: str,
@@ -302,7 +302,7 @@ def github_get_comment(
         return f"Error parsing comment data. Raw response:\n\n{result['data']}"
 
 
-@tool
+@tool(group="GitHub")
 def github_add_pr_comment(
     context: "AgentContext",
     pr_number: Union[int, str],
@@ -432,7 +432,7 @@ def github_add_pr_comment(
         return f"Error adding comment: {result['data']}"
 
 
-@tool
+@tool(group="GitHub")
 def github_list_new_comments(
     context: "AgentContext",
     pr_number: Union[int, str],

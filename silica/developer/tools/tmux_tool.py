@@ -65,7 +65,9 @@ def tmux_create_session(
 
     # Check permissions for session creation
     try:
-        if not context.sandbox.check_permissions("tmux_create_session", session_name):
+        if not context.sandbox.check_permissions(
+            "tmux_create_session", session_name, group="Shell"
+        ):
             return "Error: Permission denied for session creation."
     except DoSomethingElseError:
         raise
@@ -76,7 +78,9 @@ def tmux_create_session(
             return "Error: Initial command contains potentially dangerous operations."
 
         try:
-            if not context.sandbox.check_permissions("shell", initial_command):
+            if not context.sandbox.check_permissions(
+                "shell", initial_command, group="Shell"
+            ):
                 return "Error: Permission denied for initial command."
         except DoSomethingElseError:
             raise
@@ -159,7 +163,7 @@ def tmux_execute_command(
 
     # Check permissions
     try:
-        if not context.sandbox.check_permissions("shell", command):
+        if not context.sandbox.check_permissions("shell", command, group="Shell"):
             return "Error: Permission denied for command execution."
     except DoSomethingElseError:
         raise
@@ -278,7 +282,9 @@ def tmux_destroy_session(context: "AgentContext", session_name: str) -> str:
 
     # Check permissions
     try:
-        if not context.sandbox.check_permissions("tmux_destroy_session", session_name):
+        if not context.sandbox.check_permissions(
+            "tmux_destroy_session", session_name, group="Shell"
+        ):
             return "Error: Permission denied for session destruction."
     except DoSomethingElseError:
         raise
@@ -326,7 +332,9 @@ def tmux_destroy_all_sessions(context: "AgentContext") -> str:
 
     # Check permissions
     try:
-        if not context.sandbox.check_permissions("tmux_destroy_all_sessions", "all"):
+        if not context.sandbox.check_permissions(
+            "tmux_destroy_all_sessions", "all", group="Shell"
+        ):
             return "Error: Permission denied for mass session destruction."
     except DoSomethingElseError:
         raise

@@ -1,8 +1,14 @@
 import contextlib
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional, Set, Tuple, Union
 
 from silica.developer.sandbox import SandboxMode
+
+# Enhanced permission callback return types:
+# - bool: True (allow this time) or False (deny)
+# - str: "always_tool" or "always_group"
+# - tuple: ("always_commands", set_of_commands) for shell commands
+PermissionResult = Union[bool, str, Tuple[str, Set[str]]]
 
 
 class UserInterface(ABC):
@@ -31,13 +37,27 @@ class UserInterface(ABC):
         resource: str,
         sandbox_mode: SandboxMode,
         action_arguments: Dict | None,
-    ) -> bool:
-        """
-        :param action:
-        :param resource:
-        :param sandbox_mode:
-        :param action_arguments:
-        :return:
+        group: Optional[str] = None,
+    ) -> PermissionResult:
+        """Permission check callback with enhanced options.
+
+        For non-shell tools, should offer:
+            [Y] Yes, this time
+            [N] No
+            [A] Always allow <tool>
+            [G] Always allow group (<group>)
+            [D] Do something else
+
+        For shell commands (action == "shell"), should integrate with
+        shell_parser to offer appropriate prefix options.
+
+        :param action: The action being performed (e.g., "read_file", "shell")
+        :param resource: The resource being accessed (e.g., file path, command)
+        :param sandbox_mode: Current sandbox mode
+        :param action_arguments: Optional additional arguments for display
+        :param group: Optional tool group for group-based permissions
+        :return: Permission result - bool, "always_tool", "always_group",
+                 or ("always_commands", set) for shell
         """
 
     @abstractmethod

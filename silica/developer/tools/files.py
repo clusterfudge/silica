@@ -5,7 +5,7 @@ from silica.developer.sandbox import DoSomethingElseError
 from .framework import tool
 
 
-@tool
+@tool(group="Files")
 async def read_file(context: "AgentContext", path: str):
     """Read and return the contents of a file from the sandbox.
 
@@ -22,7 +22,7 @@ async def read_file(context: "AgentContext", path: str):
         return f"Error reading file: {str(e)}"
 
 
-@tool(max_concurrency=1)
+@tool(group="Files", max_concurrency=1)
 def write_file(context: "AgentContext", path: str, content: str):
     """Write content to a file in the sandbox.
 
@@ -41,7 +41,7 @@ def write_file(context: "AgentContext", path: str, content: str):
         return f"Error writing file: {str(e)}"
 
 
-@tool
+@tool(group="Files")
 def list_directory(
     context: "AgentContext", path: str, recursive: Optional[bool] = None
 ):
@@ -64,7 +64,7 @@ def list_directory(
         return f"Error listing directory: {str(e)}"
 
 
-@tool(max_concurrency=1)
+@tool(group="Files", max_concurrency=1)
 async def edit_file(
     context: "AgentContext", path: str, match_text: str, replace_text: str
 ):

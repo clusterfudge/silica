@@ -88,7 +88,7 @@ def list_available_calendars():
     return calendars
 
 
-@tool
+@tool(group="Calendar")
 def calendar_setup(context: "AgentContext") -> str:
     """Set up Google Calendar configuration by listing and selecting which calendars to enable.
 
@@ -210,7 +210,7 @@ def get_enabled_calendars():
     return [cal for cal in config.get("calendars", []) if cal.get("enabled", True)]
 
 
-@tool
+@tool(group="Calendar")
 def calendar_list_events(
     context: "AgentContext",
     days: int = 7,
@@ -437,7 +437,7 @@ def calendar_list_events(
         return f"Error listing calendar events: {str(e)}"
 
 
-@tool
+@tool(group="Calendar")
 def calendar_create_event(
     context: "AgentContext",
     summary: str,
@@ -614,7 +614,7 @@ def calendar_create_event(
         return f"Error creating calendar event: {str(e)}"
 
 
-@tool
+@tool(group="Calendar")
 def calendar_delete_event(
     context: "AgentContext", event_id: str, calendar_id: str = None
 ) -> str:
@@ -678,7 +678,7 @@ def calendar_delete_event(
         return f"Error deleting calendar event: {str(e)}"
 
 
-@tool
+@tool(group="Calendar")
 def calendar_search(
     context: "AgentContext", query: str, days: int = 90, calendar_id: str = None
 ) -> str:
@@ -893,7 +893,7 @@ def calendar_search(
         return f"Error searching calendar events: {str(e)}"
 
 
-@tool
+@tool(group="Calendar")
 def calendar_list_calendars(context: "AgentContext") -> str:
     """List available Google Calendars and their configuration status.
 
