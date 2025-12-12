@@ -86,9 +86,7 @@ class ToolPermissions:
                 allow_groups=set(allow_section.get("groups", [])),
                 deny_tools=set(deny_section.get("tools", [])),
                 deny_groups=set(deny_section.get("groups", [])),
-                shell_allowed_commands=set(
-                    shell_section.get("allowed_commands", [])
-                ),
+                shell_allowed_commands=set(shell_section.get("allowed_commands", [])),
                 shell_denied_commands=set(shell_section.get("denied_commands", [])),
             )
         except (json.JSONDecodeError, KeyError, TypeError):

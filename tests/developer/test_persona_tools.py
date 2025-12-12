@@ -49,7 +49,9 @@ def agent_context(temp_persona_dir):
         def handle_assistant_message(self, message: str, **kwargs):
             pass
 
-        def permission_callback(self, action, resource, sandbox_mode, action_arguments):
+        def permission_callback(
+            self, action, resource, sandbox_mode, action_arguments, group=None
+        ):
             return True
 
         def permission_rendering_callback(self, action, resource, action_arguments):

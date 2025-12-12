@@ -10,6 +10,7 @@ class TestToolGroups(unittest.TestCase):
 
     def test_bare_decorator(self):
         """Test @tool without parentheses."""
+
         @tool
         def my_tool(context: "AgentContext"):
             """A simple tool."""
@@ -23,6 +24,7 @@ class TestToolGroups(unittest.TestCase):
 
     def test_empty_parentheses(self):
         """Test @tool() with empty parentheses."""
+
         @tool()
         def my_tool(context: "AgentContext"):
             """A simple tool."""
@@ -36,6 +38,7 @@ class TestToolGroups(unittest.TestCase):
 
     def test_group_only(self):
         """Test @tool(group="MyGroup")."""
+
         @tool(group="MyGroup")
         def my_tool(context: "AgentContext"):
             """A simple tool."""
@@ -49,6 +52,7 @@ class TestToolGroups(unittest.TestCase):
 
     def test_max_concurrency_only(self):
         """Test @tool(max_concurrency=2)."""
+
         @tool(max_concurrency=2)
         def my_tool(context: "AgentContext"):
             """A simple tool."""
@@ -64,6 +68,7 @@ class TestToolGroups(unittest.TestCase):
 
     def test_group_and_max_concurrency(self):
         """Test @tool(group="MyGroup", max_concurrency=2)."""
+
         @tool(group="MyGroup", max_concurrency=2)
         def my_tool(context: "AgentContext"):
             """A simple tool."""
@@ -78,6 +83,7 @@ class TestToolGroups(unittest.TestCase):
 
     def test_group_not_in_schema(self):
         """Test that group is not included in the schema output."""
+
         @tool(group="SecretGroup")
         def my_tool(context: "AgentContext", arg1: str):
             """A tool with args.
@@ -101,6 +107,7 @@ class TestToolGroups(unittest.TestCase):
 
     def test_get_tool_group_on_non_tool(self):
         """Test get_tool_group on a function without @tool decorator."""
+
         def plain_function():
             pass
 
@@ -109,25 +116,22 @@ class TestToolGroups(unittest.TestCase):
 
     def test_different_groups(self):
         """Test multiple tools with different groups."""
+
         @tool(group="FileSystem")
         def read_file(context: "AgentContext"):
             """Read a file."""
-            pass
 
         @tool(group="FileSystem")
         def write_file(context: "AgentContext"):
             """Write a file."""
-            pass
 
         @tool(group="Network")
         def http_request(context: "AgentContext"):
             """Make HTTP request."""
-            pass
 
         @tool
         def no_group_tool(context: "AgentContext"):
             """Tool without group."""
-            pass
 
         self.assertEqual(get_tool_group(read_file), "FileSystem")
         self.assertEqual(get_tool_group(write_file), "FileSystem")

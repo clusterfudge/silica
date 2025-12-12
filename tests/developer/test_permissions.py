@@ -36,7 +36,10 @@ class TestToolPermissionsLoad:
         config = {
             "version": 1,
             "mode": "allowlist",
-            "allow": {"tools": ["read_file", "write_file"], "groups": ["Files", "Memory"]},
+            "allow": {
+                "tools": ["read_file", "write_file"],
+                "groups": ["Files", "Memory"],
+            },
             "deny": {"tools": ["dangerous_tool"], "groups": ["Shell"]},
             "shell_permissions": {
                 "allowed_commands": ["git", "ls"],
@@ -441,7 +444,9 @@ class TestPermissionsManagerFilterUserTools:
             "specific_tool": self._create_mock_discovered_tool(
                 "specific_tool", "other"
             ),
-            "blocked_tool": self._create_mock_discovered_tool("blocked_tool", "blocked"),
+            "blocked_tool": self._create_mock_discovered_tool(
+                "blocked_tool", "blocked"
+            ),
         }
 
         result = manager.filter_user_tools(tools)

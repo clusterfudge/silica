@@ -17,9 +17,9 @@ def test_do_something_else_error():
     with pytest.raises(DoSomethingElseError):
         sandbox.check_permissions("test_action", "test_resource")
 
-    # Verify the callback was called with correct parameters
+    # Verify the callback was called with correct parameters (including group=None)
     mock_callback.assert_called_once_with(
-        "test_action", "test_resource", SandboxMode.REQUEST_EVERY_TIME, None
+        "test_action", "test_resource", SandboxMode.REQUEST_EVERY_TIME, None, None
     )
 
 
@@ -229,10 +229,9 @@ def test_cli_user_interface_do_something_else():
     # Test the permission callback
     with pytest.raises(DoSomethingElseError):
         ui.permission_callback(
-            "test_action", "test_resource", SandboxMode.REQUEST_EVERY_TIME, {}
+            "test_action", "test_resource", SandboxMode.REQUEST_EVERY_TIME, {}, None
         )
 
-    # Verify the console was used to get input with the correct prompt
-    mock_console.input.assert_called_once_with(
-        "[bold yellow]Allow this action? (y/N/D for 'do something else'): [/bold yellow]"
-    )
+    # Verify the console was used to get input with the new enhanced prompt format
+    # The new format shows options [Y], [N], [A], [G], [D]
+    mock_console.input.assert_called_once_with("[bold yellow]Choice: [/bold yellow]")

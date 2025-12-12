@@ -143,7 +143,9 @@ def get_tool_group(func) -> Optional[str]:
     return getattr(func, "_group", None)
 
 
-def tool(func=None, *, group: Optional[str] = None, max_concurrency: Optional[int] = None):
+def tool(
+    func=None, *, group: Optional[str] = None, max_concurrency: Optional[int] = None
+):
     """Decorator that adds a schema method to a function and validates sandbox parameter.
 
     Args:

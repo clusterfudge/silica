@@ -18,7 +18,9 @@ class MockUI(UserInterface):
     def handle_assistant_message(self, message: str, **kwargs):
         pass
 
-    def permission_callback(self, action, resource, sandbox_mode, action_arguments):
+    def permission_callback(
+        self, action, resource, sandbox_mode, action_arguments, group=None
+    ):
         return True
 
     def permission_rendering_callback(self, action, resource, action_arguments):
@@ -71,6 +73,7 @@ def test_persona_tools_in_toolbox():
             user_interface=MockUI(),
             persona_base_directory=persona_dir,
         )
+        context.dwr_mode = True  # Bypass permissions for this test
 
         toolbox = Toolbox(context)
         schemas = toolbox.schemas()
@@ -99,6 +102,7 @@ def test_persona_workflow_integration():
             user_interface=MockUI(),
             persona_base_directory=persona_dir,
         )
+        context.dwr_mode = True  # Bypass permissions for this test
 
         toolbox = Toolbox(context)
 
@@ -170,6 +174,7 @@ def test_persona_backup_created():
             user_interface=MockUI(),
             persona_base_directory=persona_dir,
         )
+        context.dwr_mode = True  # Bypass permissions for this test
 
         toolbox = Toolbox(context)
         write_persona = next(
@@ -207,6 +212,7 @@ def test_persona_log_created():
             user_interface=MockUI(),
             persona_base_directory=persona_dir,
         )
+        context.dwr_mode = True  # Bypass permissions for this test
 
         toolbox = Toolbox(context)
         write_persona = next(

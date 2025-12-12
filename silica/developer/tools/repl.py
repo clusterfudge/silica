@@ -236,7 +236,7 @@ async def run_bash_command(context: "AgentContext", command: str):
             return "Error: This command is not allowed for safety reasons."
 
         try:
-            if not context.sandbox.check_permissions("shell", command):
+            if not context.sandbox.check_permissions("shell", command, group="Shell"):
                 return "Error: Operator denied permission."
         except DoSomethingElseError:
             raise  # Re-raise to be handled by higher-level components
