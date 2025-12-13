@@ -1387,10 +1387,10 @@ class Toolbox:
             # Remove orphaned tool_results (tool_results without matching tool_use)
             # This can happen when compaction splits a tool use/result pair
             from silica.developer.compaction_validation import (
-                strip_orphaned_tool_results,
+                strip_orphaned_tool_blocks,
             )
 
-            new_messages = strip_orphaned_tool_results(new_messages)
+            new_messages = strip_orphaned_tool_blocks(new_messages)
 
             # Update the context in place
             self.context._chat_history = new_messages

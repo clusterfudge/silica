@@ -817,11 +817,11 @@ class ConversationCompacter:
         # Strip all thinking blocks from compacted messages
         new_messages = self._strip_all_thinking_blocks(new_messages)
 
-        # Remove orphaned tool_results (tool_results without matching tool_use)
+        # Remove orphaned tool blocks (tool_use without tool_result OR tool_result without tool_use)
         # This can happen when compaction splits a tool use/result pair
-        from silica.developer.compaction_validation import strip_orphaned_tool_results
+        from silica.developer.compaction_validation import strip_orphaned_tool_blocks
 
-        new_messages = strip_orphaned_tool_results(new_messages)
+        new_messages = strip_orphaned_tool_blocks(new_messages)
 
         # Disable thinking mode after stripping thinking blocks
         if agent_context.thinking_mode != "off":
