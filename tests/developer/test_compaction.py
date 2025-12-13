@@ -418,12 +418,24 @@ class TestConversationCompaction(unittest.TestCase):
             self.assertIsNotNone(metadata)
             # Verify context was mutated in place
             self.assertGreater(len(small_context.chat_history), 0)
-            # With 3 messages [user, assistant, user] and turns=2 (3 messages to compact),
-            # we compact all 3 but the code adjusts to leave at least 1, so we get:
-            # 1 summary message + 1 remaining message = 2 messages
-            self.assertEqual(len(small_context.chat_history), 2)
-            # Verify the first message is now the summary
-            self.assertIn("Compacted Summary", small_context.chat_history[0]["content"])
+            # With 3 messages [user, assistant, user] and turns=2 (adjusted to 1 turn = 2 messages),
+            # we compact the first 2 messages and keep the last 1.
+            # Result: [user: Summary, user: "Thanks"]
+            # After strip_orphaned_tool_results merges consecutive user messages: 1 message
+            # (The summary and remaining user message are merged into one user message)
+            self.assertEqual(len(small_context.chat_history), 1)
+            # Verify the first message contains the summary
+            # Content may be a list of blocks after merging, so extract text
+            content = small_context.chat_history[0]["content"]
+            if isinstance(content, list):
+                content_str = " ".join(
+                    block.get("text", "")
+                    for block in content
+                    if isinstance(block, dict)
+                )
+            else:
+                content_str = content
+            self.assertIn("Compacted Summary", content_str)
 
 
 if __name__ == "__main__":
