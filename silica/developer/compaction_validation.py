@@ -353,6 +353,86 @@ def validate_compacted_messages(
     )
 
 
+def strip_orphaned_tool_results(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Remove tool_result blocks that don't have corresponding tool_use blocks.
+
+    This can happen after compaction when the messages are split in the middle
+    of a tool use/result pair. The tool_use was in the compacted portion but
+    the tool_result is in the kept portion.
+
+    Args:
+        messages: List of message dictionaries (will be deep copied)
+
+    Returns:
+        New list of messages with orphaned tool_results removed
+    """
+    import copy
+
+    # Deep copy to avoid modifying original
+    messages = copy.deepcopy(messages)
+
+    # First pass: collect all tool_use IDs
+    tool_use_ids = set()
+    for message in messages:
+        content = message.get("content", [])
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    tool_id = block.get("id")
+                    if tool_id:
+                        tool_use_ids.add(tool_id)
+
+    # Second pass: remove tool_results without matching tool_use
+    for message in messages:
+        content = message.get("content", [])
+        if isinstance(content, list):
+            # Filter out orphaned tool_results
+            filtered_content = []
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "tool_result":
+                    tool_use_id = block.get("tool_use_id")
+                    if tool_use_id not in tool_use_ids:
+                        # This is an orphaned tool_result, skip it
+                        continue
+                filtered_content.append(block)
+            message["content"] = filtered_content
+
+    # Third pass: remove empty user messages (that only had tool_results)
+    # and consolidate consecutive user messages
+    result = []
+    for message in messages:
+        content = message.get("content", [])
+
+        # Skip empty messages
+        if isinstance(content, list) and len(content) == 0:
+            continue
+        if isinstance(content, str) and not content.strip():
+            continue
+
+        # If this is a user message and the last message was also a user message,
+        # merge them (this can happen after removing orphaned tool_results)
+        if (
+            result
+            and message.get("role") == "user"
+            and result[-1].get("role") == "user"
+        ):
+            # Merge content
+            prev_content = result[-1].get("content", [])
+            curr_content = message.get("content", [])
+
+            # Normalize to list format
+            if isinstance(prev_content, str):
+                prev_content = [{"type": "text", "text": prev_content}]
+            if isinstance(curr_content, str):
+                curr_content = [{"type": "text", "text": curr_content}]
+
+            result[-1]["content"] = prev_content + curr_content
+        else:
+            result.append(message)
+
+    return result
+
+
 def validate_api_compatibility(messages: List[Dict[str, Any]]) -> ValidationReport:
     """Validate that messages are compatible with Anthropic API requirements.
 
