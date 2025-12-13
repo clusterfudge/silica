@@ -508,6 +508,18 @@ def load_session_data(
         cli_args = session_data.get("metadata", {}).get("cli_args")
         thinking_mode = session_data.get("thinking_mode", "off")
 
+        # Clean up any orphaned tool blocks in the loaded history
+        # This can happen if a session was saved mid-compaction or after a crash
+        from silica.developer.compaction_validation import strip_orphaned_tool_blocks
+
+        original_count = len(chat_history)
+        chat_history = strip_orphaned_tool_blocks(chat_history)
+        if len(chat_history) != original_count:
+            print(
+                f"Cleaned up orphaned tool blocks in session: "
+                f"{original_count} -> {len(chat_history)} messages"
+            )
+
         # Create a new context with the loaded data
         updated_context = AgentContext(
             session_id=session_id,

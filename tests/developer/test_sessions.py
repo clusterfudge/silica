@@ -485,6 +485,188 @@ async def test_interactive_resume_no_sessions():
             assert result is None
 
 
+class TestLoadSessionWithOrphanedToolBlocks(unittest.TestCase):
+    """Test that loading sessions cleans up orphaned tool blocks."""
+
+    def setUp(self):
+        # Create a temporary directory for test files
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.history_dir = Path(self.temp_dir.name)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    @patch("silica.developer.context.Path.home")
+    def test_load_session_cleans_orphaned_tool_results(self, mock_home):
+        """Test that loading a session with orphaned tool_results cleans them up."""
+        from silica.developer.context import load_session_data, AgentContext
+        from unittest.mock import MagicMock
+
+        mock_home.return_value = self.history_dir
+
+        # Create a session with orphaned tool_results (no matching tool_use)
+        session_dir = (
+            self.history_dir
+            / ".silica"
+            / "personas"
+            / "default"
+            / "history"
+            / "orphan-session"
+        )
+        session_dir.mkdir(parents=True)
+
+        root_file = session_dir / "root.json"
+        with open(root_file, "w") as f:
+            json.dump(
+                {
+                    "session_id": "orphan-session",
+                    "model_spec": {"title": "claude-sonnet-4"},
+                    "messages": [
+                        {"role": "user", "content": "Summary of previous conversation"},
+                        {
+                            "role": "user",
+                            "content": [
+                                # Orphaned tool_result - no matching tool_use
+                                {
+                                    "type": "tool_result",
+                                    "tool_use_id": "orphan_id",
+                                    "content": "result",
+                                },
+                            ],
+                        },
+                        {"role": "assistant", "content": "Continuing..."},
+                    ],
+                    "metadata": {
+                        "created_at": "2025-01-15T12:00:00Z",
+                        "last_updated": "2025-01-15T12:30:00Z",
+                        "root_dir": "/path/to/project",
+                    },
+                },
+                f,
+            )
+
+        # Create a mock base context
+        mock_sandbox = MagicMock()
+        mock_ui = MagicMock()
+        mock_memory = MagicMock()
+
+        base_context = AgentContext(
+            session_id="base-session",
+            parent_session_id=None,
+            model_spec={"title": "test-model"},
+            sandbox=mock_sandbox,
+            user_interface=mock_ui,
+            usage=[],
+            memory_manager=mock_memory,
+        )
+
+        # Load the session
+        loaded_context = load_session_data(
+            "orphan-session",
+            base_context,
+            history_base_dir=self.history_dir / ".silica" / "personas" / "default",
+        )
+
+        self.assertIsNotNone(loaded_context)
+
+        # Verify orphaned tool_result was cleaned up
+        from silica.developer.compaction_validation import validate_message_structure
+
+        report = validate_message_structure(loaded_context.chat_history)
+        self.assertTrue(
+            report.is_valid, f"Messages should be valid: {report.detailed_report()}"
+        )
+        self.assertEqual(
+            report.tool_result_count, 0, "Orphaned tool_results should be removed"
+        )
+
+    @patch("silica.developer.context.Path.home")
+    def test_load_session_cleans_orphaned_tool_uses(self, mock_home):
+        """Test that loading a session with orphaned tool_use blocks cleans them up."""
+        from silica.developer.context import load_session_data, AgentContext
+        from unittest.mock import MagicMock
+
+        mock_home.return_value = self.history_dir
+
+        # Create a session with orphaned tool_use (no matching tool_result)
+        session_dir = (
+            self.history_dir
+            / ".silica"
+            / "personas"
+            / "default"
+            / "history"
+            / "orphan-use-session"
+        )
+        session_dir.mkdir(parents=True)
+
+        root_file = session_dir / "root.json"
+        with open(root_file, "w") as f:
+            json.dump(
+                {
+                    "session_id": "orphan-use-session",
+                    "model_spec": {"title": "claude-sonnet-4"},
+                    "messages": [
+                        {"role": "user", "content": "Summary"},
+                        {
+                            "role": "assistant",
+                            "content": [
+                                {"type": "text", "text": "I'll help with that."},
+                                # Orphaned tool_use - no matching tool_result
+                                {
+                                    "type": "tool_use",
+                                    "id": "orphan_id",
+                                    "name": "some_tool",
+                                    "input": {},
+                                },
+                            ],
+                        },
+                        {"role": "user", "content": "Thanks!"},
+                    ],
+                    "metadata": {
+                        "created_at": "2025-01-15T12:00:00Z",
+                        "last_updated": "2025-01-15T12:30:00Z",
+                        "root_dir": "/path/to/project",
+                    },
+                },
+                f,
+            )
+
+        # Create a mock base context
+        mock_sandbox = MagicMock()
+        mock_ui = MagicMock()
+        mock_memory = MagicMock()
+
+        base_context = AgentContext(
+            session_id="base-session",
+            parent_session_id=None,
+            model_spec={"title": "test-model"},
+            sandbox=mock_sandbox,
+            user_interface=mock_ui,
+            usage=[],
+            memory_manager=mock_memory,
+        )
+
+        # Load the session
+        loaded_context = load_session_data(
+            "orphan-use-session",
+            base_context,
+            history_base_dir=self.history_dir / ".silica" / "personas" / "default",
+        )
+
+        self.assertIsNotNone(loaded_context)
+
+        # Verify orphaned tool_use was cleaned up
+        from silica.developer.compaction_validation import validate_message_structure
+
+        report = validate_message_structure(loaded_context.chat_history)
+        self.assertTrue(
+            report.is_valid, f"Messages should be valid: {report.detailed_report()}"
+        )
+        self.assertEqual(
+            report.tool_use_count, 0, "Orphaned tool_uses should be removed"
+        )
+
+
 class TestListSessionsWithFirstMessage(unittest.TestCase):
     def setUp(self):
         # Create a temporary directory for test files
