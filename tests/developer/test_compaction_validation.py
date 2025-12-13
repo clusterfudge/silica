@@ -8,7 +8,7 @@ from silica.developer.compaction_validation import (
     validate_message_structure,
     validate_compacted_messages,
     validate_api_compatibility,
-    strip_orphaned_tool_results,
+    strip_orphaned_tool_blocks,
     ValidationLevel,
 )
 
@@ -310,8 +310,8 @@ class TestCompactionValidation(unittest.TestCase):
         self.assertIn("1 warnings", summary)
 
 
-class TestStripOrphanedToolResults(unittest.TestCase):
-    """Tests for strip_orphaned_tool_results function."""
+class TestStripOrphanedToolBlocks(unittest.TestCase):
+    """Tests for strip_orphaned_tool_blocks function (handles both tool_use and tool_result orphans)."""
 
     def test_no_orphans_returns_same_structure(self):
         """Test that valid conversations are unchanged."""
@@ -338,7 +338,7 @@ class TestStripOrphanedToolResults(unittest.TestCase):
             {"role": "assistant", "content": "The answer is 4."},
         ]
 
-        result = strip_orphaned_tool_results(messages)
+        result = strip_orphaned_tool_blocks(messages)
 
         # Should have same number of messages
         self.assertEqual(len(result), 4)
@@ -369,7 +369,7 @@ class TestStripOrphanedToolResults(unittest.TestCase):
             {"role": "assistant", "content": "Okay, what's your question?"},
         ]
 
-        result = strip_orphaned_tool_results(messages)
+        result = strip_orphaned_tool_blocks(messages)
 
         # Orphaned tool_result should be removed
         report = validate_message_structure(result)
@@ -411,7 +411,7 @@ class TestStripOrphanedToolResults(unittest.TestCase):
             {"role": "assistant", "content": "Done."},
         ]
 
-        result = strip_orphaned_tool_results(messages)
+        result = strip_orphaned_tool_blocks(messages)
 
         report = validate_message_structure(result)
         self.assertTrue(report.is_valid)
@@ -441,7 +441,7 @@ class TestStripOrphanedToolResults(unittest.TestCase):
             {"role": "assistant", "content": "Hello"},
         ]
 
-        result = strip_orphaned_tool_results(messages)
+        result = strip_orphaned_tool_blocks(messages)
 
         # The second user message should be merged with the first
         # (both are user messages after orphan removal empties the second)
@@ -468,7 +468,7 @@ class TestStripOrphanedToolResults(unittest.TestCase):
             {"role": "assistant", "content": "Response"},
         ]
 
-        result = strip_orphaned_tool_results(messages)
+        result = strip_orphaned_tool_blocks(messages)
 
         # Should merge the user messages
         self.assertEqual(len(result), 2)
@@ -484,7 +484,7 @@ class TestStripOrphanedToolResults(unittest.TestCase):
             {"role": "assistant", "content": "Response"},
         ]
 
-        result = strip_orphaned_tool_results(messages)
+        result = strip_orphaned_tool_blocks(messages)
 
         self.assertEqual(len(result), 2)
         report = validate_message_structure(result)
@@ -507,7 +507,7 @@ class TestStripOrphanedToolResults(unittest.TestCase):
         ]
 
         # Call the function (we don't need the result, just checking side effects)
-        strip_orphaned_tool_results(messages)
+        strip_orphaned_tool_blocks(messages)
 
         # Original should be unchanged
         self.assertEqual(len(messages[0]["content"]), 1)
@@ -546,7 +546,7 @@ class TestStripOrphanedToolResults(unittest.TestCase):
             {"role": "user", "content": "Now do something else"},
         ]
 
-        result = strip_orphaned_tool_results(messages)
+        result = strip_orphaned_tool_blocks(messages)
 
         # Should be valid after cleanup
         report = validate_message_structure(result)
@@ -556,6 +556,188 @@ class TestStripOrphanedToolResults(unittest.TestCase):
 
         # Orphaned tool_results should be gone
         self.assertEqual(report.tool_result_count, 0)
+
+    def test_removes_orphaned_tool_use(self):
+        """Test removal of tool_use without matching tool_result."""
+        # This happens when tool_result was in the compacted portion
+        messages = [
+            {
+                "role": "user",
+                "content": "### Compacted Summary\n\nPrevious conversation...",
+            },
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "I'll help with that."},
+                    # This tool_use has no corresponding tool_result
+                    {
+                        "type": "tool_use",
+                        "id": "orphan_tool",
+                        "name": "some_tool",
+                        "input": {"arg": "value"},
+                    },
+                ],
+            },
+            {"role": "user", "content": "Thanks for your help!"},
+        ]
+
+        result = strip_orphaned_tool_blocks(messages)
+
+        # Orphaned tool_use should be removed
+        report = validate_message_structure(result)
+        self.assertTrue(
+            report.is_valid, f"Expected valid messages, got: {report.detailed_report()}"
+        )
+        self.assertEqual(report.tool_use_count, 0)
+
+    def test_removes_multiple_orphaned_tool_uses(self):
+        """Test removal of multiple orphaned tool_use blocks."""
+        messages = [
+            {
+                "role": "user",
+                "content": "### Compacted Summary (first 68 turns)\n\nSummary...",
+            },
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "Continuing..."},
+                    # Multiple orphaned tool_uses
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_019q2uBhZ74e59FjKNoRfmYG",
+                        "name": "shell_execute",
+                        "input": {"command": "ls"},
+                    },
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_01S6DQ6kpye3s4AuJmrGGsAW",
+                        "name": "read_file",
+                        "input": {"path": "file.txt"},
+                    },
+                ],
+            },
+            {"role": "user", "content": "What's next?"},
+        ]
+
+        result = strip_orphaned_tool_blocks(messages)
+
+        # Should be valid after cleanup
+        report = validate_message_structure(result)
+        self.assertTrue(
+            report.is_valid, f"Expected valid messages, got: {report.detailed_report()}"
+        )
+        # Orphaned tool_uses should be gone
+        self.assertEqual(report.tool_use_count, 0)
+        self.assertEqual(report.tool_result_count, 0)
+
+    def test_removes_empty_assistant_messages(self):
+        """Test that assistant messages with only orphaned tool_use are handled."""
+        messages = [
+            {"role": "user", "content": "Summary..."},
+            {
+                "role": "assistant",
+                "content": [
+                    # Message ONLY contains orphaned tool_use
+                    {
+                        "type": "tool_use",
+                        "id": "orphan_tool",
+                        "name": "some_tool",
+                        "input": {},
+                    },
+                ],
+            },
+            {"role": "user", "content": "Continue please"},
+        ]
+
+        result = strip_orphaned_tool_blocks(messages)
+
+        # Should merge consecutive same-role messages after removing empty one
+        # or at minimum should be API-valid
+        report = validate_message_structure(result)
+        self.assertTrue(
+            report.is_valid, f"Expected valid messages, got: {report.detailed_report()}"
+        )
+
+    def test_keeps_paired_tool_blocks(self):
+        """Test that properly paired tool_use/tool_result are kept."""
+        messages = [
+            {"role": "user", "content": "Test"},
+            {
+                "role": "assistant",
+                "content": [
+                    # Paired - should be kept
+                    {
+                        "type": "tool_use",
+                        "id": "paired_tool",
+                        "name": "test_tool",
+                        "input": {},
+                    },
+                    # Orphan - should be removed
+                    {
+                        "type": "tool_use",
+                        "id": "orphan_tool",
+                        "name": "another_tool",
+                        "input": {},
+                    },
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    # Paired - should be kept
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "paired_tool",
+                        "content": "result",
+                    },
+                ],
+            },
+            {"role": "assistant", "content": "Done."},
+        ]
+
+        result = strip_orphaned_tool_blocks(messages)
+
+        report = validate_message_structure(result)
+        self.assertTrue(
+            report.is_valid, f"Expected valid messages, got: {report.detailed_report()}"
+        )
+        # Only the paired ones should remain
+        self.assertEqual(report.tool_use_count, 1)
+        self.assertEqual(report.tool_result_count, 1)
+
+    def test_merges_consecutive_assistant_messages(self):
+        """Test that consecutive assistant messages are merged after cleanup."""
+        messages = [
+            {"role": "user", "content": "Question"},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "First part of answer"},
+                ],
+            },
+            {
+                "role": "assistant",
+                "content": [
+                    # Orphan tool_use that will be removed, leaving just text
+                    {
+                        "type": "tool_use",
+                        "id": "orphan",
+                        "name": "tool",
+                        "input": {},
+                    },
+                    {"type": "text", "text": "Second part"},
+                ],
+            },
+            {"role": "user", "content": "Thanks"},
+        ]
+
+        result = strip_orphaned_tool_blocks(messages)
+
+        # Should merge the assistant messages
+        report = validate_message_structure(result)
+        self.assertTrue(
+            report.is_valid, f"Expected valid messages, got: {report.detailed_report()}"
+        )
 
 
 if __name__ == "__main__":
