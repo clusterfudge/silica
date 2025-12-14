@@ -353,12 +353,24 @@ def validate_compacted_messages(
     )
 
 
+def _get_block_attr(block: Any, attr: str, default: Any = None) -> Any:
+    """Get an attribute from a block, handling both dict and SDK object types."""
+    if isinstance(block, dict):
+        return block.get(attr, default)
+    else:
+        # Handle Anthropic SDK objects like ToolUseBlock, TextBlock, etc.
+        return getattr(block, attr, default)
+
+
 def strip_orphaned_tool_blocks(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Remove unpaired tool_use and tool_result blocks.
 
     This handles two cases that can occur after compaction:
     1. tool_result blocks without corresponding tool_use (tool_use was compacted away)
     2. tool_use blocks without corresponding tool_result (tool_result was compacted away)
+
+    Note: This function handles both dict-based blocks and Anthropic SDK objects
+    (like ToolUseBlock, TextBlock) which may be present in in-memory chat history.
 
     Args:
         messages: List of message dictionaries (will be deep copied)
@@ -379,15 +391,15 @@ def strip_orphaned_tool_blocks(messages: List[Dict[str, Any]]) -> List[Dict[str,
         content = message.get("content", [])
         if isinstance(content, list):
             for block in content:
-                if isinstance(block, dict):
-                    if block.get("type") == "tool_use":
-                        tool_id = block.get("id")
-                        if tool_id:
-                            tool_use_ids.add(tool_id)
-                    elif block.get("type") == "tool_result":
-                        tool_use_id = block.get("tool_use_id")
-                        if tool_use_id:
-                            tool_result_ids.add(tool_use_id)
+                block_type = _get_block_attr(block, "type")
+                if block_type == "tool_use":
+                    tool_id = _get_block_attr(block, "id")
+                    if tool_id:
+                        tool_use_ids.add(tool_id)
+                elif block_type == "tool_result":
+                    tool_use_id = _get_block_attr(block, "tool_use_id")
+                    if tool_use_id:
+                        tool_result_ids.add(tool_use_id)
 
     # Find paired tool IDs (have both tool_use and tool_result)
     paired_ids = tool_use_ids & tool_result_ids
@@ -398,20 +410,19 @@ def strip_orphaned_tool_blocks(messages: List[Dict[str, Any]]) -> List[Dict[str,
         if isinstance(content, list):
             filtered_content = []
             for block in content:
-                if isinstance(block, dict):
-                    block_type = block.get("type")
+                block_type = _get_block_attr(block, "type")
 
-                    if block_type == "tool_result":
-                        tool_use_id = block.get("tool_use_id")
-                        if tool_use_id not in paired_ids:
-                            # Orphaned tool_result (no matching tool_use), skip it
-                            continue
+                if block_type == "tool_result":
+                    tool_use_id = _get_block_attr(block, "tool_use_id")
+                    if tool_use_id not in paired_ids:
+                        # Orphaned tool_result (no matching tool_use), skip it
+                        continue
 
-                    elif block_type == "tool_use":
-                        tool_id = block.get("id")
-                        if tool_id not in paired_ids:
-                            # Orphaned tool_use (no matching tool_result), skip it
-                            continue
+                elif block_type == "tool_use":
+                    tool_id = _get_block_attr(block, "id")
+                    if tool_id not in paired_ids:
+                        # Orphaned tool_use (no matching tool_result), skip it
+                        continue
 
                 filtered_content.append(block)
             message["content"] = filtered_content

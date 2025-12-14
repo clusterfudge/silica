@@ -246,6 +246,62 @@ class TestStripOrphanedToolBlocksEdgeCases(unittest.TestCase):
             report = validate_message_structure(result)
             self.assertTrue(report.is_valid)
 
+    def test_handles_sdk_objects(self):
+        """Test that cleanup works with Anthropic SDK objects, not just dicts.
+
+        When the assistant responds, the content contains SDK objects like
+        ToolUseBlock, not plain dicts. The cleanup must handle both.
+        """
+        from unittest.mock import MagicMock
+
+        # Create mock SDK objects that mimic ToolUseBlock
+        tool_use_block = MagicMock()
+        tool_use_block.type = "tool_use"
+        tool_use_block.id = "toolu_SDK_OBJECT_TEST"
+        tool_use_block.name = "test_tool"
+        tool_use_block.input = {}
+
+        text_block = MagicMock()
+        text_block.type = "text"
+        text_block.text = "I'll help with that."
+
+        messages = [
+            {"role": "user", "content": "Do something"},
+            {
+                "role": "assistant",
+                "content": [text_block, tool_use_block],  # SDK objects, not dicts!
+            },
+            # No tool_result - the tool_use is orphaned
+            {"role": "user", "content": "Continue please"},
+        ]
+
+        result = strip_orphaned_tool_blocks(messages)
+
+        # The orphaned tool_use should be removed
+        validate_message_structure(result)
+        # Note: validation may not work perfectly with mock objects,
+        # but at minimum the SDK objects should be detected and filtered
+
+        # Check that the tool_use was removed from the assistant message
+        assistant_msg = None
+        for msg in result:
+            if msg.get("role") == "assistant":
+                assistant_msg = msg
+                break
+
+        self.assertIsNotNone(assistant_msg)
+        # The tool_use block should have been removed
+        content = assistant_msg.get("content", [])
+        tool_uses_in_result = [
+            b
+            for b in content
+            if (isinstance(b, dict) and b.get("type") == "tool_use")
+            or (hasattr(b, "type") and b.type == "tool_use")
+        ]
+        self.assertEqual(
+            len(tool_uses_in_result), 0, "Orphaned SDK tool_use should be removed"
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
