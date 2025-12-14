@@ -460,6 +460,28 @@ async def run(
                             except Exception as e:
                                 print(f"Error calculating conversation size: {e}")
 
+                        # Clean up any orphaned tool blocks before making the API call
+                        # This handles cases where the conversation got into an invalid state
+                        # (e.g., after max_tokens, crashes, or corrupted session loads)
+                        from silica.developer.compaction_validation import (
+                            strip_orphaned_tool_blocks,
+                        )
+
+                        cleaned_history = strip_orphaned_tool_blocks(
+                            agent_context.chat_history
+                        )
+                        if len(cleaned_history) != len(agent_context.chat_history):
+                            user_interface.handle_system_message(
+                                f"[yellow]Cleaned up orphaned tool blocks: "
+                                f"{len(agent_context.chat_history)} → {len(cleaned_history)} messages[/yellow]",
+                                markdown=False,
+                            )
+                            agent_context._chat_history = cleaned_history
+                            # Save the cleaned state
+                            agent_context.flush(
+                                agent_context.chat_history, compact=False
+                            )
+
                         messages = _inline_latest_file_mentions(
                             agent_context.chat_history
                         )
