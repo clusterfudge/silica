@@ -611,6 +611,43 @@ async def run(
                             ai_response = ""
                             thinking_content = ""
                             continue
+                        except anthropic.APIStatusError as e:
+                            # Handle API errors during streaming (e.g., overloaded mid-stream)
+                            logger.log_error(
+                                error_type="APIStatusError",
+                                error_message=str(e),
+                                context={
+                                    "attempt": attempt + 1,
+                                    "max_retries": max_retries,
+                                    "status_code": getattr(e, "status_code", None),
+                                    "during_streaming": True,
+                                },
+                            )
+
+                            if attempt == max_retries - 1:
+                                user_interface.handle_system_message(
+                                    f"[bold red]API error during streaming: {str(e)}. Max retries reached.[/bold red]",
+                                    markdown=False,
+                                )
+                                raise
+
+                            if "Overloaded" in str(e) or "overloaded" in str(e).lower():
+                                delay = min(
+                                    base_delay * (2**attempt) + random.uniform(0, 1),
+                                    max_delay,
+                                )
+                                user_interface.handle_system_message(
+                                    f"[bold yellow]API overloaded during streaming. Retrying in {delay:.2f} seconds... (Attempt {attempt + 1}/{max_retries})[/bold yellow]",
+                                    markdown=False,
+                                )
+                                time.sleep(delay)
+                                # Clear partial response before retrying
+                                ai_response = ""
+                                thinking_content = ""
+                                continue
+                            else:
+                                # For non-overloaded API errors, re-raise
+                                raise
                     except anthropic.RateLimitError as e:
                         # Handle rate limit errors specifically
                         backoff_time = rate_limiter.handle_rate_limit_error(e)
