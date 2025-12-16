@@ -1128,6 +1128,55 @@ class CustomCompleter(Completer):
                     yield Completion(history_item, start_position=start_position)
 
 
+def _run_agent_loop(
+    context: AgentContext,
+    initial_prompt: str | None,
+    system_prompt: dict[str, Any] | None,
+    single_response: bool,
+    enable_compaction: bool,
+    log_file_path: str | None,
+) -> None:
+    """Run the agent loop with graceful shutdown handling.
+
+    This wrapper ensures that the asyncio event loop is properly cleaned up
+    when interrupted by Ctrl+C, preventing the "Task was destroyed but it is pending!"
+    warning message.
+    """
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    try:
+        loop.run_until_complete(
+            run(
+                agent_context=context,
+                initial_prompt=initial_prompt,
+                system_prompt=system_prompt,
+                single_response=single_response,
+                enable_compaction=enable_compaction,
+                log_file_path=log_file_path,
+            )
+        )
+    except KeyboardInterrupt:
+        # Gracefully handle Ctrl+C by cancelling pending tasks
+        pass
+    finally:
+        # Cancel all pending tasks
+        pending = asyncio.all_tasks(loop)
+        for task in pending:
+            task.cancel()
+
+        # Allow cancelled tasks to complete (with a timeout)
+        if pending:
+            # Suppress CancelledError exceptions during cleanup
+            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+
+        # Shut down async generators
+        loop.run_until_complete(loop.shutdown_asyncgens())
+
+        # Close the loop
+        loop.close()
+
+
 def sessions(
     workdir: Annotated[Optional[str], cyclopts.Parameter("workdir")] = None,
     *,
@@ -1415,13 +1464,11 @@ def cyclopts_main(
 
     # Run the agent loop
     # Pass the persona system_block - it will be used as fallback if persona.md doesn't exist
-    asyncio.run(
-        run(
-            agent_context=context,
-            initial_prompt=initial_prompt,
-            system_prompt=persona_obj.system_block,
-            single_response=bool(initial_prompt),
-            enable_compaction=not disable_compaction,
-            log_file_path=log_requests,
-        )
+    _run_agent_loop(
+        context=context,
+        initial_prompt=initial_prompt,
+        system_prompt=persona_obj.system_block,
+        single_response=bool(initial_prompt),
+        enable_compaction=not disable_compaction,
+        log_file_path=log_requests,
     )

@@ -353,6 +353,117 @@ def validate_compacted_messages(
     )
 
 
+def _get_block_attr(block: Any, attr: str, default: Any = None) -> Any:
+    """Get an attribute from a block, handling both dict and SDK object types."""
+    if isinstance(block, dict):
+        return block.get(attr, default)
+    else:
+        # Handle Anthropic SDK objects like ToolUseBlock, TextBlock, etc.
+        return getattr(block, attr, default)
+
+
+def strip_orphaned_tool_blocks(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Remove unpaired tool_use and tool_result blocks.
+
+    This handles two cases that can occur after compaction:
+    1. tool_result blocks without corresponding tool_use (tool_use was compacted away)
+    2. tool_use blocks without corresponding tool_result (tool_result was compacted away)
+
+    Note: This function handles both dict-based blocks and Anthropic SDK objects
+    (like ToolUseBlock, TextBlock) which may be present in in-memory chat history.
+
+    Args:
+        messages: List of message dictionaries (will be deep copied)
+
+    Returns:
+        New list of messages with orphaned tool blocks removed
+    """
+    import copy
+
+    # Deep copy to avoid modifying original
+    messages = copy.deepcopy(messages)
+
+    # First pass: collect all tool_use IDs and tool_result IDs
+    tool_use_ids = set()
+    tool_result_ids = set()
+
+    for message in messages:
+        content = message.get("content", [])
+        if isinstance(content, list):
+            for block in content:
+                block_type = _get_block_attr(block, "type")
+                if block_type == "tool_use":
+                    tool_id = _get_block_attr(block, "id")
+                    if tool_id:
+                        tool_use_ids.add(tool_id)
+                elif block_type == "tool_result":
+                    tool_use_id = _get_block_attr(block, "tool_use_id")
+                    if tool_use_id:
+                        tool_result_ids.add(tool_use_id)
+
+    # Find paired tool IDs (have both tool_use and tool_result)
+    paired_ids = tool_use_ids & tool_result_ids
+
+    # Second pass: remove orphaned tool_use and tool_result blocks
+    for message in messages:
+        content = message.get("content", [])
+        if isinstance(content, list):
+            filtered_content = []
+            for block in content:
+                block_type = _get_block_attr(block, "type")
+
+                if block_type == "tool_result":
+                    tool_use_id = _get_block_attr(block, "tool_use_id")
+                    if tool_use_id not in paired_ids:
+                        # Orphaned tool_result (no matching tool_use), skip it
+                        continue
+
+                elif block_type == "tool_use":
+                    tool_id = _get_block_attr(block, "id")
+                    if tool_id not in paired_ids:
+                        # Orphaned tool_use (no matching tool_result), skip it
+                        continue
+
+                filtered_content.append(block)
+            message["content"] = filtered_content
+
+    # Third pass: remove empty messages and consolidate consecutive same-role messages
+    result = []
+    for message in messages:
+        content = message.get("content", [])
+        role = message.get("role")
+
+        # Skip empty messages
+        if isinstance(content, list) and len(content) == 0:
+            continue
+        if isinstance(content, str) and not content.strip():
+            continue
+
+        # If this message has the same role as the previous, merge them
+        if result and role == result[-1].get("role"):
+            # Merge content
+            prev_content = result[-1].get("content", [])
+            curr_content = message.get("content", [])
+
+            # Normalize to list format
+            if isinstance(prev_content, str):
+                prev_content = [{"type": "text", "text": prev_content}]
+            if isinstance(curr_content, str):
+                curr_content = [{"type": "text", "text": curr_content}]
+
+            result[-1]["content"] = prev_content + curr_content
+        else:
+            result.append(message)
+
+    return result
+
+
+# Keep the old name as an alias for backwards compatibility
+def strip_orphaned_tool_results(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Alias for strip_orphaned_tool_blocks for backwards compatibility."""
+    return strip_orphaned_tool_blocks(messages)
+
+
 def validate_api_compatibility(messages: List[Dict[str, Any]]) -> ValidationReport:
     """Validate that messages are compatible with Anthropic API requirements.
 
