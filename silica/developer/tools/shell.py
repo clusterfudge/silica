@@ -21,7 +21,7 @@ from silica.developer.sandbox import DoSomethingElseError
 from .framework import tool
 
 
-@tool
+@tool(group="Shell")
 async def shell_execute(
     context: "AgentContext", command: str, timeout: Optional[int] = None
 ):
@@ -55,7 +55,7 @@ async def shell_execute(
             return "Error: This command is not allowed for safety reasons."
 
         try:
-            if not context.sandbox.check_permissions("shell", command):
+            if not context.sandbox.check_permissions("shell", command, group="Shell"):
                 return "Error: Operator denied permission."
         except DoSomethingElseError:
             raise  # Re-raise to be handled by higher-level components
@@ -414,7 +414,7 @@ def _collect_remaining_output(stdout_queue, stderr_queue, stdout_buffer, stderr_
 # These will be imported from the existing tmux_tool module
 
 
-@tool
+@tool(group="Shell")
 async def shell_session_create(
     context: "AgentContext", session_name: str, initial_command: Optional[str] = None
 ):
@@ -442,7 +442,7 @@ async def shell_session_create(
     return tmux_create_session(context, session_name, initial_command)
 
 
-@tool
+@tool(group="Shell")
 async def shell_session_execute(
     context: "AgentContext",
     session_name: str,
@@ -464,7 +464,7 @@ async def shell_session_execute(
     return tmux_execute_command(context, session_name, command, timeout, timeout_action)
 
 
-@tool
+@tool(group="Shell")
 def shell_session_list(context: "AgentContext"):
     """List all active shell sessions with their status and last activity.
 
@@ -481,7 +481,7 @@ def shell_session_list(context: "AgentContext"):
     return tmux_list_sessions(context)
 
 
-@tool
+@tool(group="Shell")
 def shell_session_get_output(
     context: "AgentContext", session_name: str, lines: Optional[int] = None
 ):
@@ -497,7 +497,7 @@ def shell_session_get_output(
     return tmux_get_output(context, session_name, lines or 50)
 
 
-@tool
+@tool(group="Shell")
 def shell_session_destroy(context: "AgentContext", session_name: str):
     """Destroy a specific shell session.
 
@@ -510,7 +510,7 @@ def shell_session_destroy(context: "AgentContext", session_name: str):
     return tmux_destroy_session(context, session_name)
 
 
-@tool
+@tool(group="Shell")
 def shell_session_set_timeout(context: "AgentContext", session_name: str, timeout: int):
     """Set the default timeout for a shell session.
 

@@ -259,10 +259,13 @@ class DiscoveredTool:
     metadata: ToolMetadata
     file_stem: str = None  # The filename stem (for multi-tool files)
     error: str = None
+    group: str = None  # The group name for permission management
 
     def __post_init__(self):
         if self.file_stem is None:
             self.file_stem = self.path.stem if self.path else self.name
+        if self.group is None:
+            self.group = self.file_stem
 
 
 def discover_tools() -> list[DiscoveredTool]:

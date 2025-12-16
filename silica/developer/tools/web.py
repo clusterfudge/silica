@@ -6,7 +6,7 @@ from silica.developer.context import AgentContext
 from .framework import tool, _call_anthropic_with_retry
 
 
-@tool(max_concurrency=1)
+@tool(group="Web", max_concurrency=1)
 async def web_search(context: "AgentContext", search_query: str) -> str:
     """Perform a web search using Brave Search API.
 
@@ -57,7 +57,7 @@ async def web_search(context: "AgentContext", search_query: str) -> str:
         return f"Error performing web search: {str(e)}"
 
 
-@tool
+@tool(group="Web")
 async def safe_curl(context: "AgentContext", url: str, content_only: bool = False):
     """Make a safe HTTP request to a URL and return the content if it doesn't contain prompt injection.
 

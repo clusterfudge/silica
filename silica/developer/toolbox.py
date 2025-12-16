@@ -11,6 +11,8 @@ from .sandbox import DoSomethingElseError
 from queue import Empty
 
 from .tools import ALL_TOOLS
+from .tools.framework import get_tool_group
+from .tools.permissions import PermissionsManager
 from .utils import render_tree
 from .web.app import run_memory_webapp
 from .tools.sessions import list_sessions, print_session_list, resume_session
@@ -59,6 +61,19 @@ class Toolbox:
                     for tool in self.agent_tools
                     if tool.__name__ not in ["read_persona", "write_persona"]
                 ]
+
+        # Load permissions manager
+        dwr_mode = getattr(context, "dwr_mode", False)
+
+        # Only apply permissions if we have a valid persona directory
+        if context.history_base_dir is not None:
+            self.permissions_manager = PermissionsManager(
+                context.history_base_dir, dwr_mode=dwr_mode
+            )
+            # Filter built-in tools based on permissions
+            self.agent_tools = self.permissions_manager.filter_tools(self.agent_tools)
+        else:
+            self.permissions_manager = None
 
         # Discover user-created tools from ~/.silica/tools/
         self.user_tools: Dict[str, DiscoveredTool] = {}
@@ -139,6 +154,19 @@ class Toolbox:
             "mc",
             self._micro_compact,
             "Micro-compact: summarize first N turns and keep the rest (default N=3)",
+        )
+
+        # Register permission management CLI tools
+        self.register_cli_tool(
+            "permissions",
+            self._permissions,
+            "Manage tool permissions for this persona",
+            aliases=["perms"],
+        )
+        self.register_cli_tool(
+            "groups",
+            self._list_groups,
+            "List all available tool groups and their tools",
         )
 
         # Register Google Auth CLI tools
@@ -647,7 +675,9 @@ class Toolbox:
             if any(re.search(cmd, command) for cmd in dangerous_commands):
                 return "Error: This command is not allowed for safety reasons."
 
-            if not self.context.sandbox.check_permissions("shell", command):
+            if not self.context.sandbox.check_permissions(
+                "shell", command, group="Shell"
+            ):
                 return "Error: Operator denied permission."
 
             # Use enhanced timeout handling for CLI too
@@ -1379,6 +1409,292 @@ class Toolbox:
             )
             return f"Error: Micro-compaction failed - {e}"
 
+    def _permissions(self, user_interface, sandbox, user_input, *args, **kwargs):
+        """Manage tool permissions for this persona.
+
+        Usage:
+            /permissions              - Show current config
+            /permissions mode <mode>  - Set mode (allowlist|denylist)
+            /permissions allow <name> - Add tool or group to allow list
+            /permissions deny <name>  - Add tool or group to deny list
+            /permissions remove allow <name> - Remove from allow list
+            /permissions remove deny <name>  - Remove from deny list
+            /permissions shell allow <cmd>   - Allow a shell command
+            /permissions shell deny <cmd>    - Deny a shell command
+        """
+        if self.permissions_manager is None:
+            return "Error: Permissions manager not available (no persona directory configured)"
+
+        args_list = user_input.strip().split() if user_input.strip() else []
+
+        # No arguments - show current config
+        if not args_list:
+            return self._show_permissions_config()
+
+        command = args_list[0].lower()
+
+        if command == "mode":
+            if len(args_list) < 2:
+                return "Error: /permissions mode requires a mode argument (allowlist|denylist)"
+            mode = args_list[1].lower()
+            if mode not in ("allowlist", "denylist"):
+                return (
+                    f"Error: Invalid mode '{mode}'. Must be 'allowlist' or 'denylist'"
+                )
+            try:
+                self.permissions_manager.set_mode(mode)
+                self.permissions_manager.save()
+                self._refresh_tools_after_permission_change()
+                return f"✓ Permission mode set to '{mode}'"
+            except ValueError as e:
+                return f"Error: {e}"
+
+        elif command == "allow":
+            if len(args_list) < 2:
+                return "Error: /permissions allow requires a tool or group name"
+            name = args_list[1]
+            # Check if it's a group name (capitalized) or tool name
+            is_group = self._is_group_name(name)
+            if is_group:
+                self.permissions_manager.add_to_allow(group=name)
+            else:
+                self.permissions_manager.add_to_allow(tool_name=name)
+            self.permissions_manager.save()
+            self._refresh_tools_after_permission_change()
+            kind = "group" if is_group else "tool"
+            return f"✓ Added {kind} '{name}' to allow list"
+
+        elif command == "deny":
+            if len(args_list) < 2:
+                return "Error: /permissions deny requires a tool or group name"
+            name = args_list[1]
+            is_group = self._is_group_name(name)
+            if is_group:
+                self.permissions_manager.add_to_deny(group=name)
+            else:
+                self.permissions_manager.add_to_deny(tool_name=name)
+            self.permissions_manager.save()
+            self._refresh_tools_after_permission_change()
+            kind = "group" if is_group else "tool"
+            return f"✓ Added {kind} '{name}' to deny list"
+
+        elif command == "remove":
+            if len(args_list) < 3:
+                return (
+                    "Error: /permissions remove requires 'allow' or 'deny' and a name"
+                )
+            list_type = args_list[1].lower()
+            name = args_list[2]
+            is_group = self._is_group_name(name)
+
+            if list_type == "allow":
+                if is_group:
+                    self.permissions_manager.remove_from_allow(group=name)
+                else:
+                    self.permissions_manager.remove_from_allow(tool_name=name)
+                self.permissions_manager.save()
+                self._refresh_tools_after_permission_change()
+                kind = "group" if is_group else "tool"
+                return f"✓ Removed {kind} '{name}' from allow list"
+            elif list_type == "deny":
+                if is_group:
+                    self.permissions_manager.remove_from_deny(group=name)
+                else:
+                    self.permissions_manager.remove_from_deny(tool_name=name)
+                self.permissions_manager.save()
+                self._refresh_tools_after_permission_change()
+                kind = "group" if is_group else "tool"
+                return f"✓ Removed {kind} '{name}' from deny list"
+            else:
+                return f"Error: Invalid list type '{list_type}'. Use 'allow' or 'deny'"
+
+        elif command == "shell":
+            if len(args_list) < 3:
+                return (
+                    "Error: /permissions shell requires 'allow' or 'deny' and a command"
+                )
+            action = args_list[1].lower()
+            cmd = args_list[2]
+
+            if action == "allow":
+                self.permissions_manager.add_shell_command(cmd, allow=True)
+                self.permissions_manager.save()
+                return f"✓ Added shell command '{cmd}' to allow list"
+            elif action == "deny":
+                self.permissions_manager.add_shell_command(cmd, allow=False)
+                self.permissions_manager.save()
+                return f"✓ Added shell command '{cmd}' to deny list"
+            else:
+                return f"Error: Invalid action '{action}'. Use 'allow' or 'deny'"
+
+        else:
+            return f"""Error: Unknown subcommand '{command}'.
+
+Usage:
+  /permissions              - Show current config
+  /permissions mode <mode>  - Set mode (allowlist|denylist)
+  /permissions allow <name> - Add tool or group to allow list
+  /permissions deny <name>  - Add tool or group to deny list
+  /permissions remove allow <name> - Remove from allow list
+  /permissions remove deny <name>  - Remove from deny list
+  /permissions shell allow <cmd>   - Allow a shell command
+  /permissions shell deny <cmd>    - Deny a shell command"""
+
+    def _show_permissions_config(self) -> str:
+        """Show the current permissions configuration."""
+        if self.permissions_manager.permissions is None:
+            return """**No permissions configured**
+
+No tool_permissions.json file exists for this persona.
+Without a permissions file, no tools are available (secure by default).
+
+Use `/permissions mode allowlist` or `/permissions mode denylist` to create one.
+Use `/groups` to see available tool groups."""
+
+        p = self.permissions_manager.permissions
+
+        output = "# Tool Permissions Configuration\n\n"
+        output += f"**Mode:** `{p.mode}`\n\n"
+
+        # Explain the mode
+        if p.mode == "allowlist":
+            output += "_Only tools in the allow list (or their groups) are available. Deny list acts as exceptions._\n\n"
+        else:
+            output += "_All tools are available except those in the deny list._\n\n"
+
+        # Allow list
+        output += "## Allow List\n\n"
+        if p.allow_tools or p.allow_groups:
+            if p.allow_tools:
+                output += "**Tools:**\n"
+                for tool in sorted(p.allow_tools):
+                    output += f"  - `{tool}`\n"
+                output += "\n"
+            if p.allow_groups:
+                output += "**Groups:**\n"
+                for group in sorted(p.allow_groups):
+                    output += f"  - `{group}`\n"
+                output += "\n"
+        else:
+            output += "_Empty_\n\n"
+
+        # Deny list
+        output += "## Deny List\n\n"
+        if p.deny_tools or p.deny_groups:
+            if p.deny_tools:
+                output += "**Tools:**\n"
+                for tool in sorted(p.deny_tools):
+                    output += f"  - `{tool}`\n"
+                output += "\n"
+            if p.deny_groups:
+                output += "**Groups:**\n"
+                for group in sorted(p.deny_groups):
+                    output += f"  - `{group}`\n"
+                output += "\n"
+        else:
+            output += "_Empty_\n\n"
+
+        # Shell permissions
+        output += "## Shell Permissions\n\n"
+        if p.shell_allowed_commands or p.shell_denied_commands:
+            if p.shell_allowed_commands:
+                output += "**Allowed Commands:**\n"
+                for cmd in sorted(p.shell_allowed_commands):
+                    output += f"  - `{cmd}`\n"
+                output += "\n"
+            if p.shell_denied_commands:
+                output += "**Denied Commands:**\n"
+                for cmd in sorted(p.shell_denied_commands):
+                    output += f"  - `{cmd}`\n"
+                output += "\n"
+        else:
+            output += "_No shell-specific permissions configured_\n\n"
+
+        # Show currently available tools
+        output += "## Currently Available Tools\n\n"
+        output += f"**Agent tools:** {len(self.agent_tools)} tools\n"
+        output += f"**User tools:** {len(self.user_tools)} tools\n"
+
+        return output
+
+    def _is_group_name(self, name: str) -> bool:
+        """Check if a name refers to a group (vs a tool name).
+
+        Groups are identified by being capitalized (e.g., "Files", "Gmail")
+        while tool names are lowercase with underscores (e.g., "read_file", "gmail_send").
+        """
+        # Get all known group names
+        known_groups = set()
+        for tool in ALL_TOOLS:
+            group = get_tool_group(tool)
+            if group:
+                known_groups.add(group)
+
+        # If it's in our known groups, it's definitely a group
+        if name in known_groups:
+            return True
+
+        # Otherwise, use heuristic: groups are typically capitalized
+        # and don't contain underscores
+        if name and name[0].isupper() and "_" not in name:
+            return True
+
+        return False
+
+    def _list_groups(self, user_interface, sandbox, user_input, *args, **kwargs):
+        """List all available tool groups and their tools."""
+        groups = {}
+        ungrouped = []
+
+        # Collect all tools by group
+        for tool in ALL_TOOLS:
+            group = get_tool_group(tool) or None
+            if group:
+                if group not in groups:
+                    groups[group] = []
+                groups[group].append(tool.__name__)
+            else:
+                ungrouped.append(tool.__name__)
+
+        output = "# Available Tool Groups\n\n"
+        output += (
+            "Use `/permissions allow <GroupName>` to allow all tools in a group.\n\n"
+        )
+
+        # Sort groups alphabetically
+        for group_name in sorted(groups.keys()):
+            tool_names = sorted(groups[group_name])
+            output += f"## {group_name}\n\n"
+            for tool_name in tool_names:
+                output += f"  - `{tool_name}`\n"
+            output += "\n"
+
+        # Show ungrouped tools if any
+        if ungrouped:
+            output += "## Ungrouped\n\n"
+            for tool_name in sorted(ungrouped):
+                output += f"  - `{tool_name}`\n"
+            output += "\n"
+
+        # Summary
+        output += f"\n**Total:** {len(groups)} groups, {len(ALL_TOOLS)} tools"
+        if ungrouped:
+            output += f" ({len(ungrouped)} ungrouped)"
+        output += "\n"
+
+        return output
+
+    def _refresh_tools_after_permission_change(self):
+        """Re-filter tools after permission changes."""
+        if self.permissions_manager:
+            # Re-filter from original ALL_TOOLS
+            self.agent_tools = self.permissions_manager.filter_tools(ALL_TOOLS)
+            # Re-discover and filter user tools
+            self.user_tools = {}
+            self._discover_user_tools()
+            # Regenerate schema
+            self.agent_schema = self.schemas()
+
     def _discover_user_tools(self):
         """Discover user-created tools from ~/.silica/tools/."""
         try:
@@ -1392,6 +1708,12 @@ class Toolbox:
                     )
                 elif tool.spec:
                     self.user_tools[tool.name] = tool
+
+            # Filter user tools based on permissions
+            if self.permissions_manager:
+                self.user_tools = self.permissions_manager.filter_user_tools(
+                    self.user_tools
+                )
         except Exception as e:
             # Don't fail if user tool discovery fails
             self.context.user_interface.handle_system_message(

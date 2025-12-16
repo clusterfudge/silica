@@ -32,7 +32,12 @@ class MockUserInterface(UserInterface):
         self.messages.append(("system", message))
 
     def permission_callback(
-        self, action: str, resource: str, sandbox_mode: SandboxMode, action_arguments
+        self,
+        action: str,
+        resource: str,
+        sandbox_mode: SandboxMode,
+        action_arguments,
+        group=None,
     ):
         key = f"{action}:{resource}"
         return self.permission_responses.get(key, True)

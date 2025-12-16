@@ -28,7 +28,12 @@ class MockUserInterface(UserInterface):
         self.system_messages.append(message)
 
     def permission_callback(
-        self, action: str, resource: str, sandbox_mode: SandboxMode, action_arguments
+        self,
+        action: str,
+        resource: str,
+        sandbox_mode: SandboxMode,
+        action_arguments,
+        group=None,
     ):
         return True
 
@@ -344,6 +349,7 @@ class TestInputResponsivenessRegression:
                 resource: str,
                 sandbox_mode: SandboxMode,
                 action_arguments,
+                group=None,
             ):
                 return False  # Deny all permissions
 

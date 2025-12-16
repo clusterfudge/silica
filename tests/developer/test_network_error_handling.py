@@ -117,6 +117,7 @@ class MockUserInterface(UserInterface):
         resource: str,
         sandbox_mode: SandboxMode,
         action_arguments: dict | None,
+        group=None,
     ) -> bool:
         return True
 
