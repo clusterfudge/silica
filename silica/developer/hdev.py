@@ -1183,6 +1183,8 @@ def attach_tools(app):
         user_interface=CLIUserInterface(console, sandbox.mode),
         persona_base_directory=Path("~/.silica/personas/default").expanduser(),
     )
+    # Set dwr_mode for permissions bypass in attach_tools mode
+    context.dwr_mode = True
     toolbox = Toolbox(context)
 
     commands = set(toolbox.local.keys())
@@ -1404,6 +1406,9 @@ def cyclopts_main(
         cli_args=original_args,
         persona_base_directory=persona_obj.base_directory,
     )
+
+    # Set dwr_mode on context for permissions system bypass
+    context.dwr_mode = dwr
 
     # Set the agent context reference in the UI for keyboard shortcuts
     user_interface.agent_context = context
