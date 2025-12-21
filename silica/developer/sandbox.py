@@ -361,6 +361,10 @@ class Sandbox:
         Raises:
             DoSomethingElseError: If user chooses "do something else"
         """
+        # ALLOW_ALL mode (--dwr flag) bypasses all permission checks
+        if self.mode == SandboxMode.ALLOW_ALL:
+            return True
+
         # Check if tool is permanently allowed (in-memory)
         if action in self.allowed_tools:
             return True
@@ -403,7 +407,7 @@ class Sandbox:
 
         self._permission_check_rendering_callback(action, resource, action_arguments)
 
-        if allowed or self.mode == SandboxMode.ALLOW_ALL:
+        if allowed:
             return True
 
         # Call permission check callback, which may raise DoSomethingElseError

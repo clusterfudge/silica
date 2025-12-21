@@ -440,6 +440,103 @@ class TestBackwardCompatibility:
         assert sandbox is not None
 
 
+class TestAllowAllModeBypassesPrompts:
+    """Tests for ALLOW_ALL mode (--dwr flag) bypassing all permission prompts.
+
+    This test class specifically validates the fix for a bug where the --dwr flag
+    (which sets ALLOW_ALL mode) did not bypass shell command permission prompts,
+    causing interactive prompts even when the user expected full autonomy.
+    """
+
+    def test_allow_all_mode_bypasses_shell_prompts(self, temp_dir):
+        """Test that ALLOW_ALL mode bypasses shell permission prompts.
+
+        This was the original bug: shell commands would still prompt for permission
+        even in ALLOW_ALL mode because the ALLOW_ALL check happened after the
+        shell-specific permission handling branch.
+        """
+        sandbox = Sandbox(str(temp_dir), SandboxMode.ALLOW_ALL)
+
+        # Create a mock callback that should NOT be called
+        mock_callback = MagicMock(return_value=True)
+        sandbox._permission_check_callback = mock_callback
+
+        # Shell commands should be allowed without prompting in ALLOW_ALL mode
+        result = sandbox.check_permissions("shell", "ls -la", group="Shell")
+
+        assert result is True, "Shell command should be allowed in ALLOW_ALL mode"
+        mock_callback.assert_not_called()
+
+    def test_allow_all_mode_bypasses_non_shell_prompts(self, temp_dir):
+        """Test that ALLOW_ALL mode bypasses non-shell permission prompts."""
+        sandbox = Sandbox(str(temp_dir), SandboxMode.ALLOW_ALL)
+
+        mock_callback = MagicMock(return_value=True)
+        sandbox._permission_check_callback = mock_callback
+
+        result = sandbox.check_permissions("read_file", "test.txt", group="Files")
+
+        assert result is True
+        mock_callback.assert_not_called()
+
+    def test_allow_all_mode_bypasses_all_action_types(self, temp_dir):
+        """Test that ALLOW_ALL mode bypasses prompts for all action types."""
+        sandbox = Sandbox(str(temp_dir), SandboxMode.ALLOW_ALL)
+
+        mock_callback = MagicMock(return_value=True)
+        sandbox._permission_check_callback = mock_callback
+
+        # Test various action types
+        actions = [
+            ("shell", "git status", "Shell"),
+            ("shell", "npm install && npm test", "Shell"),
+            ("read_file", "config.json", "Files"),
+            ("write_file", "output.txt", "Files"),
+            ("edit_file", "main.py", "Files"),
+            ("web_search", "query", "Web"),
+            ("gmail_send", "email", "Gmail"),
+        ]
+
+        for action, resource, group in actions:
+            result = sandbox.check_permissions(action, resource, group=group)
+            assert result is True, f"{action} should be allowed in ALLOW_ALL mode"
+
+        # No prompts should have been shown
+        mock_callback.assert_not_called()
+
+    def test_allow_all_mode_ignores_permissions_manager(self, temp_dir, persona_dir):
+        """Test that ALLOW_ALL mode ignores permissions manager restrictions.
+
+        Even if a permissions manager has restrictive settings, ALLOW_ALL should
+        bypass all checks.
+        """
+        sandbox = Sandbox(str(temp_dir), SandboxMode.ALLOW_ALL)
+
+        # Set up a restrictive permissions manager
+        manager = PermissionsManager(persona_dir, dwr_mode=False)
+        manager.permissions = ToolPermissions(
+            mode="allowlist",
+            allow_tools=set(),  # Nothing allowed
+            allow_groups=set(),
+            deny_tools={"shell", "read_file"},  # Explicitly denied
+            deny_groups={"Shell", "Files"},
+            shell_denied_commands={"git", "npm", "ls"},  # Denied shell commands
+        )
+        sandbox.permissions_manager = manager
+
+        mock_callback = MagicMock(return_value=True)
+        sandbox._permission_check_callback = mock_callback
+
+        # Despite restrictive settings, ALLOW_ALL should allow everything
+        result = sandbox.check_permissions("shell", "git status", group="Shell")
+        assert result is True
+
+        result = sandbox.check_permissions("read_file", "test.txt", group="Files")
+        assert result is True
+
+        mock_callback.assert_not_called()
+
+
 class TestShellPermissionCheckMethod:
     """Tests for the _shell_permission_check method."""
 
