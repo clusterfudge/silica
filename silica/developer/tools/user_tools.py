@@ -277,6 +277,7 @@ def discover_tools() -> list[DiscoveredTool]:
     """
     tools_dir = get_tools_dir()
     ensure_toolspec_helper()
+    ensure_default_tools()
 
     discovered = []
 
@@ -769,3 +770,42 @@ def ensure_hello_world_tool() -> Path:
         hello_path.chmod(0o755)
 
     return hello_path
+
+
+def get_default_tools_dir() -> Path:
+    """Get the directory containing default user tools shipped with silica."""
+    return Path(__file__).parent / "default_user_tools"
+
+
+def ensure_default_tools() -> list[Path]:
+    """Install default user tools if they don't exist.
+
+    Copies default tools from the package to ~/.silica/tools/.
+    Only installs tools that don't already exist (won't overwrite user modifications).
+
+    Returns:
+        List of paths to installed tools.
+    """
+    tools_dir = get_tools_dir()
+    ensure_toolspec_helper()
+    default_dir = get_default_tools_dir()
+
+    installed = []
+
+    if not default_dir.exists():
+        return installed
+
+    for source_path in default_dir.glob("*.py"):
+        # Skip __init__.py and hidden files
+        if source_path.name.startswith("_") or source_path.name.startswith("."):
+            continue
+
+        dest_path = tools_dir / source_path.name
+
+        # Only install if not already present
+        if not dest_path.exists():
+            dest_path.write_text(source_path.read_text())
+            dest_path.chmod(0o755)
+            installed.append(dest_path)
+
+    return installed
