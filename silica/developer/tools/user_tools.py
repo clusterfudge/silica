@@ -2,6 +2,12 @@
 
 User tools are self-installing Python scripts stored in ~/.silica/tools/ that use
 the PEP 723 inline script metadata format with uv for dependency management.
+
+Tools can be located in two places:
+1. Personal tools: ~/.silica/tools/ (user's global tools)
+2. Project tools: <project>/.silica/tools/ (project-specific tools)
+
+Personal tools take precedence over project tools when names conflict.
 """
 
 import json
@@ -10,7 +16,7 @@ import subprocess
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, List
 
 
 def get_tools_dir() -> Path:
@@ -20,6 +26,59 @@ def get_tools_dir() -> Path:
     return tools_dir
 
 
+def get_project_tools_dir() -> Optional[Path]:
+    """Get the project-local tools directory if it exists.
+
+    Searches for a .silica/tools/ directory starting from the current
+    working directory and walking up to find a git root or .silica directory.
+
+    Returns:
+        Path to project tools directory if found, None otherwise.
+    """
+    # Start from current working directory
+    current = Path.cwd()
+
+    # Walk up the directory tree looking for .silica/tools
+    while current != current.parent:
+        project_tools = current / ".silica" / "tools"
+        if project_tools.is_dir():
+            return project_tools
+
+        # Also check if we've hit a git root (stop searching)
+        if (current / ".git").exists():
+            # Check if .silica/tools exists at git root
+            if project_tools.is_dir():
+                return project_tools
+            # No project tools at git root, stop searching
+            break
+
+        current = current.parent
+
+    return None
+
+
+def get_all_tools_dirs() -> List[Path]:
+    """Get all tools directories in precedence order.
+
+    Returns:
+        List of paths, with personal tools first (higher precedence),
+        then project tools (lower precedence).
+    """
+    dirs = []
+
+    # Personal tools (highest precedence)
+    personal_dir = get_tools_dir()
+    if personal_dir.exists():
+        dirs.append(personal_dir)
+
+    # Project tools (lower precedence)
+    project_dir = get_project_tools_dir()
+    if project_dir and project_dir.exists():
+        dirs.append(project_dir)
+
+    return dirs
+
+
 def get_archive_dir() -> Path:
     """Get the archive directory for shelved tools."""
     archive_dir = get_tools_dir() / ".archive"
@@ -27,18 +86,29 @@ def get_archive_dir() -> Path:
     return archive_dir
 
 
-def get_toolspec_helper_path() -> Path:
-    """Get the path to the toolspec helper module."""
-    return get_tools_dir() / "_silica_toolspec.py"
-
-
 def ensure_toolspec_helper() -> Path:
-    """Ensure the toolspec helper module exists and is up-to-date.
+    """Ensure the toolspec helper module exists in the personal tools directory.
 
     This copies the generate_schema function to a standalone module that
     user tools can import without depending on the full silica package.
     """
-    helper_path = get_toolspec_helper_path()
+    return ensure_toolspec_helper_in_dir(get_tools_dir())
+
+
+def ensure_toolspec_helper_in_dir(tools_dir: Path) -> Path:
+    """Ensure the toolspec helper module exists in the specified directory.
+
+    This copies the generate_schema function to a standalone module that
+    user tools can import without depending on the full silica package.
+
+    Args:
+        tools_dir: Directory where the helper should be created
+
+    Returns:
+        Path to the created helper module
+    """
+    tools_dir.mkdir(parents=True, exist_ok=True)
+    helper_path = tools_dir / "_silica_toolspec.py"
 
     # Generate the helper module content
     helper_content = '''"""Silica toolspec helper - auto-generated, do not edit.
@@ -181,6 +251,11 @@ def generate_schemas_for_commands(
     return helper_path
 
 
+def get_toolspec_helper_path() -> Path:
+    """Get the path to the toolspec helper module in the personal tools dir."""
+    return get_tools_dir() / "_silica_toolspec.py"
+
+
 @dataclass
 class ToolMetadata:
     """Metadata extracted from a tool's docstring."""
@@ -260,6 +335,9 @@ class DiscoveredTool:
     file_stem: str = None  # The filename stem (for multi-tool files)
     error: str = None
     group: str = None  # The group name for permission management
+    is_authorized: bool = (
+        True  # Whether the tool is authorized (for tools requiring auth)
+    )
 
     def __post_init__(self):
         if self.file_stem is None:
@@ -268,35 +346,127 @@ class DiscoveredTool:
             self.group = self.file_stem
 
 
-def discover_tools() -> list[DiscoveredTool]:
-    """Discover all user tools in the tools directory.
+def discover_tools(check_auth: bool = False) -> list[DiscoveredTool]:
+    """Discover all user tools from all tools directories.
+
+    Searches both personal (~/.silica/tools/) and project-local
+    (<project>/.silica/tools/) directories for tools.
+
+    Personal tools take precedence over project tools when names conflict.
+
+    Args:
+        check_auth: Whether to verify authorization for tools with requires_auth=True.
+                    If False, is_authorized is set to True for all tools.
+                    If True, tools that fail auth check will have is_authorized=False.
 
     Returns a list of DiscoveredTool objects with their specs and metadata.
     A single file can contain multiple tools (--toolspec returns an array).
     Tools that fail to load are included with an error message.
     """
-    tools_dir = get_tools_dir()
+    # Ensure toolspec helper exists in personal tools dir
     ensure_toolspec_helper()
+
+    # Also ensure toolspec helper in project tools dir if it exists
+    project_dir = get_project_tools_dir()
+    if project_dir:
+        ensure_toolspec_helper_in_dir(project_dir)
+
+    discovered = []
+    seen_names = set()  # Track tool names to handle precedence
+
+    # Get all tools directories in precedence order
+    tools_dirs = get_all_tools_dirs()
+
+    for tools_dir in tools_dirs:
+        for path in tools_dir.glob("*.py"):
+            # Skip the helper module and hidden files
+            if path.name.startswith("_") or path.name.startswith("."):
+                continue
+
+            file_tools = _discover_tools_from_file(path, check_auth=check_auth)
+
+            for tool in file_tools:
+                # Only add if we haven't seen this tool name before
+                # (personal tools take precedence)
+                if tool.name not in seen_names:
+                    discovered.append(tool)
+                    seen_names.add(tool.name)
+
+    return discovered
+
+
+def discover_tools_from_dir(tools_dir: Path) -> list[DiscoveredTool]:
+    """Discover tools from a specific directory only.
+
+    Args:
+        tools_dir: Directory to search for tools
+
+    Returns:
+        List of DiscoveredTool objects found in that directory.
+    """
+    if not tools_dir.exists():
+        return []
+
+    ensure_toolspec_helper_in_dir(tools_dir)
 
     discovered = []
 
     for path in tools_dir.glob("*.py"):
-        # Skip the helper module and hidden files
         if path.name.startswith("_") or path.name.startswith("."):
             continue
-
         file_tools = _discover_tools_from_file(path)
         discovered.extend(file_tools)
 
     return discovered
 
 
-def _discover_tools_from_file(path: Path) -> list[DiscoveredTool]:
+def check_tool_authorization(path: Path) -> tuple[bool, str]:
+    """Check if a tool is authorized by calling --authorize.
+
+    Args:
+        path: Path to the tool file
+
+    Returns:
+        Tuple of (is_authorized, message)
+    """
+    try:
+        result = subprocess.run(
+            ["uv", "run", str(path), "--authorize"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=str(path.parent),
+        )
+
+        if result.returncode == 0:
+            try:
+                auth_result = json.loads(result.stdout)
+                success = auth_result.get("success", False)
+                message = auth_result.get("message", "")
+                return success, message
+            except json.JSONDecodeError:
+                # If output isn't JSON, assume authorized if exit code was 0
+                return True, "Authorized"
+        else:
+            return False, result.stderr.strip() or "Authorization check failed"
+    except subprocess.TimeoutExpired:
+        return False, "Authorization check timed out"
+    except Exception as e:
+        return False, f"Authorization check error: {e}"
+
+
+def _discover_tools_from_file(
+    path: Path, check_auth: bool = True
+) -> list[DiscoveredTool]:
     """Discover tools from a single file.
 
     A file can contain one or more tools. --toolspec should return either:
     - A single tool spec object: {"name": ..., "description": ..., "input_schema": ...}
     - An array of tool specs: [{"name": ..., ...}, {"name": ..., ...}]
+
+    Args:
+        path: Path to the tool file
+        check_auth: Whether to check authorization for tools with requires_auth=True
     """
     file_stem = path.stem
 
@@ -342,6 +512,14 @@ def _discover_tools_from_file(path: Path) -> list[DiscoveredTool]:
         docstring = _extract_module_docstring(source)
         metadata = parse_tool_metadata(docstring)
 
+        # Check authorization if tool requires it
+        is_authorized = True
+        auth_error = None
+        if check_auth and metadata.requires_auth:
+            is_authorized, auth_message = check_tool_authorization(path)
+            if not is_authorized:
+                auth_error = f"Not authorized: {auth_message}"
+
         # Handle both single spec and array of specs
         if isinstance(spec_data, list):
             # Multiple tools in one file
@@ -355,6 +533,8 @@ def _discover_tools_from_file(path: Path) -> list[DiscoveredTool]:
                         spec=spec,
                         metadata=metadata,
                         file_stem=file_stem,
+                        is_authorized=is_authorized,
+                        error=auth_error,
                     )
                 )
             return tools
@@ -368,6 +548,8 @@ def _discover_tools_from_file(path: Path) -> list[DiscoveredTool]:
                     spec=spec_data,
                     metadata=metadata,
                     file_stem=file_stem,
+                    is_authorized=is_authorized,
+                    error=auth_error,
                 )
             ]
 

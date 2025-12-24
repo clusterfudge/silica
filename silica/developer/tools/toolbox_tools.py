@@ -13,6 +13,7 @@ from .user_tools import (
     ensure_hello_world_tool,
     ensure_toolspec_helper,
     get_archive_dir,
+    get_project_tools_dir,
     get_tools_dir,
     invoke_user_tool,
     list_tools,
@@ -26,7 +27,10 @@ from .user_tools import (
 def toolbox_list(context: AgentContext, category: str = None) -> str:
     """List all tools in the user toolbox.
 
-    Lists tools stored in ~/.silica/tools/ with their descriptions and metadata.
+    Lists tools from both personal (~/.silica/tools/) and project-local
+    (<project>/.silica/tools/) directories with their descriptions and metadata.
+    Personal tools take precedence over project tools when names conflict.
+
     Use this to see what tools are available before using them.
 
     Args:
@@ -43,13 +47,29 @@ def toolbox_list(context: AgentContext, category: str = None) -> str:
         return "No user tools found. Use toolbox_create to create your first tool."
 
     output = []
+
+    # Show tool directories
+    personal_dir = get_tools_dir()
+    project_dir = get_project_tools_dir()
+
+    output.append("**Tool Directories:**")
+    output.append(f"  Personal: {personal_dir}")
+    if project_dir:
+        output.append(f"  Project: {project_dir}")
+    output.append("")
+
     output.append(f"Found {len(tools)} user tool(s):\n")
 
     for t in tools:
         status = "OK" if not t.error else f"ERROR: {t.error}"
         desc = t.spec.get("description", "No description") if t.spec else "N/A"
 
-        output.append(f"**{t.name}** [{status}]")
+        # Indicate source (personal vs project)
+        source = ""
+        if project_dir and t.path and str(t.path).startswith(str(project_dir)):
+            source = " [project]"
+
+        output.append(f"**{t.name}**{source} [{status}]")
         output.append(f"  Description: {desc}")
         output.append(f"  Category: {t.metadata.category}")
         if t.metadata.tags:

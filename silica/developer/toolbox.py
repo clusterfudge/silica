@@ -36,6 +36,7 @@ class Toolbox:
         context: AgentContext,
         tool_names: List[str] | None = None,
         tools: List[str] | None = None,
+        skip_user_tool_auth: bool = False,
     ):
         self.context = context
         self.local = {}  # CLI tools
@@ -77,6 +78,7 @@ class Toolbox:
 
         # Discover user-created tools from ~/.silica/tools/
         self.user_tools: Dict[str, DiscoveredTool] = {}
+        self._skip_user_tool_auth = skip_user_tool_auth
         self._discover_user_tools()
 
         # Register CLI tools
@@ -177,6 +179,13 @@ class Toolbox:
                 tool_info["docstring"],
                 aliases=tool_info.get("aliases", []),
             )
+
+        # Register tool authorization CLI tool
+        self.register_cli_tool(
+            "auth-tool",
+            self._auth_tool,
+            "Authorize a user tool that requires authentication",
+        )
 
         # Schema for agent tools
         self.agent_schema = self.schemas()
@@ -1703,18 +1712,101 @@ Use `/groups` to see available tool groups."""
             # Regenerate schema
             self.agent_schema = self.schemas()
 
+    def _auth_tool(self, user_interface, sandbox, user_input, *args, **kwargs):
+        """Authorize a user tool that requires authentication.
+
+        Usage: /auth-tool <tool_name>
+
+        This runs the tool's --authorize flag interactively, allowing the tool
+        to complete any authentication flow it requires (e.g., OAuth, API keys).
+        """
+        from .tools.user_tools import get_tools_dir, get_project_tools_dir
+
+        tool_name = user_input.strip()
+        if not tool_name:
+            # List tools that need authorization
+            discovered = discover_tools()
+            unauth_tools = [
+                t
+                for t in discovered
+                if not t.is_authorized and t.metadata.requires_auth
+            ]
+
+            if not unauth_tools:
+                return "All tools are authorized. No action needed."
+
+            output = "**Tools requiring authorization:**\n\n"
+            for tool in unauth_tools:
+                output += (
+                    f"  • `{tool.file_stem}` - {tool.error or 'Needs authorization'}\n"
+                )
+            output += "\n**Usage:** `/auth-tool <tool_name>`"
+            return output
+
+        # Find the tool file
+        tool_path = None
+
+        # Check personal tools
+        personal_dir = get_tools_dir()
+        if (personal_dir / f"{tool_name}.py").exists():
+            tool_path = personal_dir / f"{tool_name}.py"
+
+        # Check project tools
+        if not tool_path:
+            project_dir = get_project_tools_dir()
+            if project_dir and (project_dir / f"{tool_name}.py").exists():
+                tool_path = project_dir / f"{tool_name}.py"
+
+        if not tool_path:
+            return f"Tool not found: {tool_name}"
+
+        # Run the tool with --authorize interactively
+        user_interface.handle_system_message(
+            f"Running authorization for {tool_name}...", markdown=False
+        )
+
+        try:
+            # Run interactively (not capturing output)
+            result = subprocess.run(
+                ["uv", "run", str(tool_path), "--authorize"],
+                cwd=str(tool_path.parent),
+                timeout=300,  # 5 minute timeout for interactive auth
+            )
+
+            if result.returncode == 0:
+                # Refresh user tools to pick up the newly authorized tool
+                self.refresh_user_tools()
+                return f"✓ Tool '{tool_name}' authorized successfully!\nThe tool is now available for use."
+            else:
+                return f"✗ Authorization failed for '{tool_name}' (exit code {result.returncode})"
+
+        except subprocess.TimeoutExpired:
+            return f"✗ Authorization timed out for '{tool_name}'"
+        except Exception as e:
+            return f"✗ Error during authorization: {e}"
+
     def _discover_user_tools(self):
         """Discover user-created tools from ~/.silica/tools/."""
         try:
-            discovered = discover_tools()
+            # Check auth during schema building - unauthenticated tools won't be available
+            # Skip auth check if requested (e.g., during CLI tool registration)
+            discovered = discover_tools(check_auth=not self._skip_user_tool_auth)
             for tool in discovered:
-                if tool.error:
-                    # Log error but don't fail - tool will just be unavailable
+                if tool.error and not tool.is_authorized:
+                    # Tool requires auth but isn't authorized - log but don't add to toolbox
+                    self.context.user_interface.handle_system_message(
+                        f"Warning: User tool '{tool.name}' requires authorization. "
+                        f"Use /auth-tool {tool.file_stem} to authorize.",
+                        markdown=False,
+                    )
+                elif tool.error:
+                    # Other errors - log but tool won't be available
                     self.context.user_interface.handle_system_message(
                         f"Warning: User tool '{tool.name}' failed to load: {tool.error}",
                         markdown=False,
                     )
-                elif tool.spec:
+                elif tool.spec and tool.is_authorized:
+                    # Only add tools that are authorized and have a valid spec
                     self.user_tools[tool.name] = tool
 
             # Filter user tools based on permissions
