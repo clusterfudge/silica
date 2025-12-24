@@ -1720,7 +1720,7 @@ Use `/groups` to see available tool groups."""
         This runs the tool's --authorize flag interactively, allowing the tool
         to complete any authentication flow it requires (e.g., OAuth, API keys).
         """
-        from .tools.user_tools import get_tools_dir, get_project_tools_dir
+        from .tools.user_tools import get_tools_dir
 
         tool_name = user_input.strip()
         if not tool_name:
@@ -1744,20 +1744,10 @@ Use `/groups` to see available tool groups."""
             return output
 
         # Find the tool file
-        tool_path = None
+        tools_dir = get_tools_dir()
+        tool_path = tools_dir / f"{tool_name}.py"
 
-        # Check personal tools
-        personal_dir = get_tools_dir()
-        if (personal_dir / f"{tool_name}.py").exists():
-            tool_path = personal_dir / f"{tool_name}.py"
-
-        # Check project tools
-        if not tool_path:
-            project_dir = get_project_tools_dir()
-            if project_dir and (project_dir / f"{tool_name}.py").exists():
-                tool_path = project_dir / f"{tool_name}.py"
-
-        if not tool_path:
+        if not tool_path.exists():
             return f"Tool not found: {tool_name}"
 
         # Run the tool with --authorize interactively

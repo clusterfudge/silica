@@ -2,12 +2,6 @@
 
 User tools are self-installing Python scripts stored in ~/.silica/tools/ that use
 the PEP 723 inline script metadata format with uv for dependency management.
-
-Tools can be located in two places:
-1. Personal tools: ~/.silica/tools/ (user's global tools)
-2. Project tools: <project>/.silica/tools/ (project-specific tools)
-
-Personal tools take precedence over project tools when names conflict.
 """
 
 import json
@@ -16,7 +10,7 @@ import subprocess
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional, List
+from typing import Any, Optional
 
 
 def get_tools_dir() -> Path:
@@ -24,59 +18,6 @@ def get_tools_dir() -> Path:
     tools_dir = Path.home() / ".silica" / "tools"
     tools_dir.mkdir(parents=True, exist_ok=True)
     return tools_dir
-
-
-def get_project_tools_dir() -> Optional[Path]:
-    """Get the project-local tools directory if it exists.
-
-    Searches for a .silica/tools/ directory starting from the current
-    working directory and walking up to find a git root or .silica directory.
-
-    Returns:
-        Path to project tools directory if found, None otherwise.
-    """
-    # Start from current working directory
-    current = Path.cwd()
-
-    # Walk up the directory tree looking for .silica/tools
-    while current != current.parent:
-        project_tools = current / ".silica" / "tools"
-        if project_tools.is_dir():
-            return project_tools
-
-        # Also check if we've hit a git root (stop searching)
-        if (current / ".git").exists():
-            # Check if .silica/tools exists at git root
-            if project_tools.is_dir():
-                return project_tools
-            # No project tools at git root, stop searching
-            break
-
-        current = current.parent
-
-    return None
-
-
-def get_all_tools_dirs() -> List[Path]:
-    """Get all tools directories in precedence order.
-
-    Returns:
-        List of paths, with personal tools first (higher precedence),
-        then project tools (lower precedence).
-    """
-    dirs = []
-
-    # Personal tools (highest precedence)
-    personal_dir = get_tools_dir()
-    if personal_dir.exists():
-        dirs.append(personal_dir)
-
-    # Project tools (lower precedence)
-    project_dir = get_project_tools_dir()
-    if project_dir and project_dir.exists():
-        dirs.append(project_dir)
-
-    return dirs
 
 
 def get_archive_dir() -> Path:
@@ -347,12 +288,7 @@ class DiscoveredTool:
 
 
 def discover_tools(check_auth: bool = False) -> list[DiscoveredTool]:
-    """Discover all user tools from all tools directories.
-
-    Searches both personal (~/.silica/tools/) and project-local
-    (<project>/.silica/tools/) directories for tools.
-
-    Personal tools take precedence over project tools when names conflict.
+    """Discover all user tools from ~/.silica/tools/.
 
     Args:
         check_auth: Whether to verify authorization for tools with requires_auth=True.
@@ -363,58 +299,18 @@ def discover_tools(check_auth: bool = False) -> list[DiscoveredTool]:
     A single file can contain multiple tools (--toolspec returns an array).
     Tools that fail to load are included with an error message.
     """
-    # Ensure toolspec helper exists in personal tools dir
+    # Ensure toolspec helper exists
     ensure_toolspec_helper()
 
-    # Also ensure toolspec helper in project tools dir if it exists
-    project_dir = get_project_tools_dir()
-    if project_dir:
-        ensure_toolspec_helper_in_dir(project_dir)
-
     discovered = []
-    seen_names = set()  # Track tool names to handle precedence
-
-    # Get all tools directories in precedence order
-    tools_dirs = get_all_tools_dirs()
-
-    for tools_dir in tools_dirs:
-        for path in tools_dir.glob("*.py"):
-            # Skip the helper module and hidden files
-            if path.name.startswith("_") or path.name.startswith("."):
-                continue
-
-            file_tools = _discover_tools_from_file(path, check_auth=check_auth)
-
-            for tool in file_tools:
-                # Only add if we haven't seen this tool name before
-                # (personal tools take precedence)
-                if tool.name not in seen_names:
-                    discovered.append(tool)
-                    seen_names.add(tool.name)
-
-    return discovered
-
-
-def discover_tools_from_dir(tools_dir: Path) -> list[DiscoveredTool]:
-    """Discover tools from a specific directory only.
-
-    Args:
-        tools_dir: Directory to search for tools
-
-    Returns:
-        List of DiscoveredTool objects found in that directory.
-    """
-    if not tools_dir.exists():
-        return []
-
-    ensure_toolspec_helper_in_dir(tools_dir)
-
-    discovered = []
+    tools_dir = get_tools_dir()
 
     for path in tools_dir.glob("*.py"):
+        # Skip the helper module and hidden files
         if path.name.startswith("_") or path.name.startswith("."):
             continue
-        file_tools = _discover_tools_from_file(path)
+
+        file_tools = _discover_tools_from_file(path, check_auth=check_auth)
         discovered.extend(file_tools)
 
     return discovered
