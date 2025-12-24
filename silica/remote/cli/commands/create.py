@@ -132,17 +132,34 @@ def select_tools_wizard(tools: List[Tuple[str, str, Path]]) -> List[Path]:
     return selected_paths
 
 
+def get_workspace_tools_dir(workspace_name: str) -> str:
+    """Get the workspace-local tools directory path.
+
+    Args:
+        workspace_name: Name of the workspace
+
+    Returns:
+        Path string for the workspace tools directory
+    """
+    return f"~/.silica/workspaces/{workspace_name}/tools"
+
+
 def copy_tools_to_remote(
     workspace_name: str,
     tool_paths: List[Path],
     is_local: bool = False,
+    silica_dir: Path = None,
 ) -> bool:
     """Copy selected tools to the remote workspace.
+
+    Tools are copied to a workspace-local directory and SILICA_TOOLS_DIR
+    is set in the piku ENV file to point to that directory.
 
     Args:
         workspace_name: Name of the workspace
         tool_paths: List of tool file paths to copy
         is_local: Whether this is a local workspace
+        silica_dir: Path to local .silica directory (for local workspaces)
 
     Returns:
         True if successful, False otherwise
@@ -153,15 +170,42 @@ def copy_tools_to_remote(
     console.print(f"\n[bold]Copying {len(tool_paths)} tools to workspace...[/bold]")
 
     if is_local:
-        # For local workspaces, tools are already available (same filesystem)
+        # For local workspaces, copy to the workspace directory
+        if silica_dir is None:
+            console.print("[red]Error: silica_dir required for local workspace[/red]")
+            return False
+
+        workspace_tools_dir = silica_dir / "workspaces" / workspace_name / "tools"
+        workspace_tools_dir.mkdir(parents=True, exist_ok=True)
+
+        # Copy the toolspec helper first
+        if tool_paths:
+            helper_path = tool_paths[0].parent / "_silica_toolspec.py"
+            if helper_path.exists():
+                import shutil
+
+                shutil.copy(helper_path, workspace_tools_dir / "_silica_toolspec.py")
+
+        # Copy each tool
+        import shutil
+
+        for path in tool_paths:
+            shutil.copy(path, workspace_tools_dir / path.name)
+
         console.print(
-            "[green]Local workspace - personal tools are already available[/green]"
+            f"[green]✓ Copied {len(tool_paths)} tools to {workspace_tools_dir}[/green]"
         )
+        for path in tool_paths:
+            console.print(f"  • {path.stem}")
+
         return True
+
+    # Remote workspace - copy to workspace-local directory on remote
+    workspace_tools_path = get_workspace_tools_dir(workspace_name)
 
     try:
         # Create tools directory on remote
-        mkdir_cmd = "mkdir -p ~/.silica/tools"
+        mkdir_cmd = f"mkdir -p {workspace_tools_path}"
         piku_utils.run_piku_in_silica(
             mkdir_cmd,
             workspace_name=workspace_name,
@@ -184,9 +228,7 @@ def copy_tools_to_remote(
         archive_b64 = base64.b64encode(buffer.read()).decode("ascii")
 
         # Transfer and extract
-        extract_cmd = (
-            f"""cd ~/.silica/tools && echo "{archive_b64}" | base64 -d | tar -xzf -"""
-        )
+        extract_cmd = f"""cd {workspace_tools_path} && echo "{archive_b64}" | base64 -d | tar -xzf -"""
         piku_utils.run_piku_in_silica(
             extract_cmd,
             workspace_name=workspace_name,
@@ -199,6 +241,21 @@ def copy_tools_to_remote(
         )
         for path in tool_paths:
             console.print(f"  • {path.stem}")
+
+        # Set SILICA_TOOLS_DIR in piku config so the agent finds the tools
+        # The path needs to be expanded on the remote, so we use $HOME
+        tools_dir_expanded = f"$HOME/.silica/workspaces/{workspace_name}/tools"
+        try:
+            piku_utils.set_config(
+                app_name=workspace_name,
+                key="SILICA_TOOLS_DIR",
+                value=tools_dir_expanded,
+            )
+            console.print("[green]✓ Set SILICA_TOOLS_DIR for workspace[/green]")
+        except Exception as e:
+            console.print(
+                f"[yellow]Warning: Could not set SILICA_TOOLS_DIR: {e}[/yellow]"
+            )
 
         return True
 
@@ -863,13 +920,12 @@ def create_local_workspace(
         port: Port where antennae webapp will run
         git_root: Path to git repository root
         silica_dir: Path to .silica directory
-        selected_tools: List of tool paths (ignored for local - tools are shared)
+        selected_tools: List of tool paths to copy to workspace
     """
-    # Note: For local workspaces, personal tools are already available
-    # since they share the same filesystem (~/.silica/tools/)
+    # Copy tools to workspace-local directory
     if selected_tools:
-        console.print(
-            "[dim]Note: Local workspace shares personal tools automatically[/dim]"
+        copy_tools_to_remote(
+            workspace_name, selected_tools, is_local=True, silica_dir=silica_dir
         )
     console.print(
         f"[bold]Creating local workspace '{workspace_name}' on port {port}[/bold]"
@@ -1096,6 +1152,11 @@ def create_local_workspace(
                 value = os.environ.get(var)
                 if value:
                     env_vars.append(f"{var}={value}")
+
+            # Set SILICA_TOOLS_DIR to workspace-local tools directory
+            workspace_tools_dir = silica_dir / "workspaces" / workspace_name / "tools"
+            if workspace_tools_dir.exists():
+                env_vars.append(f"SILICA_TOOLS_DIR={workspace_tools_dir}")
 
             # Build the command with environment variables
             env_setup = " ".join(f"export {var};" for var in env_vars)

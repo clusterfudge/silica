@@ -208,20 +208,41 @@ def sync_tools(
     is_local = workspace_config.get("is_local", False)
 
     if is_local:
+        # For local workspaces, copy to workspace-local tools directory
+        import shutil
+
+        workspace_tools_dir = silica_dir / "workspaces" / workspace / "tools"
+        workspace_tools_dir.mkdir(parents=True, exist_ok=True)
+
+        # Copy the toolspec helper first
+        helper_path = local_tools_dir / "_silica_toolspec.py"
+        if helper_path.exists():
+            shutil.copy(helper_path, workspace_tools_dir / "_silica_toolspec.py")
+
+        # Copy each tool
+        for path in selected_paths:
+            shutil.copy(path, workspace_tools_dir / path.name)
+
         console.print(
-            "[green]Local workspace - personal tools are already shared.[/green]"
+            f"[green]✓ Synced {len(selected_paths)} tools to {workspace_tools_dir}[/green]"
         )
-        console.print(f"[dim]Tools directory: {local_tools_dir}[/dim]")
+        for path in selected_paths:
+            console.print(f"  • {path.stem}")
+
+        console.print(
+            "\n[dim]Restart the agent session for changes to take effect.[/dim]"
+        )
         return
 
-    # Sync to remote
+    # Sync to remote workspace-local directory
+    workspace_tools_path = f"~/.silica/workspaces/{workspace}/tools"
     console.print(
         f"[bold]Syncing {len(selected_paths)} tools to workspace '{workspace}'...[/bold]"
     )
 
     try:
         # Create tools directory on remote
-        mkdir_cmd = "mkdir -p ~/.silica/tools"
+        mkdir_cmd = f"mkdir -p {workspace_tools_path}"
         piku_utils.run_piku_in_silica(
             mkdir_cmd,
             workspace_name=workspace,
@@ -233,9 +254,7 @@ def sync_tools(
         archive_data = create_tools_archive(selected_paths)
         archive_b64 = base64.b64encode(archive_data).decode("ascii")
 
-        extract_cmd = (
-            f"""cd ~/.silica/tools && echo "{archive_b64}" | base64 -d | tar -xzf -"""
-        )
+        extract_cmd = f"""cd {workspace_tools_path} && echo "{archive_b64}" | base64 -d | tar -xzf -"""
         piku_utils.run_piku_in_silica(
             extract_cmd,
             workspace_name=workspace,

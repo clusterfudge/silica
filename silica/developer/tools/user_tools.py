@@ -2,9 +2,13 @@
 
 User tools are self-installing Python scripts stored in ~/.silica/tools/ that use
 the PEP 723 inline script metadata format with uv for dependency management.
+
+The tools directory can be overridden with the SILICA_TOOLS_DIR environment variable,
+which is used by remote workspaces to point to workspace-local tools.
 """
 
 import json
+import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -14,8 +18,18 @@ from typing import Any, Optional
 
 
 def get_tools_dir() -> Path:
-    """Get the user tools directory, creating it if necessary."""
-    tools_dir = Path.home() / ".silica" / "tools"
+    """Get the user tools directory, creating it if necessary.
+
+    If SILICA_TOOLS_DIR environment variable is set, uses that directory.
+    Otherwise defaults to ~/.silica/tools/.
+    """
+    # Check for environment variable override (used by remote workspaces)
+    env_tools_dir = os.environ.get("SILICA_TOOLS_DIR")
+    if env_tools_dir:
+        tools_dir = Path(env_tools_dir)
+    else:
+        tools_dir = Path.home() / ".silica" / "tools"
+
     tools_dir.mkdir(parents=True, exist_ok=True)
     return tools_dir
 

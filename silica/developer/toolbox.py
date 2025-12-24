@@ -80,7 +80,6 @@ class Toolbox:
         self.user_tools: Dict[str, DiscoveredTool] = {}
         self._skip_user_tool_auth = skip_user_tool_auth
         self._discover_user_tools()
-
         # Register CLI tools
         self.register_cli_tool("help", self._help, "Show help", aliases=["h"])
         self.register_cli_tool("tips", self._tips, "Show usage tips and tricks")
@@ -344,7 +343,6 @@ class Toolbox:
     async def invoke_agent_tools(self, tool_uses):
         """Invoke multiple agent tools, potentially in parallel."""
         import asyncio
-        from .tools.framework import invoke_tool
         from .sandbox import DoSomethingElseError
 
         # Log tool usage for user feedback
@@ -369,9 +367,9 @@ class Toolbox:
                     )
 
                 # Create coroutines for parallel execution
+                # Note: Use invoke_agent_tool which handles both built-in and user tools
                 parallel_coroutines = [
-                    invoke_tool(self.context, tool_use, tools=self.agent_tools)
-                    for tool_use in parallel_tools
+                    self.invoke_agent_tool(tool_use) for tool_use in parallel_tools
                 ]
 
                 # Execute in parallel with proper cancellation handling
@@ -408,9 +406,8 @@ class Toolbox:
 
                 for tool_use in sequential_tools:
                     try:
-                        result = await invoke_tool(
-                            self.context, tool_use, tools=self.agent_tools
-                        )
+                        # Use invoke_agent_tool which handles both built-in and user tools
+                        result = await self.invoke_agent_tool(tool_use)
                         results.append(result)
                     except (KeyboardInterrupt, asyncio.CancelledError):
                         raise KeyboardInterrupt("Tool execution interrupted by user")
@@ -1725,7 +1722,7 @@ Use `/groups` to see available tool groups."""
         tool_name = user_input.strip()
         if not tool_name:
             # List tools that need authorization
-            discovered = discover_tools()
+            discovered = discover_tools(check_auth=True)
             unauth_tools = [
                 t
                 for t in discovered
