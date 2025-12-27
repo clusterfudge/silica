@@ -299,6 +299,9 @@ class CLIUserInterface(UserInterface):
             "/quit": "Quit the chat",
             "/exit": "Quit the chat",
             "/restart": "Clear chat history and start over",
+            "/new": "Clear chat history and start over",
+            "/clear": "Clear chat history and start over",
+            "/reset": "Clear chat history and start over",
         }
         for tool_name, spec in toolbox.local.items():
             commands[f"!{tool_name}"] = spec["docstring"]

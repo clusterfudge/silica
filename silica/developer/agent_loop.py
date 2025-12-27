@@ -326,7 +326,7 @@ async def run(
                 if user_input.startswith("/"):
                     if user_input in ["/quit", "/exit"]:
                         break
-                    elif user_input == "/restart":
+                    elif user_input in ["/restart", "/new", "/clear", "/reset"]:
                         # Clear the chat history and tool result buffer in the context
                         # Clear the context state and generate a new session ID
                         agent_context.chat_history.clear()
