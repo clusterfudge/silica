@@ -1,11 +1,16 @@
 """Create command for silica."""
 
+import base64
 import os
 import subprocess
+import tarfile
 import cyclopts
+from io import BytesIO
 from pathlib import Path
 from typing import Annotated, Optional
 from rich.console import Console
+from rich.prompt import Confirm
+from rich.table import Table
 from typing import Dict, List, Tuple
 
 from silica.remote.config import load_config, find_git_root
@@ -18,6 +23,246 @@ import git
 # Messaging functionality removed - legacy system
 
 console = Console()
+
+
+def get_personal_tools() -> List[Tuple[str, str, Path]]:
+    """Get list of personal tools from ~/.silica/tools/.
+
+    Returns:
+        List of (tool_name, description, path) tuples
+    """
+    tools_dir = Path.home() / ".silica" / "tools"
+    if not tools_dir.exists():
+        return []
+
+    tools = []
+    for path in sorted(tools_dir.glob("*.py")):
+        if path.name.startswith("_") or path.name.startswith("."):
+            continue
+
+        # Try to get tool description from --toolspec
+        try:
+            result = subprocess.run(
+                ["uv", "run", str(path), "--toolspec"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                cwd=str(path.parent),
+            )
+            if result.returncode == 0:
+                import json
+
+                spec_data = json.loads(result.stdout)
+                # Handle both single spec and array
+                if isinstance(spec_data, list):
+                    # Multi-tool file - show count
+                    desc = f"{len(spec_data)} tools: " + ", ".join(
+                        s.get("name", "?") for s in spec_data[:3]
+                    )
+                    if len(spec_data) > 3:
+                        desc += f"... (+{len(spec_data) - 3} more)"
+                else:
+                    desc = spec_data.get("description", "No description")[:60]
+                tools.append((path.stem, desc, path))
+            else:
+                tools.append((path.stem, "(failed to load spec)", path))
+        except Exception:
+            tools.append((path.stem, "(error loading)", path))
+
+    return tools
+
+
+def select_tools_wizard(tools: List[Tuple[str, str, Path]]) -> List[Path]:
+    """Interactive wizard to select which tools to copy to remote.
+
+    Args:
+        tools: List of (name, description, path) tuples
+
+    Returns:
+        List of paths to selected tools
+    """
+    if not tools:
+        return []
+
+    console.print("\n[bold cyan]Personal Tools Selection[/bold cyan]")
+    console.print("Select which personal tools to copy to the remote workspace.\n")
+
+    # Show tools in a table
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("#", style="dim", width=4)
+    table.add_column("Tool", style="cyan")
+    table.add_column("Description")
+
+    for i, (name, desc, _) in enumerate(tools, 1):
+        table.add_row(str(i), name, desc)
+
+    console.print(table)
+    console.print()
+
+    # Ask for selection
+    console.print("[bold]Options:[/bold]")
+    console.print("  • Enter tool numbers separated by commas (e.g., 1,3,5)")
+    console.print("  • Enter 'all' to select all tools")
+    console.print("  • Enter 'none' or press Enter to skip")
+    console.print()
+
+    selection = console.input("[bold]Select tools: [/bold]").strip().lower()
+
+    if not selection or selection == "none":
+        return []
+
+    if selection == "all":
+        return [path for _, _, path in tools]
+
+    # Parse comma-separated numbers
+    selected_paths = []
+    try:
+        indices = [int(x.strip()) for x in selection.split(",") if x.strip()]
+        for idx in indices:
+            if 1 <= idx <= len(tools):
+                selected_paths.append(tools[idx - 1][2])
+            else:
+                console.print(
+                    f"[yellow]Warning: Invalid selection {idx}, skipping[/yellow]"
+                )
+    except ValueError:
+        console.print("[yellow]Invalid input, skipping tool selection[/yellow]")
+        return []
+
+    return selected_paths
+
+
+def get_workspace_tools_dir(workspace_name: str) -> str:
+    """Get the workspace-local tools directory path.
+
+    Args:
+        workspace_name: Name of the workspace
+
+    Returns:
+        Path string for the workspace tools directory
+    """
+    return f"~/.silica/workspaces/{workspace_name}/tools"
+
+
+def copy_tools_to_remote(
+    workspace_name: str,
+    tool_paths: List[Path],
+    is_local: bool = False,
+    silica_dir: Path = None,
+) -> bool:
+    """Copy selected tools to the remote workspace.
+
+    Tools are copied to a workspace-local directory and SILICA_TOOLS_DIR
+    is set in the piku ENV file to point to that directory.
+
+    Args:
+        workspace_name: Name of the workspace
+        tool_paths: List of tool file paths to copy
+        is_local: Whether this is a local workspace
+        silica_dir: Path to local .silica directory (for local workspaces)
+
+    Returns:
+        True if successful, False otherwise
+    """
+    if not tool_paths:
+        return True
+
+    console.print(f"\n[bold]Copying {len(tool_paths)} tools to workspace...[/bold]")
+
+    if is_local:
+        # For local workspaces, copy to the workspace directory
+        if silica_dir is None:
+            console.print("[red]Error: silica_dir required for local workspace[/red]")
+            return False
+
+        workspace_tools_dir = silica_dir / "workspaces" / workspace_name / "tools"
+        workspace_tools_dir.mkdir(parents=True, exist_ok=True)
+
+        # Copy the toolspec helper first
+        if tool_paths:
+            helper_path = tool_paths[0].parent / "_silica_toolspec.py"
+            if helper_path.exists():
+                import shutil
+
+                shutil.copy(helper_path, workspace_tools_dir / "_silica_toolspec.py")
+
+        # Copy each tool
+        import shutil
+
+        for path in tool_paths:
+            shutil.copy(path, workspace_tools_dir / path.name)
+
+        console.print(
+            f"[green]✓ Copied {len(tool_paths)} tools to {workspace_tools_dir}[/green]"
+        )
+        for path in tool_paths:
+            console.print(f"  • {path.stem}")
+
+        return True
+
+    # Remote workspace - copy to workspace-local directory on remote
+    workspace_tools_path = get_workspace_tools_dir(workspace_name)
+
+    try:
+        # Create tools directory on remote
+        mkdir_cmd = f"mkdir -p {workspace_tools_path}"
+        piku_utils.run_piku_in_silica(
+            mkdir_cmd,
+            workspace_name=workspace_name,
+            use_shell_pipe=True,
+            capture_output=True,
+        )
+
+        # Create tar archive of selected tools
+        buffer = BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w:gz") as tar:
+            for path in tool_paths:
+                tar.add(path, arcname=path.name)
+
+            # Also include the toolspec helper
+            helper_path = path.parent / "_silica_toolspec.py"
+            if helper_path.exists():
+                tar.add(helper_path, arcname="_silica_toolspec.py")
+
+        buffer.seek(0)
+        archive_b64 = base64.b64encode(buffer.read()).decode("ascii")
+
+        # Transfer and extract
+        extract_cmd = f"""cd {workspace_tools_path} && echo "{archive_b64}" | base64 -d | tar -xzf -"""
+        piku_utils.run_piku_in_silica(
+            extract_cmd,
+            workspace_name=workspace_name,
+            use_shell_pipe=True,
+            capture_output=True,
+        )
+
+        console.print(
+            f"[green]✓ Copied {len(tool_paths)} tools to remote workspace[/green]"
+        )
+        for path in tool_paths:
+            console.print(f"  • {path.stem}")
+
+        # Set SILICA_TOOLS_DIR in piku config so the agent finds the tools
+        # The path needs to be expanded on the remote, so we use $HOME
+        tools_dir_expanded = f"$HOME/.silica/workspaces/{workspace_name}/tools"
+        try:
+            piku_utils.set_config(
+                app_name=workspace_name,
+                key="SILICA_TOOLS_DIR",
+                value=tools_dir_expanded,
+            )
+            console.print("[green]✓ Set SILICA_TOOLS_DIR for workspace[/green]")
+        except Exception as e:
+            console.print(
+                f"[yellow]Warning: Could not set SILICA_TOOLS_DIR: {e}[/yellow]"
+            )
+
+        return True
+
+    except Exception as e:
+        console.print(f"[red]Error copying tools: {e}[/red]")
+        return False
+
 
 # Required tools and their installation instructions
 REQUIRED_TOOLS: Dict[str, str] = {
@@ -258,6 +503,20 @@ def create(
             help="Create local workspace on specified port (default: 8000 if --local used without port)",
         ),
     ] = None,
+    select_tools: Annotated[
+        bool,
+        cyclopts.Parameter(
+            name=["--select-tools"],
+            help="Interactively select which personal tools to copy (default: copy all)",
+        ),
+    ] = False,
+    no_tools: Annotated[
+        bool,
+        cyclopts.Parameter(
+            name=["--no-tools"],
+            help="Skip copying personal tools",
+        ),
+    ] = False,
 ):
     """Create a new agent environment workspace."""
 
@@ -288,20 +547,50 @@ def create(
                 f.write(".silica/\n")
             console.print("[green]Successfully added .silica/ to .gitignore[/green]")
 
+    # Determine tool selection mode
+    # Default: copy all personal tools
+    # --select-tools: interactive selection
+    # --no-tools: skip copying
+    if no_tools:
+        selected_tools = []
+    elif select_tools:
+        personal_tools = get_personal_tools()
+        if personal_tools:
+            selected_tools = select_tools_wizard(personal_tools)
+        else:
+            selected_tools = []
+            console.print("[dim]No personal tools found in ~/.silica/tools/[/dim]")
+    else:
+        # Default: copy all personal tools
+        personal_tools = get_personal_tools()
+        selected_tools = [path for _, _, path in personal_tools]
+        if selected_tools:
+            console.print(
+                f"[dim]Copying {len(selected_tools)} personal tools to workspace[/dim]"
+            )
+
     # Determine if this is a local or remote workspace
     if local is not None:
         # Local workspace creation
         port = (
             local if local != 0 else 8000
         )  # Default to 8000 if --local used without port
-        return create_local_workspace(workspace, port, git_root, silica_dir)
+        return create_local_workspace(
+            workspace, port, git_root, silica_dir, selected_tools
+        )
     else:
         # Remote workspace creation (existing logic)
-        return create_remote_workspace(workspace, connection, git_root, silica_dir)
+        return create_remote_workspace(
+            workspace, connection, git_root, silica_dir, selected_tools
+        )
 
 
 def create_remote_workspace(
-    workspace_name: str, connection: Optional[str], git_root: Path, silica_dir: Path
+    workspace_name: str,
+    connection: Optional[str],
+    git_root: Path,
+    silica_dir: Path,
+    selected_tools: List[Path] = None,
 ):
     """Create a remote workspace using piku deployment and HTTP initialization.
 
@@ -310,7 +599,10 @@ def create_remote_workspace(
         connection: Piku connection string
         git_root: Path to git repository root
         silica_dir: Path to .silica directory
+        selected_tools: List of tool paths to copy to remote
     """
+    if selected_tools is None:
+        selected_tools = []
     # Load global configuration
     config = load_config()
 
@@ -602,6 +894,10 @@ def create_remote_workspace(
                 f'[bold]silica remote tell -w {workspace_name} "initialize with <repo_url>"[/bold]'
             )
 
+        # Copy selected personal tools to remote
+        if selected_tools:
+            copy_tools_to_remote(workspace_name, selected_tools, is_local=False)
+
     except subprocess.CalledProcessError as e:
         console.print(f"[red]Error creating remote environment: {e}[/red]")
     except git.GitCommandError as e:
@@ -611,7 +907,11 @@ def create_remote_workspace(
 
 
 def create_local_workspace(
-    workspace_name: str, port: int, git_root: Path, silica_dir: Path
+    workspace_name: str,
+    port: int,
+    git_root: Path,
+    silica_dir: Path,
+    selected_tools: List[Path] = None,
 ):
     """Create a local workspace using antennae HTTP endpoints.
 
@@ -620,7 +920,13 @@ def create_local_workspace(
         port: Port where antennae webapp will run
         git_root: Path to git repository root
         silica_dir: Path to .silica directory
+        selected_tools: List of tool paths to copy to workspace
     """
+    # Copy tools to workspace-local directory
+    if selected_tools:
+        copy_tools_to_remote(
+            workspace_name, selected_tools, is_local=True, silica_dir=silica_dir
+        )
     console.print(
         f"[bold]Creating local workspace '{workspace_name}' on port {port}[/bold]"
     )
@@ -725,8 +1031,6 @@ def create_local_workspace(
                         )
 
                         # Offer to shut it down
-                        from rich.prompt import Confirm
-
                         if Confirm.ask(
                             f"Do you want to shut down the existing server and create '{workspace_name}'?",
                             default=False,
@@ -848,6 +1152,11 @@ def create_local_workspace(
                 value = os.environ.get(var)
                 if value:
                     env_vars.append(f"{var}={value}")
+
+            # Set SILICA_TOOLS_DIR to workspace-local tools directory
+            workspace_tools_dir = silica_dir / "workspaces" / workspace_name / "tools"
+            if workspace_tools_dir.exists():
+                env_vars.append(f"SILICA_TOOLS_DIR={workspace_tools_dir}")
 
             # Build the command with environment variables
             env_setup = " ".join(f"export {var};" for var in env_vars)

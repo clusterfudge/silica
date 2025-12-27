@@ -2,9 +2,13 @@
 
 User tools are self-installing Python scripts stored in ~/.silica/tools/ that use
 the PEP 723 inline script metadata format with uv for dependency management.
+
+The tools directory can be overridden with the SILICA_TOOLS_DIR environment variable,
+which is used by remote workspaces to point to workspace-local tools.
 """
 
 import json
+import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -14,8 +18,18 @@ from typing import Any, Optional
 
 
 def get_tools_dir() -> Path:
-    """Get the user tools directory, creating it if necessary."""
-    tools_dir = Path.home() / ".silica" / "tools"
+    """Get the user tools directory, creating it if necessary.
+
+    If SILICA_TOOLS_DIR environment variable is set, uses that directory.
+    Otherwise defaults to ~/.silica/tools/.
+    """
+    # Check for environment variable override (used by remote workspaces)
+    env_tools_dir = os.environ.get("SILICA_TOOLS_DIR")
+    if env_tools_dir:
+        tools_dir = Path(env_tools_dir)
+    else:
+        tools_dir = Path.home() / ".silica" / "tools"
+
     tools_dir.mkdir(parents=True, exist_ok=True)
     return tools_dir
 
@@ -27,18 +41,29 @@ def get_archive_dir() -> Path:
     return archive_dir
 
 
-def get_toolspec_helper_path() -> Path:
-    """Get the path to the toolspec helper module."""
-    return get_tools_dir() / "_silica_toolspec.py"
-
-
 def ensure_toolspec_helper() -> Path:
-    """Ensure the toolspec helper module exists and is up-to-date.
+    """Ensure the toolspec helper module exists in the personal tools directory.
 
     This copies the generate_schema function to a standalone module that
     user tools can import without depending on the full silica package.
     """
-    helper_path = get_toolspec_helper_path()
+    return ensure_toolspec_helper_in_dir(get_tools_dir())
+
+
+def ensure_toolspec_helper_in_dir(tools_dir: Path) -> Path:
+    """Ensure the toolspec helper module exists in the specified directory.
+
+    This copies the generate_schema function to a standalone module that
+    user tools can import without depending on the full silica package.
+
+    Args:
+        tools_dir: Directory where the helper should be created
+
+    Returns:
+        Path to the created helper module
+    """
+    tools_dir.mkdir(parents=True, exist_ok=True)
+    helper_path = tools_dir / "_silica_toolspec.py"
 
     # Generate the helper module content
     helper_content = '''"""Silica toolspec helper - auto-generated, do not edit.
@@ -181,6 +206,11 @@ def generate_schemas_for_commands(
     return helper_path
 
 
+def get_toolspec_helper_path() -> Path:
+    """Get the path to the toolspec helper module in the personal tools dir."""
+    return get_tools_dir() / "_silica_toolspec.py"
+
+
 @dataclass
 class ToolMetadata:
     """Metadata extracted from a tool's docstring."""
@@ -260,6 +290,9 @@ class DiscoveredTool:
     file_stem: str = None  # The filename stem (for multi-tool files)
     error: str = None
     group: str = None  # The group name for permission management
+    is_authorized: bool = (
+        True  # Whether the tool is authorized (for tools requiring auth)
+    )
 
     def __post_init__(self):
         if self.file_stem is None:
@@ -268,35 +301,82 @@ class DiscoveredTool:
             self.group = self.file_stem
 
 
-def discover_tools() -> list[DiscoveredTool]:
-    """Discover all user tools in the tools directory.
+def discover_tools(check_auth: bool = False) -> list[DiscoveredTool]:
+    """Discover all user tools from ~/.silica/tools/.
+
+    Args:
+        check_auth: Whether to verify authorization for tools with requires_auth=True.
+                    If False, is_authorized is set to True for all tools.
+                    If True, tools that fail auth check will have is_authorized=False.
 
     Returns a list of DiscoveredTool objects with their specs and metadata.
     A single file can contain multiple tools (--toolspec returns an array).
     Tools that fail to load are included with an error message.
     """
-    tools_dir = get_tools_dir()
+    # Ensure toolspec helper exists
     ensure_toolspec_helper()
 
     discovered = []
+    tools_dir = get_tools_dir()
 
     for path in tools_dir.glob("*.py"):
         # Skip the helper module and hidden files
         if path.name.startswith("_") or path.name.startswith("."):
             continue
 
-        file_tools = _discover_tools_from_file(path)
+        file_tools = _discover_tools_from_file(path, check_auth=check_auth)
         discovered.extend(file_tools)
 
     return discovered
 
 
-def _discover_tools_from_file(path: Path) -> list[DiscoveredTool]:
+def check_tool_authorization(path: Path) -> tuple[bool, str]:
+    """Check if a tool is authorized by calling --authorize.
+
+    Args:
+        path: Path to the tool file
+
+    Returns:
+        Tuple of (is_authorized, message)
+    """
+    try:
+        result = subprocess.run(
+            ["uv", "run", str(path), "--authorize"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=str(path.parent),
+        )
+
+        if result.returncode == 0:
+            try:
+                auth_result = json.loads(result.stdout)
+                success = auth_result.get("success", False)
+                message = auth_result.get("message", "")
+                return success, message
+            except json.JSONDecodeError:
+                # If output isn't JSON, assume authorized if exit code was 0
+                return True, "Authorized"
+        else:
+            return False, result.stderr.strip() or "Authorization check failed"
+    except subprocess.TimeoutExpired:
+        return False, "Authorization check timed out"
+    except Exception as e:
+        return False, f"Authorization check error: {e}"
+
+
+def _discover_tools_from_file(
+    path: Path, check_auth: bool = True
+) -> list[DiscoveredTool]:
     """Discover tools from a single file.
 
     A file can contain one or more tools. --toolspec should return either:
     - A single tool spec object: {"name": ..., "description": ..., "input_schema": ...}
     - An array of tool specs: [{"name": ..., ...}, {"name": ..., ...}]
+
+    Args:
+        path: Path to the tool file
+        check_auth: Whether to check authorization for tools with requires_auth=True
     """
     file_stem = path.stem
 
@@ -342,6 +422,14 @@ def _discover_tools_from_file(path: Path) -> list[DiscoveredTool]:
         docstring = _extract_module_docstring(source)
         metadata = parse_tool_metadata(docstring)
 
+        # Check authorization if tool requires it
+        is_authorized = True
+        auth_error = None
+        if check_auth and metadata.requires_auth:
+            is_authorized, auth_message = check_tool_authorization(path)
+            if not is_authorized:
+                auth_error = f"Not authorized: {auth_message}"
+
         # Handle both single spec and array of specs
         if isinstance(spec_data, list):
             # Multiple tools in one file
@@ -355,6 +443,8 @@ def _discover_tools_from_file(path: Path) -> list[DiscoveredTool]:
                         spec=spec,
                         metadata=metadata,
                         file_stem=file_stem,
+                        is_authorized=is_authorized,
+                        error=auth_error,
                     )
                 )
             return tools
@@ -368,6 +458,8 @@ def _discover_tools_from_file(path: Path) -> list[DiscoveredTool]:
                     spec=spec_data,
                     metadata=metadata,
                     file_stem=file_stem,
+                    is_authorized=is_authorized,
+                    error=auth_error,
                 )
             ]
 

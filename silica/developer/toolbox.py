@@ -36,6 +36,8 @@ class Toolbox:
         context: AgentContext,
         tool_names: List[str] | None = None,
         tools: List[str] | None = None,
+        skip_user_tool_auth: bool = False,
+        show_warnings: bool = True,
     ):
         self.context = context
         self.local = {}  # CLI tools
@@ -77,8 +79,9 @@ class Toolbox:
 
         # Discover user-created tools from ~/.silica/tools/
         self.user_tools: Dict[str, DiscoveredTool] = {}
+        self._skip_user_tool_auth = skip_user_tool_auth
+        self._show_warnings = show_warnings
         self._discover_user_tools()
-
         # Register CLI tools
         self.register_cli_tool("help", self._help, "Show help", aliases=["h"])
         self.register_cli_tool("tips", self._tips, "Show usage tips and tricks")
@@ -177,6 +180,20 @@ class Toolbox:
                 tool_info["docstring"],
                 aliases=tool_info.get("aliases", []),
             )
+
+        # Register tool authorization CLI tool
+        self.register_cli_tool(
+            "auth-tool",
+            self._auth_tool,
+            "Authorize a user tool that requires authentication",
+        )
+
+        # Register tools management CLI tool
+        self.register_cli_tool(
+            "tools",
+            self._tools,
+            "List available tools and manage user tool authorization",
+        )
 
         # Schema for agent tools
         self.agent_schema = self.schemas()
@@ -335,7 +352,6 @@ class Toolbox:
     async def invoke_agent_tools(self, tool_uses):
         """Invoke multiple agent tools, potentially in parallel."""
         import asyncio
-        from .tools.framework import invoke_tool
         from .sandbox import DoSomethingElseError
 
         # Log tool usage for user feedback
@@ -360,9 +376,9 @@ class Toolbox:
                     )
 
                 # Create coroutines for parallel execution
+                # Note: Use invoke_agent_tool which handles both built-in and user tools
                 parallel_coroutines = [
-                    invoke_tool(self.context, tool_use, tools=self.agent_tools)
-                    for tool_use in parallel_tools
+                    self.invoke_agent_tool(tool_use) for tool_use in parallel_tools
                 ]
 
                 # Execute in parallel with proper cancellation handling
@@ -399,9 +415,8 @@ class Toolbox:
 
                 for tool_use in sequential_tools:
                     try:
-                        result = await invoke_tool(
-                            self.context, tool_use, tools=self.agent_tools
-                        )
+                        # Use invoke_agent_tool which handles both built-in and user tools
+                        result = await self.invoke_agent_tool(tool_use)
                         results.append(result)
                     except (KeyboardInterrupt, asyncio.CancelledError):
                         raise KeyboardInterrupt("Tool execution interrupted by user")
@@ -1703,18 +1718,465 @@ Use `/groups` to see available tool groups."""
             # Regenerate schema
             self.agent_schema = self.schemas()
 
+    def _auth_tool(self, user_interface, sandbox, user_input, *args, **kwargs):
+        """Authorize a user tool that requires authentication.
+
+        Usage: /auth-tool <tool_name>
+
+        This runs the tool's --authorize flag interactively, allowing the tool
+        to complete any authentication flow it requires (e.g., OAuth, API keys).
+        """
+        from .tools.user_tools import get_tools_dir
+
+        tool_name = user_input.strip()
+        if not tool_name:
+            # List tools that need authorization
+            discovered = discover_tools(check_auth=True)
+            unauth_tools = [
+                t
+                for t in discovered
+                if not t.is_authorized and t.metadata.requires_auth
+            ]
+
+            if not unauth_tools:
+                return "All tools are authorized. No action needed."
+
+            output = "**Tools requiring authorization:**\n\n"
+            for tool in unauth_tools:
+                output += (
+                    f"  • `{tool.file_stem}` - {tool.error or 'Needs authorization'}\n"
+                )
+            output += "\n**Usage:** `/auth-tool <tool_name>`"
+            return output
+
+        # Find the tool file
+        tools_dir = get_tools_dir()
+        tool_path = tools_dir / f"{tool_name}.py"
+
+        if not tool_path.exists():
+            return f"Tool not found: {tool_name}"
+
+        # Run the tool with --authorize interactively
+        user_interface.handle_system_message(
+            f"Running authorization for {tool_name}...", markdown=False
+        )
+
+        try:
+            # Run interactively (not capturing output)
+            result = subprocess.run(
+                ["uv", "run", str(tool_path), "--authorize"],
+                cwd=str(tool_path.parent),
+                timeout=300,  # 5 minute timeout for interactive auth
+            )
+
+            if result.returncode == 0:
+                # Refresh user tools to pick up the newly authorized tool
+                self.refresh_user_tools()
+                return f"✓ Tool '{tool_name}' authorized successfully!\nThe tool is now available for use."
+            else:
+                return f"✗ Authorization failed for '{tool_name}' (exit code {result.returncode})"
+
+        except subprocess.TimeoutExpired:
+            return f"✗ Authorization timed out for '{tool_name}'"
+        except Exception as e:
+            return f"✗ Error during authorization: {e}"
+
+    async def _tools(self, user_interface, sandbox, user_input, *args, **kwargs):
+        """List available tools and manage user tool authorization.
+
+        Shows an interactive tree of all built-in and user tools organized by group.
+        Users can expand/collapse groups and select user tools to authorize.
+        """
+        from .tools.user_tools import get_tools_dir
+
+        # Discover all user tools (with auth check)
+        all_discovered = discover_tools(check_auth=True)
+
+        # Build groups for built-in tools
+        builtin_groups = {}
+        for tool in self.agent_tools:
+            group = get_tool_group(tool) or "Ungrouped"
+            if group not in builtin_groups:
+                builtin_groups[group] = []
+            builtin_groups[group].append(
+                {
+                    "name": tool.__name__,
+                    "description": (tool.__doc__ or "").split("\n")[0][:50],
+                    "type": "builtin",
+                }
+            )
+
+        # Sort tools within each group
+        for group in builtin_groups:
+            builtin_groups[group].sort(key=lambda t: t["name"])
+
+        # Categorize user tools
+        user_tools_by_status = {
+            "available": [],
+            "needs_auth": [],
+            "error": [],
+        }
+
+        for tool in all_discovered:
+            tool_info = {
+                "name": tool.name,
+                "file_stem": tool.file_stem,
+                "description": (tool.spec.get("description", "") if tool.spec else "")[
+                    :50
+                ],
+                "requires_auth": tool.metadata.requires_auth,
+                "is_authorized": tool.is_authorized,
+                "error": tool.error,
+                "type": "user",
+            }
+            if tool.error and not tool.is_authorized and tool.metadata.requires_auth:
+                user_tools_by_status["needs_auth"].append(tool_info)
+            elif tool.error:
+                user_tools_by_status["error"].append(tool_info)
+            else:
+                user_tools_by_status["available"].append(tool_info)
+
+        # Build the interactive menu options
+        options = []
+        option_metadata = []  # Track what each option represents
+
+        # Add built-in tool groups (collapsed - just show group name)
+        options.append("━━━ Built-in Tools ━━━")
+        option_metadata.append({"type": "header"})
+
+        for group_name in sorted(builtin_groups.keys()):
+            tools = builtin_groups[group_name]
+            options.append(f"  📁 {group_name} ({len(tools)} tools)")
+            option_metadata.append(
+                {
+                    "type": "builtin_group",
+                    "group": group_name,
+                    "tools": tools,
+                    "expanded": False,
+                }
+            )
+
+        # Add user tools section
+        tools_dir = get_tools_dir()
+        options.append("")
+        option_metadata.append({"type": "spacer"})
+        options.append(f"━━━ User Tools ({tools_dir}) ━━━")
+        option_metadata.append({"type": "header"})
+
+        # Available user tools
+        if user_tools_by_status["available"]:
+            for tool in sorted(
+                user_tools_by_status["available"], key=lambda t: t["name"]
+            ):
+                auth_icon = "🔐 " if tool["requires_auth"] else ""
+                options.append(f"  ✓ {auth_icon}{tool['name']}")
+                option_metadata.append(
+                    {"type": "user_tool", "tool": tool, "action": None}
+                )
+
+        # User tools needing authorization (these are actionable)
+        if user_tools_by_status["needs_auth"]:
+            for tool in sorted(
+                user_tools_by_status["needs_auth"], key=lambda t: t["name"]
+            ):
+                options.append(f"  ⚠ {tool['file_stem']} (needs auth)")
+                option_metadata.append(
+                    {
+                        "type": "user_tool_auth",
+                        "tool": tool,
+                        "action": "authorize",
+                    }
+                )
+
+        # User tools with errors
+        if user_tools_by_status["error"]:
+            for tool in sorted(user_tools_by_status["error"], key=lambda t: t["name"]):
+                options.append(f"  ✗ {tool['name']} (error)")
+                option_metadata.append({"type": "user_tool_error", "tool": tool})
+
+        if not all_discovered:
+            options.append("  (no user tools)")
+            option_metadata.append({"type": "empty"})
+
+        # Add actions at the bottom
+        options.append("")
+        option_metadata.append({"type": "spacer"})
+        options.append("━━━ Actions ━━━")
+        option_metadata.append({"type": "header"})
+        options.append("  📋 Show all tools (detailed list)")
+        option_metadata.append({"type": "action", "action": "detailed"})
+        options.append("  ❌ Close")
+        option_metadata.append({"type": "action", "action": "close"})
+
+        # Present the interactive selector
+        try:
+            choice_idx = await self._interactive_tools_browser(
+                user_interface, options, option_metadata, builtin_groups
+            )
+
+            if choice_idx is not None and choice_idx < len(option_metadata):
+                meta = option_metadata[choice_idx]
+
+                if meta["type"] == "user_tool_auth":
+                    # Authorize the selected tool
+                    tool_name = meta["tool"]["file_stem"]
+                    return self._auth_tool(user_interface, sandbox, tool_name)
+
+                elif meta["type"] == "action":
+                    if meta["action"] == "detailed":
+                        return self._tools_detailed(
+                            builtin_groups, user_tools_by_status, tools_dir
+                        )
+
+            return ""
+
+        except (AttributeError, NotImplementedError):
+            # Interactive browser not available, fall back to text output
+            return self._tools_detailed(builtin_groups, user_tools_by_status, tools_dir)
+
+    async def _interactive_tools_browser(
+        self, user_interface, options, option_metadata, builtin_groups
+    ):
+        """Run an interactive tool browser with expand/collapse support."""
+        expanded_groups = set()  # Track which groups are expanded
+        current_options = list(options)
+        current_metadata = list(option_metadata)
+
+        while True:
+            try:
+                choice = await user_interface.get_user_choice(
+                    "Tools Browser (select group to expand, or tool to act on):",
+                    current_options,
+                )
+
+                if not choice:
+                    return None
+
+                # Find the index of the selected option
+                try:
+                    choice_idx = current_options.index(choice)
+                except ValueError:
+                    return None
+
+                meta = current_metadata[choice_idx]
+
+                # Handle group expansion/collapse
+                if meta["type"] == "builtin_group":
+                    group_name = meta["group"]
+                    if group_name in expanded_groups:
+                        # Collapse: remove this group from expanded and rebuild
+                        expanded_groups.discard(group_name)
+                    else:
+                        # Expand: add this group to expanded
+                        expanded_groups.add(group_name)
+
+                    # Rebuild the options list with current expansion state
+                    current_options, current_metadata = self._build_tools_options(
+                        builtin_groups, option_metadata, expanded_groups
+                    )
+                    continue
+
+                # Handle actionable items
+                elif meta["type"] in ("user_tool_auth", "action"):
+                    return choice_idx
+
+                # Headers, spacers, and non-actionable items - just re-show
+                else:
+                    continue
+
+            except (KeyboardInterrupt, EOFError):
+                return None
+
+    def _build_tools_options(self, builtin_groups, base_metadata, expanded_groups):
+        """Rebuild options list based on which groups are expanded."""
+        from .tools.user_tools import get_tools_dir
+
+        options = []
+        metadata = []
+
+        # Header
+        options.append("━━━ Built-in Tools ━━━")
+        metadata.append({"type": "header"})
+
+        # Built-in groups
+        for group_name in sorted(builtin_groups.keys()):
+            tools = builtin_groups[group_name]
+            is_expanded = group_name in expanded_groups
+            icon = "📂" if is_expanded else "📁"
+            options.append(f"  {icon} {group_name} ({len(tools)} tools)")
+            metadata.append(
+                {
+                    "type": "builtin_group",
+                    "group": group_name,
+                    "tools": tools,
+                    "expanded": is_expanded,
+                }
+            )
+
+            # If expanded, show the tools
+            if is_expanded:
+                for tool in tools:
+                    options.append(f"      • {tool['name']}")
+                    metadata.append({"type": "builtin_tool", "tool": tool})
+
+        # Copy the rest from base_metadata (user tools section)
+        # Find where user tools section starts in base_metadata
+        user_section_start = None
+        for i, m in enumerate(base_metadata):
+            if m["type"] == "header" and i > 0:
+                # Found the user tools header
+                user_section_start = i - 1  # Include the spacer before it
+                break
+
+        if user_section_start is not None:
+            # Find corresponding options
+            opt_idx = 0
+            for i, m in enumerate(base_metadata):
+                if i >= user_section_start:
+                    # Map base_metadata index to options index
+                    # This is tricky - we need to find where in options this corresponds
+                    break
+                if m["type"] == "builtin_group":
+                    opt_idx += 1
+                elif m["type"] in ("header", "spacer"):
+                    opt_idx += 1
+
+            # Simpler approach: just append everything after built-in section
+            for m in base_metadata:
+                if m["type"] == "spacer" and len(metadata) > 2:
+                    # We've passed built-in tools, start copying
+                    break
+
+            # Add user tools section (from original)
+            all_discovered = discover_tools(check_auth=True)
+            tools_dir = get_tools_dir()
+
+            options.append("")
+            metadata.append({"type": "spacer"})
+            options.append(f"━━━ User Tools ({tools_dir}) ━━━")
+            metadata.append({"type": "header"})
+
+            for tool in all_discovered:
+                if (
+                    tool.error
+                    and not tool.is_authorized
+                    and tool.metadata.requires_auth
+                ):
+                    options.append(f"  ⚠ {tool.file_stem} (needs auth)")
+                    metadata.append(
+                        {
+                            "type": "user_tool_auth",
+                            "tool": {"file_stem": tool.file_stem, "name": tool.name},
+                            "action": "authorize",
+                        }
+                    )
+                elif tool.error:
+                    options.append(f"  ✗ {tool.name} (error)")
+                    metadata.append(
+                        {"type": "user_tool_error", "tool": {"name": tool.name}}
+                    )
+                else:
+                    auth_icon = "🔐 " if tool.metadata.requires_auth else ""
+                    options.append(f"  ✓ {auth_icon}{tool.name}")
+                    metadata.append(
+                        {
+                            "type": "user_tool",
+                            "tool": {"name": tool.name},
+                            "action": None,
+                        }
+                    )
+
+            if not all_discovered:
+                options.append("  (no user tools)")
+                metadata.append({"type": "empty"})
+
+            # Actions
+            options.append("")
+            metadata.append({"type": "spacer"})
+            options.append("━━━ Actions ━━━")
+            metadata.append({"type": "header"})
+            options.append("  📋 Show all tools (detailed list)")
+            metadata.append({"type": "action", "action": "detailed"})
+            options.append("  ❌ Close")
+            metadata.append({"type": "action", "action": "close"})
+
+        return options, metadata
+
+    def _tools_detailed(self, builtin_groups, user_tools_by_status, tools_dir):
+        """Generate detailed text output of all tools."""
+        output = "# Available Tools (Detailed)\n\n"
+
+        # Built-in tools
+        output += "## Built-in Tools\n\n"
+        for group_name in sorted(builtin_groups.keys()):
+            tools = builtin_groups[group_name]
+            output += f"### {group_name}\n\n"
+            for tool in tools:
+                output += f"  • `{tool['name']}` - {tool['description']}\n"
+            output += "\n"
+
+        output += f"_Total: {sum(len(t) for t in builtin_groups.values())} built-in tools_\n\n"
+
+        # User tools
+        output += "## User Tools\n\n"
+        output += f"_Directory: `{tools_dir}`_\n\n"
+
+        if user_tools_by_status["available"]:
+            output += "### ✓ Available\n\n"
+            for tool in sorted(
+                user_tools_by_status["available"], key=lambda t: t["name"]
+            ):
+                auth_note = " 🔐" if tool["requires_auth"] else ""
+                output += f"  • `{tool['name']}`{auth_note} - {tool['description']}\n"
+            output += "\n"
+
+        if user_tools_by_status["needs_auth"]:
+            output += "### ⚠ Needs Authorization\n\n"
+            for tool in sorted(
+                user_tools_by_status["needs_auth"], key=lambda t: t["name"]
+            ):
+                output += f"  • `{tool['file_stem']}` - {tool['error'] or 'Requires authorization'}\n"
+            output += "\n"
+
+        if user_tools_by_status["error"]:
+            output += "### ✗ Errors\n\n"
+            for tool in sorted(user_tools_by_status["error"], key=lambda t: t["name"]):
+                output += f"  • `{tool['name']}` - {tool['error']}\n"
+            output += "\n"
+
+        total = sum(len(v) for v in user_tools_by_status.values())
+        if total == 0:
+            output += "_No user tools found._\n\n"
+        else:
+            output += f"_Total: {total} user tools_\n\n"
+
+        return output
+
     def _discover_user_tools(self):
         """Discover user-created tools from ~/.silica/tools/."""
         try:
-            discovered = discover_tools()
+            # Check auth during schema building - unauthenticated tools won't be available
+            # Skip auth check if requested (e.g., during CLI tool registration)
+            discovered = discover_tools(check_auth=not self._skip_user_tool_auth)
             for tool in discovered:
-                if tool.error:
-                    # Log error but don't fail - tool will just be unavailable
-                    self.context.user_interface.handle_system_message(
-                        f"Warning: User tool '{tool.name}' failed to load: {tool.error}",
-                        markdown=False,
-                    )
-                elif tool.spec:
+                if tool.error and not tool.is_authorized:
+                    # Tool requires auth but isn't authorized - log but don't add to toolbox
+                    # Only show warning if show_warnings is enabled (avoids duplicate messages)
+                    if self._show_warnings:
+                        self.context.user_interface.handle_system_message(
+                            f"Warning: User tool '{tool.name}' requires authorization. "
+                            f"Use /auth-tool {tool.file_stem} to authorize.",
+                            markdown=False,
+                        )
+                elif tool.error:
+                    # Other errors - log but tool won't be available
+                    if self._show_warnings:
+                        self.context.user_interface.handle_system_message(
+                            f"Warning: User tool '{tool.name}' failed to load: {tool.error}",
+                            markdown=False,
+                        )
+                elif tool.spec and tool.is_authorized:
+                    # Only add tools that are authorized and have a valid spec
                     self.user_tools[tool.name] = tool
 
             # Filter user tools based on permissions
@@ -1724,10 +2186,11 @@ Use `/groups` to see available tool groups."""
                 )
         except Exception as e:
             # Don't fail if user tool discovery fails
-            self.context.user_interface.handle_system_message(
-                f"Warning: Failed to discover user tools: {e}",
-                markdown=False,
-            )
+            if self._show_warnings:
+                self.context.user_interface.handle_system_message(
+                    f"Warning: Failed to discover user tools: {e}",
+                    markdown=False,
+                )
 
     def refresh_user_tools(self):
         """Re-discover user tools (call after creating/modifying tools)."""

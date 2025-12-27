@@ -1234,7 +1234,8 @@ def attach_tools(app):
     )
     # Set dwr_mode for permissions bypass in attach_tools mode
     context.dwr_mode = True
-    toolbox = Toolbox(context)
+    # Skip user tool auth check during CLI registration to avoid auth warnings
+    toolbox = Toolbox(context, skip_user_tool_auth=True)
 
     commands = set(toolbox.local.keys())
     for command in commands:

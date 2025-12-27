@@ -188,7 +188,8 @@ class AgentContext:
         system_message = create_system_message(self)
 
         # Create toolbox and get tool schemas
-        toolbox = Toolbox(self, tool_names=tool_names)
+        # Suppress warnings since this is just for schema generation, not the main toolbox
+        toolbox = Toolbox(self, tool_names=tool_names, show_warnings=False)
         tools = toolbox.agent_schema
 
         # Process messages with inlined file mentions

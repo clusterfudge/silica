@@ -13,6 +13,7 @@ from silica.remote.cli.commands import (
     progress,
     status,
     sync,
+    sync_tools,
     tell,
     todos,
     workspace,
@@ -29,6 +30,7 @@ app.command(create.create)
 app.command(status.status)
 app.command(destroy.destroy)
 app.command(sync.sync)
+app.command(sync_tools.sync_tools, name="sync-tools")
 app.command(agent_cmd.enter, name="enter")
 app.command(tell.tell)
 app.command(progress.progress)
