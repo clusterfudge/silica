@@ -67,26 +67,47 @@ def list_local_tools(tools_dir: Path) -> List[Tuple[str, str, Path]]:
     return tools
 
 
-def create_tools_archive(tool_paths: List[Path]) -> bytes:
+def create_tools_archive(tool_paths: List[Path], include_config: bool = True) -> bytes:
     """Create a tar.gz archive of the specified tools.
+
+    Automatically includes:
+    - All helper modules (files starting with _)
+    - Config files (*.yml, *.yaml) if include_config is True
 
     Args:
         tool_paths: List of tool file paths
+        include_config: Whether to include config files (default: True)
 
     Returns:
         Bytes of the tar.gz archive
     """
     buffer = BytesIO()
+    tools_dir = tool_paths[0].parent if tool_paths else get_local_tools_dir()
+    added_files = set()
 
     with tarfile.open(fileobj=buffer, mode="w:gz") as tar:
+        # Add the specified tools
         for path in tool_paths:
             tar.add(path, arcname=path.name)
+            added_files.add(path.name)
 
-        # Include helper if any tool was added
-        if tool_paths:
-            helper_path = tool_paths[0].parent / "_silica_toolspec.py"
-            if helper_path.exists():
-                tar.add(helper_path, arcname="_silica_toolspec.py")
+        # Include ALL helper modules (files starting with _)
+        # This ensures _google_auth.py and _silica_toolspec.py are synced
+        for helper_path in tools_dir.glob("_*.py"):
+            if helper_path.name not in added_files:
+                tar.add(helper_path, arcname=helper_path.name)
+                added_files.add(helper_path.name)
+
+        # Include config files (for calendar configuration, etc.)
+        if include_config:
+            for config_path in tools_dir.glob("*.yml"):
+                if config_path.name not in added_files:
+                    tar.add(config_path, arcname=config_path.name)
+                    added_files.add(config_path.name)
+            for config_path in tools_dir.glob("*.yaml"):
+                if config_path.name not in added_files:
+                    tar.add(config_path, arcname=config_path.name)
+                    added_files.add(config_path.name)
 
     buffer.seek(0)
     return buffer.read()
@@ -214,10 +235,15 @@ def sync_tools(
         workspace_tools_dir = silica_dir / "workspaces" / workspace / "tools"
         workspace_tools_dir.mkdir(parents=True, exist_ok=True)
 
-        # Copy the toolspec helper first
-        helper_path = local_tools_dir / "_silica_toolspec.py"
-        if helper_path.exists():
-            shutil.copy(helper_path, workspace_tools_dir / "_silica_toolspec.py")
+        # Copy ALL helper modules (files starting with _)
+        for helper_path in local_tools_dir.glob("_*.py"):
+            shutil.copy(helper_path, workspace_tools_dir / helper_path.name)
+
+        # Copy config files (*.yml, *.yaml)
+        for config_path in local_tools_dir.glob("*.yml"):
+            shutil.copy(config_path, workspace_tools_dir / config_path.name)
+        for config_path in local_tools_dir.glob("*.yaml"):
+            shutil.copy(config_path, workspace_tools_dir / config_path.name)
 
         # Copy each tool
         for path in selected_paths:

@@ -8,6 +8,7 @@ from silica.remote.cli.commands import (
     config,
     create,
     destroy,
+    google_auth,
     memory_proxy,
     piku,
     progress,
@@ -42,6 +43,9 @@ app.command(todos.todos)
 app.command(piku.piku)
 app.command(workspace.workspace)
 app.command(memory_proxy.app)  # Memory Proxy deployment commands
+app.command(
+    google_auth.google_auth, name="google-auth"
+)  # Google OAuth token management
 
 # Register workspace environment commands with aliases
 app.command(workspace_environment.workspace_environment)

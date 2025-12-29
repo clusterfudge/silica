@@ -23,22 +23,10 @@ from .browser_session_tools import (
     browser_session_destroy,
     browser_session_get_info,
 )
-from .gcal import (
-    calendar_setup,
-    calendar_list_events,
-    calendar_create_event,
-    calendar_delete_event,
-    calendar_search,
-    calendar_list_calendars,
-)
-from .gmail import (
-    gmail_search,
-    gmail_read,
-    gmail_send,
-    gmail_read_thread,
-    find_emails_needing_response,
-    gmail_forward,
-)
+
+# Gmail and Calendar tools have been migrated to user tools
+# See ~/.silica/tools/gmail.py and ~/.silica/tools/gcal.py
+# The user tools take precedence over built-in tools with the same name
 from .memory import (
     get_memory_tree,
     search_memory,
@@ -105,18 +93,8 @@ ALL_TOOLS = (
         shell_session_get_output,
         shell_session_destroy,
         shell_session_set_timeout,
-        gmail_search,
-        gmail_read,
-        gmail_send,
-        gmail_read_thread,
-        find_emails_needing_response,
-        gmail_forward,
-        calendar_list_events,
-        calendar_create_event,
-        calendar_delete_event,
-        calendar_search,
-        calendar_setup,
-        calendar_list_calendars,
+        # Gmail and Calendar tools removed - now provided by user tools
+        # See ~/.silica/tools/gmail.py and ~/.silica/tools/gcal.py
         get_memory_tree,
         search_memory,
         read_memory_entry,

@@ -2205,15 +2205,25 @@ Use `/groups` to see available tool groups."""
         Returns a list of schema dictionaries matching the format of TOOLS_SCHEMA.
         Each schema has name, description, and input_schema with properties and required fields.
         Includes both built-in tools and user-created tools.
+
+        User tools take precedence over built-in tools with the same name, ensuring
+        no duplicates in the final schema list.
         """
         schemas = []
 
-        # Built-in tools
+        # Collect user tool names first (they take precedence)
+        user_tool_names = set(self.user_tools.keys())
+
+        # Built-in tools (skip if user tool with same name exists)
         for tool in self.agent_tools:
             if hasattr(tool, "schema"):
-                schemas.append(tool.schema())
+                schema = tool.schema()
+                tool_name = schema.get("name", tool.__name__)
+                # Skip built-in tools that have user tool replacements
+                if tool_name not in user_tool_names:
+                    schemas.append(schema)
 
-        # User-created tools
+        # User-created tools (always included, they take precedence)
         for name, tool in self.user_tools.items():
             if tool.spec:
                 schemas.append(tool.spec)
