@@ -80,11 +80,21 @@ async def user_choice(
             parsed = json.loads(question)
             if isinstance(parsed, list) and len(parsed) > 0:
                 # Validate it looks like question objects
+                # Support both "prompt" and "question" field names
                 if all(
-                    isinstance(q, dict) and "id" in q and "prompt" in q for q in parsed
+                    isinstance(q, dict)
+                    and "id" in q
+                    and ("prompt" in q or "question" in q)
+                    for q in parsed
                 ):
                     is_multi_question = True
-                    questions_list = parsed
+                    # Normalize to use "prompt" internally
+                    questions_list = []
+                    for q in parsed:
+                        normalized = dict(q)
+                        if "question" in normalized and "prompt" not in normalized:
+                            normalized["prompt"] = normalized.pop("question")
+                        questions_list.append(normalized)
         except json.JSONDecodeError:
             pass  # Not valid JSON, treat as single question
 
