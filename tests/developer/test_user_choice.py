@@ -98,11 +98,74 @@ class TestUserChoiceTool:
         assert "Error: all options must be strings" in result
 
     @pytest.mark.asyncio
-    async def test_user_choice_empty_options(self, mock_context):
-        """Test error handling for empty options array."""
-        result = await user_choice(mock_context, "Which?", "[]")
+    async def test_user_choice_empty_options_freeform(self, mock_context):
+        """Test that empty options triggers free-form text input."""
+        # Mock get_user_input for free-form
+        mock_context.user_interface.get_user_input = AsyncMock(return_value="my answer")
 
-        assert "Error: at least one option must be provided" in result
+        result = await user_choice(mock_context, "What's your name?", "")
+
+        assert result == "my answer"
+
+    @pytest.mark.asyncio
+    async def test_user_choice_no_options_freeform(self, mock_context):
+        """Test that no options parameter triggers free-form text input."""
+        mock_context.user_interface.get_user_input = AsyncMock(
+            return_value="free input"
+        )
+
+        result = await user_choice(mock_context, "Tell me something")
+
+        assert result == "free input"
+
+
+class TestUserChoiceMultiQuestion:
+    """Test the multi-question mode of user_choice."""
+
+    @pytest.mark.asyncio
+    async def test_multi_question_detected(self, mock_context):
+        """Test that JSON array of questions triggers multi-question mode."""
+        # Mock run_questionnaire to return answers
+        mock_context.user_interface.run_questionnaire = AsyncMock(
+            return_value={"name": "test", "type": "web"}
+        )
+
+        questions = json.dumps(
+            [
+                {"id": "name", "prompt": "Project name?"},
+                {"id": "type", "prompt": "Type?", "options": ["web", "cli"]},
+            ]
+        )
+
+        result = await user_choice(mock_context, questions)
+        parsed = json.loads(result)
+
+        assert parsed == {"name": "test", "type": "web"}
+
+    @pytest.mark.asyncio
+    async def test_multi_question_cancelled(self, mock_context):
+        """Test multi-question cancellation."""
+        mock_context.user_interface.run_questionnaire = AsyncMock(return_value=None)
+
+        questions = json.dumps([{"id": "name", "prompt": "Name?"}])
+
+        result = await user_choice(mock_context, questions)
+        parsed = json.loads(result)
+
+        assert parsed == {"cancelled": True}
+
+    @pytest.mark.asyncio
+    async def test_single_question_not_confused_with_multi(self, mock_context):
+        """Test that a regular question isn't confused with multi-question mode."""
+        mock_context.user_interface.get_user_choice = AsyncMock(return_value="Yes")
+
+        # This looks like it might be JSON but isn't a valid question array
+        result = await user_choice(
+            mock_context, "Do you want to continue?", '["Yes", "No"]'
+        )
+
+        assert result == "Yes"
+        mock_context.user_interface.get_user_choice.assert_called_once()
 
 
 class TestUserChoiceSchema:
@@ -117,11 +180,12 @@ class TestUserChoiceSchema:
         assert "input_schema" in schema
 
     def test_schema_required_parameters(self):
-        """Test that question and options are required."""
+        """Test that only question is required (options is optional)."""
         schema = user_choice.schema()
 
         assert "question" in schema["input_schema"]["required"]
-        assert "options" in schema["input_schema"]["required"]
+        # options is now optional for free-form and multi-question modes
+        assert "options" not in schema["input_schema"]["required"]
 
     def test_schema_parameter_types(self):
         """Test parameter types in schema."""
