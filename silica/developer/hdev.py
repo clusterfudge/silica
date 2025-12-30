@@ -1131,6 +1131,103 @@ class CustomCompleter(Completer):
                     yield Completion(history_item, start_position=start_position)
 
 
+def _display_resumed_session_context(
+    context: AgentContext,
+    user_interface: "CLIUserInterface",
+    console: Console,
+    num_messages: int = 3,
+) -> None:
+    """Display the last few messages from a resumed session for context.
+
+    Args:
+        context: The agent context with chat history
+        user_interface: The CLI user interface for rendering
+        console: Rich console for output
+        num_messages: Number of recent messages to show (default: 3)
+    """
+    from rich.panel import Panel
+    from rich.markdown import Markdown
+
+    history = context.chat_history
+    if not history:
+        return
+
+    # Get the last N messages
+    recent_messages = (
+        history[-num_messages:] if len(history) > num_messages else history
+    )
+
+    console.print(
+        f"\n[dim]━━━ Resumed session with {len(history)} messages ━━━[/dim]\n"
+    )
+
+    for msg in recent_messages:
+        role = msg.get("role", "unknown")
+        content = msg.get("content", "")
+
+        # Handle different content formats
+        if isinstance(content, str):
+            display_content = content
+        elif isinstance(content, list):
+            # Extract text from content blocks
+            text_parts = []
+            for block in content:
+                if isinstance(block, dict):
+                    if block.get("type") == "text":
+                        text_parts.append(block.get("text", ""))
+                    elif block.get("type") == "tool_use":
+                        text_parts.append(f"[tool: {block.get('name', 'unknown')}]")
+                    elif block.get("type") == "tool_result":
+                        result = block.get("content", "")
+                        if isinstance(result, str) and len(result) > 100:
+                            result = result[:100] + "..."
+                        text_parts.append(f"[tool result: {result}]")
+                elif hasattr(block, "type"):
+                    if block.type == "text":
+                        text_parts.append(getattr(block, "text", ""))
+                    elif block.type == "tool_use":
+                        text_parts.append(
+                            f"[tool: {getattr(block, 'name', 'unknown')}]"
+                        )
+            display_content = (
+                "\n".join(text_parts) if text_parts else "[complex content]"
+            )
+        else:
+            display_content = str(content)
+
+        # Truncate very long messages
+        if len(display_content) > 500:
+            display_content = display_content[:500] + "\n[...truncated...]"
+
+        if role == "user":
+            console.print(
+                Panel(
+                    Markdown(display_content),
+                    title="[bold blue]You[/bold blue]",
+                    border_style="blue",
+                    padding=(0, 1),
+                )
+            )
+        elif role == "assistant":
+            console.print(
+                Panel(
+                    Markdown(display_content),
+                    title="[bold green]Assistant[/bold green]",
+                    border_style="green",
+                    padding=(0, 1),
+                )
+            )
+
+    # Show token usage summary
+    usage = context.usage_summary()
+    console.print(
+        f"\n[dim]Session tokens: {usage['total_input_tokens']:,} in / "
+        f"{usage['total_output_tokens']:,} out | "
+        f"Cost: ${usage['total_cost']:.4f}[/dim]"
+    )
+    console.print("[dim]━━━ Continue below ━━━[/dim]\n")
+
+
 def _run_agent_loop(
     context: AgentContext,
     initial_prompt: str | None,
@@ -1490,6 +1587,10 @@ def cyclopts_main(
 
     # Set dwr_mode on context for permissions system bypass
     context.dwr_mode = dwr
+
+    # If resuming a session, show the last few messages for context
+    if session_id and context.chat_history:
+        _display_resumed_session_context(context, user_interface, console)
 
     # Set the agent context reference in the UI for keyboard shortcuts
     user_interface.agent_context = context
