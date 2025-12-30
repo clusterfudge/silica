@@ -1285,6 +1285,12 @@ def cyclopts_main(
             help="Session ID to resume. This will load the session's conversation history."
         ),
     ] = None,
+    resume: Annotated[
+        bool,
+        cyclopts.Parameter(
+            help="Show interactive session picker to resume a previous session"
+        ),
+    ] = False,
     persona: Annotated[
         Optional[str], cyclopts.Parameter(help="Persona to use for the assistant")
     ] = None,
@@ -1408,6 +1414,28 @@ def cyclopts_main(
 
     # Initialize user interface
     user_interface = CLIUserInterface(console, parsed_sandbox_mode)
+
+    # Handle --resume flag: show interactive session picker
+    if resume and not session_id:
+        from silica.developer.tools.sessions import interactive_resume, list_sessions
+
+        # Check if there are any sessions to resume
+        sessions = list_sessions(history_base_dir=persona_obj.base_directory)
+        if not sessions:
+            console.print("[yellow]No sessions found to resume.[/yellow]")
+        else:
+            # Run the interactive picker
+            selected_id = asyncio.get_event_loop().run_until_complete(
+                interactive_resume(
+                    user_interface=user_interface,
+                    history_base_dir=persona_obj.base_directory,
+                )
+            )
+            if selected_id:
+                session_id = selected_id
+                console.print(f"[green]Resuming session: {session_id}[/green]\n")
+            else:
+                console.print("[dim]No session selected, starting fresh.[/dim]\n")
 
     # Handle prompt loading from file or direct input (identical to original)
     initial_prompt = None
