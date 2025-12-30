@@ -1027,6 +1027,142 @@ class CLIUserInterface(UserInterface):
 
         return sessions[result]["session_id"]
 
+    async def run_questionnaire(
+        self, title: str, questions: list
+    ) -> dict[str, str] | None:
+        """Present an interactive questionnaire with summary and confirmation.
+
+        Guides the user through answering multiple questions, then shows a
+        summary for review. The user can edit answers before final submission.
+
+        Args:
+            title: Title/header for the questionnaire
+            questions: List of Question objects with id, prompt, options, default
+
+        Returns:
+            Dictionary mapping question IDs to answers, or None if cancelled
+        """
+        from rich.table import Table
+
+        answers: dict[str, str] = {}
+
+        self.console.print(f"\n[bold cyan]━━━ {title} ━━━[/bold cyan]\n")
+        self.console.print(
+            f"[dim]Answer {len(questions)} question(s). "
+            "You'll review before submitting.[/dim]\n"
+        )
+
+        # Collect answers for each question
+        for i, q in enumerate(questions):
+            progress = f"[dim]({i + 1}/{len(questions)})[/dim]"
+
+            if q.options:
+                # Use the existing get_user_choice for option selection
+                display_prompt = f"{progress} {q.prompt}"
+                if q.default:
+                    display_prompt += f" [dim](default: {q.default})[/dim]"
+
+                answer = await self.get_user_choice(display_prompt, q.options)
+
+                # Handle "Say something else..." response
+                if answer == "cancelled":
+                    return None
+            else:
+                # Free-form text input
+                self.console.print(f"{progress} [bold]{q.prompt}[/bold]")
+                if q.default:
+                    self.console.print(
+                        f"[dim]Press Enter for default: {q.default}[/dim]"
+                    )
+
+                answer = await self.session.prompt_async(
+                    rich_to_prompt_toolkit(Text("→ ", style="cyan")),
+                )
+
+                # Use default if empty
+                if not answer.strip() and q.default:
+                    answer = q.default
+                    self.console.print(f"[dim]Using default: {q.default}[/dim]")
+
+            answers[q.id] = answer.strip() if answer else (q.default or "")
+            self.console.print()
+
+        # Review loop
+        while True:
+            self.console.print("\n[bold cyan]━━━ Review Your Answers ━━━[/bold cyan]\n")
+
+            table = Table(show_header=True, header_style="bold", expand=True)
+            table.add_column("#", style="dim", width=3)
+            table.add_column("Question", style="cyan", ratio=2)
+            table.add_column("Your Answer", style="green", ratio=2)
+
+            for i, q in enumerate(questions):
+                prompt_display = (
+                    q.prompt[:50] + "..." if len(q.prompt) > 50 else q.prompt
+                )
+                answer_display = answers[q.id]
+                if len(answer_display) > 50:
+                    answer_display = answer_display[:50] + "..."
+                table.add_row(str(i + 1), prompt_display, answer_display)
+
+            self.console.print(table)
+            self.console.print()
+
+            # Confirmation prompt
+            action = await self.get_user_choice(
+                "What would you like to do?",
+                ["✓ Submit answers", "✎ Edit an answer", "✗ Cancel"],
+            )
+
+            if action.startswith("✓") or action == "Submit answers":
+                self.console.print("[green]✓ Answers submitted[/green]\n")
+                return answers
+            elif action.startswith("✗") or action == "Cancel" or action == "cancelled":
+                self.console.print("[yellow]Cancelled[/yellow]\n")
+                return None
+            elif action.startswith("✎") or action == "Edit an answer":
+                # Let user pick which question to edit
+                edit_options = [
+                    f"{i + 1}. {q.prompt[:40]}{'...' if len(q.prompt) > 40 else ''}"
+                    for i, q in enumerate(questions)
+                ]
+                edit_choice = await self.get_user_choice(
+                    "Which question do you want to edit?",
+                    edit_options,
+                )
+
+                if edit_choice == "cancelled":
+                    continue
+
+                # Parse the selection
+                try:
+                    edit_idx = int(edit_choice.split(".")[0]) - 1
+                except (ValueError, IndexError):
+                    # Try to find by matching
+                    edit_idx = next(
+                        (i for i, opt in enumerate(edit_options) if opt == edit_choice),
+                        -1,
+                    )
+
+                if 0 <= edit_idx < len(questions):
+                    q = questions[edit_idx]
+                    self.console.print(f"\n[bold]Editing:[/bold] {q.prompt}")
+                    self.console.print(f"[dim]Current: {answers[q.id]}[/dim]\n")
+
+                    if q.options:
+                        new_answer = await self.get_user_choice(
+                            "New answer:",
+                            q.options,
+                        )
+                    else:
+                        new_answer = await self.session.prompt_async(
+                            rich_to_prompt_toolkit(Text("New answer → ", style="cyan")),
+                        )
+
+                    if new_answer and new_answer != "cancelled":
+                        answers[q.id] = new_answer.strip()
+                        self.console.print("[green]✓ Answer updated[/green]")
+
 
 class CustomCompleter(Completer):
     def __init__(self, commands, history):

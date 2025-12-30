@@ -55,6 +55,9 @@ from .persona_tools import (
 from .user_choice import (
     user_choice,
 )
+from .user_questionnaire import (
+    user_questionnaire,
+)
 from .toolbox_tools import (
     toolbox_list,
     toolbox_create,
@@ -108,6 +111,7 @@ ALL_TOOLS = (
         read_persona,
         write_persona,
         user_choice,
+        user_questionnaire,
         # Toolbox tools for managing user-created tools
         toolbox_list,
         toolbox_create,
