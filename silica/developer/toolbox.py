@@ -195,8 +195,8 @@ class Toolbox:
             "List available tools and manage user tool authorization",
         )
 
-        # Schema for agent tools
-        self.agent_schema = self.schemas()
+        # Note: agent_schema is now a property that dynamically re-discovers user tools
+        # This ensures newly created user tools are immediately available
 
     def register_cli_tool(
         self,
@@ -1715,8 +1715,7 @@ Use `/groups` to see available tool groups."""
             # Re-discover and filter user tools
             self.user_tools = {}
             self._discover_user_tools()
-            # Regenerate schema
-            self.agent_schema = self.schemas()
+            # Note: agent_schema property will auto-refresh on next access
 
     def _auth_tool(self, user_interface, sandbox, user_input, *args, **kwargs):
         """Authorize a user tool that requires authentication.
@@ -2196,8 +2195,26 @@ Use `/groups` to see available tool groups."""
         """Re-discover user tools (call after creating/modifying tools)."""
         self.user_tools.clear()
         self._discover_user_tools()
-        # Regenerate schema
-        self.agent_schema = self.schemas()
+
+    @property
+    def agent_schema(self) -> List[dict]:
+        """Dynamically generate schemas, re-discovering user tools each time.
+
+        This ensures newly created user tools are immediately available
+        without requiring a session restart.
+        """
+        # Re-discover user tools to pick up any newly created ones
+        # Use show_warnings=False to avoid duplicate warnings on every API call
+        old_show_warnings = self._show_warnings
+        self._show_warnings = False
+        try:
+            # Clear and re-discover to pick up new tools
+            self.user_tools.clear()
+            self._discover_user_tools()
+        finally:
+            self._show_warnings = old_show_warnings
+
+        return self.schemas()
 
     def schemas(self, enable_caching: bool = True) -> List[dict]:
         """Generate schemas for all tools in the toolbox.
