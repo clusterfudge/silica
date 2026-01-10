@@ -195,6 +195,13 @@ class Toolbox:
             "List available tools and manage user tool authorization",
         )
 
+        # Register plan mode CLI tool
+        self.register_cli_tool(
+            "plan",
+            self._plan,
+            "Enter plan mode or manage plans",
+        )
+
         # Note: agent_schema is now a property that dynamically re-discovers user tools
         # This ensures newly created user tools are immediately available
 
@@ -239,27 +246,42 @@ class Toolbox:
         else:
             content = result
 
-        # Render info command output as markdown for better formatting
-        render_as_markdown = name == "info"
-        self.context.user_interface.handle_system_message(
-            content, markdown=render_as_markdown
-        )
-        add_to_buffer = confirm_to_add
-        if confirm_to_add and content and content.strip():
+        # Handle special return values:
+        # - tuple (content, auto_add): content with explicit add flag
+        # - str: normal content, follows confirm_to_add logic
+        # - None/"": no content, don't add to buffer
+        auto_add = None
+        if isinstance(content, tuple) and len(content) == 2:
+            content, auto_add = content
+
+        # If content is empty/None, nothing to add
+        if not content or not content.strip():
+            return "", False
+
+        # Render output to user (unless auto_add is True, meaning it's agent-bound)
+        if auto_add is not True:
+            render_as_markdown = name == "info"
+            self.context.user_interface.handle_system_message(
+                content, markdown=render_as_markdown
+            )
+
+        # Determine whether to add to buffer
+        if auto_add is not None:
+            # Explicit flag from tool
+            add_to_buffer = auto_add
+        elif confirm_to_add:
+            # Ask user for confirmation
             add_to_buffer = (
                 (
-                    (
-                        await self.context.user_interface.get_user_input(
-                            "[bold]Add command and output to conversation? (y/[red]N[/red]): [/bold]"
-                        )
+                    await self.context.user_interface.get_user_input(
+                        "[bold]Add command and output to conversation? (y/[red]N[/red]): [/bold]"
                     )
-                    .strip()
-                    .lower()
                 )
-                == "y"
-                and content
-                and content.strip()
-            )
+                .strip()
+                .lower()
+            ) == "y"
+        else:
+            add_to_buffer = False
 
         return content, add_to_buffer
 
@@ -2150,6 +2172,176 @@ Use `/groups` to see available tool groups."""
             output += f"_Total: {total} user tools_\n\n"
 
         return output
+
+    async def _plan(self, user_interface, sandbox, user_input, *args, **kwargs):
+        """Enter plan mode or manage plans.
+
+        Usage:
+            /plan                    - Start planning dialogue (prompts for topic)
+            /plan <topic>            - Start planning dialogue with topic
+            /plan list               - List active plans (human-only)
+            /plan view <id>          - View a specific plan (human-only)
+            /plan approve <id>       - Approve a plan for execution (human-only)
+            /plan abandon <id>       - Abandon/archive a plan (human-only)
+
+        When starting a plan (no subcommand), this injects a planning request into
+        the conversation and the agent will enter plan mode to collaborate with you.
+        """
+        from pathlib import Path
+        from silica.developer.plans import PlanManager, PlanStatus
+
+        def _print(msg, markdown=True):
+            """Print directly to user without adding to conversation."""
+            user_interface.handle_system_message(msg, markdown=markdown)
+
+        # Get plan manager
+        if self.context.history_base_dir is None:
+            base_dir = Path.home() / ".silica" / "personas" / "default"
+        else:
+            base_dir = Path(self.context.history_base_dir)
+        plan_manager = PlanManager(base_dir)
+
+        # Note: chat_history is available via kwargs.get("chat_history", [])
+        # if needed for future enhancements
+
+        args_list = user_input.strip().split(maxsplit=1) if user_input.strip() else []
+
+        # Determine if this is a subcommand or a planning request
+        subcommands = ["list", "view", "approve", "abandon"]
+        command = args_list[0].lower() if args_list else ""
+
+        # Check for management subcommands (human-only, no agent involvement)
+        if command == "list":
+            plans = plan_manager.list_active_plans()
+            if not plans:
+                _print("No active plans.")
+                return ""
+
+            output = "## Active Plans\n\n"
+            for plan in plans:
+                output += f"- `{plan.id}` - **{plan.title}** ({plan.status.value})\n"
+                output += f"  Updated: {plan.updated_at.strftime('%Y-%m-%d %H:%M')}\n"
+            _print(output)
+            return ""
+
+        elif command == "view":
+            if len(args_list) < 2:
+                # Show list and let user pick
+                plans = plan_manager.list_active_plans()
+                if not plans:
+                    _print("No plans to view.")
+                    return ""
+
+                options = [f"{p.id} - {p.title}" for p in plans]
+                choice = await user_interface.get_user_choice(
+                    "Select plan to view:", options
+                )
+                if not choice or choice == "cancelled":
+                    _print("Cancelled.")
+                    return ""
+                plan_id = choice.split(" - ")[0]
+            else:
+                plan_id = args_list[1]
+
+            plan = plan_manager.get_plan(plan_id)
+            if not plan:
+                _print(f"Plan {plan_id} not found.")
+                return ""
+            _print(plan.to_markdown())
+            return ""
+
+        elif command == "approve":
+            if len(args_list) < 2:
+                # Show plans in review
+                plans = [
+                    p
+                    for p in plan_manager.list_active_plans()
+                    if p.status == PlanStatus.IN_REVIEW
+                ]
+                if not plans:
+                    _print("No plans awaiting approval.")
+                    return ""
+
+                options = [f"{p.id} - {p.title}" for p in plans]
+                choice = await user_interface.get_user_choice(
+                    "Select plan to approve:", options
+                )
+                if not choice or choice == "cancelled":
+                    _print("Cancelled.")
+                    return ""
+                plan_id = choice.split(" - ")[0]
+            else:
+                plan_id = args_list[1]
+
+            if plan_manager.approve_plan(plan_id):
+                _print(f"✅ Plan `{plan_id}` approved! The agent can now execute it.")
+            else:
+                plan = plan_manager.get_plan(plan_id)
+                if not plan:
+                    _print(f"Plan {plan_id} not found.")
+                else:
+                    _print(
+                        f"Cannot approve plan in {plan.status.value} status. Must be IN_REVIEW."
+                    )
+            return ""
+
+        elif command == "abandon":
+            if len(args_list) < 2:
+                plans = plan_manager.list_active_plans()
+                if not plans:
+                    _print("No active plans to abandon.")
+                    return ""
+
+                options = [f"{p.id} - {p.title}" for p in plans]
+                choice = await user_interface.get_user_choice(
+                    "Select plan to abandon:", options
+                )
+                if not choice or choice == "cancelled":
+                    _print("Cancelled.")
+                    return ""
+                plan_id = choice.split(" - ")[0]
+            else:
+                plan_id = args_list[1]
+
+            if plan_manager.abandon_plan(plan_id):
+                _print(f"🗑️ Plan `{plan_id}` abandoned and archived.")
+            else:
+                _print(f"Could not abandon plan {plan_id}.")
+            return ""
+
+        else:
+            # This is a planning request - enter plan mode with agent
+
+            # Get topic (either from args or prompt user)
+            if not args_list or command in subcommands:
+                topic = await user_interface.get_user_input(
+                    "What would you like to plan? "
+                )
+                if not topic.strip():
+                    _print("Cancelled - no topic provided.")
+                    return ""
+                topic = topic.strip()
+            else:
+                topic = user_input.strip()
+
+            _print(
+                f"📋 **Entering Plan Mode**\n\nTopic: {topic}\n\nThe agent will now help you create a structured plan..."
+            )
+
+            # Create the planning prompt to send to agent
+            planning_prompt = f"""I'd like to enter plan mode to work on: {topic}
+
+Please use the `enter_plan_mode` tool to start planning this. Then:
+1. Analyze what's needed for this task
+2. Ask me clarifying questions using `ask_clarifications` if anything is unclear
+3. Document the implementation approach using `update_plan`
+4. Break down the work into tasks using `add_plan_tasks`
+
+Let's collaborate on creating a solid plan before implementation."""
+
+            # Return (content, auto_add=True) to automatically add to conversation
+            # and trigger agent response
+            return (planning_prompt, True)
 
     def _discover_user_tools(self):
         """Discover user-created tools from ~/.silica/tools/."""
