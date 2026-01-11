@@ -768,18 +768,48 @@ async def run(
                     results = await toolbox.invoke_agent_tools(tool_uses)
 
                     # Add all results to buffer and display them
+                    modified_files = []
                     for tool_use, result in zip(tool_uses, results):
                         tool_name = getattr(tool_use, "name", "unknown_tool")
+                        tool_input = getattr(tool_use, "input", {})
+
+                        # Track modified files for plan task hints
+                        if tool_name in ("write_file", "edit_file"):
+                            if "path" in tool_input:
+                                modified_files.append(tool_input["path"])
 
                         # Log tool execution
                         logger.log_tool_execution(
                             tool_name=tool_name,
-                            tool_input=getattr(tool_use, "input", {}),
+                            tool_input=tool_input,
                             tool_result=result,
                         )
 
                         agent_context.tool_result_buffer.append(result)
                         user_interface.handle_tool_result(tool_name, result)
+
+                    # Check for plan task completion hints after file modifications
+                    if modified_files:
+                        try:
+                            from silica.developer.tools.planning import (
+                                get_task_completion_hint,
+                            )
+
+                            hint = get_task_completion_hint(
+                                agent_context, modified_files
+                            )
+                            if hint:
+                                agent_context.tool_result_buffer.append(
+                                    {
+                                        "type": "text",
+                                        "text": hint,
+                                    }
+                                )
+                                user_interface.handle_system_message(
+                                    hint, markdown=True
+                                )
+                        except Exception:
+                            pass  # Don't fail if planning module has issues
                 except KeyboardInterrupt:
                     # Handle Ctrl+C during tool execution
                     user_interface.handle_system_message(
@@ -908,6 +938,25 @@ async def run(
                         "[bold yellow]Hit max tokens. Was unable to continue after multiple attempts.[/bold yellow]"
                     )
                     agent_context.chat_history.pop()
+
+            else:
+                # Normal end_turn - check for active plan reminders
+                # This reminds the agent to continue working on in-progress plans
+                try:
+                    from silica.developer.tools.planning import get_active_plan_reminder
+
+                    reminder = get_active_plan_reminder(agent_context)
+                    if reminder:
+                        # Add reminder to tool_result_buffer so it goes to the agent
+                        agent_context.tool_result_buffer.append(
+                            {
+                                "type": "text",
+                                "text": reminder,
+                            }
+                        )
+                        user_interface.handle_system_message(reminder, markdown=True)
+                except Exception:
+                    pass  # Don't fail if planning module has issues
 
             interrupt_count = 0
             last_interrupt_time = 0

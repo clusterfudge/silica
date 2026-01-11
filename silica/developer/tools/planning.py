@@ -15,6 +15,114 @@ if TYPE_CHECKING:
     from silica.developer.context import AgentContext
 
 
+def get_active_plan_reminder(context: "AgentContext") -> str | None:
+    """Check if there's an in-progress plan with incomplete tasks and return a reminder.
+
+    This is called by the agent loop to remind the agent to continue working on plans.
+
+    Args:
+        context: The agent context
+
+    Returns:
+        A reminder string if there's an active plan, None otherwise
+    """
+    plan_manager = _get_plan_manager(context)
+
+    # Look for in-progress plans
+    active_plans = plan_manager.list_active_plans()
+    in_progress = [p for p in active_plans if p.status == PlanStatus.IN_PROGRESS]
+
+    if not in_progress:
+        return None
+
+    # Get the most recently updated in-progress plan
+    plan = in_progress[0]  # Already sorted by updated_at desc
+    incomplete_tasks = plan.get_incomplete_tasks()
+
+    if not incomplete_tasks:
+        return None
+
+    # Build reminder
+    next_task = incomplete_tasks[0]
+    reminder = f"""📋 **Active Plan Reminder**
+
+**Plan:** {plan.title} (`{plan.id}`)
+**Status:** {plan.status.value}
+**Incomplete tasks:** {len(incomplete_tasks)}
+
+**Next task:** `{next_task.id}` - {next_task.description}"""
+
+    if next_task.files:
+        reminder += f"\n**Files:** {', '.join(next_task.files)}"
+
+    if next_task.details:
+        reminder += f"\n**Details:** {next_task.details}"
+
+    reminder += f"""
+
+When you complete this task, remember to call `complete_plan_task("{plan.id}", "{next_task.id}")`.
+When all tasks are done, call `complete_plan("{plan.id}")`.
+"""
+
+    return reminder
+
+
+def get_task_completion_hint(
+    context: "AgentContext", modified_files: list[str]
+) -> str | None:
+    """Check if modified files match any incomplete tasks and return a hint.
+
+    This is called after file-modifying tools to remind the agent to mark tasks complete.
+
+    Args:
+        context: The agent context
+        modified_files: List of file paths that were modified
+
+    Returns:
+        A hint string if files match a task, None otherwise
+    """
+    if not modified_files:
+        return None
+
+    plan_manager = _get_plan_manager(context)
+
+    # Look for in-progress plans
+    active_plans = plan_manager.list_active_plans()
+    in_progress = [p for p in active_plans if p.status == PlanStatus.IN_PROGRESS]
+
+    if not in_progress:
+        return None
+
+    # Normalize modified files for comparison
+    modified_set = set()
+    for f in modified_files:
+        # Handle both absolute and relative paths
+        path = Path(f)
+        modified_set.add(path.name)  # Just filename
+        modified_set.add(str(path))  # Full path as given
+        if path.is_absolute():
+            try:
+                modified_set.add(str(path.relative_to(Path.cwd())))
+            except ValueError:
+                pass
+
+    # Check each in-progress plan for matching tasks
+    for plan in in_progress:
+        for task in plan.get_incomplete_tasks():
+            if not task.files:
+                continue
+
+            # Check if any task files match modified files
+            for task_file in task.files:
+                task_path = Path(task_file)
+                if task_path.name in modified_set or task_file in modified_set:
+                    return f"""💡 **Task Hint:** You modified `{modified_files[0]}` which is part of task `{task.id}` ({task.description}).
+
+If this task is complete, call: `complete_plan_task("{plan.id}", "{task.id}")`"""
+
+    return None
+
+
 def _get_plan_manager(context: "AgentContext") -> PlanManager:
     """Get or create a PlanManager for the current persona."""
     if context.history_base_dir is None:

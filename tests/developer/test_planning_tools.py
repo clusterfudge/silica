@@ -456,3 +456,132 @@ class TestPlanManagerFromContext:
 
         expected = Path.home() / ".silica" / "personas" / "default"
         assert manager.base_dir == expected
+
+
+class TestGetActivePlanReminder:
+    """Tests for get_active_plan_reminder function."""
+
+    def test_no_active_plans(self, mock_context, temp_persona_dir):
+        from silica.developer.tools.planning import get_active_plan_reminder
+
+        reminder = get_active_plan_reminder(mock_context)
+        assert reminder is None
+
+    def test_plan_not_in_progress(self, mock_context, temp_persona_dir):
+        from silica.developer.tools.planning import get_active_plan_reminder
+
+        # Create a draft plan (not in progress)
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan.add_task("Task 1")
+        plan_manager.update_plan(plan)
+
+        reminder = get_active_plan_reminder(mock_context)
+        assert reminder is None
+
+    def test_plan_in_progress_with_tasks(self, mock_context, temp_persona_dir):
+        from silica.developer.tools.planning import get_active_plan_reminder
+
+        # Create and progress a plan
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan("Test Plan", "session123")
+        task = plan.add_task(
+            "Implement feature", files=["main.py"], details="Add the new code"
+        )
+        plan_manager.update_plan(plan)
+
+        # Progress to in-progress status
+        plan_manager.submit_for_review(plan.id)
+        plan_manager.approve_plan(plan.id)
+        plan_manager.start_execution(plan.id)
+
+        reminder = get_active_plan_reminder(mock_context)
+
+        assert reminder is not None
+        assert "Active Plan Reminder" in reminder
+        assert "Test Plan" in reminder
+        assert task.id in reminder
+        assert "Implement feature" in reminder
+        assert "main.py" in reminder
+        assert "complete_plan_task" in reminder
+
+    def test_plan_in_progress_all_tasks_complete(self, mock_context, temp_persona_dir):
+        from silica.developer.tools.planning import get_active_plan_reminder
+
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan("Test Plan", "session123")
+        task = plan.add_task("Task 1")
+        plan.complete_task(task.id)
+        plan_manager.update_plan(plan)
+
+        plan_manager.submit_for_review(plan.id)
+        plan_manager.approve_plan(plan.id)
+        plan_manager.start_execution(plan.id)
+
+        reminder = get_active_plan_reminder(mock_context)
+        assert reminder is None  # No incomplete tasks
+
+
+class TestGetTaskCompletionHint:
+    """Tests for get_task_completion_hint function."""
+
+    def test_no_modified_files(self, mock_context, temp_persona_dir):
+        from silica.developer.tools.planning import get_task_completion_hint
+
+        hint = get_task_completion_hint(mock_context, [])
+        assert hint is None
+
+    def test_no_active_plans(self, mock_context, temp_persona_dir):
+        from silica.developer.tools.planning import get_task_completion_hint
+
+        hint = get_task_completion_hint(mock_context, ["some_file.py"])
+        assert hint is None
+
+    def test_modified_file_matches_task(self, mock_context, temp_persona_dir):
+        from silica.developer.tools.planning import get_task_completion_hint
+
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan("Test Plan", "session123")
+        task = plan.add_task("Update main", files=["main.py"])
+        plan_manager.update_plan(plan)
+
+        plan_manager.submit_for_review(plan.id)
+        plan_manager.approve_plan(plan.id)
+        plan_manager.start_execution(plan.id)
+
+        hint = get_task_completion_hint(mock_context, ["main.py"])
+
+        assert hint is not None
+        assert "Task Hint" in hint
+        assert task.id in hint
+        assert "complete_plan_task" in hint
+
+    def test_modified_file_no_match(self, mock_context, temp_persona_dir):
+        from silica.developer.tools.planning import get_task_completion_hint
+
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan.add_task("Update main", files=["main.py"])
+        plan_manager.update_plan(plan)
+
+        plan_manager.submit_for_review(plan.id)
+        plan_manager.approve_plan(plan.id)
+        plan_manager.start_execution(plan.id)
+
+        hint = get_task_completion_hint(mock_context, ["other_file.py"])
+        assert hint is None
+
+    def test_task_without_files(self, mock_context, temp_persona_dir):
+        from silica.developer.tools.planning import get_task_completion_hint
+
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan.add_task("Task without files")  # No files specified
+        plan_manager.update_plan(plan)
+
+        plan_manager.submit_for_review(plan.id)
+        plan_manager.approve_plan(plan.id)
+        plan_manager.start_execution(plan.id)
+
+        hint = get_task_completion_hint(mock_context, ["any_file.py"])
+        assert hint is None
