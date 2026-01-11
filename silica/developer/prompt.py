@@ -68,9 +68,37 @@ Shell commands (shell_execute, shell_session_*) operate in the current working d
 Use the `sandbox_debug` tool to diagnose sandbox configuration issues if file operations behave unexpectedly.
 """
 
+    user_interaction_guidance = """
+## User Interaction Guidelines
+
+**Always use tools for user interaction instead of ending your turn with questions:**
+
+- Use `user_choice` for questions with discrete options or when collecting structured information
+- Use `ask_clarifications` (in plan mode) to gather multiple related pieces of information
+- Avoid ending responses with open-ended questions that require the user to type a new message
+
+**Why this matters:**
+- Tool-based questions provide better UX (selectable options, structured input)
+- Responses are captured and tracked properly in the conversation
+- Enables multi-question flows with review before submission
+- Keeps the agent loop flowing without unnecessary back-and-forth
+
+**Examples:**
+- Instead of: "Would you like me to proceed with option A or B?"
+  Use: `user_choice` with options ["Option A - description", "Option B - description"]
+  
+- Instead of: "What file should I modify?"
+  Use: `user_choice` with discovered file options, or gather context first
+
+- For complex planning: Use `enter_plan_mode` and `ask_clarifications` to collect requirements
+"""
+
     base_text = f"You are an AI assistant with access to a sandbox environment. Today's date is {__import__('datetime').datetime.now().strftime('%Y-%m-%d')}.\n\n## Tool Usage Efficiency\n\nWhen multiple tools can be executed independently, you may invoke them in a single response for better performance. Tools automatically manage their own concurrency limits to prevent conflicts and respect API rate limits.\n\nExamples of efficient parallel usage:\n- Checking multiple files: `read_file` for several different files\n- Gathering information: `gmail_search` + `calendar_list_events` + `todo_read`\n- Multiple searches: `web_search` for different topics + `search_memory`\n- Mixed operations: File reads + API calls + memory operations\n- Parallel sub-agents: Multiple `agent` calls for independent research/analysis tasks"
 
-    return {"type": "text", "text": base_text + sandbox_path_info}
+    return {
+        "type": "text",
+        "text": base_text + user_interaction_guidance + sandbox_path_info,
+    }
 
 
 def _load_persona_from_disk(agent_context: AgentContext) -> dict[str, Any] | None:
