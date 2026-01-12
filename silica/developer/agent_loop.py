@@ -328,13 +328,11 @@ async def run(
                             if plan_status["status"] == "planning":
                                 prompt = f"📋 {prompt}"
                             elif plan_status["status"] == "executing":
-                                done = (
-                                    plan_status["total_tasks"]
-                                    - plan_status["incomplete_tasks"]
-                                )
+                                # Show verified/total for progress
+                                verified = plan_status.get("verified_tasks", 0)
                                 total = plan_status["total_tasks"]
                                 if total > 0:
-                                    prompt = f"🚀 [{done}/{total}] {prompt}"
+                                    prompt = f"🚀 [{verified}✓/{total}] {prompt}"
                                 else:
                                     prompt = f"🚀 {prompt}"
                     except Exception:

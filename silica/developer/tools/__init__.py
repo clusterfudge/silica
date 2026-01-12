@@ -71,6 +71,7 @@ from .planning import (
     list_plans,
     exit_plan_mode,
     complete_plan_task,
+    verify_plan_task,
     complete_plan,
 )
 
@@ -134,6 +135,7 @@ ALL_TOOLS = (
         list_plans,
         exit_plan_mode,
         complete_plan_task,
+        verify_plan_task,
         complete_plan,
     ]
     + GITHUB_TOOLS

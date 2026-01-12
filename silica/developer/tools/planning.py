@@ -30,6 +30,8 @@ def get_active_plan_status(context: "AgentContext") -> dict | None:
             "title": str,
             "status": str,  # "planning" or "executing"
             "incomplete_tasks": int,
+            "unverified_tasks": int,
+            "verified_tasks": int,
             "total_tasks": int,
         }
     """
@@ -51,6 +53,8 @@ def get_active_plan_status(context: "AgentContext") -> dict | None:
         return None
 
     incomplete = len(plan.get_incomplete_tasks())
+    unverified = len(plan.get_unverified_tasks())
+    verified = len([t for t in plan.tasks if t.verified])
     total = len(plan.tasks)
 
     return {
@@ -58,6 +62,8 @@ def get_active_plan_status(context: "AgentContext") -> dict | None:
         "title": plan.title,
         "status": status,
         "incomplete_tasks": incomplete,
+        "unverified_tasks": unverified,
+        "verified_tasks": verified,
         "total_tasks": total,
     }
 
@@ -83,7 +89,7 @@ def get_active_plan_id(context: "AgentContext") -> str | None:
 
 
 def get_active_plan_reminder(context: "AgentContext") -> str | None:
-    """Check if there's an in-progress plan with incomplete tasks and return a reminder.
+    """Check if there's an in-progress plan with work remaining and return a reminder.
 
     This is called by the agent loop to remind the agent to continue working on plans.
 
@@ -91,7 +97,7 @@ def get_active_plan_reminder(context: "AgentContext") -> str | None:
         context: The agent context
 
     Returns:
-        A reminder string if there's an active plan, None otherwise
+        A reminder string if there's an active plan with work, None otherwise
     """
     plan_manager = _get_plan_manager(context)
 
@@ -105,30 +111,57 @@ def get_active_plan_reminder(context: "AgentContext") -> str | None:
     # Get the most recently updated in-progress plan
     plan = in_progress[0]  # Already sorted by updated_at desc
     incomplete_tasks = plan.get_incomplete_tasks()
+    unverified_tasks = plan.get_unverified_tasks()
 
-    if not incomplete_tasks:
+    # No work remaining
+    if not incomplete_tasks and not unverified_tasks:
         return None
 
-    # Build reminder
-    next_task = incomplete_tasks[0]
+    # Build status summary
+    total = len(plan.tasks)
+    completed = len([t for t in plan.tasks if t.completed])
+    verified = len([t for t in plan.tasks if t.verified])
+
     reminder = f"""📋 **Active Plan Reminder**
 
 **Plan:** {plan.title} (`{plan.id}`)
-**Status:** {plan.status.value}
-**Incomplete tasks:** {len(incomplete_tasks)}
+**Progress:** {completed}/{total} completed, {verified}/{total} verified
+"""
 
+    # Prioritize incomplete tasks over unverified
+    if incomplete_tasks:
+        next_task = incomplete_tasks[0]
+        reminder += f"""
 **Next task:** `{next_task.id}` - {next_task.description}"""
 
-    if next_task.files:
-        reminder += f"\n**Files:** {', '.join(next_task.files)}"
+        if next_task.files:
+            reminder += f"\n**Files:** {', '.join(next_task.files)}"
 
-    if next_task.details:
-        reminder += f"\n**Details:** {next_task.details}"
+        if next_task.details:
+            reminder += f"\n**Details:** {next_task.details}"
 
-    reminder += f"""
+        reminder += f"""
 
-When you complete this task, remember to call `complete_plan_task("{plan.id}", "{next_task.id}")`.
-When all tasks are done, call `complete_plan("{plan.id}")`.
+**Workflow:**
+1. Implement the task
+2. Call `complete_plan_task("{plan.id}", "{next_task.id}")`
+3. Run tests
+4. Call `verify_plan_task("{plan.id}", "{next_task.id}", "<test results>")`
+"""
+        if next_task.tests:
+            reminder += f"\n**Testing approach:** {next_task.tests}"
+
+    elif unverified_tasks:
+        # All tasks completed but some not verified
+        reminder += f"""
+⚠️ **{len(unverified_tasks)} task(s) need verification:**
+"""
+        for task in unverified_tasks[:3]:
+            reminder += f"- ✅ `{task.id}`: {task.description}\n"
+
+        reminder += f"""
+Run tests and call `verify_plan_task("{plan.id}", "<task_id>", "<test results>")` for each.
+When all verified, call `complete_plan("{plan.id}")`.
 """
 
     return reminder
@@ -183,9 +216,28 @@ def get_task_completion_hint(
             for task_file in task.files:
                 task_path = Path(task_file)
                 if task_path.name in modified_set or task_file in modified_set:
-                    return f"""💡 **Task Hint:** You modified `{modified_files[0]}` which is part of task `{task.id}` ({task.description}).
+                    hint = f"""💡 **Task Hint:** You modified `{modified_files[0]}` which is part of task `{task.id}` ({task.description}).
 
-If this task is complete, call: `complete_plan_task("{plan.id}", "{task.id}")`"""
+**Next steps:**
+1. Complete the task: `complete_plan_task("{plan.id}", "{task.id}")`
+2. Run tests to verify
+3. Verify the task: `verify_plan_task("{plan.id}", "{task.id}", "<test results>")`"""
+                    if task.tests:
+                        hint += f"\n\n**Testing approach:** {task.tests}"
+                    return hint
+
+    # Also check for completed but unverified tasks
+    for plan in in_progress:
+        for task in plan.get_unverified_tasks():
+            if not task.files:
+                continue
+
+            for task_file in task.files:
+                task_path = Path(task_file)
+                if task_path.name in modified_set or task_file in modified_set:
+                    return f"""💡 **Verification Reminder:** Task `{task.id}` ({task.description}) is completed but not verified.
+
+Run tests and call: `verify_plan_task("{plan.id}", "{task.id}", "<test results>")`"""
 
     return None
 
@@ -652,7 +704,11 @@ def complete_plan_task(
     task_id: str,
     notes: str = "",
 ) -> str:
-    """Mark a task in a plan as completed.
+    """Mark a task in a plan as completed (implementation done).
+
+    This marks the task as complete, but it still needs to be verified.
+    After completing a task, run tests and use `verify_plan_task` to confirm
+    the implementation is correct.
 
     Args:
         plan_id: ID of the plan
@@ -660,13 +716,20 @@ def complete_plan_task(
         notes: Optional notes about completion
 
     Returns:
-        Confirmation and remaining tasks
+        Confirmation with reminder to verify
     """
     plan_manager = _get_plan_manager(context)
     plan = plan_manager.get_plan(plan_id)
 
     if plan is None:
         return f"Error: Plan {plan_id} not found"
+
+    # Find the task to get its test info
+    task = None
+    for t in plan.tasks:
+        if t.id == task_id:
+            task = t
+            break
 
     if not plan.complete_task(task_id):
         return f"Error: Task {task_id} not found in plan {plan_id}"
@@ -678,14 +741,105 @@ def complete_plan_task(
 
     plan_manager.update_plan(plan)
 
+    # Build verification reminder
+    verify_hint = f"""
+⚠️ **Next: Verify this task**
+Run tests to confirm the implementation is correct, then call:
+`verify_plan_task("{plan_id}", "{task_id}", "<test results>")`
+"""
+    if task and task.tests:
+        verify_hint += f"\n**Testing approach:** {task.tests}"
+
     remaining = plan.get_incomplete_tasks()
+    unverified = plan.get_unverified_tasks()
+
+    status = f"✅ Task `{task_id}` marked as **completed** (implementation done).\n{verify_hint}"
+
     if remaining:
         remaining_list = "\n".join(
-            f"- [ ] `{t.id}`: {t.description}" for t in remaining[:5]
+            f"- ⬜ `{t.id}`: {t.description}" for t in remaining[:3]
         )
-        return f"✅ Task `{task_id}` completed.\n\n**Remaining tasks ({len(remaining)}):**\n{remaining_list}"
+        status += f"\n\n**Remaining tasks ({len(remaining)}):**\n{remaining_list}"
+
+    if unverified and len(unverified) > 1:  # More than just the current task
+        status += f"\n\n**Unverified tasks ({len(unverified)}):** Remember to verify completed tasks!"
+
+    return status
+
+
+@tool(group="Planning")
+def verify_plan_task(
+    context: "AgentContext",
+    plan_id: str,
+    task_id: str,
+    test_results: str,
+) -> str:
+    """Verify a completed task by confirming tests pass.
+
+    A task must be marked as completed before it can be verified.
+    Verification confirms that:
+    - Tests pass
+    - The implementation meets requirements
+    - No regressions were introduced
+
+    Args:
+        plan_id: ID of the plan
+        task_id: ID of the task to verify
+        test_results: Evidence of verification (test output, manual testing notes, etc.)
+
+    Returns:
+        Confirmation and remaining unverified tasks
+    """
+    plan_manager = _get_plan_manager(context)
+    plan = plan_manager.get_plan(plan_id)
+
+    if plan is None:
+        return f"Error: Plan {plan_id} not found"
+
+    # Find the task
+    task = None
+    for t in plan.tasks:
+        if t.id == task_id:
+            task = t
+            break
+
+    if task is None:
+        return f"Error: Task {task_id} not found in plan {plan_id}"
+
+    if not task.completed:
+        return f"Error: Task {task_id} must be completed before it can be verified. Use `complete_plan_task` first."
+
+    if task.verified:
+        return f"Task {task_id} is already verified."
+
+    if not test_results or not test_results.strip():
+        return "Error: test_results is required. Provide evidence of testing (test output, manual verification notes, etc.)"
+
+    if not plan.verify_task(task_id, test_results):
+        return f"Error: Could not verify task {task_id}"
+
+    plan.add_progress(f"Verified task {task_id}")
+    plan_manager.update_plan(plan)
+
+    # Check remaining work
+    incomplete = plan.get_incomplete_tasks()
+    unverified = plan.get_unverified_tasks()
+
+    status = f"✓✓ Task `{task_id}` **verified**!\n"
+
+    if incomplete:
+        status += f"\n**Incomplete tasks ({len(incomplete)}):**\n"
+        for t in incomplete[:3]:
+            status += f"- ⬜ `{t.id}`: {t.description}\n"
+    elif unverified:
+        status += f"\n**Tasks needing verification ({len(unverified)}):**\n"
+        for t in unverified[:3]:
+            status += f"- ✅ `{t.id}`: {t.description}\n"
     else:
-        return f"✅ Task `{task_id}` completed.\n\n🎉 All tasks complete! Use `complete_plan` to finish."
+        status += "\n🎉 **All tasks completed and verified!**\n"
+        status += f'Use `complete_plan("{plan_id}")` to finish the plan.'
+
+    return status
 
 
 @tool(group="Planning")
@@ -695,6 +849,8 @@ def complete_plan(
     notes: str = "",
 ) -> str:
     """Mark a plan as completed.
+
+    All tasks must be both completed AND verified before the plan can be completed.
 
     Args:
         plan_id: ID of the plan to complete
@@ -712,10 +868,21 @@ def complete_plan(
     if plan.status not in [PlanStatus.IN_PROGRESS, PlanStatus.APPROVED]:
         return f"Error: Can only complete plans that are APPROVED or IN_PROGRESS (current: {plan.status.value})"
 
+    # Check for incomplete tasks
     incomplete = plan.get_incomplete_tasks()
     if incomplete:
-        task_list = "\n".join(f"- `{t.id}`: {t.description}" for t in incomplete)
-        return f"⚠️ Warning: {len(incomplete)} tasks are incomplete:\n{task_list}\n\nComplete these tasks first or use `abandon` if no longer needed."
+        task_list = "\n".join(f"- ⬜ `{t.id}`: {t.description}" for t in incomplete)
+        return f"⚠️ **Cannot complete plan:** {len(incomplete)} tasks are incomplete:\n{task_list}\n\nComplete these tasks first using `complete_plan_task`."
+
+    # Check for unverified tasks
+    unverified = plan.get_unverified_tasks()
+    if unverified:
+        task_list = "\n".join(f"- ✅ `{t.id}`: {t.description}" for t in unverified)
+        return f"""⚠️ **Cannot complete plan:** {len(unverified)} tasks are not verified:
+{task_list}
+
+Run tests and use `verify_plan_task` for each task to confirm the implementation is correct.
+All tasks must be verified before the plan can be completed."""
 
     plan_manager.complete_plan(plan_id, notes)
 
@@ -723,7 +890,7 @@ def complete_plan(
 
 Plan `{plan_id}`: {plan.title}
 
-{notes if notes else "All tasks completed successfully."}
+{notes if notes else "All tasks completed and verified successfully."}
 
 The plan has been archived to the completed plans directory.
 """

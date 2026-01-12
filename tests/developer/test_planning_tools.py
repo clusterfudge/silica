@@ -393,6 +393,67 @@ class TestCompletePlanTask:
         assert "not found" in result
 
 
+class TestVerifyPlanTask:
+    """Tests for verify_plan_task tool."""
+
+    def test_verify_completed_task(self, mock_context, temp_persona_dir):
+        from silica.developer.tools.planning import verify_plan_task
+
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan("Test Plan", "session123")
+        task = plan.add_task("Test task")
+        plan.complete_task(task.id)
+        plan_manager.update_plan(plan)
+
+        result = verify_plan_task(
+            mock_context, plan.id, task.id, "All tests pass: 10/10"
+        )
+
+        assert "verified" in result.lower()
+
+        updated = plan_manager.get_plan(plan.id)
+        assert updated.tasks[0].verified is True
+        assert "10/10" in updated.tasks[0].verification_notes
+
+    def test_verify_incomplete_task_fails(self, mock_context, temp_persona_dir):
+        from silica.developer.tools.planning import verify_plan_task
+
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan("Test Plan", "session123")
+        task = plan.add_task("Test task")
+        plan_manager.update_plan(plan)
+
+        result = verify_plan_task(mock_context, plan.id, task.id, "Tests pass")
+
+        assert "Error" in result
+        assert "completed" in result.lower()
+
+    def test_verify_requires_test_results(self, mock_context, temp_persona_dir):
+        from silica.developer.tools.planning import verify_plan_task
+
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan("Test Plan", "session123")
+        task = plan.add_task("Test task")
+        plan.complete_task(task.id)
+        plan_manager.update_plan(plan)
+
+        result = verify_plan_task(mock_context, plan.id, task.id, "")
+
+        assert "Error" in result
+        assert "required" in result.lower()
+
+    def test_verify_nonexistent_task(self, mock_context, temp_persona_dir):
+        from silica.developer.tools.planning import verify_plan_task
+
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan("Test Plan", "session123")
+
+        result = verify_plan_task(mock_context, plan.id, "nonexistent", "Tests pass")
+
+        assert "Error" in result
+        assert "not found" in result
+
+
 class TestCompletePlan:
     """Tests for complete_plan tool."""
 
@@ -401,6 +462,7 @@ class TestCompletePlan:
         plan = plan_manager.create_plan("Test Plan", "session123")
         task = plan.add_task("Test task")
         plan.complete_task(task.id)
+        plan.verify_task(task.id, "Tests pass")  # Must verify before completing plan
         plan_manager.update_plan(plan)
 
         # Approve the plan first
@@ -425,8 +487,23 @@ class TestCompletePlan:
 
         result = complete_plan(mock_context, plan.id)
 
-        assert "Warning" in result
+        assert "Cannot complete plan" in result
         assert "incomplete" in result.lower()
+
+    def test_complete_plan_tasks_unverified(self, mock_context, temp_persona_dir):
+        """Tasks that are completed but not verified should block plan completion."""
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan("Test Plan", "session123")
+        task = plan.add_task("Unverified task")
+        plan.complete_task(task.id)  # Completed but not verified
+        plan_manager.update_plan(plan)
+        plan_manager.submit_for_review(plan.id)
+        plan_manager.approve_plan(plan.id)
+
+        result = complete_plan(mock_context, plan.id)
+
+        assert "Cannot complete plan" in result
+        assert "not verified" in result.lower()
 
     def test_complete_plan_wrong_status(self, mock_context, temp_persona_dir):
         plan_manager = PlanManager(temp_persona_dir)
@@ -579,13 +656,16 @@ class TestGetActivePlanReminder:
         assert "main.py" in reminder
         assert "complete_plan_task" in reminder
 
-    def test_plan_in_progress_all_tasks_complete(self, mock_context, temp_persona_dir):
+    def test_plan_in_progress_all_tasks_complete_but_unverified(
+        self, mock_context, temp_persona_dir
+    ):
+        """Reminder should show when tasks are complete but not verified."""
         from silica.developer.tools.planning import get_active_plan_reminder
 
         plan_manager = PlanManager(temp_persona_dir)
         plan = plan_manager.create_plan("Test Plan", "session123")
         task = plan.add_task("Task 1")
-        plan.complete_task(task.id)
+        plan.complete_task(task.id)  # Complete but not verified
         plan_manager.update_plan(plan)
 
         plan_manager.submit_for_review(plan.id)
@@ -593,7 +673,26 @@ class TestGetActivePlanReminder:
         plan_manager.start_execution(plan.id)
 
         reminder = get_active_plan_reminder(mock_context)
-        assert reminder is None  # No incomplete tasks
+        assert reminder is not None  # Should remind about verification
+        assert "verification" in reminder.lower()
+
+    def test_plan_in_progress_all_tasks_verified(self, mock_context, temp_persona_dir):
+        """No reminder when all tasks are verified."""
+        from silica.developer.tools.planning import get_active_plan_reminder
+
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan("Test Plan", "session123")
+        task = plan.add_task("Task 1")
+        plan.complete_task(task.id)
+        plan.verify_task(task.id, "Tests pass")  # Both complete and verified
+        plan_manager.update_plan(plan)
+
+        plan_manager.submit_for_review(plan.id)
+        plan_manager.approve_plan(plan.id)
+        plan_manager.start_execution(plan.id)
+
+        reminder = get_active_plan_reminder(mock_context)
+        assert reminder is None  # All verified, no reminder needed
 
 
 class TestGetTaskCompletionHint:

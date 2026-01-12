@@ -29,7 +29,12 @@ class PlanStatus(Enum):
 
 @dataclass
 class PlanTask:
-    """A single task within a plan."""
+    """A single task within a plan.
+
+    Tasks have two states:
+    - completed: Code/implementation is done
+    - verified: Tests pass and changes are validated
+    """
 
     id: str
     description: str
@@ -38,6 +43,8 @@ class PlanTask:
     tests: str = ""
     dependencies: list[str] = field(default_factory=list)
     completed: bool = False
+    verified: bool = False
+    verification_notes: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -48,6 +55,8 @@ class PlanTask:
             "tests": self.tests,
             "dependencies": self.dependencies,
             "completed": self.completed,
+            "verified": self.verified,
+            "verification_notes": self.verification_notes,
         }
 
     @classmethod
@@ -60,6 +69,8 @@ class PlanTask:
             tests=data.get("tests", ""),
             dependencies=data.get("dependencies", []),
             completed=data.get("completed", False),
+            verified=data.get("verified", False),
+            verification_notes=data.get("verification_notes", ""),
         )
 
 
@@ -263,8 +274,14 @@ class Plan:
         lines.append("")
         if self.tasks:
             for task in self.tasks:
-                checkbox = "[x]" if task.completed else "[ ]"
-                lines.append(f"- {checkbox} **{task.description}** (id: {task.id})")
+                # Show status: ⬜ pending, ✅ completed, ✓✓ verified
+                if task.verified:
+                    status = "✓✓"
+                elif task.completed:
+                    status = "✅"
+                else:
+                    status = "⬜"
+                lines.append(f"- {status} **{task.description}** (id: {task.id})")
                 if task.details:
                     lines.append(f"  - Details: {task.details}")
                 if task.files:
@@ -273,6 +290,8 @@ class Plan:
                     lines.append(f"  - Tests: {task.tests}")
                 if task.dependencies:
                     lines.append(f"  - Dependencies: {', '.join(task.dependencies)}")
+                if task.verification_notes:
+                    lines.append(f"  - Verification: {task.verification_notes}")
                 lines.append("")
         else:
             lines.append("_No tasks defined yet._")
@@ -429,10 +448,25 @@ class Plan:
         return False
 
     def complete_task(self, task_id: str) -> bool:
-        """Mark a task as completed."""
+        """Mark a task as completed (implementation done, not yet verified)."""
         for task in self.tasks:
             if task.id == task_id:
                 task.completed = True
+                self.updated_at = datetime.now(timezone.utc)
+                return True
+        return False
+
+    def verify_task(self, task_id: str, verification_notes: str = "") -> bool:
+        """Mark a task as verified (tests pass, changes validated).
+
+        A task must be completed before it can be verified.
+        """
+        for task in self.tasks:
+            if task.id == task_id:
+                if not task.completed:
+                    return False  # Must complete before verify
+                task.verified = True
+                task.verification_notes = verification_notes
                 self.updated_at = datetime.now(timezone.utc)
                 return True
         return False
@@ -442,8 +476,20 @@ class Plan:
         return [q for q in self.questions if q.answer is None]
 
     def get_incomplete_tasks(self) -> list[PlanTask]:
-        """Get all incomplete tasks."""
+        """Get all incomplete tasks (not completed)."""
         return [t for t in self.tasks if not t.completed]
+
+    def get_unverified_tasks(self) -> list[PlanTask]:
+        """Get all unverified tasks (completed but not verified)."""
+        return [t for t in self.tasks if t.completed and not t.verified]
+
+    def get_completed_unverified_tasks(self) -> list[PlanTask]:
+        """Get tasks that are completed but not yet verified."""
+        return [t for t in self.tasks if t.completed and not t.verified]
+
+    def all_tasks_verified(self) -> bool:
+        """Check if all tasks are verified."""
+        return all(t.verified for t in self.tasks) if self.tasks else True
 
 
 class PlanManager:
