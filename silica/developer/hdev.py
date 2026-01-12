@@ -1521,7 +1521,13 @@ def cyclopts_main(
     resume: Annotated[
         bool,
         cyclopts.Parameter(
-            help="Show interactive session picker to resume a previous session"
+            help="Show interactive session picker to resume a previous session (filters to current directory)"
+        ),
+    ] = False,
+    resume_all: Annotated[
+        bool,
+        cyclopts.Parameter(
+            help="Show interactive session picker with ALL sessions (not filtered by directory)"
         ),
     ] = False,
     persona: Annotated[
@@ -1648,16 +1654,18 @@ def cyclopts_main(
     # Initialize user interface
     user_interface = CLIUserInterface(console, parsed_sandbox_mode)
 
-    # Handle --resume flag: show interactive session picker
-    if resume and not session_id:
+    # Handle --resume or --resume-all flag: show interactive session picker
+    if (resume or resume_all) and not session_id:
         from silica.developer.tools.sessions import interactive_resume, list_sessions
 
-        # Check if there are any sessions to resume
-        sessions = list_sessions(history_base_dir=persona_obj.base_directory)
-        if not sessions:
+        cwd = os.getcwd()
+        all_sessions = list_sessions(history_base_dir=persona_obj.base_directory)
+
+        if not all_sessions:
             console.print("[yellow]No sessions found to resume.[/yellow]")
-        else:
-            # Run the interactive picker
+        elif resume_all:
+            # Show all sessions without filtering
+            console.print(f"[dim]Showing all {len(all_sessions)} sessions.[/dim]\n")
             selected_id = asyncio.get_event_loop().run_until_complete(
                 interactive_resume(
                     user_interface=user_interface,
@@ -1669,6 +1677,47 @@ def cyclopts_main(
                 console.print(f"[green]Resuming session: {session_id}[/green]\n")
             else:
                 console.print("[dim]No session selected, starting fresh.[/dim]\n")
+        else:
+            # Default: filter by current working directory
+            local_sessions = list_sessions(
+                workdir=cwd, history_base_dir=persona_obj.base_directory
+            )
+
+            if local_sessions:
+                # Show local sessions first with hint about --resume-all
+                console.print(
+                    f"[dim]Showing {len(local_sessions)} session(s) from current directory. "
+                    f"Use --resume-all to see all {len(all_sessions)} sessions.[/dim]\n"
+                )
+                selected_id = asyncio.get_event_loop().run_until_complete(
+                    interactive_resume(
+                        user_interface=user_interface,
+                        workdir=cwd,
+                        history_base_dir=persona_obj.base_directory,
+                    )
+                )
+                if selected_id:
+                    session_id = selected_id
+                    console.print(f"[green]Resuming session: {session_id}[/green]\n")
+                else:
+                    console.print("[dim]No session selected, starting fresh.[/dim]\n")
+            else:
+                # No local sessions, show all with a note
+                console.print(
+                    f"[dim]No sessions from current directory. "
+                    f"Showing all {len(all_sessions)} sessions.[/dim]\n"
+                )
+                selected_id = asyncio.get_event_loop().run_until_complete(
+                    interactive_resume(
+                        user_interface=user_interface,
+                        history_base_dir=persona_obj.base_directory,
+                    )
+                )
+                if selected_id:
+                    session_id = selected_id
+                    console.print(f"[green]Resuming session: {session_id}[/green]\n")
+                else:
+                    console.print("[dim]No session selected, starting fresh.[/dim]\n")
 
     # Handle prompt loading from file or direct input (identical to original)
     initial_prompt = None
