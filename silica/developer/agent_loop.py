@@ -317,6 +317,29 @@ async def run(
                     elif agent_context.thinking_mode == "ultra":
                         prompt = f"🧠 {cost} > "
 
+                    # Add plan mode indicator if active
+                    try:
+                        from silica.developer.tools.planning import (
+                            get_active_plan_status,
+                        )
+
+                        plan_status = get_active_plan_status(agent_context)
+                        if plan_status:
+                            if plan_status["status"] == "planning":
+                                prompt = f"📋 {prompt}"
+                            elif plan_status["status"] == "executing":
+                                done = (
+                                    plan_status["total_tasks"]
+                                    - plan_status["incomplete_tasks"]
+                                )
+                                total = plan_status["total_tasks"]
+                                if total > 0:
+                                    prompt = f"🚀 [{done}/{total}] {prompt}"
+                                else:
+                                    prompt = f"🚀 {prompt}"
+                    except Exception:
+                        pass  # Don't fail if planning module has issues
+
                     user_input = await user_interface.get_user_input(prompt)
 
                 command_name = (

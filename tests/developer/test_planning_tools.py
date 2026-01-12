@@ -458,6 +458,80 @@ class TestPlanManagerFromContext:
         assert manager.base_dir == expected
 
 
+class TestGetActivePlanStatus:
+    """Tests for get_active_plan_status function."""
+
+    def test_no_active_plans(self, mock_context, temp_persona_dir):
+        from silica.developer.tools.planning import get_active_plan_status
+
+        status = get_active_plan_status(mock_context)
+        assert status is None
+
+    def test_draft_plan_shows_planning(self, mock_context, temp_persona_dir):
+        from silica.developer.tools.planning import get_active_plan_status
+
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan.add_task("Task 1")
+        plan_manager.update_plan(plan)
+
+        status = get_active_plan_status(mock_context)
+
+        assert status is not None
+        assert status["id"] == plan.id
+        assert status["title"] == "Test Plan"
+        assert status["status"] == "planning"
+
+    def test_in_review_shows_planning(self, mock_context, temp_persona_dir):
+        from silica.developer.tools.planning import get_active_plan_status
+
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan_manager.update_plan(plan)
+        plan_manager.submit_for_review(plan.id)
+
+        status = get_active_plan_status(mock_context)
+
+        assert status is not None
+        assert status["status"] == "planning"
+
+    def test_in_progress_shows_executing(self, mock_context, temp_persona_dir):
+        from silica.developer.tools.planning import get_active_plan_status
+
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan.add_task("Task 1")
+        plan_manager.update_plan(plan)
+        plan_manager.submit_for_review(plan.id)
+        plan_manager.approve_plan(plan.id)
+        plan_manager.start_execution(plan.id)
+
+        status = get_active_plan_status(mock_context)
+
+        assert status is not None
+        assert status["status"] == "executing"
+        assert status["total_tasks"] == 1
+        assert status["incomplete_tasks"] == 1
+
+    def test_task_progress_tracking(self, mock_context, temp_persona_dir):
+        from silica.developer.tools.planning import get_active_plan_status
+
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan("Test Plan", "session123")
+        task1 = plan.add_task("Task 1")
+        plan.add_task("Task 2")
+        plan.complete_task(task1.id)
+        plan_manager.update_plan(plan)
+        plan_manager.submit_for_review(plan.id)
+        plan_manager.approve_plan(plan.id)
+        plan_manager.start_execution(plan.id)
+
+        status = get_active_plan_status(mock_context)
+
+        assert status["total_tasks"] == 2
+        assert status["incomplete_tasks"] == 1  # task2 still incomplete
+
+
 class TestGetActivePlanReminder:
     """Tests for get_active_plan_reminder function."""
 

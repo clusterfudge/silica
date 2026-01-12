@@ -15,6 +15,73 @@ if TYPE_CHECKING:
     from silica.developer.context import AgentContext
 
 
+def get_active_plan_status(context: "AgentContext") -> dict | None:
+    """Get the status of the most recent active plan for UI display.
+
+    This is used to show plan mode indicators in the prompt.
+
+    Args:
+        context: The agent context
+
+    Returns:
+        Dict with plan info if there's an active plan, None otherwise:
+        {
+            "id": str,
+            "title": str,
+            "status": str,  # "planning" or "executing"
+            "incomplete_tasks": int,
+            "total_tasks": int,
+        }
+    """
+    plan_manager = _get_plan_manager(context)
+    active_plans = plan_manager.list_active_plans()
+
+    if not active_plans:
+        return None
+
+    # Get the most recently updated plan
+    plan = active_plans[0]
+
+    # Determine if we're planning or executing
+    if plan.status in (PlanStatus.DRAFT, PlanStatus.IN_REVIEW):
+        status = "planning"
+    elif plan.status in (PlanStatus.APPROVED, PlanStatus.IN_PROGRESS):
+        status = "executing"
+    else:
+        return None
+
+    incomplete = len(plan.get_incomplete_tasks())
+    total = len(plan.tasks)
+
+    return {
+        "id": plan.id,
+        "title": plan.title,
+        "status": status,
+        "incomplete_tasks": incomplete,
+        "total_tasks": total,
+    }
+
+
+def get_active_plan_id(context: "AgentContext") -> str | None:
+    """Get the ID of the most recent active plan.
+
+    This is used for context-aware /plan commands.
+
+    Args:
+        context: The agent context
+
+    Returns:
+        Plan ID if there's an active plan, None otherwise
+    """
+    plan_manager = _get_plan_manager(context)
+    active_plans = plan_manager.list_active_plans()
+
+    if not active_plans:
+        return None
+
+    return active_plans[0].id
+
+
 def get_active_plan_reminder(context: "AgentContext") -> str | None:
     """Check if there's an in-progress plan with incomplete tasks and return a reminder.
 

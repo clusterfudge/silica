@@ -2226,20 +2226,15 @@ Use `/groups` to see available tool groups."""
 
         elif command == "view":
             if len(args_list) < 2:
-                # Show list and let user pick
-                plans = plan_manager.list_active_plans()
-                if not plans:
+                # Use active plan if available, otherwise show picker
+                active_plans = plan_manager.list_active_plans()
+                if not active_plans:
                     _print("No plans to view.")
                     return ""
 
-                options = [f"{p.id} - {p.title}" for p in plans]
-                choice = await user_interface.get_user_choice(
-                    "Select plan to view:", options
-                )
-                if not choice or choice == "cancelled":
-                    _print("Cancelled.")
-                    return ""
-                plan_id = choice.split(" - ")[0]
+                # Default to the most recent active plan
+                plan_id = active_plans[0].id
+                _print(f"Viewing active plan `{plan_id}`...")
             else:
                 plan_id = args_list[1]
 
@@ -2252,24 +2247,25 @@ Use `/groups` to see available tool groups."""
 
         elif command == "approve":
             if len(args_list) < 2:
-                # Show plans in review
-                plans = [
-                    p
-                    for p in plan_manager.list_active_plans()
-                    if p.status == PlanStatus.IN_REVIEW
+                # Use active plan if it's in review, otherwise show picker
+                active_plans = plan_manager.list_active_plans()
+                plans_in_review = [
+                    p for p in active_plans if p.status == PlanStatus.IN_REVIEW
                 ]
-                if not plans:
-                    _print("No plans awaiting approval.")
+
+                if not plans_in_review:
+                    # Check if there's an active plan not in review
+                    if active_plans:
+                        _print(
+                            f"Active plan `{active_plans[0].id}` is in {active_plans[0].status.value} status, not IN_REVIEW."
+                        )
+                    else:
+                        _print("No plans awaiting approval.")
                     return ""
 
-                options = [f"{p.id} - {p.title}" for p in plans]
-                choice = await user_interface.get_user_choice(
-                    "Select plan to approve:", options
-                )
-                if not choice or choice == "cancelled":
-                    _print("Cancelled.")
-                    return ""
-                plan_id = choice.split(" - ")[0]
+                # Default to the most recent plan in review
+                plan_id = plans_in_review[0].id
+                _print(f"Approving plan `{plan_id}`...")
             else:
                 plan_id = args_list[1]
 
@@ -2287,19 +2283,16 @@ Use `/groups` to see available tool groups."""
 
         elif command == "abandon":
             if len(args_list) < 2:
-                plans = plan_manager.list_active_plans()
-                if not plans:
+                # Use active plan if available, otherwise show picker
+                active_plans = plan_manager.list_active_plans()
+                if not active_plans:
                     _print("No active plans to abandon.")
                     return ""
 
-                options = [f"{p.id} - {p.title}" for p in plans]
-                choice = await user_interface.get_user_choice(
-                    "Select plan to abandon:", options
-                )
-                if not choice or choice == "cancelled":
-                    _print("Cancelled.")
-                    return ""
-                plan_id = choice.split(" - ")[0]
+                # Default to the most recent active plan
+                plan_id = active_plans[0].id
+                plan = active_plans[0]
+                _print(f"Abandoning active plan `{plan_id}` ({plan.title})...")
             else:
                 plan_id = args_list[1]
 
