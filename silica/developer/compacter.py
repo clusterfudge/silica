@@ -514,8 +514,29 @@ class ConversationCompacter:
             messages_for_summary, for_summary=True
         )
 
+        # Check for active plan and include in summary context
+        active_plan_context = ""
+        try:
+            from silica.developer.tools.planning import get_active_plan_status
+
+            plan_status = get_active_plan_status(agent_context)
+            if plan_status:
+                status_emoji = "📋" if plan_status["status"] == "planning" else "🚀"
+                active_plan_context = f"""
+
+**IMPORTANT: Active Plan in Progress**
+{status_emoji} Plan ID: {plan_status["id"]}
+Title: {plan_status["title"]}
+Status: {plan_status["status"]}
+Tasks: {plan_status["total_tasks"] - plan_status["incomplete_tasks"]}/{plan_status["total_tasks"]} complete
+
+The resumed conversation should continue working on this plan.
+"""
+        except Exception:
+            pass  # Don't fail compaction if planning module has issues
+
         # Create summarization prompt
-        system_prompt = """
+        system_prompt = f"""
         Summarize the following conversation for continuity.
         Include:
         1. Key points and decisions
@@ -528,7 +549,7 @@ class ConversationCompacter:
         
         Be comprehensive yet concise. The summary will be used to start a new conversation 
         that continues where this one left off.
-        """
+        {active_plan_context}"""
 
         # Generate summary using Claude
         summary_messages = [{"role": "user", "content": conversation_str}]
