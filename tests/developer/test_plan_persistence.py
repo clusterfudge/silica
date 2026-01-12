@@ -230,6 +230,107 @@ class TestPlanInCompactionSummary:
         assert "executing" in system_prompt
 
 
+class TestPlanApprovalTriggersExecution:
+    """Tests that approving a plan triggers agent execution."""
+
+    def test_plan_approve_returns_execution_prompt(self, temp_persona_dir):
+        """When /plan approve succeeds, it should return an execution prompt."""
+        from silica.developer.toolbox import Toolbox
+        import asyncio
+
+        # Create a plan in review state
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan("Test Feature", "session-1")
+        plan.add_task("Implement feature", files=["main.py"])
+        plan.add_task("Add tests", files=["test_main.py"])
+        plan_manager.update_plan(plan)
+        plan_manager.submit_for_review(plan.id)
+
+        plan_id = plan.id
+
+        # Create mock context and toolbox
+        mock_context = MagicMock()
+        mock_context.history_base_dir = temp_persona_dir
+        mock_context.session_id = "test-session"
+        mock_context.sandbox = MagicMock()
+        mock_context.user_interface = MagicMock()
+        mock_context.user_interface.handle_system_message = MagicMock()
+
+        toolbox = Toolbox(mock_context)
+
+        # Invoke the /plan approve command
+        result = asyncio.get_event_loop().run_until_complete(
+            toolbox.invoke_cli_tool("plan", f"approve {plan_id}", chat_history=[])
+        )
+
+        content, auto_add = result
+
+        # Should return execution prompt with auto_add=True
+        assert auto_add is True
+        assert "approved" in content.lower() or "execute" in content.lower()
+        assert plan_id in content
+        assert "exit_plan_mode" in content
+        assert "complete_plan_task" in content
+
+    def test_plan_approve_context_aware(self, temp_persona_dir):
+        """When /plan approve is called without ID, uses active plan."""
+        from silica.developer.toolbox import Toolbox
+        import asyncio
+
+        # Create a plan in review state
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan("Context Test", "session-1")
+        plan.add_task("Do something")
+        plan_manager.update_plan(plan)
+        plan_manager.submit_for_review(plan.id)
+
+        # Create mock context
+        mock_context = MagicMock()
+        mock_context.history_base_dir = temp_persona_dir
+        mock_context.session_id = "test-session"
+        mock_context.sandbox = MagicMock()
+        mock_context.user_interface = MagicMock()
+        mock_context.user_interface.handle_system_message = MagicMock()
+
+        toolbox = Toolbox(mock_context)
+
+        # Invoke /plan approve WITHOUT specifying plan ID
+        result = asyncio.get_event_loop().run_until_complete(
+            toolbox.invoke_cli_tool("plan", "approve", chat_history=[])
+        )
+
+        content, auto_add = result
+
+        # Should still work and trigger execution
+        assert auto_add is True
+        assert plan.id in content
+
+    def test_exit_plan_mode_execute_provides_task_details(
+        self, temp_persona_dir, mock_context
+    ):
+        """exit_plan_mode with action='execute' should provide task details."""
+        from silica.developer.tools.planning import exit_plan_mode
+
+        # Create and approve a plan
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan("Detailed Tasks", mock_context.session_id)
+        plan.add_task("First task", files=["file1.py"], details="Do this first")
+        plan.add_task("Second task", files=["file2.py"])
+        plan_manager.update_plan(plan)
+        plan_manager.submit_for_review(plan.id)
+        plan_manager.approve_plan(plan.id)
+
+        # Execute
+        result = exit_plan_mode(mock_context, plan.id, "execute")
+
+        # Should include task IDs, descriptions, and files
+        assert "Execution Started" in result
+        assert "First task" in result
+        assert "file1.py" in result
+        assert "complete_plan_task" in result
+        assert plan.id in result
+
+
 class TestPlanStorageIsolation:
     """Tests that plan storage is properly isolated from session storage."""
 

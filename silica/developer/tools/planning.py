@@ -594,22 +594,41 @@ Waiting for user approval before proceeding with implementation.
             plan_manager.start_execution(plan_id)
 
             incomplete_tasks = plan.get_incomplete_tasks()
-            task_list = "\n".join(
-                f"- [ ] {t.description}" for t in incomplete_tasks[:5]
-            )
+
+            # Build detailed task list with files
+            task_lines = []
+            for t in incomplete_tasks[:5]:
+                task_lines.append(f"- `{t.id}`: {t.description}")
+                if t.files:
+                    task_lines.append(f"  Files: {', '.join(t.files)}")
+                if t.details:
+                    task_lines.append(f"  Details: {t.details[:100]}...")
+            task_list = "\n".join(task_lines)
+
             if len(incomplete_tasks) > 5:
-                task_list += f"\n- ... and {len(incomplete_tasks) - 5} more"
+                task_list += f"\n- ... and {len(incomplete_tasks) - 5} more tasks"
+
+            # Get first task for immediate action
+            first_task = incomplete_tasks[0] if incomplete_tasks else None
+            next_action = ""
+            if first_task:
+                next_action = f"""
+**Start with task `{first_task.id}`:** {first_task.description}
+"""
+                if first_task.files:
+                    next_action += f"Files to modify: {', '.join(first_task.files)}\n"
 
             return f"""🚀 **Plan Execution Started**
 
 Plan `{plan_id}`: {plan.title}
 
-Status changed to IN_PROGRESS. You may now implement the plan.
+Status changed to IN_PROGRESS.
 
-**Tasks to complete:**
+**Tasks to complete ({len(incomplete_tasks)} total):**
 {task_list}
-
-Use `complete_plan_task` to mark tasks done, and `complete_plan` when finished.
+{next_action}
+After completing each task, call `complete_plan_task("{plan_id}", "<task_id>")`.
+When all tasks are done, call `complete_plan("{plan_id}")`.
 """
         elif plan.status == PlanStatus.DRAFT:
             return "Error: Plan must be approved before execution. Use action='submit' first."

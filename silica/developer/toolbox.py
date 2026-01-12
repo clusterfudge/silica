@@ -2270,7 +2270,31 @@ Use `/groups` to see available tool groups."""
                 plan_id = args_list[1]
 
             if plan_manager.approve_plan(plan_id):
-                _print(f"✅ Plan `{plan_id}` approved! The agent can now execute it.")
+                # Get the plan details for the execution prompt
+                plan = plan_manager.get_plan(plan_id)
+                _print(f"✅ Plan `{plan_id}` approved! Starting execution...")
+
+                # Build execution prompt to trigger agent
+                execution_prompt = f"""The plan "{plan.title}" (ID: {plan_id}) has been approved.
+
+Please use `exit_plan_mode("{plan_id}", "execute")` to begin execution, then work through each task:
+
+"""
+                if plan.tasks:
+                    for task in plan.tasks:
+                        status = "✅" if task.completed else "⬜"
+                        execution_prompt += (
+                            f"- {status} `{task.id}`: {task.description}\n"
+                        )
+                        if task.files:
+                            execution_prompt += f"  Files: {', '.join(task.files)}\n"
+
+                execution_prompt += """
+After completing each task, call `complete_plan_task(plan_id, task_id)`.
+When all tasks are done, call `complete_plan(plan_id)`."""
+
+                # Return prompt with auto_add=True to trigger agent execution
+                return (execution_prompt, True)
             else:
                 plan = plan_manager.get_plan(plan_id)
                 if not plan:
