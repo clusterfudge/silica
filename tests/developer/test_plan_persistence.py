@@ -5,7 +5,7 @@ so they should survive both session resume and conversation compaction.
 """
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, AsyncMock
 
 from silica.developer.plans import PlanManager, PlanStatus
 
@@ -543,3 +543,311 @@ class TestPlanStorageIsolation:
         completed_plan = plan_manager.get_plan(plan_id)
         assert completed_plan is not None
         assert completed_plan.status == PlanStatus.COMPLETED
+
+
+class TestSessionScopedActivePlan:
+    """Tests that active_plan_id is properly scoped to sessions."""
+
+    def test_enter_plan_mode_sets_active_plan_id(self, temp_persona_dir, mock_context):
+        """enter_plan_mode should set context.active_plan_id."""
+        from silica.developer.tools.planning import enter_plan_mode
+
+        result = enter_plan_mode(mock_context, "Test Feature", "Testing")
+
+        assert mock_context.active_plan_id is not None
+        assert "Plan Mode Activated" in result
+        # Verify the plan was actually created
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.get_plan(mock_context.active_plan_id)
+        assert plan is not None
+        assert plan.title == "Test Feature"
+
+    def test_complete_plan_clears_active_plan_id(self, temp_persona_dir, mock_context):
+        """complete_plan should clear context.active_plan_id."""
+        from silica.developer.tools.planning import complete_plan
+
+        # Create and execute a plan with verified tasks
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan(
+            "Test", "session", root_dir=str(temp_persona_dir)
+        )
+        task = plan.add_task("Do something")
+        task.completed = True
+        task.verified = True
+        plan_manager.update_plan(plan)
+        plan_manager.submit_for_review(plan.id)
+        plan_manager.approve_plan(plan.id)
+        plan_manager.start_execution(plan.id)
+
+        # Set active plan
+        mock_context.active_plan_id = plan.id
+
+        # Complete the plan
+        result = complete_plan(mock_context, plan.id)
+
+        assert "Plan Completed" in result
+        assert mock_context.active_plan_id is None
+
+    def test_abandon_plan_clears_active_plan_id(self, temp_persona_dir, mock_context):
+        """exit_plan_mode with action='abandon' should clear context.active_plan_id."""
+        from silica.developer.tools.planning import exit_plan_mode
+
+        # Create a plan
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan(
+            "Test", "session", root_dir=str(temp_persona_dir)
+        )
+
+        # Set active plan
+        mock_context.active_plan_id = plan.id
+
+        # Abandon the plan
+        result = exit_plan_mode(mock_context, plan.id, action="abandon")
+
+        assert "Plan Abandoned" in result
+        assert mock_context.active_plan_id is None
+
+    def test_get_active_plan_status_uses_session_plan(
+        self, temp_persona_dir, mock_context
+    ):
+        """get_active_plan_status should prefer context.active_plan_id over project scan."""
+        from silica.developer.tools.planning import get_active_plan_status
+
+        plan_manager = PlanManager(temp_persona_dir)
+
+        # Create two plans for the same project
+        plan1 = plan_manager.create_plan(
+            "Plan 1", "session1", root_dir=str(temp_persona_dir)
+        )
+        # Create another plan to verify we get the session-specific one, not most recent
+        plan_manager.create_plan("Plan 2", "session2", root_dir=str(temp_persona_dir))
+
+        # Set session-specific active plan to plan1
+        mock_context.active_plan_id = plan1.id
+
+        status = get_active_plan_status(mock_context)
+
+        # Should return plan1, not the most recently created (plan2)
+        assert status is not None
+        assert status["id"] == plan1.id
+        assert status["title"] == "Plan 1"
+
+    def test_ephemeral_state_uses_session_plan(self, temp_persona_dir, mock_context):
+        """get_ephemeral_plan_state should use context.active_plan_id when set."""
+        from silica.developer.tools.planning import get_ephemeral_plan_state
+
+        plan_manager = PlanManager(temp_persona_dir)
+
+        # Create two in-progress plans
+        plan1 = plan_manager.create_plan(
+            "Session Plan", "session1", root_dir=str(temp_persona_dir)
+        )
+        plan1.add_task("Task 1")
+        plan_manager.update_plan(plan1)
+        plan_manager.submit_for_review(plan1.id)
+        plan_manager.approve_plan(plan1.id)
+        plan_manager.start_execution(plan1.id)
+
+        plan2 = plan_manager.create_plan(
+            "Other Plan", "session2", root_dir=str(temp_persona_dir)
+        )
+        plan2.add_task("Task 2")
+        plan_manager.update_plan(plan2)
+        plan_manager.submit_for_review(plan2.id)
+        plan_manager.approve_plan(plan2.id)
+        plan_manager.start_execution(plan2.id)
+
+        # Set session-specific active plan to plan1
+        mock_context.active_plan_id = plan1.id
+
+        state = get_ephemeral_plan_state(mock_context)
+
+        assert state is not None
+        assert "Session Plan" in state
+        assert "Other Plan" not in state
+
+    def test_active_plan_id_persisted_in_session(self, temp_persona_dir):
+        """active_plan_id should be saved/loaded with session."""
+        from silica.developer.context import load_session_data
+
+        # Create a plan
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan(
+            "Persisted Plan", "test-session", root_dir=str(temp_persona_dir)
+        )
+
+        # Create initial context with active plan
+        mock_context = MagicMock()
+        mock_context.session_id = "test-session"
+        mock_context.history_base_dir = temp_persona_dir
+        mock_context.active_plan_id = plan.id
+        mock_context.sandbox = MagicMock()
+        mock_context.sandbox.root_directory = temp_persona_dir
+        mock_context.sandbox.get_directory_listing = MagicMock(return_value=[])
+        mock_context._chat_history = []
+        mock_context._tool_result_buffer = []
+        mock_context.model_spec = {"title": "claude-3-sonnet"}
+        mock_context.usage = []
+        mock_context.cli_args = None
+        mock_context.thinking_mode = "off"
+        mock_context.parent_session_id = None
+
+        # Create actual AgentContext and flush
+        # Manually write session file with active_plan_id
+        import json
+        from datetime import datetime
+
+        history_dir = temp_persona_dir / "history" / "test-session"
+        history_dir.mkdir(parents=True, exist_ok=True)
+        session_file = history_dir / "root.json"
+        session_data = {
+            "session_id": "test-session",
+            "parent_session_id": None,
+            "model_spec": {"title": "claude-3-sonnet"},
+            "usage": [],
+            "messages": [{"role": "user", "content": "test"}],
+            "thinking_mode": "off",
+            "active_plan_id": plan.id,
+            "metadata": {
+                "created_at": datetime.now().isoformat(),
+                "last_updated": datetime.now().isoformat(),
+                "root_dir": str(temp_persona_dir),
+                "cli_args": None,
+            },
+        }
+        with open(session_file, "w") as f:
+            json.dump(session_data, f)
+
+        # Load the session
+        base_context = MagicMock()
+        base_context.sandbox = mock_context.sandbox
+        base_context.user_interface = MagicMock()
+        base_context.user_interface.handle_system_message = MagicMock()
+        base_context.usage = []
+        base_context.memory_manager = MagicMock()
+        base_context.model_spec = {"title": "claude-3-sonnet"}
+
+        loaded = load_session_data("test-session", base_context, temp_persona_dir)
+
+        assert loaded is not None
+        assert loaded.active_plan_id == plan.id
+
+
+class TestPlanNewCommand:
+    """Tests for /plan new command behavior."""
+
+    def test_plan_new_prompts_for_topic(self, temp_persona_dir):
+        """'/plan new' without topic should prompt user."""
+        from silica.developer.toolbox import Toolbox
+        import asyncio
+
+        mock_context = MagicMock()
+        mock_context.history_base_dir = temp_persona_dir
+        mock_context.session_id = "test-session"
+        mock_context.sandbox = MagicMock()
+        mock_context.sandbox.root_directory = temp_persona_dir
+        mock_context.active_plan_id = None
+        mock_context.user_interface = MagicMock()
+        mock_context.user_interface.handle_system_message = MagicMock()
+        mock_context.user_interface.get_user_input = AsyncMock(
+            return_value="New Feature"
+        )
+
+        toolbox = Toolbox(mock_context)
+
+        result = asyncio.get_event_loop().run_until_complete(
+            toolbox.invoke_cli_tool("plan", "new", chat_history=[])
+        )
+
+        content, auto_add = result
+        assert auto_add is True
+        assert "enter_plan_mode" in content
+        assert "New Feature" in content
+
+    def test_plan_new_with_topic(self, temp_persona_dir):
+        """'/plan new <topic>' should use provided topic."""
+        from silica.developer.toolbox import Toolbox
+        import asyncio
+
+        mock_context = MagicMock()
+        mock_context.history_base_dir = temp_persona_dir
+        mock_context.session_id = "test-session"
+        mock_context.sandbox = MagicMock()
+        mock_context.sandbox.root_directory = temp_persona_dir
+        mock_context.active_plan_id = None
+        mock_context.user_interface = MagicMock()
+        mock_context.user_interface.handle_system_message = MagicMock()
+
+        toolbox = Toolbox(mock_context)
+
+        result = asyncio.get_event_loop().run_until_complete(
+            toolbox.invoke_cli_tool("plan", "new My Feature", chat_history=[])
+        )
+
+        content, auto_add = result
+        assert auto_add is True
+        assert "My Feature" in content
+
+
+class TestPlanContextAwareBehavior:
+    """Tests for context-aware /plan behavior."""
+
+    def test_plan_no_args_views_active_plan(self, temp_persona_dir):
+        """'/plan' with active plan should view it."""
+        from silica.developer.toolbox import Toolbox
+        import asyncio
+
+        # Create a plan
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan(
+            "Active Plan", "session", root_dir=str(temp_persona_dir)
+        )
+
+        mock_context = MagicMock()
+        mock_context.history_base_dir = temp_persona_dir
+        mock_context.session_id = "test-session"
+        mock_context.sandbox = MagicMock()
+        mock_context.sandbox.root_directory = temp_persona_dir
+        mock_context.active_plan_id = plan.id
+        mock_context.user_interface = MagicMock()
+        mock_context.user_interface.handle_system_message = MagicMock()
+
+        toolbox = Toolbox(mock_context)
+
+        result = asyncio.get_event_loop().run_until_complete(
+            toolbox.invoke_cli_tool("plan", "", chat_history=[])
+        )
+
+        # Should return empty string or ("", False) tuple (view result printed directly)
+        assert result == "" or result == ("", False)
+        # Should have called handle_system_message with plan markdown
+        calls = mock_context.user_interface.handle_system_message.call_args_list
+        assert any("Active Plan" in str(call) for call in calls)
+
+    def test_plan_no_args_creates_new_if_no_active(self, temp_persona_dir):
+        """'/plan' without active plan should prompt to create new."""
+        from silica.developer.toolbox import Toolbox
+        import asyncio
+
+        mock_context = MagicMock()
+        mock_context.history_base_dir = temp_persona_dir
+        mock_context.session_id = "test-session"
+        mock_context.sandbox = MagicMock()
+        mock_context.sandbox.root_directory = temp_persona_dir
+        mock_context.active_plan_id = None
+        mock_context.user_interface = MagicMock()
+        mock_context.user_interface.handle_system_message = MagicMock()
+        mock_context.user_interface.get_user_input = AsyncMock(
+            return_value="New Plan Topic"
+        )
+
+        toolbox = Toolbox(mock_context)
+
+        result = asyncio.get_event_loop().run_until_complete(
+            toolbox.invoke_cli_tool("plan", "", chat_history=[])
+        )
+
+        content, auto_add = result
+        assert auto_add is True
+        assert "enter_plan_mode" in content
+        assert "New Plan Topic" in content

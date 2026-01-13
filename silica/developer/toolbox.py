@@ -2218,8 +2218,36 @@ Use `/groups` to see available tool groups."""
         args_list = user_input.strip().split(maxsplit=1) if user_input.strip() else []
 
         # Determine if this is a subcommand or a planning request
-        subcommands = ["list", "view", "approve", "abandon"]
+        subcommands = ["list", "view", "approve", "abandon", "new"]
         command = args_list[0].lower() if args_list else ""
+
+        # Context-aware /plan (no args): view active plan or create new
+        if not command:
+            # Check for session-specific active plan first
+            active_plan_id = self.context.active_plan_id
+            if active_plan_id:
+                plan = plan_manager.get_plan(active_plan_id)
+                if plan and plan.status not in (
+                    PlanStatus.COMPLETED,
+                    PlanStatus.ABANDONED,
+                ):
+                    _print(f"Viewing active plan `{active_plan_id}`...")
+                    _print(plan.to_markdown())
+                    return ""
+                # Clear stale reference
+                self.context.active_plan_id = None
+
+            # Fallback to most recent plan for this project
+            active_plans = plan_manager.list_active_plans(root_dir=root_dir)
+            if active_plans:
+                plan = active_plans[0]
+                _print(f"Viewing active plan `{plan.id}`...")
+                _print(plan.to_markdown())
+                return ""
+
+            # No active plan - equivalent to /plan new
+            command = "new"
+            args_list = ["new"]
 
         # Check for management subcommands (human-only, no agent involvement)
         if command == "list":
@@ -2285,6 +2313,9 @@ Use `/groups` to see available tool groups."""
                 plan = plan_manager.get_plan(plan_id)
                 _print(f"✅ Plan `{plan_id}` approved! Starting execution...")
 
+                # Set this as the active plan for this session
+                self.context.active_plan_id = plan_id
+
                 # Build execution prompt to trigger agent
                 execution_prompt = f"""The plan "{plan.title}" (ID: {plan_id}) has been approved.
 
@@ -2332,24 +2363,32 @@ When all tasks are done, call `complete_plan(plan_id)`."""
                 plan_id = args_list[1]
 
             if plan_manager.abandon_plan(plan_id):
+                # Clear active plan if this was it
+                if self.context.active_plan_id == plan_id:
+                    self.context.active_plan_id = None
                 _print(f"🗑️ Plan `{plan_id}` abandoned and archived.")
             else:
                 _print(f"Could not abandon plan {plan_id}.")
             return ""
 
-        else:
-            # This is a planning request - enter plan mode with agent
+        elif command == "new" or command not in subcommands:
+            # /plan new or /plan <topic> - create a new plan with agent
 
             # Get topic (either from args or prompt user)
-            if not args_list or command in subcommands:
-                topic = await user_interface.get_user_input(
-                    "What would you like to plan? "
-                )
-                if not topic.strip():
-                    _print("Cancelled - no topic provided.")
-                    return ""
-                topic = topic.strip()
+            if command == "new":
+                # /plan new or /plan new <topic>
+                if len(args_list) > 1:
+                    topic = args_list[1]
+                else:
+                    topic = await user_interface.get_user_input(
+                        "What would you like to plan? "
+                    )
+                    if not topic.strip():
+                        _print("Cancelled - no topic provided.")
+                        return ""
+                    topic = topic.strip()
             else:
+                # /plan <topic> (backwards compatible)
                 topic = user_input.strip()
 
             _print(

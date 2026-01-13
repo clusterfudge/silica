@@ -16,10 +16,11 @@ if TYPE_CHECKING:
 
 
 def get_active_plan_status(context: "AgentContext") -> dict | None:
-    """Get the status of the most recent active plan for UI display.
+    """Get the status of the active plan for this session.
 
     This is used to show plan mode indicators in the prompt.
-    Only returns plans for the current project (root_dir).
+    Uses context.active_plan_id if set, otherwise falls back to most recent
+    plan for the current project.
 
     Args:
         context: The agent context
@@ -37,14 +38,21 @@ def get_active_plan_status(context: "AgentContext") -> dict | None:
         }
     """
     plan_manager = _get_plan_manager(context)
-    root_dir = _get_root_dir(context)
-    active_plans = plan_manager.list_active_plans(root_dir=root_dir)
 
-    if not active_plans:
+    # First check for session-specific active plan
+    plan = None
+    if context.active_plan_id:
+        plan = plan_manager.get_plan(context.active_plan_id)
+
+    # Fallback to most recent plan for this project (for backwards compatibility)
+    if plan is None:
+        root_dir = _get_root_dir(context)
+        active_plans = plan_manager.list_active_plans(root_dir=root_dir)
+        if active_plans:
+            plan = active_plans[0]
+
+    if plan is None:
         return None
-
-    # Get the most recently updated plan
-    plan = active_plans[0]
 
     # Determine if we're planning or executing
     if plan.status in (PlanStatus.DRAFT, PlanStatus.IN_REVIEW):
@@ -71,7 +79,10 @@ def get_active_plan_status(context: "AgentContext") -> dict | None:
 
 
 def get_active_plan_id(context: "AgentContext") -> str | None:
-    """Get the ID of the most recent active plan for the current project.
+    """Get the ID of the active plan for this session.
+
+    Uses context.active_plan_id if set, otherwise falls back to most recent
+    plan for the current project.
 
     This is used for context-aware /plan commands.
 
@@ -79,8 +90,19 @@ def get_active_plan_id(context: "AgentContext") -> str | None:
         context: The agent context
 
     Returns:
-        Plan ID if there's an active plan for this project, None otherwise
+        Plan ID if there's an active plan, None otherwise
     """
+    # First check for session-specific active plan
+    if context.active_plan_id:
+        # Verify it still exists and is active
+        plan_manager = _get_plan_manager(context)
+        plan = plan_manager.get_plan(context.active_plan_id)
+        if plan and plan.status not in (PlanStatus.COMPLETED, PlanStatus.ABANDONED):
+            return context.active_plan_id
+        # Clear stale reference
+        context.active_plan_id = None
+
+    # Fallback to most recent plan for this project
     plan_manager = _get_plan_manager(context)
     root_dir = _get_root_dir(context)
     active_plans = plan_manager.list_active_plans(root_dir=root_dir)
@@ -98,7 +120,7 @@ def get_ephemeral_plan_state(context: "AgentContext") -> str | None:
     the agent with current plan state without accumulating in conversation history.
 
     Only returns content for plans that are IN_PROGRESS (actively being executed)
-    and belong to the current project (root_dir).
+    and belong to this session (via context.active_plan_id).
 
     Args:
         context: The agent context
@@ -107,16 +129,25 @@ def get_ephemeral_plan_state(context: "AgentContext") -> str | None:
         Plan state block as string, or None if no active execution
     """
     plan_manager = _get_plan_manager(context)
-    root_dir = _get_root_dir(context)
 
-    # Only show state for plans being executed in this project
-    active_plans = plan_manager.list_active_plans(root_dir=root_dir)
-    in_progress = [p for p in active_plans if p.status == PlanStatus.IN_PROGRESS]
+    # First check for session-specific active plan
+    plan = None
+    if context.active_plan_id:
+        plan = plan_manager.get_plan(context.active_plan_id)
+        # Only show ephemeral state for IN_PROGRESS plans
+        if plan and plan.status != PlanStatus.IN_PROGRESS:
+            plan = None
 
-    if not in_progress:
+    # Fallback to most recent IN_PROGRESS plan for this project
+    if plan is None:
+        root_dir = _get_root_dir(context)
+        active_plans = plan_manager.list_active_plans(root_dir=root_dir)
+        in_progress = [p for p in active_plans if p.status == PlanStatus.IN_PROGRESS]
+        if in_progress:
+            plan = in_progress[0]
+
+    if plan is None:
         return None
-
-    plan = in_progress[0]  # Most recently updated
 
     # Calculate progress
     total = len(plan.tasks)
@@ -183,7 +214,7 @@ def get_active_plan_reminder(context: "AgentContext") -> str | None:
     """Check if there's an in-progress plan with work remaining and return a reminder.
 
     This is called by the agent loop to remind the agent to continue working on plans.
-    Only considers plans for the current project (root_dir).
+    Uses context.active_plan_id if set, otherwise falls back to project-scoped lookup.
 
     Args:
         context: The agent context
@@ -192,17 +223,25 @@ def get_active_plan_reminder(context: "AgentContext") -> str | None:
         A reminder string if there's an active plan with work, None otherwise
     """
     plan_manager = _get_plan_manager(context)
-    root_dir = _get_root_dir(context)
 
-    # Look for in-progress plans in this project
-    active_plans = plan_manager.list_active_plans(root_dir=root_dir)
-    in_progress = [p for p in active_plans if p.status == PlanStatus.IN_PROGRESS]
+    # First check for session-specific active plan
+    plan = None
+    if context.active_plan_id:
+        plan = plan_manager.get_plan(context.active_plan_id)
+        if plan and plan.status != PlanStatus.IN_PROGRESS:
+            plan = None
 
-    if not in_progress:
+    # Fallback to most recent IN_PROGRESS plan for this project
+    if plan is None:
+        root_dir = _get_root_dir(context)
+        active_plans = plan_manager.list_active_plans(root_dir=root_dir)
+        in_progress = [p for p in active_plans if p.status == PlanStatus.IN_PROGRESS]
+        if in_progress:
+            plan = in_progress[0]
+
+    if plan is None:
         return None
 
-    # Get the most recently updated in-progress plan
-    plan = in_progress[0]  # Already sorted by updated_at desc
     incomplete_tasks = plan.get_incomplete_tasks()
     unverified_tasks = plan.get_unverified_tasks()
 
@@ -266,7 +305,7 @@ def get_task_completion_hint(
     """Check if modified files match any incomplete tasks and return a hint.
 
     This is called after file-modifying tools to remind the agent to mark tasks complete.
-    Only considers plans for the current project (root_dir).
+    Uses context.active_plan_id if set, otherwise falls back to project-scoped lookup.
 
     Args:
         context: The agent context
@@ -279,13 +318,23 @@ def get_task_completion_hint(
         return None
 
     plan_manager = _get_plan_manager(context)
-    root_dir = _get_root_dir(context)
 
-    # Look for in-progress plans in this project
-    active_plans = plan_manager.list_active_plans(root_dir=root_dir)
-    in_progress = [p for p in active_plans if p.status == PlanStatus.IN_PROGRESS]
+    # First check for session-specific active plan
+    plan = None
+    if context.active_plan_id:
+        plan = plan_manager.get_plan(context.active_plan_id)
+        if plan and plan.status != PlanStatus.IN_PROGRESS:
+            plan = None
 
-    if not in_progress:
+    # Fallback to most recent IN_PROGRESS plan for this project
+    if plan is None:
+        root_dir = _get_root_dir(context)
+        active_plans = plan_manager.list_active_plans(root_dir=root_dir)
+        in_progress = [p for p in active_plans if p.status == PlanStatus.IN_PROGRESS]
+        if in_progress:
+            plan = in_progress[0]
+
+    if plan is None:
         return None
 
     # Normalize modified files for comparison
@@ -301,36 +350,34 @@ def get_task_completion_hint(
             except ValueError:
                 pass
 
-    # Check each in-progress plan for matching tasks
-    for plan in in_progress:
-        for task in plan.get_incomplete_tasks():
-            if not task.files:
-                continue
+    # Check plan for matching incomplete tasks
+    for task in plan.get_incomplete_tasks():
+        if not task.files:
+            continue
 
-            # Check if any task files match modified files
-            for task_file in task.files:
-                task_path = Path(task_file)
-                if task_path.name in modified_set or task_file in modified_set:
-                    hint = f"""💡 **Task Hint:** You modified `{modified_files[0]}` which is part of task `{task.id}` ({task.description}).
+        # Check if any task files match modified files
+        for task_file in task.files:
+            task_path = Path(task_file)
+            if task_path.name in modified_set or task_file in modified_set:
+                hint = f"""💡 **Task Hint:** You modified `{modified_files[0]}` which is part of task `{task.id}` ({task.description}).
 
 **Next steps:**
 1. Complete the task: `complete_plan_task("{plan.id}", "{task.id}")`
 2. Run tests to verify
 3. Verify the task: `verify_plan_task("{plan.id}", "{task.id}", "<test results>")`"""
-                    if task.tests:
-                        hint += f"\n\n**Testing approach:** {task.tests}"
-                    return hint
+                if task.tests:
+                    hint += f"\n\n**Testing approach:** {task.tests}"
+                return hint
 
     # Also check for completed but unverified tasks
-    for plan in in_progress:
-        for task in plan.get_unverified_tasks():
-            if not task.files:
-                continue
+    for task in plan.get_unverified_tasks():
+        if not task.files:
+            continue
 
-            for task_file in task.files:
-                task_path = Path(task_file)
-                if task_path.name in modified_set or task_file in modified_set:
-                    return f"""💡 **Verification Reminder:** Task `{task.id}` ({task.description}) is completed but not verified.
+        for task_file in task.files:
+            task_path = Path(task_file)
+            if task_path.name in modified_set or task_file in modified_set:
+                return f"""💡 **Verification Reminder:** Task `{task.id}` ({task.description}) is completed but not verified.
 
 Run tests and call: `verify_plan_task("{plan.id}", "{task.id}", "<test results>")`"""
 
@@ -395,9 +442,8 @@ def enter_plan_mode(
         root_dir=root_dir,
     )
 
-    # Store active plan ID in context (if supported)
-    if hasattr(context, "_active_plan_id"):
-        context._active_plan_id = plan.id
+    # Store active plan ID in context for session tracking
+    context.active_plan_id = plan.id
 
     result = f"""✅ **Plan Mode Activated**
 
@@ -719,9 +765,8 @@ def exit_plan_mode(
     if action not in valid_actions:
         return f"Error: Invalid action '{action}'. Valid actions: {', '.join(valid_actions)}"
 
-    # Clear active plan from context
-    if hasattr(context, "_active_plan_id"):
-        context._active_plan_id = None
+    # Handle actions that should clear active plan (abandon only)
+    # Note: save/submit/execute keep the plan active
 
     if action == "save":
         plan.add_progress("Plan mode exited (saved as draft)")
@@ -802,6 +847,8 @@ When all tasks are done, call `complete_plan("{plan_id}")`.
 
     elif action == "abandon":
         plan_manager.abandon_plan(plan_id)
+        # Clear active plan from context when abandoning
+        context.active_plan_id = None
         return f"""🗑️ **Plan Abandoned**
 
 Plan `{plan_id}` has been archived. You can start fresh with a new plan.
@@ -996,6 +1043,9 @@ Run tests and use `verify_plan_task` for each task to confirm the implementation
 All tasks must be verified before the plan can be completed."""
 
     plan_manager.complete_plan(plan_id, notes)
+
+    # Clear active plan from context when completing
+    context.active_plan_id = None
 
     return f"""🎉 **Plan Completed!**
 

@@ -40,6 +40,7 @@ class AgentContext:
     history_base_dir: Path | None = (
         None  # Base directory for history (defaults to ~/.silica/personas/default)
     )
+    active_plan_id: str | None = None  # Currently active plan for this session
     _chat_history: list[MessageParam] = None
     _tool_result_buffer: list[dict] = None
 
@@ -406,6 +407,7 @@ class AgentContext:
             "usage": self.usage,
             "messages": chat_history,
             "thinking_mode": self.thinking_mode,
+            "active_plan_id": self.active_plan_id,
             "metadata": {
                 "created_at": current_time,
                 "last_updated": current_time,
@@ -508,6 +510,7 @@ def load_session_data(
         parent_id = session_data.get("parent_session_id")
         cli_args = session_data.get("metadata", {}).get("cli_args")
         thinking_mode = session_data.get("thinking_mode", "off")
+        active_plan_id = session_data.get("active_plan_id")
 
         # Clean up any orphaned tool blocks in the loaded history
         # This can happen if a session was saved mid-compaction or after a crash
@@ -533,6 +536,7 @@ def load_session_data(
             cli_args=cli_args.copy() if cli_args else None,
             thinking_mode=thinking_mode,
             history_base_dir=history_base_dir,  # Preserve the history_base_dir
+            active_plan_id=active_plan_id,  # Restore active plan for this session
             _chat_history=chat_history,
             _tool_result_buffer=[],  # Always start with empty tool buffer
         )
