@@ -282,10 +282,15 @@ class TestPlanApprovalTriggersExecution:
 
         toolbox = Toolbox(mock_context)
 
-        # Invoke the /plan approve command
-        result = asyncio.get_event_loop().run_until_complete(
-            toolbox.invoke_cli_tool("plan", f"approve {plan_id}", chat_history=[])
-        )
+        # Invoke the /plan approve command - use new event loop to avoid 'Event loop is closed' error
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(
+                toolbox.invoke_cli_tool("plan", f"approve {plan_id}", chat_history=[])
+            )
+        finally:
+            loop.close()
 
         content, auto_add = result
 
@@ -321,10 +326,15 @@ class TestPlanApprovalTriggersExecution:
 
         toolbox = Toolbox(mock_context)
 
-        # Invoke /plan approve WITHOUT specifying plan ID
-        result = asyncio.get_event_loop().run_until_complete(
-            toolbox.invoke_cli_tool("plan", "approve", chat_history=[])
-        )
+        # Invoke /plan approve WITHOUT specifying plan ID - use new event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(
+                toolbox.invoke_cli_tool("plan", "approve", chat_history=[])
+            )
+        finally:
+            loop.close()
 
         content, auto_add = result
 
@@ -755,9 +765,15 @@ class TestPlanNewCommand:
 
         toolbox = Toolbox(mock_context)
 
-        result = asyncio.get_event_loop().run_until_complete(
-            toolbox.invoke_cli_tool("plan", "new", chat_history=[])
-        )
+        # Use new event loop to avoid 'Event loop is closed' error
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(
+                toolbox.invoke_cli_tool("plan", "new", chat_history=[])
+            )
+        finally:
+            loop.close()
 
         content, auto_add = result
         assert auto_add is True
@@ -780,9 +796,15 @@ class TestPlanNewCommand:
 
         toolbox = Toolbox(mock_context)
 
-        result = asyncio.get_event_loop().run_until_complete(
-            toolbox.invoke_cli_tool("plan", "new My Feature", chat_history=[])
-        )
+        # Use new event loop to avoid 'Event loop is closed' error
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(
+                toolbox.invoke_cli_tool("plan", "new My Feature", chat_history=[])
+            )
+        finally:
+            loop.close()
 
         content, auto_add = result
         assert auto_add is True
@@ -814,9 +836,15 @@ class TestPlanContextAwareBehavior:
 
         toolbox = Toolbox(mock_context)
 
-        result = asyncio.get_event_loop().run_until_complete(
-            toolbox.invoke_cli_tool("plan", "", chat_history=[])
-        )
+        # Use new event loop to avoid 'Event loop is closed' error
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(
+                toolbox.invoke_cli_tool("plan", "", chat_history=[])
+            )
+        finally:
+            loop.close()
 
         # Should return empty string or ("", False) tuple (view result printed directly)
         assert result == "" or result == ("", False)
@@ -843,9 +871,15 @@ class TestPlanContextAwareBehavior:
 
         toolbox = Toolbox(mock_context)
 
-        result = asyncio.get_event_loop().run_until_complete(
-            toolbox.invoke_cli_tool("plan", "", chat_history=[])
-        )
+        # Use new event loop to avoid 'Event loop is closed' error
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(
+                toolbox.invoke_cli_tool("plan", "", chat_history=[])
+            )
+        finally:
+            loop.close()
 
         content, auto_add = result
         assert auto_add is True
