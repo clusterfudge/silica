@@ -88,6 +88,92 @@ def get_active_plan_id(context: "AgentContext") -> str | None:
     return active_plans[0].id
 
 
+def get_ephemeral_plan_state(context: "AgentContext") -> str | None:
+    """Generate an ephemeral plan state block for injection into user messages.
+
+    This is injected before cache markers in the last user message to provide
+    the agent with current plan state without accumulating in conversation history.
+
+    Only returns content for plans that are IN_PROGRESS (actively being executed).
+
+    Args:
+        context: The agent context
+
+    Returns:
+        Plan state block as string, or None if no active execution
+    """
+    plan_manager = _get_plan_manager(context)
+
+    # Only show state for plans being executed
+    active_plans = plan_manager.list_active_plans()
+    in_progress = [p for p in active_plans if p.status == PlanStatus.IN_PROGRESS]
+
+    if not in_progress:
+        return None
+
+    plan = in_progress[0]  # Most recently updated
+
+    # Calculate progress
+    total = len(plan.tasks)
+    completed = len([t for t in plan.tasks if t.completed])
+    verified = len([t for t in plan.tasks if t.verified])
+
+    incomplete_tasks = plan.get_incomplete_tasks()
+    unverified_tasks = plan.get_unverified_tasks()
+
+    # Build the state block
+    lines = [
+        "<current_plan_state>",
+        f"**Active Plan:** {plan.title} (`{plan.id}`)",
+        f"**Progress:** {verified}✓/{total} verified, {completed}/{total} completed",
+        "",
+    ]
+
+    # Show current/next task
+    if incomplete_tasks:
+        next_task = incomplete_tasks[0]
+        lines.append(f"**Current Task:** `{next_task.id}` - {next_task.description}")
+        if next_task.files:
+            lines.append(f"  Files: {', '.join(next_task.files)}")
+        if next_task.tests:
+            lines.append(f"  Tests: {next_task.tests}")
+        lines.append("")
+
+    # Show task summary
+    if plan.tasks:
+        lines.append("**Tasks:**")
+        for task in plan.tasks[:8]:  # Limit to first 8 tasks
+            if task.verified:
+                status = "✓✓"
+            elif task.completed:
+                status = "✅"
+            else:
+                status = "⬜"
+            lines.append(f"- {status} `{task.id}`: {task.description}")
+
+        if len(plan.tasks) > 8:
+            lines.append(f"- ... and {len(plan.tasks) - 8} more tasks")
+        lines.append("")
+
+    # Show workflow reminder based on state
+    if incomplete_tasks:
+        lines.append(
+            "**Workflow:** Implement → `complete_plan_task` → Run tests → `verify_plan_task`"
+        )
+    elif unverified_tasks:
+        lines.append(
+            f"**Action Required:** {len(unverified_tasks)} task(s) need verification before plan completion"
+        )
+    else:
+        lines.append(
+            f'**Ready:** All tasks verified! Call `complete_plan("{plan.id}")` to finish.'
+        )
+
+    lines.append("</current_plan_state>")
+
+    return "\n".join(lines)
+
+
 def get_active_plan_reminder(context: "AgentContext") -> str | None:
     """Check if there's an in-progress plan with work remaining and return a reminder.
 

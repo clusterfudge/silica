@@ -331,6 +331,103 @@ class TestPlanApprovalTriggersExecution:
         assert plan.id in result
 
 
+class TestEphemeralPlanStateInjection:
+    """Tests for ephemeral plan state injection into messages."""
+
+    def test_get_ephemeral_plan_state_no_plan(self, temp_persona_dir, mock_context):
+        """No state returned when no plan is in progress."""
+        from silica.developer.tools.planning import get_ephemeral_plan_state
+
+        state = get_ephemeral_plan_state(mock_context)
+        assert state is None
+
+    def test_get_ephemeral_plan_state_draft_plan(self, temp_persona_dir, mock_context):
+        """No state returned for draft plans (not in execution)."""
+        from silica.developer.tools.planning import get_ephemeral_plan_state
+
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan("Draft Plan", mock_context.session_id)
+        plan.add_task("Task 1")
+        plan_manager.update_plan(plan)
+
+        state = get_ephemeral_plan_state(mock_context)
+        assert state is None  # Only IN_PROGRESS plans show state
+
+    def test_get_ephemeral_plan_state_in_progress(self, temp_persona_dir, mock_context):
+        """State returned for in-progress plans."""
+        from silica.developer.tools.planning import get_ephemeral_plan_state
+
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan("Active Plan", mock_context.session_id)
+        plan.add_task("Task 1", files=["file1.py"])
+        plan.add_task("Task 2", files=["file2.py"])
+        plan_manager.update_plan(plan)
+        plan_manager.submit_for_review(plan.id)
+        plan_manager.approve_plan(plan.id)
+        plan_manager.start_execution(plan.id)
+
+        state = get_ephemeral_plan_state(mock_context)
+
+        assert state is not None
+        assert "<current_plan_state>" in state
+        assert "Active Plan" in state
+        assert plan.id in state
+        assert "Task 1" in state
+        assert "file1.py" in state
+        assert "Workflow:" in state  # Shows workflow hint
+
+    def test_ephemeral_state_shows_verification_progress(
+        self, temp_persona_dir, mock_context
+    ):
+        """State shows both completion and verification progress."""
+        from silica.developer.tools.planning import get_ephemeral_plan_state
+
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan("Progress Plan", mock_context.session_id)
+        task1 = plan.add_task("Task 1")
+        task2 = plan.add_task("Task 2")
+        plan.add_task("Task 3")
+
+        # Complete and verify task 1
+        plan.complete_task(task1.id)
+        plan.verify_task(task1.id, "Tests pass")
+
+        # Only complete task 2
+        plan.complete_task(task2.id)
+
+        plan_manager.update_plan(plan)
+        plan_manager.submit_for_review(plan.id)
+        plan_manager.approve_plan(plan.id)
+        plan_manager.start_execution(plan.id)
+
+        state = get_ephemeral_plan_state(mock_context)
+
+        assert "1✓/3 verified" in state  # 1 verified
+        assert "2/3 completed" in state  # 2 completed
+        assert "✓✓" in state  # Verified marker
+        assert "✅" in state  # Completed marker
+        assert "⬜" in state  # Pending marker
+
+    def test_ephemeral_state_all_verified_ready(self, temp_persona_dir, mock_context):
+        """State shows ready message when all tasks verified."""
+        from silica.developer.tools.planning import get_ephemeral_plan_state
+
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan("Done Plan", mock_context.session_id)
+        task = plan.add_task("Only Task")
+        plan.complete_task(task.id)
+        plan.verify_task(task.id, "All tests pass")
+        plan_manager.update_plan(plan)
+        plan_manager.submit_for_review(plan.id)
+        plan_manager.approve_plan(plan.id)
+        plan_manager.start_execution(plan.id)
+
+        state = get_ephemeral_plan_state(mock_context)
+
+        assert "Ready:" in state
+        assert "complete_plan" in state
+
+
 class TestPlanStorageIsolation:
     """Tests that plan storage is properly isolated from session storage."""
 

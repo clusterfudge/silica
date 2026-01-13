@@ -192,8 +192,8 @@ class AgentContext:
         toolbox = Toolbox(self, tool_names=tool_names, show_warnings=False)
         tools = toolbox.agent_schema
 
-        # Process messages with inlined file mentions
-        processed_messages = _inline_latest_file_mentions(self.chat_history)
+        # Process messages with inlined file mentions and ephemeral plan state
+        processed_messages = _inline_latest_file_mentions(self.chat_history, self)
 
         return {
             "system": system_message,
