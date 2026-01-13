@@ -24,6 +24,11 @@ def mock_context(temp_persona_dir):
     context = MagicMock()
     context.history_base_dir = temp_persona_dir
     context.session_id = "test-session-123"
+
+    # Mock sandbox with root_directory for project scoping
+    context.sandbox = MagicMock()
+    context.sandbox.root_directory = temp_persona_dir
+
     return context
 
 
@@ -34,7 +39,9 @@ class TestPlanPersistenceOnResume:
         """Plans should be accessible after simulating a session resume."""
         # Create a plan in the "first session"
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Feature", "session-1")
+        plan = plan_manager.create_plan(
+            "Test Feature", "session-1", root_dir=str(temp_persona_dir)
+        )
         plan.add_task("Task 1", files=["main.py"])
         plan.add_task("Task 2", files=["test.py"])
         plan_manager.update_plan(plan)
@@ -66,7 +73,9 @@ class TestPlanPersistenceOnResume:
 
         # Create an in-progress plan
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Feature X", "session-1")
+        plan = plan_manager.create_plan(
+            "Feature X", "session-1", root_dir=str(temp_persona_dir)
+        )
         plan.add_task("Implement feature")
         plan_manager.update_plan(plan)
         plan_manager.submit_for_review(plan.id)
@@ -77,6 +86,8 @@ class TestPlanPersistenceOnResume:
         resumed_context = MagicMock()
         resumed_context.history_base_dir = temp_persona_dir
         resumed_context.session_id = "resumed-session"
+        resumed_context.sandbox = MagicMock()
+        resumed_context.sandbox.root_directory = temp_persona_dir
 
         # Should still get plan status
         status = get_active_plan_status(resumed_context)
@@ -90,7 +101,9 @@ class TestPlanPersistenceOnResume:
 
         # Create an in-progress plan with incomplete tasks
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Feature Y", "session-1")
+        plan = plan_manager.create_plan(
+            "Feature Y", "session-1", root_dir=str(temp_persona_dir)
+        )
         plan.add_task("Task to do", files=["file.py"])
         plan_manager.update_plan(plan)
         plan_manager.submit_for_review(plan.id)
@@ -100,6 +113,8 @@ class TestPlanPersistenceOnResume:
         # Simulate resume
         resumed_context = MagicMock()
         resumed_context.history_base_dir = temp_persona_dir
+        resumed_context.sandbox = MagicMock()
+        resumed_context.sandbox.root_directory = temp_persona_dir
 
         # Should get reminder
         reminder = get_active_plan_reminder(resumed_context)
@@ -115,7 +130,9 @@ class TestPlanPersistenceOnCompaction:
         """Plans should remain after conversation compaction."""
         # Create a plan
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Compaction Test", mock_context.session_id)
+        plan = plan_manager.create_plan(
+            "Compaction Test", mock_context.session_id, root_dir=str(temp_persona_dir)
+        )
         plan.add_task("Task 1")
         plan_manager.update_plan(plan)
         plan_manager.submit_for_review(plan.id)
@@ -141,7 +158,9 @@ class TestPlanPersistenceOnCompaction:
 
         # Create an in-progress plan
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Compacted Feature", mock_context.session_id)
+        plan = plan_manager.create_plan(
+            "Compacted Feature", mock_context.session_id, root_dir=str(temp_persona_dir)
+        )
         plan.add_task("Do something")
         plan_manager.update_plan(plan)
         plan_manager.submit_for_review(plan.id)
@@ -172,7 +191,9 @@ class TestPlanInCompactionSummary:
 
         # Create an in-progress plan
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Refactor Auth", mock_context.session_id)
+        plan = plan_manager.create_plan(
+            "Refactor Auth", mock_context.session_id, root_dir=str(temp_persona_dir)
+        )
         plan.add_task("Update models")
         plan.add_task("Add tests")
         plan_manager.update_plan(plan)
@@ -206,6 +227,7 @@ class TestPlanInCompactionSummary:
         mock_context.model_spec = {"title": "claude-3-sonnet-20240229"}
         mock_context.sandbox = MagicMock()
         mock_context.sandbox.get_directory_listing.return_value = []
+        mock_context.sandbox.root_directory = temp_persona_dir  # For plan filtering
         mock_context.memory_manager = MagicMock()
         mock_context.memory_manager.get_tree.return_value = None
 
@@ -240,7 +262,9 @@ class TestPlanApprovalTriggersExecution:
 
         # Create a plan in review state
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Feature", "session-1")
+        plan = plan_manager.create_plan(
+            "Test Feature", "session-1", root_dir=str(temp_persona_dir)
+        )
         plan.add_task("Implement feature", files=["main.py"])
         plan.add_task("Add tests", files=["test_main.py"])
         plan_manager.update_plan(plan)
@@ -279,7 +303,9 @@ class TestPlanApprovalTriggersExecution:
 
         # Create a plan in review state
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Context Test", "session-1")
+        plan = plan_manager.create_plan(
+            "Context Test", "session-1", root_dir=str(temp_persona_dir)
+        )
         plan.add_task("Do something")
         plan_manager.update_plan(plan)
         plan_manager.submit_for_review(plan.id)
@@ -289,6 +315,7 @@ class TestPlanApprovalTriggersExecution:
         mock_context.history_base_dir = temp_persona_dir
         mock_context.session_id = "test-session"
         mock_context.sandbox = MagicMock()
+        mock_context.sandbox.root_directory = temp_persona_dir  # For plan filtering
         mock_context.user_interface = MagicMock()
         mock_context.user_interface.handle_system_message = MagicMock()
 
@@ -313,7 +340,9 @@ class TestPlanApprovalTriggersExecution:
 
         # Create and approve a plan
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Detailed Tasks", mock_context.session_id)
+        plan = plan_manager.create_plan(
+            "Detailed Tasks", mock_context.session_id, root_dir=str(temp_persona_dir)
+        )
         plan.add_task("First task", files=["file1.py"], details="Do this first")
         plan.add_task("Second task", files=["file2.py"])
         plan_manager.update_plan(plan)
@@ -346,7 +375,9 @@ class TestEphemeralPlanStateInjection:
         from silica.developer.tools.planning import get_ephemeral_plan_state
 
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Draft Plan", mock_context.session_id)
+        plan = plan_manager.create_plan(
+            "Draft Plan", mock_context.session_id, root_dir=str(temp_persona_dir)
+        )
         plan.add_task("Task 1")
         plan_manager.update_plan(plan)
 
@@ -358,7 +389,9 @@ class TestEphemeralPlanStateInjection:
         from silica.developer.tools.planning import get_ephemeral_plan_state
 
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Active Plan", mock_context.session_id)
+        plan = plan_manager.create_plan(
+            "Active Plan", mock_context.session_id, root_dir=str(temp_persona_dir)
+        )
         plan.add_task("Task 1", files=["file1.py"])
         plan.add_task("Task 2", files=["file2.py"])
         plan_manager.update_plan(plan)
@@ -383,7 +416,9 @@ class TestEphemeralPlanStateInjection:
         from silica.developer.tools.planning import get_ephemeral_plan_state
 
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Progress Plan", mock_context.session_id)
+        plan = plan_manager.create_plan(
+            "Progress Plan", mock_context.session_id, root_dir=str(temp_persona_dir)
+        )
         task1 = plan.add_task("Task 1")
         task2 = plan.add_task("Task 2")
         plan.add_task("Task 3")
@@ -413,7 +448,9 @@ class TestEphemeralPlanStateInjection:
         from silica.developer.tools.planning import get_ephemeral_plan_state
 
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Done Plan", mock_context.session_id)
+        plan = plan_manager.create_plan(
+            "Done Plan", mock_context.session_id, root_dir=str(temp_persona_dir)
+        )
         task = plan.add_task("Only Task")
         plan.complete_task(task.id)
         plan.verify_task(task.id, "All tests pass")
@@ -434,7 +471,9 @@ class TestPlanStorageIsolation:
     def test_plans_stored_in_separate_directory(self, temp_persona_dir):
         """Plans should be stored in plans/ not history/."""
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Isolated Plan", "any-session")
+        plan = plan_manager.create_plan(
+            "Isolated Plan", "any-session", root_dir=str(temp_persona_dir)
+        )
 
         # Plan file should exist in plans/active/
         plan_file = temp_persona_dir / "plans" / "active" / f"{plan.id}.md"
@@ -463,7 +502,9 @@ class TestPlanStorageIsolation:
     def test_completed_plans_move_to_completed_directory(self, temp_persona_dir):
         """Completed plans should move from active/ to completed/."""
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Will Complete", "session-1")
+        plan = plan_manager.create_plan(
+            "Will Complete", "session-1", root_dir=str(temp_persona_dir)
+        )
         task = plan.add_task("Only task")
         plan_manager.update_plan(plan)
 

@@ -1,4 +1,5 @@
 import json
+import os
 from typing import Callable, List, Dict
 
 from anthropic.types import MessageParam
@@ -2194,12 +2195,22 @@ Use `/groups` to see available tool groups."""
             """Print directly to user without adding to conversation."""
             user_interface.handle_system_message(msg, markdown=markdown)
 
-        # Get plan manager
+        # Get plan manager and project root
         if self.context.history_base_dir is None:
             base_dir = Path.home() / ".silica" / "personas" / "default"
         else:
             base_dir = Path(self.context.history_base_dir)
         plan_manager = PlanManager(base_dir)
+
+        # Get project root for filtering plans
+        if (
+            hasattr(self.context, "sandbox")
+            and self.context.sandbox is not None
+            and hasattr(self.context.sandbox, "root_directory")
+        ):
+            root_dir = str(self.context.sandbox.root_directory)
+        else:
+            root_dir = os.getcwd()
 
         # Note: chat_history is available via kwargs.get("chat_history", [])
         # if needed for future enhancements
@@ -2212,9 +2223,9 @@ Use `/groups` to see available tool groups."""
 
         # Check for management subcommands (human-only, no agent involvement)
         if command == "list":
-            plans = plan_manager.list_active_plans()
+            plans = plan_manager.list_active_plans(root_dir=root_dir)
             if not plans:
-                _print("No active plans.")
+                _print("No active plans for this project.")
                 return ""
 
             output = "## Active Plans\n\n"
@@ -2227,9 +2238,9 @@ Use `/groups` to see available tool groups."""
         elif command == "view":
             if len(args_list) < 2:
                 # Use active plan if available, otherwise show picker
-                active_plans = plan_manager.list_active_plans()
+                active_plans = plan_manager.list_active_plans(root_dir=root_dir)
                 if not active_plans:
-                    _print("No plans to view.")
+                    _print("No plans to view for this project.")
                     return ""
 
                 # Default to the most recent active plan
@@ -2248,7 +2259,7 @@ Use `/groups` to see available tool groups."""
         elif command == "approve":
             if len(args_list) < 2:
                 # Use active plan if it's in review, otherwise show picker
-                active_plans = plan_manager.list_active_plans()
+                active_plans = plan_manager.list_active_plans(root_dir=root_dir)
                 plans_in_review = [
                     p for p in active_plans if p.status == PlanStatus.IN_REVIEW
                 ]
@@ -2260,7 +2271,7 @@ Use `/groups` to see available tool groups."""
                             f"Active plan `{active_plans[0].id}` is in {active_plans[0].status.value} status, not IN_REVIEW."
                         )
                     else:
-                        _print("No plans awaiting approval.")
+                        _print("No plans awaiting approval for this project.")
                     return ""
 
                 # Default to the most recent plan in review
@@ -2308,9 +2319,9 @@ When all tasks are done, call `complete_plan(plan_id)`."""
         elif command == "abandon":
             if len(args_list) < 2:
                 # Use active plan if available, otherwise show picker
-                active_plans = plan_manager.list_active_plans()
+                active_plans = plan_manager.list_active_plans(root_dir=root_dir)
                 if not active_plans:
-                    _print("No active plans to abandon.")
+                    _print("No active plans to abandon for this project.")
                     return ""
 
                 # Default to the most recent active plan

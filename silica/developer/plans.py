@@ -158,6 +158,7 @@ class Plan:
     session_id: str
     created_at: datetime
     updated_at: datetime
+    root_dir: str = ""  # Project root directory this plan belongs to
     context: str = ""
     approach: str = ""
     tasks: list[PlanTask] = field(default_factory=list)
@@ -175,6 +176,7 @@ class Plan:
             "session_id": self.session_id,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
+            "root_dir": self.root_dir,
             "context": self.context,
             "approach": self.approach,
             "tasks": [t.to_dict() for t in self.tasks],
@@ -213,6 +215,7 @@ class Plan:
             session_id=data.get("session_id", ""),
             created_at=created_at,
             updated_at=updated_at,
+            root_dir=data.get("root_dir", ""),
             context=data.get("context", ""),
             approach=data.get("approach", ""),
             tasks=[PlanTask.from_dict(t) for t in data.get("tasks", [])],
@@ -510,13 +513,16 @@ class PlanManager:
         self.active_dir.mkdir(parents=True, exist_ok=True)
         self.completed_dir.mkdir(parents=True, exist_ok=True)
 
-    def create_plan(self, title: str, session_id: str, context: str = "") -> Plan:
+    def create_plan(
+        self, title: str, session_id: str, context: str = "", root_dir: str = ""
+    ) -> Plan:
         """Create a new plan.
 
         Args:
             title: Title/topic for the plan
             session_id: Current session ID
             context: Initial context description
+            root_dir: Project root directory this plan belongs to
 
         Returns:
             The newly created Plan
@@ -529,6 +535,7 @@ class PlanManager:
             session_id=session_id,
             created_at=now,
             updated_at=now,
+            root_dir=root_dir,
             context=context,
         )
         plan.add_progress(f"Plan created: {title}")
@@ -563,8 +570,12 @@ class PlanManager:
         plan.updated_at = datetime.now(timezone.utc)
         self._save_plan(plan)
 
-    def list_active_plans(self) -> list[Plan]:
+    def list_active_plans(self, root_dir: str | None = None) -> list[Plan]:
         """List all active (non-completed, non-abandoned) plans.
+
+        Args:
+            root_dir: If provided, only return plans for this project root.
+                      If None, returns all active plans.
 
         Returns:
             List of active plans, sorted by last updated (newest first)
@@ -573,16 +584,29 @@ class PlanManager:
         for plan_file in self.active_dir.glob("*.md"):
             try:
                 plan = Plan.from_markdown(plan_file.read_text())
+
+                # Filter by root_dir if specified
+                if root_dir is not None:
+                    import os
+
+                    plan_root = os.path.normpath(plan.root_dir) if plan.root_dir else ""
+                    filter_root = os.path.normpath(root_dir)
+                    if plan_root != filter_root:
+                        continue
+
                 plans.append(plan)
             except Exception:
                 pass
         return sorted(plans, key=lambda p: p.updated_at, reverse=True)
 
-    def list_completed_plans(self, limit: int = 10) -> list[Plan]:
+    def list_completed_plans(
+        self, limit: int = 10, root_dir: str | None = None
+    ) -> list[Plan]:
         """List completed/abandoned plans.
 
         Args:
             limit: Maximum number of plans to return
+            root_dir: If provided, only return plans for this project root.
 
         Returns:
             List of completed plans, sorted by completion date (newest first)
@@ -591,6 +615,16 @@ class PlanManager:
         for plan_file in self.completed_dir.glob("*.md"):
             try:
                 plan = Plan.from_markdown(plan_file.read_text())
+
+                # Filter by root_dir if specified
+                if root_dir is not None:
+                    import os
+
+                    plan_root = os.path.normpath(plan.root_dir) if plan.root_dir else ""
+                    filter_root = os.path.normpath(root_dir)
+                    if plan_root != filter_root:
+                        continue
+
                 plans.append(plan)
             except Exception:
                 pass

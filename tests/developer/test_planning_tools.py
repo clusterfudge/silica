@@ -34,6 +34,10 @@ def mock_context(temp_persona_dir):
     context.session_id = "test-session-123"
     context.history_base_dir = temp_persona_dir
 
+    # Mock sandbox with root_directory for project scoping
+    context.sandbox = MagicMock()
+    context.sandbox.root_directory = temp_persona_dir
+
     # Mock user_interface for ask_clarifications
     context.user_interface = MagicMock()
     context.user_interface.get_user_choice = AsyncMock(return_value="Option A")
@@ -81,7 +85,9 @@ class TestUpdatePlan:
     def test_update_context(self, mock_context, temp_persona_dir):
         # Create a plan first
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
 
         result = update_plan(
             mock_context,
@@ -98,7 +104,9 @@ class TestUpdatePlan:
 
     def test_update_approach(self, mock_context, temp_persona_dir):
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
 
         result = update_plan(
             mock_context,
@@ -114,7 +122,9 @@ class TestUpdatePlan:
 
     def test_update_considerations(self, mock_context, temp_persona_dir):
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
 
         result = update_plan(
             mock_context,
@@ -142,7 +152,9 @@ class TestUpdatePlan:
 
     def test_update_invalid_section(self, mock_context, temp_persona_dir):
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
 
         result = update_plan(
             mock_context,
@@ -160,7 +172,9 @@ class TestAddPlanTasks:
 
     def test_add_single_task(self, mock_context, temp_persona_dir):
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
 
         tasks_json = json.dumps(
             [{"description": "Create database schema", "files": ["schema.sql"]}]
@@ -177,7 +191,9 @@ class TestAddPlanTasks:
 
     def test_add_multiple_tasks(self, mock_context, temp_persona_dir):
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
 
         tasks_json = json.dumps(
             [
@@ -196,7 +212,9 @@ class TestAddPlanTasks:
 
     def test_add_tasks_with_dependencies(self, mock_context, temp_persona_dir):
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
 
         tasks_json = json.dumps(
             [
@@ -213,7 +231,9 @@ class TestAddPlanTasks:
 
     def test_add_tasks_invalid_json(self, mock_context, temp_persona_dir):
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
 
         result = add_plan_tasks(mock_context, plan.id, "not valid json")
 
@@ -226,7 +246,9 @@ class TestReadPlan:
 
     def test_read_existing_plan(self, mock_context, temp_persona_dir):
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
         plan.context = "Test context"
         plan.approach = "Test approach"
         plan_manager.update_plan(plan)
@@ -249,8 +271,8 @@ class TestListPlans:
 
     def test_list_active_plans(self, mock_context, temp_persona_dir):
         plan_manager = PlanManager(temp_persona_dir)
-        plan_manager.create_plan("Plan 1", "session1")
-        plan_manager.create_plan("Plan 2", "session2")
+        plan_manager.create_plan("Plan 1", "session1", root_dir=str(temp_persona_dir))
+        plan_manager.create_plan("Plan 2", "session2", root_dir=str(temp_persona_dir))
 
         result = list_plans(mock_context, include_completed=False)
 
@@ -260,8 +282,12 @@ class TestListPlans:
 
     def test_list_with_completed(self, mock_context, temp_persona_dir):
         plan_manager = PlanManager(temp_persona_dir)
-        plan_manager.create_plan("Active Plan", "session1")
-        plan2 = plan_manager.create_plan("Done Plan", "session2")
+        plan_manager.create_plan(
+            "Active Plan", "session1", root_dir=str(temp_persona_dir)
+        )
+        plan2 = plan_manager.create_plan(
+            "Done Plan", "session2", root_dir=str(temp_persona_dir)
+        )
 
         # Complete one plan
         plan_manager.submit_for_review(plan2.id)
@@ -286,7 +312,9 @@ class TestExitPlanMode:
 
     def test_exit_save_draft(self, mock_context, temp_persona_dir):
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
 
         result = exit_plan_mode(mock_context, plan.id, action="save")
 
@@ -299,7 +327,9 @@ class TestExitPlanMode:
 
     def test_exit_submit_for_review(self, mock_context, temp_persona_dir):
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
 
         result = exit_plan_mode(mock_context, plan.id, action="submit")
 
@@ -310,7 +340,9 @@ class TestExitPlanMode:
 
     def test_exit_execute_approved(self, mock_context, temp_persona_dir):
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
         plan_manager.submit_for_review(plan.id)
         plan_manager.approve_plan(plan.id)
 
@@ -323,7 +355,9 @@ class TestExitPlanMode:
 
     def test_exit_execute_not_approved(self, mock_context, temp_persona_dir):
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
 
         result = exit_plan_mode(mock_context, plan.id, action="execute")
 
@@ -332,7 +366,9 @@ class TestExitPlanMode:
 
     def test_exit_abandon(self, mock_context, temp_persona_dir):
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
 
         result = exit_plan_mode(mock_context, plan.id, action="abandon")
 
@@ -343,7 +379,9 @@ class TestExitPlanMode:
 
     def test_exit_invalid_action(self, mock_context, temp_persona_dir):
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
 
         result = exit_plan_mode(mock_context, plan.id, action="invalid")
 
@@ -356,7 +394,9 @@ class TestCompletePlanTask:
 
     def test_complete_task(self, mock_context, temp_persona_dir):
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
         task = plan.add_task("Test task")
         plan_manager.update_plan(plan)
 
@@ -369,7 +409,9 @@ class TestCompletePlanTask:
 
     def test_complete_task_with_notes(self, mock_context, temp_persona_dir):
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
         task = plan.add_task("Test task")
         plan_manager.update_plan(plan)
 
@@ -385,7 +427,9 @@ class TestCompletePlanTask:
 
     def test_complete_nonexistent_task(self, mock_context, temp_persona_dir):
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
 
         result = complete_plan_task(mock_context, plan.id, "nonexistent")
 
@@ -400,7 +444,9 @@ class TestVerifyPlanTask:
         from silica.developer.tools.planning import verify_plan_task
 
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
         task = plan.add_task("Test task")
         plan.complete_task(task.id)
         plan_manager.update_plan(plan)
@@ -419,7 +465,9 @@ class TestVerifyPlanTask:
         from silica.developer.tools.planning import verify_plan_task
 
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
         task = plan.add_task("Test task")
         plan_manager.update_plan(plan)
 
@@ -432,7 +480,9 @@ class TestVerifyPlanTask:
         from silica.developer.tools.planning import verify_plan_task
 
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
         task = plan.add_task("Test task")
         plan.complete_task(task.id)
         plan_manager.update_plan(plan)
@@ -446,7 +496,9 @@ class TestVerifyPlanTask:
         from silica.developer.tools.planning import verify_plan_task
 
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
 
         result = verify_plan_task(mock_context, plan.id, "nonexistent", "Tests pass")
 
@@ -459,7 +511,9 @@ class TestCompletePlan:
 
     def test_complete_plan_all_tasks_done(self, mock_context, temp_persona_dir):
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
         task = plan.add_task("Test task")
         plan.complete_task(task.id)
         plan.verify_task(task.id, "Tests pass")  # Must verify before completing plan
@@ -479,7 +533,9 @@ class TestCompletePlan:
 
     def test_complete_plan_tasks_incomplete(self, mock_context, temp_persona_dir):
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
         plan.add_task("Incomplete task")
         plan_manager.update_plan(plan)
         plan_manager.submit_for_review(plan.id)
@@ -493,7 +549,9 @@ class TestCompletePlan:
     def test_complete_plan_tasks_unverified(self, mock_context, temp_persona_dir):
         """Tasks that are completed but not verified should block plan completion."""
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
         task = plan.add_task("Unverified task")
         plan.complete_task(task.id)  # Completed but not verified
         plan_manager.update_plan(plan)
@@ -507,7 +565,9 @@ class TestCompletePlan:
 
     def test_complete_plan_wrong_status(self, mock_context, temp_persona_dir):
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
 
         result = complete_plan(mock_context, plan.id)
 
@@ -548,7 +608,9 @@ class TestGetActivePlanStatus:
         from silica.developer.tools.planning import get_active_plan_status
 
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
         plan.add_task("Task 1")
         plan_manager.update_plan(plan)
 
@@ -563,7 +625,9 @@ class TestGetActivePlanStatus:
         from silica.developer.tools.planning import get_active_plan_status
 
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
         plan_manager.update_plan(plan)
         plan_manager.submit_for_review(plan.id)
 
@@ -576,7 +640,9 @@ class TestGetActivePlanStatus:
         from silica.developer.tools.planning import get_active_plan_status
 
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
         plan.add_task("Task 1")
         plan_manager.update_plan(plan)
         plan_manager.submit_for_review(plan.id)
@@ -594,7 +660,9 @@ class TestGetActivePlanStatus:
         from silica.developer.tools.planning import get_active_plan_status
 
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
         task1 = plan.add_task("Task 1")
         plan.add_task("Task 2")
         plan.complete_task(task1.id)
@@ -623,7 +691,9 @@ class TestGetActivePlanReminder:
 
         # Create a draft plan (not in progress)
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
         plan.add_task("Task 1")
         plan_manager.update_plan(plan)
 
@@ -635,7 +705,9 @@ class TestGetActivePlanReminder:
 
         # Create and progress a plan
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
         task = plan.add_task(
             "Implement feature", files=["main.py"], details="Add the new code"
         )
@@ -663,7 +735,9 @@ class TestGetActivePlanReminder:
         from silica.developer.tools.planning import get_active_plan_reminder
 
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
         task = plan.add_task("Task 1")
         plan.complete_task(task.id)  # Complete but not verified
         plan_manager.update_plan(plan)
@@ -681,7 +755,9 @@ class TestGetActivePlanReminder:
         from silica.developer.tools.planning import get_active_plan_reminder
 
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
         task = plan.add_task("Task 1")
         plan.complete_task(task.id)
         plan.verify_task(task.id, "Tests pass")  # Both complete and verified
@@ -714,7 +790,9 @@ class TestGetTaskCompletionHint:
         from silica.developer.tools.planning import get_task_completion_hint
 
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
         task = plan.add_task("Update main", files=["main.py"])
         plan_manager.update_plan(plan)
 
@@ -733,7 +811,9 @@ class TestGetTaskCompletionHint:
         from silica.developer.tools.planning import get_task_completion_hint
 
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
         plan.add_task("Update main", files=["main.py"])
         plan_manager.update_plan(plan)
 
@@ -748,7 +828,9 @@ class TestGetTaskCompletionHint:
         from silica.developer.tools.planning import get_task_completion_hint
 
         plan_manager = PlanManager(temp_persona_dir)
-        plan = plan_manager.create_plan("Test Plan", "session123")
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
         plan.add_task("Task without files")  # No files specified
         plan_manager.update_plan(plan)
 

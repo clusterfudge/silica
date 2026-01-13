@@ -19,6 +19,7 @@ def get_active_plan_status(context: "AgentContext") -> dict | None:
     """Get the status of the most recent active plan for UI display.
 
     This is used to show plan mode indicators in the prompt.
+    Only returns plans for the current project (root_dir).
 
     Args:
         context: The agent context
@@ -36,7 +37,8 @@ def get_active_plan_status(context: "AgentContext") -> dict | None:
         }
     """
     plan_manager = _get_plan_manager(context)
-    active_plans = plan_manager.list_active_plans()
+    root_dir = _get_root_dir(context)
+    active_plans = plan_manager.list_active_plans(root_dir=root_dir)
 
     if not active_plans:
         return None
@@ -69,7 +71,7 @@ def get_active_plan_status(context: "AgentContext") -> dict | None:
 
 
 def get_active_plan_id(context: "AgentContext") -> str | None:
-    """Get the ID of the most recent active plan.
+    """Get the ID of the most recent active plan for the current project.
 
     This is used for context-aware /plan commands.
 
@@ -77,10 +79,11 @@ def get_active_plan_id(context: "AgentContext") -> str | None:
         context: The agent context
 
     Returns:
-        Plan ID if there's an active plan, None otherwise
+        Plan ID if there's an active plan for this project, None otherwise
     """
     plan_manager = _get_plan_manager(context)
-    active_plans = plan_manager.list_active_plans()
+    root_dir = _get_root_dir(context)
+    active_plans = plan_manager.list_active_plans(root_dir=root_dir)
 
     if not active_plans:
         return None
@@ -94,7 +97,8 @@ def get_ephemeral_plan_state(context: "AgentContext") -> str | None:
     This is injected before cache markers in the last user message to provide
     the agent with current plan state without accumulating in conversation history.
 
-    Only returns content for plans that are IN_PROGRESS (actively being executed).
+    Only returns content for plans that are IN_PROGRESS (actively being executed)
+    and belong to the current project (root_dir).
 
     Args:
         context: The agent context
@@ -103,9 +107,10 @@ def get_ephemeral_plan_state(context: "AgentContext") -> str | None:
         Plan state block as string, or None if no active execution
     """
     plan_manager = _get_plan_manager(context)
+    root_dir = _get_root_dir(context)
 
-    # Only show state for plans being executed
-    active_plans = plan_manager.list_active_plans()
+    # Only show state for plans being executed in this project
+    active_plans = plan_manager.list_active_plans(root_dir=root_dir)
     in_progress = [p for p in active_plans if p.status == PlanStatus.IN_PROGRESS]
 
     if not in_progress:
@@ -178,6 +183,7 @@ def get_active_plan_reminder(context: "AgentContext") -> str | None:
     """Check if there's an in-progress plan with work remaining and return a reminder.
 
     This is called by the agent loop to remind the agent to continue working on plans.
+    Only considers plans for the current project (root_dir).
 
     Args:
         context: The agent context
@@ -186,9 +192,10 @@ def get_active_plan_reminder(context: "AgentContext") -> str | None:
         A reminder string if there's an active plan with work, None otherwise
     """
     plan_manager = _get_plan_manager(context)
+    root_dir = _get_root_dir(context)
 
-    # Look for in-progress plans
-    active_plans = plan_manager.list_active_plans()
+    # Look for in-progress plans in this project
+    active_plans = plan_manager.list_active_plans(root_dir=root_dir)
     in_progress = [p for p in active_plans if p.status == PlanStatus.IN_PROGRESS]
 
     if not in_progress:
@@ -259,6 +266,7 @@ def get_task_completion_hint(
     """Check if modified files match any incomplete tasks and return a hint.
 
     This is called after file-modifying tools to remind the agent to mark tasks complete.
+    Only considers plans for the current project (root_dir).
 
     Args:
         context: The agent context
@@ -271,9 +279,10 @@ def get_task_completion_hint(
         return None
 
     plan_manager = _get_plan_manager(context)
+    root_dir = _get_root_dir(context)
 
-    # Look for in-progress plans
-    active_plans = plan_manager.list_active_plans()
+    # Look for in-progress plans in this project
+    active_plans = plan_manager.list_active_plans(root_dir=root_dir)
     in_progress = [p for p in active_plans if p.status == PlanStatus.IN_PROGRESS]
 
     if not in_progress:
@@ -337,6 +346,19 @@ def _get_plan_manager(context: "AgentContext") -> PlanManager:
     return PlanManager(base_dir)
 
 
+def _get_root_dir(context: "AgentContext") -> str:
+    """Get the project root directory from the context.
+
+    Uses the sandbox root if available, otherwise falls back to cwd.
+    """
+    import os
+
+    if hasattr(context, "sandbox") and context.sandbox is not None:
+        if hasattr(context.sandbox, "root_directory"):
+            return str(context.sandbox.root_directory)
+    return os.getcwd()
+
+
 @tool(group="Planning")
 def enter_plan_mode(
     context: "AgentContext",
@@ -363,12 +385,14 @@ def enter_plan_mode(
         Confirmation message with plan ID and instructions
     """
     plan_manager = _get_plan_manager(context)
+    root_dir = _get_root_dir(context)
 
     # Create the plan
     plan = plan_manager.create_plan(
         title=topic,
         session_id=context.session_id,
         context=reason if reason else f"Planning: {topic}",
+        root_dir=root_dir,
     )
 
     # Store active plan ID in context (if supported)
@@ -633,17 +657,18 @@ def list_plans(
     context: "AgentContext",
     include_completed: bool = False,
 ) -> str:
-    """List available plans.
+    """List available plans for the current project.
 
     Args:
         include_completed: Whether to include completed/abandoned plans
 
     Returns:
-        Formatted list of plans
+        Formatted list of plans for this project
     """
     plan_manager = _get_plan_manager(context)
+    root_dir = _get_root_dir(context)
 
-    active = plan_manager.list_active_plans()
+    active = plan_manager.list_active_plans(root_dir=root_dir)
     result = "## Active Plans\n\n"
 
     if active:
@@ -651,16 +676,16 @@ def list_plans(
             result += f"- `{plan.id}` - **{plan.title}** ({plan.status.value})\n"
             result += f"  Updated: {plan.updated_at.strftime('%Y-%m-%d %H:%M')}\n"
     else:
-        result += "_No active plans_\n"
+        result += "_No active plans for this project_\n"
 
     if include_completed:
-        completed = plan_manager.list_completed_plans(limit=5)
+        completed = plan_manager.list_completed_plans(limit=5, root_dir=root_dir)
         result += "\n## Completed Plans (recent)\n\n"
         if completed:
             for plan in completed:
                 result += f"- `{plan.id}` - **{plan.title}** ({plan.status.value})\n"
         else:
-            result += "_No completed plans_\n"
+            result += "_No completed plans for this project_\n"
 
     return result
 
