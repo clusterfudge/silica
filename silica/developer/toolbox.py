@@ -2591,6 +2591,12 @@ When all tasks are done, call `complete_plan(plan_id)`."""
                     from silica.remote.utils.antennae_client import get_antennae_client
 
                     client = get_antennae_client(silica_dir, ws)
+
+                    # Check if server supports execute-plan capability
+                    supported, cap_error = client.supports_capability("execute-plan")
+                    if not supported:
+                        return False, cap_error
+
                     success, response = client.execute_plan(
                         repo_url=repo_url,
                         branch=br,

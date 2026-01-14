@@ -210,6 +210,49 @@ class AntennaeClient:
         """
         return self._make_request("GET", "health", timeout=5.0)
 
+    def get_capabilities(self) -> Tuple[bool, Dict[str, Any]]:
+        """Get server capabilities for feature detection.
+
+        Returns:
+            Tuple of (success, response_data with 'capabilities' list)
+        """
+        return self._make_request("GET", "capabilities", timeout=5.0)
+
+    def supports_capability(self, capability: str) -> Tuple[bool, str]:
+        """Check if server supports a specific capability.
+
+        Args:
+            capability: The capability to check (e.g., "execute-plan")
+
+        Returns:
+            Tuple of (supported, error_message)
+            If supported, error_message is empty.
+            If not supported, error_message explains why.
+        """
+        success, response = self.get_capabilities()
+
+        if not success:
+            # Older servers might not have /capabilities endpoint
+            error = response.get("error", "Unknown error")
+            if "404" in error or "Not found" in str(error).lower():
+                return False, (
+                    "Remote server does not support capability detection. "
+                    "Please upgrade the remote antennae server to use this feature."
+                )
+            return False, f"Could not check server capabilities: {error}"
+
+        capabilities = response.get("capabilities", [])
+        version = response.get("version", "unknown")
+
+        if capability in capabilities:
+            return True, ""
+        else:
+            return False, (
+                f"Remote server (version {version}) does not support '{capability}'. "
+                f"Supported capabilities: {', '.join(capabilities) or 'none'}. "
+                "Please upgrade the remote antennae server."
+            )
+
     def execute_plan(
         self,
         repo_url: str,

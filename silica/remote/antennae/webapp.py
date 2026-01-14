@@ -126,6 +126,26 @@ async def health_check():
     return {"status": "healthy", "workspace": config.get_workspace_name()}
 
 
+@app.get("/capabilities")
+async def get_capabilities():
+    """Get server capabilities for feature detection.
+
+    Clients should check this endpoint to determine which features
+    are supported before using them.
+    """
+    return {
+        "version": __version__,
+        "workspace": config.get_workspace_name(),
+        "capabilities": [
+            "initialize",
+            "tell",
+            "status",
+            "destroy",
+            "execute-plan",  # Plan execution support
+        ],
+    }
+
+
 @app.post("/initialize", response_model=MessageResponse)
 async def initialize_workspace(request: InitializeRequest):
     """Initialize workspace by cloning repository, setting up environment, and starting tmux session.
