@@ -2437,15 +2437,16 @@ When all tasks are done, call `complete_plan(plan_id)`."""
             return ""
 
         elif command == "push":
-            # /plan push [plan-id] [--workspace NAME] [--branch NAME]
+            # /plan push [plan-id] [--workspace NAME] [--branch NAME] [--local PORT]
             # /plan push --all [--workspace-prefix PREFIX]
-            pass
+            import subprocess
 
             push_all = False
             plan_id = None
             workspace_name = None
             workspace_prefix = None
             branch_name = None
+            local_port = None
 
             if len(args_list) >= 2:
                 for arg in args_list[1].split():
@@ -2457,6 +2458,14 @@ When all tasks are done, call `complete_plan(plan_id)`."""
                         workspace_prefix = arg.split("=", 1)[1]
                     elif arg.startswith("--branch="):
                         branch_name = arg.split("=", 1)[1]
+                    elif arg.startswith("--local="):
+                        try:
+                            local_port = int(arg.split("=", 1)[1])
+                        except ValueError:
+                            _print(f"Invalid port: {arg}")
+                            return ""
+                    elif arg == "--local":
+                        local_port = 8000  # Default port
                     elif not plan_id and not arg.startswith("-"):
                         plan_id = arg
 
@@ -2464,36 +2473,150 @@ When all tasks are done, call `complete_plan(plan_id)`."""
                 """Check if plan is in version control (not global or gitignored)."""
                 if plan.storage_location == LOCATION_GLOBAL:
                     return False, "Plan is in global storage (not in repo)"
-                # Could add gitignore check here if needed
                 return True, None
 
-            def _push_single_plan(plan, ws_name=None, br_name=None):
-                """Push a single plan to remote. Returns (success, message)."""
+            def _get_repo_url():
+                """Get the git remote URL for the current repo."""
+                try:
+                    result = subprocess.run(
+                        ["git", "remote", "get-url", "origin"],
+                        capture_output=True,
+                        text=True,
+                        cwd=root_dir,
+                    )
+                    if result.returncode == 0:
+                        return result.stdout.strip()
+                except Exception:
+                    pass
+                return None
+
+            def _create_and_push_branch(branch: str):
+                """Create branch, commit plan, and push."""
+                try:
+                    # Create and checkout new branch
+                    subprocess.run(
+                        ["git", "checkout", "-b", branch],
+                        cwd=root_dir,
+                        capture_output=True,
+                        check=True,
+                    )
+                    # Add plan files
+                    subprocess.run(
+                        ["git", "add", ".agent/plans", ".silica/plans"],
+                        cwd=root_dir,
+                        capture_output=True,
+                    )
+                    # Commit if there are changes
+                    subprocess.run(
+                        ["git", "commit", "-m", "Add plan for remote execution"],
+                        cwd=root_dir,
+                        capture_output=True,
+                    )
+                    # Push branch
+                    result = subprocess.run(
+                        ["git", "push", "-u", "origin", branch],
+                        cwd=root_dir,
+                        capture_output=True,
+                        text=True,
+                    )
+                    return result.returncode == 0, result.stderr
+                except subprocess.CalledProcessError as e:
+                    return False, str(e)
+
+            def _push_single_plan(plan, ws_name=None, br_name=None, port=None):
+                """Push a single plan to remote workspace."""
                 valid, err = _validate_plan_in_vcs(plan)
                 if not valid:
                     return False, f"Cannot push plan `{plan.id}`: {err}"
 
-                # Generate names from slug if not provided
+                # Generate names from slug
                 slug = plan.get_slug()
                 ws = ws_name or f"plan-{slug}"
                 br = br_name or f"plan/{slug}"
 
+                # Get repo URL
+                repo_url = _get_repo_url()
+                if not repo_url:
+                    return False, "Could not determine repository URL"
+
+                # Create and push the branch with plan files
+                _print(f"Creating branch `{br}`...")
+                success, err = _create_and_push_branch(br)
+                if not success:
+                    # Branch might already exist, try to checkout and push
+                    subprocess.run(
+                        ["git", "checkout", br], cwd=root_dir, capture_output=True
+                    )
+                    subprocess.run(
+                        ["git", "push", "origin", br], cwd=root_dir, capture_output=True
+                    )
+
                 # Update plan with remote info
                 plan.remote_workspace = ws
                 plan.remote_branch = br
-                plan.shelved = False  # No longer shelved once pushed
+                plan.shelved = False
                 plan.add_progress(f"Pushed to remote workspace: {ws} (branch: {br})")
                 plan_manager.update_plan(plan)
 
-                # TODO: Actually create/connect to remote workspace
-                # For now, just record the intent and return instructions
-                return (
-                    True,
-                    f"📤 Plan `{plan.id}` ({plan.title})\n   Workspace: {ws}\n   Branch: {br}",
-                )
+                # Create workspace and execute plan
+                silica_dir = Path(root_dir) / ".silica"
+                silica_dir.mkdir(exist_ok=True)
+
+                try:
+                    if port:
+                        # Local workspace
+                        from silica.remote.cli.commands.create import (
+                            create_local_workspace,
+                        )
+
+                        _print(f"Creating local workspace `{ws}` on port {port}...")
+                        create_local_workspace(ws, port, Path(root_dir), silica_dir, [])
+                    else:
+                        # Remote workspace
+                        from silica.remote.cli.commands.create import (
+                            create_remote_workspace,
+                        )
+
+                        _print(f"Creating remote workspace `{ws}`...")
+                        create_remote_workspace(
+                            ws, None, Path(root_dir), silica_dir, []
+                        )
+
+                    # Wait for workspace to be ready
+                    import time
+
+                    time.sleep(3)
+
+                    # Execute plan via antennae
+                    from silica.remote.utils.antennae_client import get_antennae_client
+
+                    client = get_antennae_client(silica_dir, ws)
+                    success, response = client.execute_plan(
+                        repo_url=repo_url,
+                        branch=br,
+                        plan_id=plan.id,
+                        plan_title=plan.title,
+                        retries=5,
+                    )
+
+                    if success:
+                        return (
+                            True,
+                            f"📤 Plan `{plan.id}` ({plan.title})\n"
+                            f"   Workspace: {ws}\n"
+                            f"   Branch: {br}\n"
+                            f"   Status: Executing",
+                        )
+                    else:
+                        return (
+                            False,
+                            f"Workspace created but plan execution failed: {response.get('error', 'Unknown error')}",
+                        )
+
+                except Exception as e:
+                    return False, f"Failed to create workspace: {e}"
 
             if push_all:
-                # Push all shelved plans
                 shelved = plan_manager.list_shelved_plans(root_dir=root_dir)
                 if not shelved:
                     _print("No shelved plans to push.")
@@ -2507,30 +2630,27 @@ When all tasks are done, call `complete_plan(plan_id)`."""
                         errors.append(f"  - `{plan.id}` ({plan.title}): {err}")
 
                 if errors:
-                    _print(
-                        "❌ Cannot push all plans. Some are not in version control:\n"
-                        + "\n".join(errors)
-                    )
+                    _print("❌ Cannot push all plans:\n" + "\n".join(errors))
                     return ""
 
                 # Push each
                 results = []
                 prefix = workspace_prefix or "plan"
-                for plan in shelved:
+                base_port = local_port or 8000
+                for i, plan in enumerate(shelved):
                     slug = plan.get_slug()
                     ws = f"{prefix}-{slug}"
                     br = f"plan/{slug}"
-                    success, msg = _push_single_plan(plan, ws, br)
-                    results.append(msg)
+                    port = base_port + i if local_port else None
+                    success, msg = _push_single_plan(plan, ws, br, port)
+                    results.append(msg if success else f"❌ {msg}")
 
                 _print("## Pushed Plans\n\n" + "\n\n".join(results))
-                _print("\n\n_Note: Remote workspace creation not yet implemented._")
                 return ""
 
             else:
                 # Push single plan
                 if not plan_id:
-                    # Use active plan or most recent shelved
                     if self.context.active_plan_id:
                         plan_id = self.context.active_plan_id
                     else:
@@ -2540,7 +2660,7 @@ When all tasks are done, call `complete_plan(plan_id)`."""
                         else:
                             _print("No plan specified and no shelved plans found.")
                             _print(
-                                "Usage: /plan push <plan-id> [--workspace=NAME] [--branch=NAME]"
+                                "Usage: /plan push <plan-id> [--workspace=NAME] [--branch=NAME] [--local=PORT]"
                             )
                             return ""
 
@@ -2549,10 +2669,11 @@ When all tasks are done, call `complete_plan(plan_id)`."""
                     _print(f"Plan `{plan_id}` not found.")
                     return ""
 
-                success, msg = _push_single_plan(plan, workspace_name, branch_name)
+                success, msg = _push_single_plan(
+                    plan, workspace_name, branch_name, local_port
+                )
                 if success:
                     _print(msg)
-                    _print("\n_Note: Remote workspace creation not yet implemented._")
                 else:
                     _print(f"❌ {msg}")
                 return ""

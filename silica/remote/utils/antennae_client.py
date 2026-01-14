@@ -209,3 +209,36 @@ class AntennaeClient:
             Tuple of (success, response_data)
         """
         return self._make_request("GET", "health", timeout=5.0)
+
+    def execute_plan(
+        self,
+        repo_url: str,
+        branch: str,
+        plan_id: str,
+        plan_title: str = "",
+        retries: int = 5,
+    ) -> Tuple[bool, Dict[str, Any]]:
+        """Execute a plan in the workspace.
+
+        This initializes the workspace with the specified branch and
+        sends the agent instructions to execute the plan.
+
+        Args:
+            repo_url: URL of repository containing the plan
+            branch: Git branch to checkout (should contain the plan)
+            plan_id: ID of the plan to execute
+            plan_title: Title of the plan (for display)
+            retries: Number of retries for server startup
+
+        Returns:
+            Tuple of (success, response_data)
+        """
+        data = {
+            "repo_url": repo_url,
+            "branch": branch,
+            "plan_id": plan_id,
+            "plan_title": plan_title,
+        }
+        return self._make_request(
+            "POST", "execute-plan", data, retries=retries, retry_delay=2.0
+        )
