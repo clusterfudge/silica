@@ -2232,7 +2232,16 @@ Use `/groups` to see available tool groups."""
         args_list = user_input.strip().split(maxsplit=1) if user_input.strip() else []
 
         # Determine if this is a subcommand or a planning request
-        subcommands = ["list", "view", "approve", "abandon", "new", "move"]
+        subcommands = [
+            "list",
+            "view",
+            "approve",
+            "abandon",
+            "new",
+            "move",
+            "push",
+            "status",
+        ]
         command = args_list[0].lower() if args_list else ""
 
         # Context-aware /plan (no args): view active plan or create new
@@ -2303,7 +2312,17 @@ Use `/groups` to see available tool groups."""
             return ""
 
         elif command == "approve":
-            if len(args_list) < 2:
+            # Parse flags
+            shelve = False
+            plan_id = None
+            if len(args_list) >= 2:
+                for arg in args_list[1].split():
+                    if arg == "--shelve":
+                        shelve = True
+                    elif not plan_id and not arg.startswith("-"):
+                        plan_id = arg
+
+            if not plan_id:
                 # Use active plan if it's in review, otherwise show picker
                 active_plans = plan_manager.list_active_plans(root_dir=root_dir)
                 plans_in_review = [
@@ -2311,7 +2330,6 @@ Use `/groups` to see available tool groups."""
                 ]
 
                 if not plans_in_review:
-                    # Check if there's an active plan not in review
                     if active_plans:
                         _print(
                             f"Active plan `{active_plans[0].id}` is in {active_plans[0].status.value} status, not IN_REVIEW."
@@ -2320,21 +2338,24 @@ Use `/groups` to see available tool groups."""
                         _print("No plans awaiting approval for this project.")
                     return ""
 
-                # Default to the most recent plan in review
                 plan_id = plans_in_review[0].id
                 _print(f"Approving plan `{plan_id}`...")
-            else:
-                plan_id = args_list[1]
 
-            if plan_manager.approve_plan(plan_id):
-                # Get the plan details for the execution prompt
+            if plan_manager.approve_plan(plan_id, shelve=shelve):
                 plan = plan_manager.get_plan(plan_id)
-                _print(f"✅ Plan `{plan_id}` approved! Starting execution...")
 
-                # Set this as the active plan for this session
+                if shelve:
+                    # Shelved - don't trigger execution, just confirm
+                    _print(f"✅ Plan `{plan_id}` approved and shelved.")
+                    _print(
+                        f"Use `/plan push {plan_id}` to execute on a remote workspace."
+                    )
+                    return ""
+
+                # Not shelved - trigger immediate execution
+                _print(f"✅ Plan `{plan_id}` approved! Starting execution...")
                 self.context.active_plan_id = plan_id
 
-                # Build execution prompt to trigger agent
                 execution_prompt = f"""The plan "{plan.title}" (ID: {plan_id}) has been approved.
 
 Please use `exit_plan_mode("{plan_id}", "execute")` to begin execution, then work through each task:
@@ -2353,7 +2374,6 @@ Please use `exit_plan_mode("{plan_id}", "execute")` to begin execution, then wor
 After completing each task, call `complete_plan_task(plan_id, task_id)`.
 When all tasks are done, call `complete_plan(plan_id)`."""
 
-                # Return prompt with auto_add=True to trigger agent execution
                 return (execution_prompt, True)
             else:
                 plan = plan_manager.get_plan(plan_id)
@@ -2414,6 +2434,173 @@ When all tasks are done, call `complete_plan(plan_id)`."""
                 _print(f"{emoji} Plan `{plan_id}` moved to {target} storage.")
             else:
                 _print(f"Could not move plan {plan_id}.")
+            return ""
+
+        elif command == "push":
+            # /plan push [plan-id] [--workspace NAME] [--branch NAME]
+            # /plan push --all [--workspace-prefix PREFIX]
+            pass
+
+            push_all = False
+            plan_id = None
+            workspace_name = None
+            workspace_prefix = None
+            branch_name = None
+
+            if len(args_list) >= 2:
+                for arg in args_list[1].split():
+                    if arg == "--all":
+                        push_all = True
+                    elif arg.startswith("--workspace="):
+                        workspace_name = arg.split("=", 1)[1]
+                    elif arg.startswith("--workspace-prefix="):
+                        workspace_prefix = arg.split("=", 1)[1]
+                    elif arg.startswith("--branch="):
+                        branch_name = arg.split("=", 1)[1]
+                    elif not plan_id and not arg.startswith("-"):
+                        plan_id = arg
+
+            def _validate_plan_in_vcs(plan):
+                """Check if plan is in version control (not global or gitignored)."""
+                if plan.storage_location == LOCATION_GLOBAL:
+                    return False, "Plan is in global storage (not in repo)"
+                # Could add gitignore check here if needed
+                return True, None
+
+            def _push_single_plan(plan, ws_name=None, br_name=None):
+                """Push a single plan to remote. Returns (success, message)."""
+                valid, err = _validate_plan_in_vcs(plan)
+                if not valid:
+                    return False, f"Cannot push plan `{plan.id}`: {err}"
+
+                # Generate names from slug if not provided
+                slug = plan.get_slug()
+                ws = ws_name or f"plan-{slug}"
+                br = br_name or f"plan/{slug}"
+
+                # Update plan with remote info
+                plan.remote_workspace = ws
+                plan.remote_branch = br
+                plan.shelved = False  # No longer shelved once pushed
+                plan.add_progress(f"Pushed to remote workspace: {ws} (branch: {br})")
+                plan_manager.update_plan(plan)
+
+                # TODO: Actually create/connect to remote workspace
+                # For now, just record the intent and return instructions
+                return (
+                    True,
+                    f"📤 Plan `{plan.id}` ({plan.title})\n   Workspace: {ws}\n   Branch: {br}",
+                )
+
+            if push_all:
+                # Push all shelved plans
+                shelved = plan_manager.list_shelved_plans(root_dir=root_dir)
+                if not shelved:
+                    _print("No shelved plans to push.")
+                    return ""
+
+                # Validate all first
+                errors = []
+                for plan in shelved:
+                    valid, err = _validate_plan_in_vcs(plan)
+                    if not valid:
+                        errors.append(f"  - `{plan.id}` ({plan.title}): {err}")
+
+                if errors:
+                    _print(
+                        "❌ Cannot push all plans. Some are not in version control:\n"
+                        + "\n".join(errors)
+                    )
+                    return ""
+
+                # Push each
+                results = []
+                prefix = workspace_prefix or "plan"
+                for plan in shelved:
+                    slug = plan.get_slug()
+                    ws = f"{prefix}-{slug}"
+                    br = f"plan/{slug}"
+                    success, msg = _push_single_plan(plan, ws, br)
+                    results.append(msg)
+
+                _print("## Pushed Plans\n\n" + "\n\n".join(results))
+                _print("\n\n_Note: Remote workspace creation not yet implemented._")
+                return ""
+
+            else:
+                # Push single plan
+                if not plan_id:
+                    # Use active plan or most recent shelved
+                    if self.context.active_plan_id:
+                        plan_id = self.context.active_plan_id
+                    else:
+                        shelved = plan_manager.list_shelved_plans(root_dir=root_dir)
+                        if shelved:
+                            plan_id = shelved[0].id
+                        else:
+                            _print("No plan specified and no shelved plans found.")
+                            _print(
+                                "Usage: /plan push <plan-id> [--workspace=NAME] [--branch=NAME]"
+                            )
+                            return ""
+
+                plan = plan_manager.get_plan(plan_id)
+                if not plan:
+                    _print(f"Plan `{plan_id}` not found.")
+                    return ""
+
+                success, msg = _push_single_plan(plan, workspace_name, branch_name)
+                if success:
+                    _print(msg)
+                    _print("\n_Note: Remote workspace creation not yet implemented._")
+                else:
+                    _print(f"❌ {msg}")
+                return ""
+
+        elif command == "status":
+            # /plan status [--remote]
+            show_remote_only = len(args_list) >= 2 and "--remote" in args_list[1]
+
+            plans = plan_manager.list_active_plans(root_dir=root_dir)
+            if show_remote_only:
+                plans = [p for p in plans if p.remote_workspace]
+
+            if not plans:
+                if show_remote_only:
+                    _print("No plans executing remotely.")
+                else:
+                    _print("No active plans.")
+                return ""
+
+            output = "## Plan Status\n\n"
+            for plan in plans:
+                loc = _location_emoji(plan.storage_location)
+                status_str = plan.status.value
+                if plan.shelved:
+                    status_str += " (shelved)"
+
+                output += f"{loc} **{plan.id}** - {plan.title}\n"
+                output += f"   Status: {status_str}\n"
+
+                if plan.remote_workspace:
+                    output += f"   Remote: {plan.remote_workspace}\n"
+                if plan.remote_branch:
+                    output += f"   Branch: {plan.remote_branch}\n"
+                if plan.pull_request:
+                    output += f"   PR: {plan.pull_request}\n"
+
+                # Task progress
+                if plan.tasks:
+                    done = sum(1 for t in plan.tasks if t.completed)
+                    verified = sum(1 for t in plan.tasks if t.verified)
+                    total = len(plan.tasks)
+                    output += (
+                        f"   Tasks: {done}/{total} done, {verified}/{total} verified\n"
+                    )
+
+                output += "\n"
+
+            _print(output)
             return ""
 
         elif command == "new" or command not in subcommands:

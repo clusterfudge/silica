@@ -4,6 +4,7 @@ import pytest
 
 from silica.developer.plans import (
     PlanManager,
+    PlanStatus,
     get_local_plans_dir,
     LOCATION_LOCAL,
     LOCATION_GLOBAL,
@@ -215,3 +216,100 @@ class TestLocationEmoji:
 
         assert local.storage_location == LOCATION_LOCAL
         assert global_.storage_location == LOCATION_GLOBAL
+
+
+class TestSlugify:
+    """Tests for the slugify function."""
+
+    def test_basic_slugify(self):
+        from silica.developer.plans import slugify
+
+        assert slugify("Add User Avatars") == "add-user-avatars"
+
+    def test_slugify_special_chars(self):
+        from silica.developer.plans import slugify
+
+        assert slugify("Fix bug #123") == "fix-bug-123"
+        assert slugify("Refactor auth/middleware") == "refactor-auth-middleware"
+
+    def test_slugify_max_length(self):
+        from silica.developer.plans import slugify
+
+        long_title = "This is a very long plan title that should be truncated"
+        result = slugify(long_title, max_length=20)
+        assert len(result) <= 20
+        assert not result.endswith("-")
+
+    def test_plan_get_slug(self, temp_dirs):
+        pm = PlanManager(temp_dirs["persona"])
+        plan = pm.create_plan("Add Dark Mode Support", "s1")
+        assert plan.get_slug() == "add-dark-mode-support"
+
+
+class TestShelving:
+    """Tests for plan shelving and remote execution."""
+
+    def test_approve_with_shelve(self, temp_dirs):
+        """Approve with shelve=True should set shelved flag."""
+        pm = PlanManager(temp_dirs["persona"])
+        plan = pm.create_plan("Test", "s1")
+        plan.add_task("Do something")
+        pm.update_plan(plan)
+        pm.submit_for_review(plan.id)
+
+        pm.approve_plan(plan.id, shelve=True)
+
+        reloaded = pm.get_plan(plan.id)
+        assert reloaded.status == PlanStatus.APPROVED
+        assert reloaded.shelved is True
+
+    def test_approve_without_shelve(self, temp_dirs):
+        """Approve without shelve should not set shelved flag."""
+        pm = PlanManager(temp_dirs["persona"])
+        plan = pm.create_plan("Test", "s1")
+        plan.add_task("Do something")
+        pm.update_plan(plan)
+        pm.submit_for_review(plan.id)
+
+        pm.approve_plan(plan.id, shelve=False)
+
+        reloaded = pm.get_plan(plan.id)
+        assert reloaded.status == PlanStatus.APPROVED
+        assert reloaded.shelved is False
+
+    def test_list_shelved_plans(self, temp_dirs):
+        """list_shelved_plans should only return approved+shelved plans."""
+        pm = PlanManager(temp_dirs["persona"])
+
+        # Create and shelve one plan
+        p1 = pm.create_plan("Shelved", "s1")
+        p1.add_task("Task")
+        pm.update_plan(p1)
+        pm.submit_for_review(p1.id)
+        pm.approve_plan(p1.id, shelve=True)
+
+        # Create approved but not shelved
+        p2 = pm.create_plan("Not Shelved", "s2")
+        p2.add_task("Task")
+        pm.update_plan(p2)
+        pm.submit_for_review(p2.id)
+        pm.approve_plan(p2.id, shelve=False)
+
+        # Create draft
+        pm.create_plan("Draft", "s3")
+
+        shelved = pm.list_shelved_plans()
+        assert len(shelved) == 1
+        assert shelved[0].id == p1.id
+
+    def test_remote_workspace_fields(self, temp_dirs):
+        """Plan should store remote workspace and branch."""
+        pm = PlanManager(temp_dirs["persona"])
+        plan = pm.create_plan("Test", "s1")
+        plan.remote_workspace = "plan-test"
+        plan.remote_branch = "plan/test"
+        pm.update_plan(plan)
+
+        reloaded = pm.get_plan(plan.id)
+        assert reloaded.remote_workspace == "plan-test"
+        assert reloaded.remote_branch == "plan/test"

@@ -15,7 +15,33 @@ import json
 import os
 import re
 import subprocess
+import unicodedata
 import uuid
+
+
+def slugify(text: str, max_length: int = 50) -> str:
+    """Convert text to a URL/branch-friendly slug.
+
+    Examples:
+        "Add User Avatars" -> "add-user-avatars"
+        "Fix pagination bug #123" -> "fix-pagination-bug-123"
+        "Refactor auth/middleware" -> "refactor-auth-middleware"
+    """
+    # Normalize unicode characters
+    text = unicodedata.normalize("NFKD", text)
+    text = text.encode("ascii", "ignore").decode("ascii")
+    # Convert to lowercase
+    text = text.lower()
+    # Replace any non-alphanumeric with hyphens
+    text = re.sub(r"[^a-z0-9]+", "-", text)
+    # Remove leading/trailing hyphens
+    text = text.strip("-")
+    # Collapse multiple hyphens
+    text = re.sub(r"-+", "-", text)
+    # Truncate to max_length, but don't cut mid-word
+    if len(text) > max_length:
+        text = text[:max_length].rsplit("-", 1)[0]
+    return text or "plan"
 
 
 # Storage location constants
@@ -216,6 +242,10 @@ class Plan:
     root_dirs: list[str] = field(default_factory=list)  # Project directories
     storage_location: str = LOCATION_LOCAL  # "local" or "global"
     pull_request: str = ""  # Associated PR URL or number (e.g., "#123" or full URL)
+    # Shelving and remote execution
+    shelved: bool = False  # Approved but deferred for later/remote execution
+    remote_workspace: str = ""  # Remote workspace name if pushed
+    remote_branch: str = ""  # Branch name for remote execution
     context: str = ""
     approach: str = ""
     tasks: list[PlanTask] = field(default_factory=list)
@@ -223,6 +253,10 @@ class Plan:
     considerations: dict[str, str] = field(default_factory=dict)
     progress_log: list[ProgressEntry] = field(default_factory=list)
     completion_notes: str = ""
+
+    def get_slug(self) -> str:
+        """Get a slugified version of the plan title."""
+        return slugify(self.title)
 
     @property
     def root_dir(self) -> str:
@@ -248,6 +282,9 @@ class Plan:
             "root_dirs": self.root_dirs,
             "storage_location": self.storage_location,
             "pull_request": self.pull_request,
+            "shelved": self.shelved,
+            "remote_workspace": self.remote_workspace,
+            "remote_branch": self.remote_branch,
             "context": self.context,
             "approach": self.approach,
             "tasks": [t.to_dict() for t in self.tasks],
@@ -294,6 +331,9 @@ class Plan:
             root_dirs=root_dirs,
             storage_location=data.get("storage_location", LOCATION_LOCAL),
             pull_request=data.get("pull_request", ""),
+            shelved=data.get("shelved", False),
+            remote_workspace=data.get("remote_workspace", ""),
+            remote_branch=data.get("remote_branch", ""),
             context=data.get("context", ""),
             approach=data.get("approach", ""),
             tasks=[PlanTask.from_dict(t) for t in data.get("tasks", [])],
@@ -323,6 +363,12 @@ class Plan:
         )
         lines.append(f"**Status:** {self.status.value}")
         lines.append(f"**Session:** {self.session_id}")
+        if self.shelved:
+            lines.append("**Shelved:** Yes (awaiting remote execution)")
+        if self.remote_workspace:
+            lines.append(f"**Remote Workspace:** {self.remote_workspace}")
+        if self.remote_branch:
+            lines.append(f"**Branch:** {self.remote_branch}")
         if self.pull_request:
             lines.append(f"**Pull Request:** {self.pull_request}")
         lines.append("")
@@ -833,11 +879,12 @@ class PlanManager:
             return True
         return False
 
-    def approve_plan(self, plan_id: str) -> bool:
+    def approve_plan(self, plan_id: str, shelve: bool = False) -> bool:
         """Approve a plan for execution.
 
         Args:
             plan_id: ID of the plan to approve
+            shelve: If True, mark as shelved (deferred for remote execution)
 
         Returns:
             True if successful, False otherwise
@@ -845,10 +892,26 @@ class PlanManager:
         plan = self.get_plan(plan_id)
         if plan and plan.status == PlanStatus.IN_REVIEW:
             plan.status = PlanStatus.APPROVED
-            plan.add_progress("Plan approved for execution")
+            plan.shelved = shelve
+            if shelve:
+                plan.add_progress("Plan approved and shelved for remote execution")
+            else:
+                plan.add_progress("Plan approved for execution")
             self.update_plan(plan)
             return True
         return False
+
+    def list_shelved_plans(self, root_dir: str | None = None) -> list[Plan]:
+        """List all approved and shelved plans ready for remote execution.
+
+        Args:
+            root_dir: If provided, only return plans matching this directory.
+
+        Returns:
+            List of shelved plans
+        """
+        plans = self.list_active_plans(root_dir=root_dir)
+        return [p for p in plans if p.status == PlanStatus.APPROVED and p.shelved]
 
     def start_execution(self, plan_id: str) -> bool:
         """Mark a plan as in-progress.
