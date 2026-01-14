@@ -2189,28 +2189,42 @@ Use `/groups` to see available tool groups."""
         the conversation and the agent will enter plan mode to collaborate with you.
         """
         from pathlib import Path
-        from silica.developer.plans import PlanManager, PlanStatus
+        from silica.developer.plans import (
+            PlanManager,
+            PlanStatus,
+            get_git_root,
+            LOCATION_LOCAL,
+            LOCATION_GLOBAL,
+        )
 
         def _print(msg, markdown=True):
             """Print directly to user without adding to conversation."""
             user_interface.handle_system_message(msg, markdown=markdown)
 
-        # Get plan manager and project root
+        # Get persona base dir
         if self.context.history_base_dir is None:
             base_dir = Path.home() / ".silica" / "personas" / "default"
         else:
             base_dir = Path(self.context.history_base_dir)
-        plan_manager = PlanManager(base_dir)
 
-        # Get project root for filtering plans
+        # Get project root for filtering and storage location
         if (
             hasattr(self.context, "sandbox")
             and self.context.sandbox is not None
             and hasattr(self.context.sandbox, "root_directory")
         ):
             root_dir = str(self.context.sandbox.root_directory)
+            project_root = get_git_root(root_dir)
         else:
             root_dir = os.getcwd()
+            project_root = get_git_root(root_dir)
+
+        # Create plan manager with both global and local support
+        plan_manager = PlanManager(base_dir, project_root=project_root)
+
+        def _location_emoji(location: str) -> str:
+            """Get emoji for storage location."""
+            return "📁" if location == LOCATION_LOCAL else "🌐"
 
         # Note: chat_history is available via kwargs.get("chat_history", [])
         # if needed for future enhancements
@@ -2218,7 +2232,7 @@ Use `/groups` to see available tool groups."""
         args_list = user_input.strip().split(maxsplit=1) if user_input.strip() else []
 
         # Determine if this is a subcommand or a planning request
-        subcommands = ["list", "view", "approve", "abandon", "new"]
+        subcommands = ["list", "view", "approve", "abandon", "new", "move"]
         command = args_list[0].lower() if args_list else ""
 
         # Context-aware /plan (no args): view active plan or create new
@@ -2257,8 +2271,12 @@ Use `/groups` to see available tool groups."""
                 return ""
 
             output = "## Active Plans\n\n"
+            output += "_📁 = local, 🌐 = global_\n\n"
             for plan in plans:
-                output += f"- `{plan.id}` - **{plan.title}** ({plan.status.value})\n"
+                loc = _location_emoji(plan.storage_location)
+                output += (
+                    f"- {loc} `{plan.id}` - **{plan.title}** ({plan.status.value})\n"
+                )
                 output += f"  Updated: {plan.updated_at.strftime('%Y-%m-%d %H:%M')}\n"
             _print(output)
             return ""
@@ -2371,14 +2389,54 @@ When all tasks are done, call `complete_plan(plan_id)`."""
                 _print(f"Could not abandon plan {plan_id}.")
             return ""
 
+        elif command == "move":
+            # /plan move <id> [--local|--global]
+            if len(args_list) < 2:
+                _print("Usage: /plan move <id> [--local|--global]")
+                return ""
+
+            move_args = args_list[1].split()
+            plan_id = move_args[0]
+            target = LOCATION_LOCAL  # Default
+
+            for arg in move_args[1:]:
+                if arg == "--local":
+                    target = LOCATION_LOCAL
+                elif arg == "--global":
+                    target = LOCATION_GLOBAL
+
+            if target == LOCATION_LOCAL and not project_root:
+                _print("Cannot move to local storage: not in a git repository.")
+                return ""
+
+            if plan_manager.move_plan(plan_id, target):
+                emoji = _location_emoji(target)
+                _print(f"{emoji} Plan `{plan_id}` moved to {target} storage.")
+            else:
+                _print(f"Could not move plan {plan_id}.")
+            return ""
+
         elif command == "new" or command not in subcommands:
             # /plan new or /plan <topic> - create a new plan with agent
+
+            # Parse --local/--global flags
+            force_location = None
+            remaining_args = []
+
+            if command == "new" and len(args_list) > 1:
+                for arg in args_list[1].split():
+                    if arg == "--local":
+                        force_location = LOCATION_LOCAL
+                    elif arg == "--global":
+                        force_location = LOCATION_GLOBAL
+                    else:
+                        remaining_args.append(arg)
 
             # Get topic (either from args or prompt user)
             if command == "new":
                 # /plan new or /plan new <topic>
-                if len(args_list) > 1:
-                    topic = args_list[1]
+                if remaining_args:
+                    topic = " ".join(remaining_args)
                 else:
                     topic = await user_interface.get_user_input(
                         "What would you like to plan? "
@@ -2391,14 +2449,27 @@ When all tasks are done, call `complete_plan(plan_id)`."""
                 # /plan <topic> (backwards compatible)
                 topic = user_input.strip()
 
+            # Determine storage location for display
+            if force_location:
+                loc_display = f" ({_location_emoji(force_location)} {force_location})"
+            elif project_root:
+                loc_display = f" ({_location_emoji(LOCATION_LOCAL)} local)"
+            else:
+                loc_display = f" ({_location_emoji(LOCATION_GLOBAL)} global)"
+
             _print(
-                f"📋 **Entering Plan Mode**\n\nTopic: {topic}\n\nThe agent will now help you create a structured plan..."
+                f"📋 **Entering Plan Mode**{loc_display}\n\nTopic: {topic}\n\nThe agent will now help you create a structured plan..."
             )
+
+            # Build location hint for agent
+            location_hint = ""
+            if force_location:
+                location_hint = f', location="{force_location}"'
 
             # Create the planning prompt to send to agent
             planning_prompt = f"""I'd like to enter plan mode to work on: {topic}
 
-Please use the `enter_plan_mode` tool to start planning this. Then:
+Please use the `enter_plan_mode` tool to start planning this{location_hint}. Then:
 1. Analyze what's needed for this task
 2. Ask me clarifying questions using `ask_clarifications` if anything is unclear
 3. Document the implementation approach using `update_plan`

@@ -10,10 +10,65 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 import json
+import os
 import re
+import subprocess
 import uuid
+
+
+# Storage location constants
+LOCATION_LOCAL = "local"
+LOCATION_GLOBAL = "global"
+
+
+def get_git_root(cwd: Path | str | None = None) -> Path | None:
+    """Find git repo root, or None if not in a repo."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=cwd or Path.cwd(),
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            return Path(result.stdout.strip())
+    except Exception:
+        pass
+    return None
+
+
+def get_local_plans_dir(project_root: Path) -> Path:
+    """Get the local plans directory for a project.
+
+    Preference order:
+    - .silica/plans if .silica exists
+    - .agent/plans if .agent exists
+    - .agent/plans for new (neither exists)
+
+    We prefer .agent for new plans because .silica is typically gitignored
+    (contains remote workspace info), while .agent can be committed if desired.
+    """
+    silica_dir = project_root / ".silica"
+    agent_dir = project_root / ".agent"
+    silica_plans = silica_dir / "plans"
+    agent_plans = agent_dir / "plans"
+
+    # If .silica/plans exists, use it
+    if silica_plans.exists():
+        return silica_plans
+    # If .agent/plans exists, use it
+    if agent_plans.exists():
+        return agent_plans
+    # If .silica exists (but not plans), use .silica/plans
+    if silica_dir.exists():
+        return silica_plans
+    # If .agent exists (but not plans), use .agent/plans
+    if agent_dir.exists():
+        return agent_plans
+    # Neither exists - prefer .agent for new plans (see docstring)
+    return agent_plans
 
 
 class PlanStatus(Enum):
@@ -158,7 +213,8 @@ class Plan:
     session_id: str
     created_at: datetime
     updated_at: datetime
-    root_dir: str = ""  # Project root directory this plan belongs to
+    root_dirs: list[str] = field(default_factory=list)  # Project directories
+    storage_location: str = LOCATION_LOCAL  # "local" or "global"
     context: str = ""
     approach: str = ""
     tasks: list[PlanTask] = field(default_factory=list)
@@ -166,6 +222,18 @@ class Plan:
     considerations: dict[str, str] = field(default_factory=dict)
     progress_log: list[ProgressEntry] = field(default_factory=list)
     completion_notes: str = ""
+
+    @property
+    def root_dir(self) -> str:
+        """Backward compatibility: return first root_dir or empty string."""
+        return self.root_dirs[0] if self.root_dirs else ""
+
+    def matches_directory(self, directory: str) -> bool:
+        """Check if this plan is associated with the given directory."""
+        if not directory or not self.root_dirs:
+            return True  # No filter or no association = match
+        norm_dir = os.path.normpath(directory)
+        return any(os.path.normpath(d) == norm_dir for d in self.root_dirs)
 
     def to_dict(self) -> dict:
         """Convert plan to dictionary for JSON serialization."""
@@ -176,7 +244,8 @@ class Plan:
             "session_id": self.session_id,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
-            "root_dir": self.root_dir,
+            "root_dirs": self.root_dirs,
+            "storage_location": self.storage_location,
             "context": self.context,
             "approach": self.approach,
             "tasks": [t.to_dict() for t in self.tasks],
@@ -208,6 +277,11 @@ class Plan:
             except (ValueError, AttributeError):
                 pass
 
+        # Handle backward compatibility: root_dir -> root_dirs
+        root_dirs = data.get("root_dirs", [])
+        if not root_dirs and data.get("root_dir"):
+            root_dirs = [data["root_dir"]]
+
         return cls(
             id=data.get("id", str(uuid.uuid4())[:8]),
             title=data.get("title", "Untitled Plan"),
@@ -215,7 +289,8 @@ class Plan:
             session_id=data.get("session_id", ""),
             created_at=created_at,
             updated_at=updated_at,
-            root_dir=data.get("root_dir", ""),
+            root_dirs=root_dirs,
+            storage_location=data.get("storage_location", LOCATION_LOCAL),
             context=data.get("context", ""),
             approach=data.get("approach", ""),
             tasks=[PlanTask.from_dict(t) for t in data.get("tasks", [])],
@@ -496,25 +571,106 @@ class Plan:
 
 
 class PlanManager:
-    """Manages plan storage and lifecycle operations."""
+    """Manages plan storage and lifecycle operations.
 
-    def __init__(self, base_dir: Path):
+    Supports two storage locations:
+    - Local: Project directory (.agent/plans or .silica/plans)
+    - Global: Persona directory (~/.silica/personas/{persona}/plans)
+
+    Default behavior:
+    - In git repo: store locally
+    - Not in git repo: store globally
+    - Explicit --local/--global flags override
+    """
+
+    def __init__(
+        self,
+        base_dir: Path,
+        project_root: Path | None = None,
+        default_location: Literal["auto", "local", "global"] = "auto",
+    ):
         """Initialize the plan manager.
 
         Args:
             base_dir: Base directory for persona (e.g., ~/.silica/personas/default)
+            project_root: Git repo root (None if not in a repo)
+            default_location: Where to store new plans by default
         """
         self.base_dir = Path(base_dir)
-        self.plans_dir = self.base_dir / "plans"
-        self.active_dir = self.plans_dir / "active"
-        self.completed_dir = self.plans_dir / "completed"
+        self.project_root = project_root
+        self.default_location = default_location
 
-        # Ensure directories exist
-        self.active_dir.mkdir(parents=True, exist_ok=True)
-        self.completed_dir.mkdir(parents=True, exist_ok=True)
+        # Global storage (persona dir)
+        self.global_plans_dir = self.base_dir / "plans"
+        self.global_active_dir = self.global_plans_dir / "active"
+        self.global_completed_dir = self.global_plans_dir / "completed"
+        self.global_active_dir.mkdir(parents=True, exist_ok=True)
+        self.global_completed_dir.mkdir(parents=True, exist_ok=True)
+
+        # Local storage (project dir) - only if in a git repo
+        self.local_plans_dir: Path | None = None
+        self.local_active_dir: Path | None = None
+        self.local_completed_dir: Path | None = None
+        if project_root:
+            self.local_plans_dir = get_local_plans_dir(project_root)
+            self.local_active_dir = self.local_plans_dir / "active"
+            self.local_completed_dir = self.local_plans_dir / "completed"
+
+    # Backward compatibility properties
+    @property
+    def plans_dir(self) -> Path:
+        return self.global_plans_dir
+
+    @property
+    def active_dir(self) -> Path:
+        return self.global_active_dir
+
+    @property
+    def completed_dir(self) -> Path:
+        return self.global_completed_dir
+
+    def _get_storage_location(
+        self, force_location: Literal["local", "global"] | None = None
+    ) -> str:
+        """Determine storage location for a new plan."""
+        if force_location:
+            return force_location
+        if self.default_location == "local" and self.project_root:
+            return LOCATION_LOCAL
+        if self.default_location == "global":
+            return LOCATION_GLOBAL
+        # Auto: local if in git repo, global otherwise
+        return LOCATION_LOCAL if self.project_root else LOCATION_GLOBAL
+
+    def _get_dirs_for_location(self, location: str) -> tuple[Path, Path]:
+        """Get (active_dir, completed_dir) for a storage location."""
+        if location == LOCATION_LOCAL and self.local_active_dir:
+            self.local_active_dir.mkdir(parents=True, exist_ok=True)
+            self.local_completed_dir.mkdir(parents=True, exist_ok=True)
+            return self.local_active_dir, self.local_completed_dir
+        return self.global_active_dir, self.global_completed_dir
+
+    def _get_all_active_dirs(self) -> list[tuple[Path, str]]:
+        """Get all active directories with their location type."""
+        dirs = [(self.global_active_dir, LOCATION_GLOBAL)]
+        if self.local_active_dir and self.local_active_dir.exists():
+            dirs.insert(0, (self.local_active_dir, LOCATION_LOCAL))  # Local first
+        return dirs
+
+    def _get_all_completed_dirs(self) -> list[tuple[Path, str]]:
+        """Get all completed directories with their location type."""
+        dirs = [(self.global_completed_dir, LOCATION_GLOBAL)]
+        if self.local_completed_dir and self.local_completed_dir.exists():
+            dirs.insert(0, (self.local_completed_dir, LOCATION_LOCAL))
+        return dirs
 
     def create_plan(
-        self, title: str, session_id: str, context: str = "", root_dir: str = ""
+        self,
+        title: str,
+        session_id: str,
+        context: str = "",
+        root_dir: str = "",
+        location: Literal["local", "global"] | None = None,
     ) -> Plan:
         """Create a new plan.
 
@@ -523,10 +679,14 @@ class PlanManager:
             session_id: Current session ID
             context: Initial context description
             root_dir: Project root directory this plan belongs to
+            location: Force storage location ("local" or "global")
 
         Returns:
             The newly created Plan
         """
+        storage_loc = self._get_storage_location(location)
+        root_dirs = [root_dir] if root_dir else []
+
         now = datetime.now(timezone.utc)
         plan = Plan(
             id=str(uuid.uuid4())[:8],
@@ -535,7 +695,8 @@ class PlanManager:
             session_id=session_id,
             created_at=now,
             updated_at=now,
-            root_dir=root_dir,
+            root_dirs=root_dirs,
+            storage_location=storage_loc,
             context=context,
         )
         plan.add_progress(f"Plan created: {title}")
@@ -543,7 +704,7 @@ class PlanManager:
         return plan
 
     def get_plan(self, plan_id: str) -> Optional[Plan]:
-        """Get a plan by ID.
+        """Get a plan by ID. Searches both local and global locations.
 
         Args:
             plan_id: The plan ID to look up
@@ -551,12 +712,24 @@ class PlanManager:
         Returns:
             The Plan if found, None otherwise
         """
-        # Check active first, then completed
-        for directory in [self.active_dir, self.completed_dir]:
+        # Search all active directories, then all completed
+        for directory, loc in self._get_all_active_dirs():
             plan_file = directory / f"{plan_id}.md"
             if plan_file.exists():
                 try:
-                    return Plan.from_markdown(plan_file.read_text())
+                    plan = Plan.from_markdown(plan_file.read_text())
+                    plan.storage_location = loc  # Ensure location is set
+                    return plan
+                except Exception:
+                    pass
+
+        for directory, loc in self._get_all_completed_dirs():
+            plan_file = directory / f"{plan_id}.md"
+            if plan_file.exists():
+                try:
+                    plan = Plan.from_markdown(plan_file.read_text())
+                    plan.storage_location = loc
+                    return plan
                 except Exception:
                     pass
         return None
@@ -571,63 +744,70 @@ class PlanManager:
         self._save_plan(plan)
 
     def list_active_plans(self, root_dir: str | None = None) -> list[Plan]:
-        """List all active (non-completed, non-abandoned) plans.
+        """List all active plans from both local and global locations.
 
         Args:
-            root_dir: If provided, only return plans for this project root.
-                      If None, returns all active plans.
+            root_dir: If provided, only return plans matching this directory.
 
         Returns:
             List of active plans, sorted by last updated (newest first)
         """
         plans = []
-        for plan_file in self.active_dir.glob("*.md"):
-            try:
-                plan = Plan.from_markdown(plan_file.read_text())
+        seen_ids = set()
 
-                # Filter by root_dir if specified
-                if root_dir is not None:
-                    import os
+        for directory, loc in self._get_all_active_dirs():
+            if not directory.exists():
+                continue
+            for plan_file in directory.glob("*.md"):
+                try:
+                    plan = Plan.from_markdown(plan_file.read_text())
+                    if plan.id in seen_ids:
+                        continue
+                    seen_ids.add(plan.id)
+                    plan.storage_location = loc
 
-                    plan_root = os.path.normpath(plan.root_dir) if plan.root_dir else ""
-                    filter_root = os.path.normpath(root_dir)
-                    if plan_root != filter_root:
+                    # Filter by root_dir if specified
+                    if root_dir is not None and not plan.matches_directory(root_dir):
                         continue
 
-                plans.append(plan)
-            except Exception:
-                pass
+                    plans.append(plan)
+                except Exception:
+                    pass
         return sorted(plans, key=lambda p: p.updated_at, reverse=True)
 
     def list_completed_plans(
         self, limit: int = 10, root_dir: str | None = None
     ) -> list[Plan]:
-        """List completed/abandoned plans.
+        """List completed/abandoned plans from both locations.
 
         Args:
             limit: Maximum number of plans to return
-            root_dir: If provided, only return plans for this project root.
+            root_dir: If provided, only return plans matching this directory.
 
         Returns:
             List of completed plans, sorted by completion date (newest first)
         """
         plans = []
-        for plan_file in self.completed_dir.glob("*.md"):
-            try:
-                plan = Plan.from_markdown(plan_file.read_text())
+        seen_ids = set()
 
-                # Filter by root_dir if specified
-                if root_dir is not None:
-                    import os
+        for directory, loc in self._get_all_completed_dirs():
+            if not directory.exists():
+                continue
+            for plan_file in directory.glob("*.md"):
+                try:
+                    plan = Plan.from_markdown(plan_file.read_text())
+                    if plan.id in seen_ids:
+                        continue
+                    seen_ids.add(plan.id)
+                    plan.storage_location = loc
 
-                    plan_root = os.path.normpath(plan.root_dir) if plan.root_dir else ""
-                    filter_root = os.path.normpath(root_dir)
-                    if plan_root != filter_root:
+                    # Filter by root_dir if specified
+                    if root_dir is not None and not plan.matches_directory(root_dir):
                         continue
 
-                plans.append(plan)
-            except Exception:
-                pass
+                    plans.append(plan)
+                except Exception:
+                    pass
         plans = sorted(plans, key=lambda p: p.updated_at, reverse=True)
         return plans[:limit]
 
@@ -727,30 +907,61 @@ class PlanManager:
         return False
 
     def _save_plan(self, plan: Plan) -> None:
-        """Save a plan to the appropriate directory.
+        """Save a plan to the appropriate directory based on its storage_location."""
+        active_dir, completed_dir = self._get_dirs_for_location(plan.storage_location)
 
-        Args:
-            plan: The plan to save
-        """
         if plan.status in [PlanStatus.COMPLETED, PlanStatus.ABANDONED]:
-            directory = self.completed_dir
+            directory = completed_dir
         else:
-            directory = self.active_dir
+            directory = active_dir
 
         plan_file = directory / f"{plan.id}.md"
         plan_file.write_text(plan.to_markdown())
 
     def _archive_plan(self, plan: Plan) -> None:
-        """Move a plan from active to completed directory.
+        """Move a plan from active to completed directory."""
+        # Remove from all active directories
+        for directory, _ in self._get_all_active_dirs():
+            active_file = directory / f"{plan.id}.md"
+            if active_file.exists():
+                active_file.unlink()
+
+        # Save to completed directory for this plan's location
+        _, completed_dir = self._get_dirs_for_location(plan.storage_location)
+        completed_file = completed_dir / f"{plan.id}.md"
+        completed_file.write_text(plan.to_markdown())
+
+    def move_plan(
+        self, plan_id: str, target_location: Literal["local", "global"]
+    ) -> bool:
+        """Move a plan between local and global storage.
 
         Args:
-            plan: The plan to archive
-        """
-        # Remove from active directory if exists
-        active_file = self.active_dir / f"{plan.id}.md"
-        if active_file.exists():
-            active_file.unlink()
+            plan_id: ID of the plan to move
+            target_location: Where to move the plan
 
-        # Save to completed directory
-        completed_file = self.completed_dir / f"{plan.id}.md"
-        completed_file.write_text(plan.to_markdown())
+        Returns:
+            True if successful, False otherwise
+        """
+        plan = self.get_plan(plan_id)
+        if not plan:
+            return False
+
+        if target_location == LOCATION_LOCAL and not self.project_root:
+            return False  # Can't move to local without a git repo
+
+        old_location = plan.storage_location
+
+        # Remove from old location
+        for directory, _ in (
+            self._get_all_active_dirs() + self._get_all_completed_dirs()
+        ):
+            old_file = directory / f"{plan.id}.md"
+            if old_file.exists():
+                old_file.unlink()
+
+        # Save to new location
+        plan.storage_location = target_location
+        plan.add_progress(f"Plan moved from {old_location} to {target_location}")
+        self._save_plan(plan)
+        return True

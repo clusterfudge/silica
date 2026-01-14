@@ -385,12 +385,21 @@ Run tests and call: `verify_plan_task("{plan.id}", "{task.id}", "<test results>"
 
 
 def _get_plan_manager(context: "AgentContext") -> PlanManager:
-    """Get or create a PlanManager for the current persona."""
+    """Get or create a PlanManager for the current persona with project awareness."""
+    from silica.developer.plans import get_git_root
+
     if context.history_base_dir is None:
         base_dir = Path.home() / ".silica" / "personas" / "default"
     else:
         base_dir = Path(context.history_base_dir)
-    return PlanManager(base_dir)
+
+    # Get project root for local plan storage
+    project_root = None
+    if hasattr(context, "sandbox") and context.sandbox is not None:
+        if hasattr(context.sandbox, "root_directory"):
+            project_root = get_git_root(context.sandbox.root_directory)
+
+    return PlanManager(base_dir, project_root=project_root)
 
 
 def _get_root_dir(context: "AgentContext") -> str:
@@ -411,6 +420,7 @@ def enter_plan_mode(
     context: "AgentContext",
     topic: str,
     reason: str = "",
+    location: str = "",
 ) -> str:
     """Enter plan mode for structured planning of complex changes.
 
@@ -427,6 +437,8 @@ def enter_plan_mode(
     Args:
         topic: The topic/goal for the plan (becomes the plan title)
         reason: Why entering plan mode is beneficial for this task
+        location: Storage location - "local" (project dir) or "global" (persona dir).
+                  Defaults to local if in git repo, global otherwise.
 
     Returns:
         Confirmation message with plan ID and instructions
@@ -434,12 +446,18 @@ def enter_plan_mode(
     plan_manager = _get_plan_manager(context)
     root_dir = _get_root_dir(context)
 
+    # Parse location
+    force_location = None
+    if location in ("local", "global"):
+        force_location = location
+
     # Create the plan
     plan = plan_manager.create_plan(
         title=topic,
         session_id=context.session_id,
         context=reason if reason else f"Planning: {topic}",
         root_dir=root_dir,
+        location=force_location,
     )
 
     # Store active plan ID in context for session tracking
