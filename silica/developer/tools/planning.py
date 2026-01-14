@@ -874,6 +874,37 @@ Plan `{plan_id}` has been archived. You can start fresh with a new plan.
 
 
 @tool(group="Planning")
+def link_plan_pr(
+    context: "AgentContext",
+    plan_id: str,
+    pull_request: str,
+) -> str:
+    """Link a pull request to a plan.
+
+    Call this after creating a PR for the plan's work to track
+    the association.
+
+    Args:
+        plan_id: The plan ID
+        pull_request: PR reference (e.g., "#123", "https://github.com/org/repo/pull/123")
+
+    Returns:
+        Confirmation message
+    """
+    plan_manager = _get_plan_manager(context)
+    plan = plan_manager.get_plan(plan_id)
+
+    if not plan:
+        return f"❌ Plan `{plan_id}` not found."
+
+    plan.pull_request = pull_request
+    plan.add_progress(f"Linked to PR: {pull_request}")
+    plan_manager.update_plan(plan)
+
+    return f"✅ Plan `{plan_id}` linked to {pull_request}"
+
+
+@tool(group="Planning")
 def complete_plan_task(
     context: "AgentContext",
     plan_id: str,

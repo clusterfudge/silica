@@ -215,6 +215,7 @@ class Plan:
     updated_at: datetime
     root_dirs: list[str] = field(default_factory=list)  # Project directories
     storage_location: str = LOCATION_LOCAL  # "local" or "global"
+    pull_request: str = ""  # Associated PR URL or number (e.g., "#123" or full URL)
     context: str = ""
     approach: str = ""
     tasks: list[PlanTask] = field(default_factory=list)
@@ -246,6 +247,7 @@ class Plan:
             "updated_at": self.updated_at.isoformat(),
             "root_dirs": self.root_dirs,
             "storage_location": self.storage_location,
+            "pull_request": self.pull_request,
             "context": self.context,
             "approach": self.approach,
             "tasks": [t.to_dict() for t in self.tasks],
@@ -291,6 +293,7 @@ class Plan:
             updated_at=updated_at,
             root_dirs=root_dirs,
             storage_location=data.get("storage_location", LOCATION_LOCAL),
+            pull_request=data.get("pull_request", ""),
             context=data.get("context", ""),
             approach=data.get("approach", ""),
             tasks=[PlanTask.from_dict(t) for t in data.get("tasks", [])],
@@ -320,6 +323,8 @@ class Plan:
         )
         lines.append(f"**Status:** {self.status.value}")
         lines.append(f"**Session:** {self.session_id}")
+        if self.pull_request:
+            lines.append(f"**Pull Request:** {self.pull_request}")
         lines.append("")
 
         # Context
