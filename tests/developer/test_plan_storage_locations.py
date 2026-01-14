@@ -313,3 +313,28 @@ class TestShelving:
         reloaded = pm.get_plan(plan.id)
         assert reloaded.remote_workspace == "plan-test"
         assert reloaded.remote_branch == "plan/test"
+
+
+class TestPlanRejection:
+    """Tests for plan rejection and revision flow."""
+
+    def test_reject_returns_to_draft(self, temp_dirs):
+        """Rejecting a plan should return it to DRAFT status."""
+        pm = PlanManager(temp_dirs["persona"])
+        plan = pm.create_plan("Test", "s1")
+        plan.add_task("Do something")
+        pm.update_plan(plan)
+
+        # Submit for review
+        pm.submit_for_review(plan.id)
+        assert pm.get_plan(plan.id).status == PlanStatus.IN_REVIEW
+
+        # Manually revert (simulating reject)
+        plan = pm.get_plan(plan.id)
+        plan.status = PlanStatus.DRAFT
+        plan.add_progress("Plan rejected - revisions requested")
+        pm.update_plan(plan)
+
+        reloaded = pm.get_plan(plan.id)
+        assert reloaded.status == PlanStatus.DRAFT
+        assert "rejected" in reloaded.progress_log[-1].message.lower()

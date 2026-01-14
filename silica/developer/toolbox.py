@@ -2178,15 +2178,24 @@ Use `/groups` to see available tool groups."""
         """Enter plan mode or manage plans.
 
         Usage:
-            /plan                    - Start planning dialogue (prompts for topic)
-            /plan <topic>            - Start planning dialogue with topic
-            /plan list               - List active plans (human-only)
-            /plan view <id>          - View a specific plan (human-only)
-            /plan approve <id>       - Approve a plan for execution (human-only)
-            /plan abandon <id>       - Abandon/archive a plan (human-only)
+            /plan                      - View active plan or start new
+            /plan <topic>              - Start planning with topic
+            /plan new [--local|--global] <topic>  - Create new plan
+            /plan list                 - List active plans
+            /plan view [id]            - View plan details
+            /plan approve [id] [--shelve]  - Approve plan for execution
+            /plan reject [id] [feedback]   - Reject and request revisions
+            /plan abandon [id]         - Abandon/archive plan
+            /plan move <id> [--local|--global]  - Move plan storage
+            /plan push [id] [--local=PORT]  - Push to remote workspace
+            /plan push --all           - Push all shelved plans
+            /plan status [--remote]    - View plan execution status
 
-        When starting a plan (no subcommand), this injects a planning request into
-        the conversation and the agent will enter plan mode to collaborate with you.
+        Workflow:
+            1. /plan <topic> - Agent creates plan, asks questions, adds tasks
+            2. Agent calls submit_for_approval() - Plan shown to user
+            3. /plan approve - User approves, agent executes
+               OR /plan reject <feedback> - Agent revises plan
         """
         from pathlib import Path
         from silica.developer.plans import (
@@ -2236,6 +2245,7 @@ Use `/groups` to see available tool groups."""
             "list",
             "view",
             "approve",
+            "reject",
             "abandon",
             "new",
             "move",
@@ -2384,6 +2394,71 @@ When all tasks are done, call `complete_plan(plan_id)`."""
                         f"Cannot approve plan in {plan.status.value} status. Must be IN_REVIEW."
                     )
             return ""
+
+        elif command == "reject":
+            # /plan reject [plan-id] [feedback]
+            # Reject a plan and send it back to DRAFT with feedback
+            plan_id = None
+            feedback = ""
+
+            if len(args_list) >= 2:
+                parts = args_list[1].split(maxsplit=1)
+                # Check if first part looks like a plan ID (short alphanumeric)
+                if parts[0] and len(parts[0]) <= 10 and parts[0].isalnum():
+                    plan_id = parts[0]
+                    feedback = parts[1] if len(parts) > 1 else ""
+                else:
+                    # Entire thing is feedback
+                    feedback = args_list[1]
+
+            if not plan_id:
+                # Use most recent plan in review
+                active_plans = plan_manager.list_active_plans(root_dir=root_dir)
+                plans_in_review = [
+                    p for p in active_plans if p.status == PlanStatus.IN_REVIEW
+                ]
+                if not plans_in_review:
+                    _print("No plans awaiting approval to reject.")
+                    return ""
+                plan_id = plans_in_review[0].id
+
+            plan = plan_manager.get_plan(plan_id)
+            if not plan:
+                _print(f"Plan `{plan_id}` not found.")
+                return ""
+
+            if plan.status != PlanStatus.IN_REVIEW:
+                _print(
+                    f"Plan `{plan_id}` is in {plan.status.value} status, not IN_REVIEW."
+                )
+                return ""
+
+            # Revert to DRAFT
+            plan.status = PlanStatus.DRAFT
+            if feedback:
+                plan.add_progress(f"Plan rejected with feedback: {feedback}")
+            else:
+                plan.add_progress("Plan rejected - revisions requested")
+            plan_manager.update_plan(plan)
+
+            _print(f"↩️ Plan `{plan_id}` returned to draft for revisions.")
+
+            # Build prompt for agent to revise
+            revision_prompt = f"""Plan "{plan.title}" (ID: {plan_id}) was rejected and needs revisions.
+
+"""
+            if feedback:
+                revision_prompt += f"""**Feedback from reviewer:**
+{feedback}
+
+"""
+            revision_prompt += """Please:
+1. Read the current plan with `read_plan("{plan_id}")`
+2. Address the feedback by updating the approach or tasks
+3. When ready, submit again with `submit_for_approval("{plan_id}")`
+"""
+
+            return (revision_prompt, True)
 
         elif command == "abandon":
             if len(args_list) < 2:

@@ -803,16 +803,30 @@ or use `read_plan` to review its contents.
 
         plan_manager.submit_for_review(plan_id)
 
+        # Build a summary for the user
+        task_summary = ""
+        if plan.tasks:
+            task_summary = "\n**Tasks:**\n"
+            for t in plan.tasks[:5]:
+                task_summary += f"- {t.description}\n"
+            if len(plan.tasks) > 5:
+                task_summary += f"- ... and {len(plan.tasks) - 5} more\n"
+
         return f"""📋 **Plan Submitted for Review**
 
-Plan `{plan_id}`: {plan.title}
+Plan `{plan_id}`: **{plan.title}**
 
-The plan has been submitted for user review. The user can:
-- `/plan approve {plan_id}` - Approve and allow execution
-- `/plan view {plan_id}` - View full plan details
-- `/plan abandon {plan_id}` - Abandon the plan
+{plan.approach[:500] if plan.approach else "_No approach documented._"}
+{task_summary}
+---
 
-Waiting for user approval before proceeding with implementation.
+The plan is ready for your review. Options:
+- `/plan approve` - Approve and start execution
+- `/plan approve --shelve` - Approve for remote execution later
+- `/plan reject [feedback]` - Request changes
+- `/plan view` - See full plan details
+
+**Awaiting your decision.**
 """
 
     elif action == "execute":
@@ -870,6 +884,78 @@ When all tasks are done, call `complete_plan("{plan_id}")`.
         return f"""🗑️ **Plan Abandoned**
 
 Plan `{plan_id}` has been archived. You can start fresh with a new plan.
+"""
+
+
+@tool(group="Planning")
+def submit_for_approval(
+    context: "AgentContext",
+    plan_id: str,
+) -> str:
+    """Submit the plan for user approval.
+
+    Call this when you've finished planning and are ready for the user to review.
+    The plan should have:
+    - Clear context explaining the problem/goal
+    - A documented implementation approach
+    - Tasks broken down into actionable items
+
+    After submission, control returns to the user who can:
+    - Approve the plan for execution
+    - Approve and shelve for remote execution
+    - Reject with feedback for revisions
+
+    Args:
+        plan_id: ID of the plan to submit
+
+    Returns:
+        Summary of the plan for user review
+    """
+    plan_manager = _get_plan_manager(context)
+    plan = plan_manager.get_plan(plan_id)
+
+    if plan is None:
+        return f"Error: Plan {plan_id} not found"
+
+    if plan.status != PlanStatus.DRAFT:
+        return f"Error: Can only submit plans in DRAFT status (current: {plan.status.value})"
+
+    # Validate plan has minimum content
+    warnings = []
+    if not plan.approach:
+        warnings.append("⚠️ No implementation approach documented")
+    if not plan.tasks:
+        warnings.append("⚠️ No tasks defined")
+
+    plan_manager.submit_for_review(plan_id)
+
+    # Build a summary for the user
+    task_summary = ""
+    if plan.tasks:
+        task_summary = "\n**Tasks:**\n"
+        for t in plan.tasks[:5]:
+            task_summary += f"- {t.description}\n"
+        if len(plan.tasks) > 5:
+            task_summary += f"- ... and {len(plan.tasks) - 5} more\n"
+
+    warning_text = "\n".join(warnings) + "\n" if warnings else ""
+
+    return f"""📋 **Plan Submitted for Review**
+
+Plan `{plan_id}`: **{plan.title}**
+
+{warning_text}**Approach:**
+{plan.approach[:500] if plan.approach else "_No approach documented._"}
+{task_summary}
+---
+
+The plan is ready for your review. Options:
+- `/plan approve` - Approve and start execution
+- `/plan approve --shelve` - Approve for remote execution later
+- `/plan reject [feedback]` - Request changes
+- `/plan view` - See full plan details
+
+**Awaiting your decision.**
 """
 
 
