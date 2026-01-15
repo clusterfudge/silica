@@ -237,15 +237,17 @@ async def _run_shell_command_with_interactive_timeout(
             else:
                 context.user_interface.handle_system_message(status_msg, markdown=False)
 
-            # Race between user input and process completion
-            # Create tasks for both user input and process monitoring
+            # Race between user input, process completion, and auto-kill timeout
+            # Auto-kill after 3x the original timeout to prevent blocking forever
+            auto_kill_timeout = initial_timeout * 3
+
             user_input_task = asyncio.create_task(
                 context.user_interface.get_user_input(
                     "Command is still running. Choose action:\n"
                     f"  [C]ontinue waiting ({initial_timeout}s more)\n"
                     "  [K]ill the process\n"
                     "  [B]ackground (continue but return current output)\n"
-                    "Choice (C/K/B): "
+                    f"Choice (C/K/B) [auto-kill in {auto_kill_timeout}s]: "
                 )
             )
 
@@ -255,12 +257,18 @@ async def _run_shell_command_with_interactive_timeout(
                     await asyncio.sleep(0.1)
                 return "PROCESS_COMPLETED"
 
+            async def auto_kill_timer():
+                """Auto-kill process after timeout to prevent blocking forever."""
+                await asyncio.sleep(auto_kill_timeout)
+                return "AUTO_KILL"
+
             process_monitor_task = asyncio.create_task(monitor_process_completion())
+            auto_kill_task = asyncio.create_task(auto_kill_timer())
 
             try:
                 # Wait for whichever completes first
                 done, pending = await asyncio.wait(
-                    [user_input_task, process_monitor_task],
+                    [user_input_task, process_monitor_task, auto_kill_task],
                     return_when=asyncio.FIRST_COMPLETED,
                 )
 
@@ -278,6 +286,13 @@ async def _run_shell_command_with_interactive_timeout(
                     # Process completed while waiting for user input
                     # Continue to the process completion handling at top of loop
                     continue
+                elif completed_task == auto_kill_task:
+                    # Auto-kill timeout reached - kill process and return
+                    context.user_interface.handle_system_message(
+                        f"[bold yellow]Auto-killing process after {auto_kill_timeout}s timeout[/bold yellow]",
+                        markdown=False,
+                    )
+                    choice = "K"  # Treat as kill
                 else:
                     # User input completed first
                     choice = completed_task.result().strip().upper()
@@ -286,6 +301,7 @@ async def _run_shell_command_with_interactive_timeout(
                 # Clean up if this whole function gets cancelled
                 user_input_task.cancel()
                 process_monitor_task.cancel()
+                auto_kill_task.cancel()
                 raise
 
             if choice == "K":
