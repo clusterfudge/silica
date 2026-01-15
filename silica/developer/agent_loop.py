@@ -151,7 +151,7 @@ def _extract_file_mentions(message: MessageParam) -> list[Path]:
 
 def _inline_latest_file_mentions(
     chat_history: list[MessageParam],
-    agent_context: "AgentContext | None" = None,
+    agent_context: "AgentContext",
 ) -> list[MessageParam]:
     """Process file mentions in chat history and inline their contents into the messages.
 
@@ -218,7 +218,7 @@ def _inline_latest_file_mentions(
 
     # Inject ephemeral plan state into last user message (before cache marker)
     # This provides current plan state to the agent without accumulating in history
-    if agent_context and results and results[-1]["role"] == "user":
+    if results and results[-1]["role"] == "user":
         last_message = results[-1]
 
         # Check if last message contains tool_result blocks - skip injection if so

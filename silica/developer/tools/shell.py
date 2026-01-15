@@ -239,7 +239,8 @@ async def _run_shell_command_with_interactive_timeout(
 
             # Race between user input, process completion, and auto-kill timeout
             # Auto-kill after 3x the original timeout to prevent blocking forever
-            auto_kill_timeout = initial_timeout * 3
+            # Minimum 30s to give users reasonable time to respond
+            auto_kill_timeout = max(30, initial_timeout * 3)
 
             user_input_task = asyncio.create_task(
                 context.user_interface.get_user_input(
