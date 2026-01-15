@@ -962,6 +962,7 @@ async def run(
                 ):
                     agent_context.chat_history.pop()
 
+                # Modify the last user message to add continuation marker
                 retry_message = _continuation_message(agent_context.chat_history[-1])
 
                 if retry_message:
@@ -969,13 +970,15 @@ async def run(
                         "[bold yellow]Hit max tokens. I'll continue from where I left off...[/bold yellow]"
                     )
 
-                    agent_context.chat_history[len(agent_context.chat_history) - 2] = (
-                        retry_message
-                    )
+                    # Update the last user message with continuation marker
+                    agent_context.chat_history[-1] = retry_message
+                    # Continue the loop to retry the API call
+                    continue
                 else:
                     user_interface.handle_assistant_message(
                         "[bold yellow]Hit max tokens. Was unable to continue after multiple attempts.[/bold yellow]"
                     )
+                    # Pop the user message that has [X][X][X] marker
                     agent_context.chat_history.pop()
 
             else:
