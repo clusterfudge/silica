@@ -62,7 +62,7 @@ async def shell_execute(
 
         # Ensure minimum timeout of 30s so users have reasonable time to respond
         # to interactive prompts when the command runs long
-        effective_timeout = max(30, timeout or 30)
+        effective_timeout = max(30, timeout) if timeout else 30
         return await _run_shell_command_with_interactive_timeout(
             context, command, effective_timeout
         )

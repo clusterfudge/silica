@@ -131,8 +131,19 @@ class TestFileMentionSummary(unittest.TestCase):
             {"role": "user", "content": f"Check this file @{self.test_file_path}"}
         ]
 
+        # Create agent context for the function call
+        context = AgentContext(
+            parent_session_id=None,
+            session_id="test-session",
+            model_spec=self.model_spec,
+            sandbox=self.sandbox,
+            user_interface=self.ui,
+            usage=[],
+            memory_manager=self.memory_manager,
+        )
+
         # Process the messages to inline file mentions
-        processed_messages = _inline_latest_file_mentions(messages)
+        processed_messages = _inline_latest_file_mentions(messages, context)
 
         # Get the summary string that would be used for summarization
         summary_string = self.compacter._messages_to_string(
