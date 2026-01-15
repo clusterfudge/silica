@@ -222,7 +222,9 @@ def _inline_latest_file_mentions(
         last_message = results[-1]
 
         # Check if last message contains tool_result blocks - skip injection if so
-        # (agent just got tool output and needs to process that)
+        # Inject plan state on tool result messages to keep agent on track during
+        # autonomous execution. This reminds the agent what plan it's executing and
+        # what task to work on next, preventing it from stopping to ask the user.
         content = last_message.get("content", [])
         has_tool_results = False
         if isinstance(content, list):
@@ -231,7 +233,7 @@ def _inline_latest_file_mentions(
                 for block in content
             )
 
-        if not has_tool_results:
+        if has_tool_results:
             try:
                 from silica.developer.tools.planning import get_ephemeral_plan_state
 
