@@ -169,7 +169,7 @@ def _inline_latest_file_mentions(
 
     Args:
         chat_history: List of message parameters from the conversation history
-        agent_context: Optional agent context for plan state injection
+        agent_context: Agent context for plan state injection
 
     Returns:
         Modified chat history with file contents inlined into the messages

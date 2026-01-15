@@ -60,8 +60,11 @@ async def shell_execute(
         except DoSomethingElseError:
             raise  # Re-raise to be handled by higher-level components
 
+        # Ensure minimum timeout of 30s so users have reasonable time to respond
+        # to interactive prompts when the command runs long
+        effective_timeout = max(30, timeout or 30)
         return await _run_shell_command_with_interactive_timeout(
-            context, command, timeout or 30
+            context, command, effective_timeout
         )
 
     except Exception as e:
