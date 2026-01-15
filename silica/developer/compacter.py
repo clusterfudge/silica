@@ -822,6 +822,40 @@ The resumed conversation should continue working on this plan.
         )
         temp_context._chat_history = messages_to_summarize
 
+        # Check if messages to summarize fit within model's context window
+        # Reserve 10k tokens for system prompt and response
+        model_spec = get_model(model)
+        model_name = model_spec["title"]
+        context_window = self.model_context_windows.get(model_name, 200000)
+        max_input_tokens = context_window - 10000
+
+        messages_token_count = self.count_tokens(temp_context, model)
+
+        # If messages exceed context window, reduce the number of turns
+        while messages_token_count > max_input_tokens and messages_to_compact > 3:
+            # Reduce by 20% each iteration
+            messages_to_compact = max(3, int(messages_to_compact * 0.8))
+            turns = (messages_to_compact + 1) // 2
+
+            messages_to_summarize = agent_context.chat_history[:messages_to_compact]
+            messages_to_keep = agent_context.chat_history[messages_to_compact:]
+            temp_context._chat_history = messages_to_summarize
+            messages_token_count = self.count_tokens(temp_context, model)
+
+            if debug_compaction:
+                print(
+                    f"[Compaction] Reduced to {turns} turns ({messages_to_compact} messages) "
+                    f"to fit context window ({messages_token_count}/{max_input_tokens} tokens)"
+                )
+
+        if messages_token_count > max_input_tokens:
+            # Still too big, cannot compact
+            print(
+                f"[Compaction] Cannot compact: messages ({messages_token_count} tokens) "
+                f"exceed model context window ({max_input_tokens} tokens)"
+            )
+            return None
+
         # Use the existing generate_summary method
         summary_obj = self.generate_summary(temp_context, model)
         summary = summary_obj.summary
