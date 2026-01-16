@@ -900,6 +900,120 @@ The resumed conversation should continue working on this plan.
 
         return metadata
 
+    def _dump_compaction_debug(
+        self, agent_context, model: str, error: Exception
+    ) -> None:
+        """Dump compaction debug info to disk for analysis.
+
+        When compaction fails, this dumps all the relevant data to a debug file
+        so we can analyze what went wrong.
+
+        Args:
+            agent_context: The agent context that failed to compact
+            model: Model name that was being used
+            error: The exception that occurred
+        """
+        from datetime import datetime
+        from pathlib import Path
+        import traceback
+
+        try:
+            # Create debug directory
+            debug_dir = Path.home() / ".silica" / "compaction_debug"
+            debug_dir.mkdir(parents=True, exist_ok=True)
+
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            debug_file = debug_dir / f"compaction_failed_{timestamp}.json"
+
+            # Get the API context that would be sent
+            context_dict = agent_context.get_api_context()
+
+            # Calculate sizes of each component
+            system_size = 0
+            if context_dict.get("system"):
+                system_json = json.dumps(context_dict["system"])
+                system_size = len(system_json)
+
+            tools_size = 0
+            if context_dict.get("tools"):
+                tools_json = json.dumps(context_dict["tools"])
+                tools_size = len(tools_json)
+
+            messages_size = 0
+            if context_dict.get("messages"):
+                messages_json = json.dumps(context_dict["messages"])
+                messages_size = len(messages_json)
+
+            # Build the conversation string that would be sent to generate_summary
+            messages_for_summary = context_dict.get("messages", [])
+            conversation_str = self._messages_to_string(
+                messages_for_summary, for_summary=True
+            )
+            conversation_str_size = len(conversation_str)
+
+            # Build debug payload
+            debug_payload = {
+                "timestamp": timestamp,
+                "error": str(error),
+                "error_traceback": traceback.format_exc(),
+                "model": model,
+                "sizes": {
+                    "system_chars": system_size,
+                    "tools_chars": tools_size,
+                    "messages_chars": messages_size,
+                    "conversation_str_chars": conversation_str_size,
+                    "total_chars": system_size + tools_size + messages_size,
+                    "estimated_tokens": {
+                        "system": int(system_size / 3.5),
+                        "tools": int(tools_size / 3.5),
+                        "messages": int(messages_size / 3.5),
+                        "conversation_str": int(conversation_str_size / 3.5),
+                        "total": int((system_size + tools_size + messages_size) / 3.5),
+                    },
+                },
+                "message_count": len(messages_for_summary),
+                "message_details": [],
+                # The actual payloads (can be large)
+                "system": context_dict.get("system"),
+                "tools": context_dict.get("tools"),
+                "messages": context_dict.get("messages"),
+                "conversation_str_for_summary": conversation_str,
+            }
+
+            # Add per-message size details
+            for i, msg in enumerate(messages_for_summary):
+                msg_json = json.dumps(msg)
+                msg_size = len(msg_json)
+                debug_payload["message_details"].append(
+                    {
+                        "index": i,
+                        "role": msg.get("role", "unknown"),
+                        "chars": msg_size,
+                        "estimated_tokens": int(msg_size / 3.5),
+                        "content_preview": str(msg.get("content", ""))[:200] + "..."
+                        if len(str(msg.get("content", ""))) > 200
+                        else str(msg.get("content", "")),
+                    }
+                )
+
+            # Write to file
+            with open(debug_file, "w") as f:
+                json.dump(debug_payload, f, indent=2, default=str)
+
+            print(f"\n[Compaction Debug] Dumped debug info to: {debug_file}")
+            print(f"  System: {system_size:,} chars (~{int(system_size/3.5):,} tokens)")
+            print(f"  Tools: {tools_size:,} chars (~{int(tools_size/3.5):,} tokens)")
+            print(
+                f"  Messages: {messages_size:,} chars (~{int(messages_size/3.5):,} tokens)"
+            )
+            print(
+                f"  Conversation str: {conversation_str_size:,} chars (~{int(conversation_str_size/3.5):,} tokens)"
+            )
+            print(f"  Message count: {len(messages_for_summary)}")
+
+        except Exception as dump_error:
+            print(f"\n[Compaction Debug] Failed to dump debug info: {dump_error}")
+
     def check_and_apply_compaction(
         self, agent_context, model: str, user_interface, enable_compaction: bool = True
     ) -> tuple:
@@ -1009,5 +1123,8 @@ The resumed conversation should continue working on this plan.
             # Print detailed error to stderr for debugging
             print("\n[Compaction Error Details]", file=sys.stderr)
             print(error_details, file=sys.stderr)
+
+            # Dump debug info to disk for analysis
+            self._dump_compaction_debug(agent_context, model, e)
 
         return agent_context, False
