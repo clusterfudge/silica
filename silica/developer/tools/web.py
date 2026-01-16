@@ -13,7 +13,10 @@ async def web_search(context: "AgentContext", search_query: str) -> str:
     Args:
         search_query: The search query to send to Brave Search
     """
+    import asyncio
     import os
+    import random
+
     from brave_search_python_client import BraveSearch, WebSearchRequest
 
     # Try to get API key from environment first
@@ -32,29 +35,52 @@ async def web_search(context: "AgentContext", search_query: str) -> str:
     if not api_key:
         return "Error: BRAVE_SEARCH_API_KEY not found in environment or ~/.brave-search-api-key"
 
-    try:
-        # Initialize Brave Search client
-        bs = BraveSearch(api_key=api_key)
+    # Retry with exponential backoff
+    max_retries = 5
+    base_delay = 1
+    max_delay = 60
 
-        # Use async/await directly since we're in an async context
-        response = await bs.web(WebSearchRequest(q=search_query))
+    # Initialize Brave Search client
+    bs = BraveSearch(api_key=api_key)
 
-        # Format results
-        results = []
-        if response.web and response.web.results:
-            for result in response.web.results:
-                results.append(f"Title: {result.title}")
-                results.append(f"URL: {result.url}")
-                if result.description:
-                    results.append(f"Description: {result.description}")
-                results.append("---")
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            # Use async/await directly since we're in an async context
+            response = await bs.web(WebSearchRequest(q=search_query))
 
-            return "\n".join(results)
-        else:
-            return "No results found"
+            # Format results
+            results = []
+            if response.web and response.web.results:
+                for result in response.web.results:
+                    results.append(f"Title: {result.title}")
+                    results.append(f"URL: {result.url}")
+                    if result.description:
+                        results.append(f"Description: {result.description}")
+                    results.append("---")
 
-    except Exception as e:
-        return f"Error performing web search: {str(e)}"
+                return "\n".join(results)
+            else:
+                return "No results found"
+
+        except Exception as e:
+            last_error = e
+            error_str = str(e).lower()
+            # Check if it's a rate limit or server error worth retrying
+            if any(
+                x in error_str
+                for x in ["rate", "limit", "429", "503", "502", "throttl"]
+            ):
+                if attempt < max_retries - 1:
+                    delay = min(
+                        base_delay * (2**attempt) + random.uniform(0, 1), max_delay
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+            # For other errors, don't retry
+            return f"Error performing web search: {str(e)}"
+
+    return f"Error performing web search after {max_retries} retries: {str(last_error)}"
 
 
 @tool(group="Web")

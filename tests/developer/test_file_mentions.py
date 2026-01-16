@@ -8,6 +8,20 @@ from silica.developer.agent_loop import (
     _extract_file_mentions,
     _inline_latest_file_mentions,
 )
+from silica.developer.context import AgentContext
+from silica.developer.sandbox import SandboxMode
+
+
+class MockUserInterface:
+    """Mock user interface for testing."""
+
+    def permission_callback(
+        self, action, resource, sandbox_mode, action_arguments, group=None
+    ):
+        return True
+
+    def permission_rendering_callback(self, action, resource, action_arguments):
+        pass
 
 
 @pytest.fixture
@@ -93,7 +107,7 @@ def test_extract_file_mentions_nonexistent_files():
     assert len(result) == 0
 
 
-def test_inline_latest_file_mentions_basic(temp_files):
+def test_inline_latest_file_mentions_basic(temp_files, persona_base_dir):
     chat_history = [
         {
             "role": "user",
@@ -111,7 +125,17 @@ def test_inline_latest_file_mentions_basic(temp_files):
     # Make a deep copy to verify original is not modified
     original = copy.deepcopy(chat_history)
 
-    result = _inline_latest_file_mentions(chat_history)
+    # Create a mock agent context
+    ui = MockUserInterface()
+    context = AgentContext.create(
+        model_spec={},
+        sandbox_mode=SandboxMode.ALLOW_ALL,
+        sandbox_contents=[],
+        user_interface=ui,
+        persona_base_directory=persona_base_dir,
+    )
+
+    result = _inline_latest_file_mentions(chat_history, context)
 
     # Verify original is not modified
     assert chat_history == original
@@ -126,7 +150,7 @@ def test_inline_latest_file_mentions_basic(temp_files):
     assert isinstance(result[0]["content"], list)
 
 
-def test_inline_latest_file_mentions_multiple_files(temp_files):
+def test_inline_latest_file_mentions_multiple_files(temp_files, persona_base_dir):
     chat_history = [
         {
             "role": "user",
@@ -146,8 +170,18 @@ def test_inline_latest_file_mentions_multiple_files(temp_files):
         },
     ]
 
+    # Create a mock agent context
+    ui = MockUserInterface()
+    context = AgentContext.create(
+        model_spec={},
+        sandbox_mode=SandboxMode.ALLOW_ALL,
+        sandbox_contents=[],
+        user_interface=ui,
+        persona_base_directory=persona_base_dir,
+    )
+
     original = copy.deepcopy(chat_history)
-    result = _inline_latest_file_mentions(chat_history)
+    result = _inline_latest_file_mentions(chat_history, context)
 
     # Verify original is not modified
     assert chat_history == original
@@ -167,7 +201,9 @@ def test_inline_latest_file_mentions_multiple_files(temp_files):
     )
 
 
-def test_inline_latest_file_mentions_preserves_non_user_messages(temp_files):
+def test_inline_latest_file_mentions_preserves_non_user_messages(
+    temp_files, persona_base_dir
+):
     chat_history = [
         {
             "role": "user",
@@ -177,8 +213,18 @@ def test_inline_latest_file_mentions_preserves_non_user_messages(temp_files):
         {"role": "system", "content": [{"type": "text", "text": "System message"}]},
     ]
 
+    # Create a mock agent context
+    ui = MockUserInterface()
+    context = AgentContext.create(
+        model_spec={},
+        sandbox_mode=SandboxMode.ALLOW_ALL,
+        sandbox_contents=[],
+        user_interface=ui,
+        persona_base_directory=persona_base_dir,
+    )
+
     original = copy.deepcopy(chat_history)
-    result = _inline_latest_file_mentions(chat_history)
+    result = _inline_latest_file_mentions(chat_history, context)
 
     # Verify original is not modified
     assert chat_history == original

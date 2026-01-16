@@ -62,6 +62,18 @@ from .toolbox_tools import (
     toolbox_shelve,
     toolbox_test,
 )
+from .planning import (
+    enter_plan_mode,
+    ask_clarifications,
+    update_plan,
+    add_plan_tasks,
+    read_plan,
+    list_plans,
+    exit_plan_mode,
+    complete_plan_task,
+    verify_plan_task,
+    complete_plan,
+)
 
 ALL_TOOLS = (
     [
@@ -114,6 +126,17 @@ ALL_TOOLS = (
         toolbox_inspect,
         toolbox_shelve,
         toolbox_test,
+        # Planning tools
+        enter_plan_mode,
+        ask_clarifications,
+        update_plan,
+        add_plan_tasks,
+        read_plan,
+        list_plans,
+        exit_plan_mode,
+        complete_plan_task,
+        verify_plan_task,
+        complete_plan,
     ]
     + GITHUB_TOOLS
     + GITHUB_COMMENT_TOOLS

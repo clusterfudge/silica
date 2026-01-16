@@ -1,4 +1,5 @@
 import json
+import os
 from typing import Callable, List, Dict
 
 from anthropic.types import MessageParam
@@ -195,6 +196,13 @@ class Toolbox:
             "List available tools and manage user tool authorization",
         )
 
+        # Register plan mode CLI tool
+        self.register_cli_tool(
+            "plan",
+            self._plan,
+            "Enter plan mode or manage plans",
+        )
+
         # Note: agent_schema is now a property that dynamically re-discovers user tools
         # This ensures newly created user tools are immediately available
 
@@ -239,27 +247,42 @@ class Toolbox:
         else:
             content = result
 
-        # Render info command output as markdown for better formatting
-        render_as_markdown = name == "info"
-        self.context.user_interface.handle_system_message(
-            content, markdown=render_as_markdown
-        )
-        add_to_buffer = confirm_to_add
-        if confirm_to_add and content and content.strip():
+        # Handle special return values:
+        # - tuple (content, auto_add): content with explicit add flag
+        # - str: normal content, follows confirm_to_add logic
+        # - None/"": no content, don't add to buffer
+        auto_add = None
+        if isinstance(content, tuple) and len(content) == 2:
+            content, auto_add = content
+
+        # If content is empty/None, nothing to add
+        if not content or not content.strip():
+            return "", False
+
+        # Render output to user (unless auto_add is True, meaning it's agent-bound)
+        if auto_add is not True:
+            render_as_markdown = name == "info"
+            self.context.user_interface.handle_system_message(
+                content, markdown=render_as_markdown
+            )
+
+        # Determine whether to add to buffer
+        if auto_add is not None:
+            # Explicit flag from tool
+            add_to_buffer = auto_add
+        elif confirm_to_add:
+            # Ask user for confirmation
             add_to_buffer = (
                 (
-                    (
-                        await self.context.user_interface.get_user_input(
-                            "[bold]Add command and output to conversation? (y/[red]N[/red]): [/bold]"
-                        )
+                    await self.context.user_interface.get_user_input(
+                        "[bold]Add command and output to conversation? (y/[red]N[/red]): [/bold]"
                     )
-                    .strip()
-                    .lower()
                 )
-                == "y"
-                and content
-                and content.strip()
-            )
+                .strip()
+                .lower()
+            ) == "y"
+        else:
+            add_to_buffer = False
 
         return content, add_to_buffer
 
@@ -2150,6 +2173,702 @@ Use `/groups` to see available tool groups."""
             output += f"_Total: {total} user tools_\n\n"
 
         return output
+
+    async def _plan(self, user_interface, sandbox, user_input, *args, **kwargs):
+        """Enter plan mode or manage plans.
+
+        Usage:
+            /plan                      - View active plan or start new
+            /plan <topic>              - Start planning with topic
+            /plan new [--local|--global] <topic>  - Create new plan
+            /plan list                 - List active plans
+            /plan view [id]            - View plan details
+            /plan approve [id] [--shelve]  - Approve plan for execution
+            /plan reject [id] [feedback]   - Reject and request revisions
+            /plan abandon [id]         - Abandon/archive plan
+            /plan move <id> [--local|--global]  - Move plan storage
+            /plan push [id] [--local=PORT]  - Push to remote workspace
+            /plan push --all           - Push all shelved plans
+            /plan status [--remote]    - View plan execution status
+
+        Workflow:
+            1. /plan <topic> - Agent creates plan, asks questions, adds tasks
+            2. Agent calls submit_for_approval() - Plan shown to user
+            3. /plan approve - User approves, agent executes
+               OR /plan reject <feedback> - Agent revises plan
+        """
+        from pathlib import Path
+        from silica.developer.plans import (
+            PlanManager,
+            PlanStatus,
+            get_git_root,
+            LOCATION_LOCAL,
+            LOCATION_GLOBAL,
+        )
+
+        def _print(msg, markdown=True):
+            """Print directly to user without adding to conversation."""
+            user_interface.handle_system_message(msg, markdown=markdown)
+
+        # Get persona base dir
+        if self.context.history_base_dir is None:
+            base_dir = Path.home() / ".silica" / "personas" / "default"
+        else:
+            base_dir = Path(self.context.history_base_dir)
+
+        # Get project root for filtering and storage location
+        if (
+            hasattr(self.context, "sandbox")
+            and self.context.sandbox is not None
+            and hasattr(self.context.sandbox, "root_directory")
+        ):
+            root_dir = str(self.context.sandbox.root_directory)
+            project_root = get_git_root(root_dir)
+        else:
+            root_dir = os.getcwd()
+            project_root = get_git_root(root_dir)
+
+        # Create plan manager with both global and local support
+        plan_manager = PlanManager(base_dir, project_root=project_root)
+
+        def _location_emoji(location: str) -> str:
+            """Get emoji for storage location."""
+            return "📁" if location == LOCATION_LOCAL else "🌐"
+
+        # Note: chat_history is available via kwargs.get("chat_history", [])
+        # if needed for future enhancements
+
+        args_list = user_input.strip().split(maxsplit=1) if user_input.strip() else []
+
+        # Determine if this is a subcommand or a planning request
+        subcommands = [
+            "list",
+            "view",
+            "approve",
+            "reject",
+            "abandon",
+            "new",
+            "move",
+            "push",
+            "status",
+        ]
+        command = args_list[0].lower() if args_list else ""
+
+        # Context-aware /plan (no args): view active plan or create new
+        if not command:
+            # Check for session-specific active plan first
+            active_plan_id = self.context.active_plan_id
+            if active_plan_id:
+                plan = plan_manager.get_plan(active_plan_id)
+                if plan and plan.status not in (
+                    PlanStatus.COMPLETED,
+                    PlanStatus.ABANDONED,
+                ):
+                    _print(f"Viewing active plan `{active_plan_id}`...")
+                    _print(plan.to_markdown())
+                    return ""
+                # Clear stale reference
+                self.context.active_plan_id = None
+
+            # Fallback to most recent plan for this project
+            active_plans = plan_manager.list_active_plans(root_dir=root_dir)
+            if active_plans:
+                plan = active_plans[0]
+                _print(f"Viewing active plan `{plan.id}`...")
+                _print(plan.to_markdown())
+                return ""
+
+            # No active plan - equivalent to /plan new
+            command = "new"
+            args_list = ["new"]
+
+        # Check for management subcommands (human-only, no agent involvement)
+        if command == "list":
+            plans = plan_manager.list_active_plans(root_dir=root_dir)
+            if not plans:
+                _print("No active plans for this project.")
+                return ""
+
+            output = "## Active Plans\n\n"
+            output += "_📁 = local, 🌐 = global_\n\n"
+            for plan in plans:
+                loc = _location_emoji(plan.storage_location)
+                output += (
+                    f"- {loc} `{plan.id}` - **{plan.title}** ({plan.status.value})\n"
+                )
+                output += f"  Updated: {plan.updated_at.strftime('%Y-%m-%d %H:%M')}\n"
+            _print(output)
+            return ""
+
+        elif command == "view":
+            if len(args_list) < 2:
+                # Use active plan if available, otherwise show picker
+                active_plans = plan_manager.list_active_plans(root_dir=root_dir)
+                if not active_plans:
+                    _print("No plans to view for this project.")
+                    return ""
+
+                # Default to the most recent active plan
+                plan_id = active_plans[0].id
+                _print(f"Viewing active plan `{plan_id}`...")
+            else:
+                plan_id = args_list[1]
+
+            plan = plan_manager.get_plan(plan_id)
+            if not plan:
+                _print(f"Plan {plan_id} not found.")
+                return ""
+            _print(plan.to_markdown())
+            return ""
+
+        elif command == "approve":
+            # Parse flags
+            shelve = False
+            plan_id = None
+            if len(args_list) >= 2:
+                for arg in args_list[1].split():
+                    if arg == "--shelve":
+                        shelve = True
+                    elif not plan_id and not arg.startswith("-"):
+                        plan_id = arg
+
+            if not plan_id:
+                # Use active plan if it's in review, otherwise show picker
+                active_plans = plan_manager.list_active_plans(root_dir=root_dir)
+                plans_in_review = [
+                    p for p in active_plans if p.status == PlanStatus.IN_REVIEW
+                ]
+
+                if not plans_in_review:
+                    if active_plans:
+                        _print(
+                            f"Active plan `{active_plans[0].id}` is in {active_plans[0].status.value} status, not IN_REVIEW."
+                        )
+                    else:
+                        _print("No plans awaiting approval for this project.")
+                    return ""
+
+                plan_id = plans_in_review[0].id
+                _print(f"Approving plan `{plan_id}`...")
+
+            if plan_manager.approve_plan(plan_id, shelve=shelve):
+                plan = plan_manager.get_plan(plan_id)
+
+                if shelve:
+                    # Shelved - don't trigger execution, just confirm
+                    _print(f"✅ Plan `{plan_id}` approved and shelved.")
+                    _print(
+                        f"Use `/plan push {plan_id}` to execute on a remote workspace."
+                    )
+                    return ""
+
+                # Not shelved - trigger immediate execution
+                _print(f"✅ Plan `{plan_id}` approved! Starting execution...")
+                self.context.active_plan_id = plan_id
+
+                execution_prompt = f"""The plan "{plan.title}" (ID: {plan_id}) has been approved.
+
+Please use `exit_plan_mode("{plan_id}", "execute")` to begin execution, then work through each task:
+
+"""
+                if plan.tasks:
+                    for task in plan.tasks:
+                        status = "✅" if task.completed else "⬜"
+                        execution_prompt += (
+                            f"- {status} `{task.id}`: {task.description}\n"
+                        )
+                        if task.files:
+                            execution_prompt += f"  Files: {', '.join(task.files)}\n"
+
+                execution_prompt += """
+After completing each task, call `complete_plan_task(plan_id, task_id)`.
+When all tasks are done, call `complete_plan(plan_id)`."""
+
+                return (execution_prompt, True)
+            else:
+                plan = plan_manager.get_plan(plan_id)
+                if not plan:
+                    _print(f"Plan {plan_id} not found.")
+                else:
+                    _print(
+                        f"Cannot approve plan in {plan.status.value} status. Must be IN_REVIEW."
+                    )
+            return ""
+
+        elif command == "reject":
+            # /plan reject [plan-id] [feedback]
+            # Reject a plan and send it back to DRAFT with feedback
+            plan_id = None
+            feedback = ""
+
+            if len(args_list) >= 2:
+                parts = args_list[1].split(maxsplit=1)
+                # Check if first part looks like a plan ID (short alphanumeric)
+                if parts[0] and len(parts[0]) <= 10 and parts[0].isalnum():
+                    plan_id = parts[0]
+                    feedback = parts[1] if len(parts) > 1 else ""
+                else:
+                    # Entire thing is feedback
+                    feedback = args_list[1]
+
+            if not plan_id:
+                # Use most recent plan in review
+                active_plans = plan_manager.list_active_plans(root_dir=root_dir)
+                plans_in_review = [
+                    p for p in active_plans if p.status == PlanStatus.IN_REVIEW
+                ]
+                if not plans_in_review:
+                    _print("No plans awaiting approval to reject.")
+                    return ""
+                plan_id = plans_in_review[0].id
+
+            plan = plan_manager.get_plan(plan_id)
+            if not plan:
+                _print(f"Plan `{plan_id}` not found.")
+                return ""
+
+            if plan.status != PlanStatus.IN_REVIEW:
+                _print(
+                    f"Plan `{plan_id}` is in {plan.status.value} status, not IN_REVIEW."
+                )
+                return ""
+
+            # Revert to DRAFT
+            plan.status = PlanStatus.DRAFT
+            if feedback:
+                plan.add_progress(f"Plan rejected with feedback: {feedback}")
+            else:
+                plan.add_progress("Plan rejected - revisions requested")
+            plan_manager.update_plan(plan)
+
+            _print(f"↩️ Plan `{plan_id}` returned to draft for revisions.")
+
+            # Build prompt for agent to revise
+            revision_prompt = f"""Plan "{plan.title}" (ID: {plan_id}) was rejected and needs revisions.
+
+"""
+            if feedback:
+                revision_prompt += f"""**Feedback from reviewer:**
+{feedback}
+
+"""
+            revision_prompt += """Please:
+1. Read the current plan with `read_plan("{plan_id}")`
+2. Address the feedback by updating the approach or tasks
+3. When ready, submit again with `submit_for_approval("{plan_id}")`
+"""
+
+            return (revision_prompt, True)
+
+        elif command == "abandon":
+            if len(args_list) < 2:
+                # Use active plan if available, otherwise show picker
+                active_plans = plan_manager.list_active_plans(root_dir=root_dir)
+                if not active_plans:
+                    _print("No active plans to abandon for this project.")
+                    return ""
+
+                # Default to the most recent active plan
+                plan_id = active_plans[0].id
+                plan = active_plans[0]
+                _print(f"Abandoning active plan `{plan_id}` ({plan.title})...")
+            else:
+                plan_id = args_list[1]
+
+            if plan_manager.abandon_plan(plan_id):
+                # Clear active plan if this was it
+                if self.context.active_plan_id == plan_id:
+                    self.context.active_plan_id = None
+                _print(f"🗑️ Plan `{plan_id}` abandoned and archived.")
+            else:
+                _print(f"Could not abandon plan {plan_id}.")
+            return ""
+
+        elif command == "move":
+            # /plan move <id> [--local|--global]
+            if len(args_list) < 2:
+                _print("Usage: /plan move <id> [--local|--global]")
+                return ""
+
+            move_args = args_list[1].split()
+            plan_id = move_args[0]
+            target = LOCATION_LOCAL  # Default
+
+            for arg in move_args[1:]:
+                if arg == "--local":
+                    target = LOCATION_LOCAL
+                elif arg == "--global":
+                    target = LOCATION_GLOBAL
+
+            if target == LOCATION_LOCAL and not project_root:
+                _print("Cannot move to local storage: not in a git repository.")
+                return ""
+
+            if plan_manager.move_plan(plan_id, target):
+                emoji = _location_emoji(target)
+                _print(f"{emoji} Plan `{plan_id}` moved to {target} storage.")
+            else:
+                _print(f"Could not move plan {plan_id}.")
+            return ""
+
+        elif command == "push":
+            # /plan push [plan-id] [--workspace NAME] [--branch NAME] [--local PORT]
+            # /plan push --all [--workspace-prefix PREFIX]
+            import subprocess
+
+            push_all = False
+            plan_id = None
+            workspace_name = None
+            workspace_prefix = None
+            branch_name = None
+            local_port = None
+
+            if len(args_list) >= 2:
+                for arg in args_list[1].split():
+                    if arg == "--all":
+                        push_all = True
+                    elif arg.startswith("--workspace="):
+                        workspace_name = arg.split("=", 1)[1]
+                    elif arg.startswith("--workspace-prefix="):
+                        workspace_prefix = arg.split("=", 1)[1]
+                    elif arg.startswith("--branch="):
+                        branch_name = arg.split("=", 1)[1]
+                    elif arg.startswith("--local="):
+                        try:
+                            local_port = int(arg.split("=", 1)[1])
+                        except ValueError:
+                            _print(f"Invalid port: {arg}")
+                            return ""
+                    elif arg == "--local":
+                        local_port = 8000  # Default port
+                    elif not plan_id and not arg.startswith("-"):
+                        plan_id = arg
+
+            def _validate_plan_in_vcs(plan):
+                """Check if plan is in version control (not global or gitignored)."""
+                if plan.storage_location == LOCATION_GLOBAL:
+                    return False, "Plan is in global storage (not in repo)"
+                return True, None
+
+            def _get_repo_url():
+                """Get the git remote URL for the current repo."""
+                try:
+                    result = subprocess.run(
+                        ["git", "remote", "get-url", "origin"],
+                        capture_output=True,
+                        text=True,
+                        cwd=root_dir,
+                    )
+                    if result.returncode == 0:
+                        return result.stdout.strip()
+                except Exception:
+                    pass
+                return None
+
+            def _create_and_push_branch(branch: str):
+                """Create branch, commit plan, and push."""
+                try:
+                    # Create and checkout new branch
+                    subprocess.run(
+                        ["git", "checkout", "-b", branch],
+                        cwd=root_dir,
+                        capture_output=True,
+                        check=True,
+                    )
+                    # Add plan files
+                    subprocess.run(
+                        ["git", "add", ".agent/plans", ".silica/plans"],
+                        cwd=root_dir,
+                        capture_output=True,
+                    )
+                    # Commit if there are changes
+                    subprocess.run(
+                        ["git", "commit", "-m", "Add plan for remote execution"],
+                        cwd=root_dir,
+                        capture_output=True,
+                    )
+                    # Push branch
+                    result = subprocess.run(
+                        ["git", "push", "-u", "origin", branch],
+                        cwd=root_dir,
+                        capture_output=True,
+                        text=True,
+                    )
+                    return result.returncode == 0, result.stderr
+                except subprocess.CalledProcessError as e:
+                    return False, str(e)
+
+            def _push_single_plan(plan, ws_name=None, br_name=None, port=None):
+                """Push a single plan to remote workspace."""
+                valid, err = _validate_plan_in_vcs(plan)
+                if not valid:
+                    return False, f"Cannot push plan `{plan.id}`: {err}"
+
+                # Generate names from slug
+                slug = plan.get_slug()
+                ws = ws_name or f"plan-{slug}"
+                br = br_name or f"plan/{slug}"
+
+                # Get repo URL
+                repo_url = _get_repo_url()
+                if not repo_url:
+                    return False, "Could not determine repository URL"
+
+                # Create and push the branch with plan files
+                _print(f"Creating branch `{br}`...")
+                success, err = _create_and_push_branch(br)
+                if not success:
+                    # Branch might already exist, try to checkout and push
+                    subprocess.run(
+                        ["git", "checkout", br], cwd=root_dir, capture_output=True
+                    )
+                    subprocess.run(
+                        ["git", "push", "origin", br], cwd=root_dir, capture_output=True
+                    )
+
+                # Update plan with remote info
+                plan.remote_workspace = ws
+                plan.remote_branch = br
+                plan.shelved = False
+                plan.add_progress(f"Pushed to remote workspace: {ws} (branch: {br})")
+                plan_manager.update_plan(plan)
+
+                # Create workspace and execute plan
+                silica_dir = Path(root_dir) / ".silica"
+                silica_dir.mkdir(exist_ok=True)
+
+                try:
+                    if port:
+                        # Local workspace
+                        from silica.remote.cli.commands.create import (
+                            create_local_workspace,
+                        )
+
+                        _print(f"Creating local workspace `{ws}` on port {port}...")
+                        create_local_workspace(ws, port, Path(root_dir), silica_dir, [])
+                    else:
+                        # Remote workspace
+                        from silica.remote.cli.commands.create import (
+                            create_remote_workspace,
+                        )
+
+                        _print(f"Creating remote workspace `{ws}`...")
+                        create_remote_workspace(
+                            ws, None, Path(root_dir), silica_dir, []
+                        )
+
+                    # Wait for workspace to be ready
+                    import time
+
+                    time.sleep(3)
+
+                    # Execute plan via antennae
+                    from silica.remote.utils.antennae_client import get_antennae_client
+
+                    client = get_antennae_client(silica_dir, ws)
+
+                    # Check if server supports execute-plan capability
+                    supported, cap_error = client.supports_capability("execute-plan")
+                    if not supported:
+                        return False, cap_error
+
+                    success, response = client.execute_plan(
+                        repo_url=repo_url,
+                        branch=br,
+                        plan_id=plan.id,
+                        plan_title=plan.title,
+                        retries=5,
+                    )
+
+                    if success:
+                        return (
+                            True,
+                            f"📤 Plan `{plan.id}` ({plan.title})\n"
+                            f"   Workspace: {ws}\n"
+                            f"   Branch: {br}\n"
+                            f"   Status: Executing",
+                        )
+                    else:
+                        return (
+                            False,
+                            f"Workspace created but plan execution failed: {response.get('error', 'Unknown error')}",
+                        )
+
+                except Exception as e:
+                    return False, f"Failed to create workspace: {e}"
+
+            if push_all:
+                shelved = plan_manager.list_shelved_plans(root_dir=root_dir)
+                if not shelved:
+                    _print("No shelved plans to push.")
+                    return ""
+
+                # Validate all first
+                errors = []
+                for plan in shelved:
+                    valid, err = _validate_plan_in_vcs(plan)
+                    if not valid:
+                        errors.append(f"  - `{plan.id}` ({plan.title}): {err}")
+
+                if errors:
+                    _print("❌ Cannot push all plans:\n" + "\n".join(errors))
+                    return ""
+
+                # Push each
+                results = []
+                prefix = workspace_prefix or "plan"
+                base_port = local_port or 8000
+                for i, plan in enumerate(shelved):
+                    slug = plan.get_slug()
+                    ws = f"{prefix}-{slug}"
+                    br = f"plan/{slug}"
+                    port = base_port + i if local_port else None
+                    success, msg = _push_single_plan(plan, ws, br, port)
+                    results.append(msg if success else f"❌ {msg}")
+
+                _print("## Pushed Plans\n\n" + "\n\n".join(results))
+                return ""
+
+            else:
+                # Push single plan
+                if not plan_id:
+                    if self.context.active_plan_id:
+                        plan_id = self.context.active_plan_id
+                    else:
+                        shelved = plan_manager.list_shelved_plans(root_dir=root_dir)
+                        if shelved:
+                            plan_id = shelved[0].id
+                        else:
+                            _print("No plan specified and no shelved plans found.")
+                            _print(
+                                "Usage: /plan push <plan-id> [--workspace=NAME] [--branch=NAME] [--local=PORT]"
+                            )
+                            return ""
+
+                plan = plan_manager.get_plan(plan_id)
+                if not plan:
+                    _print(f"Plan `{plan_id}` not found.")
+                    return ""
+
+                success, msg = _push_single_plan(
+                    plan, workspace_name, branch_name, local_port
+                )
+                if success:
+                    _print(msg)
+                else:
+                    _print(f"❌ {msg}")
+                return ""
+
+        elif command == "status":
+            # /plan status [--remote]
+            show_remote_only = len(args_list) >= 2 and "--remote" in args_list[1]
+
+            plans = plan_manager.list_active_plans(root_dir=root_dir)
+            if show_remote_only:
+                plans = [p for p in plans if p.remote_workspace]
+
+            if not plans:
+                if show_remote_only:
+                    _print("No plans executing remotely.")
+                else:
+                    _print("No active plans.")
+                return ""
+
+            output = "## Plan Status\n\n"
+            for plan in plans:
+                loc = _location_emoji(plan.storage_location)
+                status_str = plan.status.value
+                if plan.shelved:
+                    status_str += " (shelved)"
+
+                output += f"{loc} **{plan.id}** - {plan.title}\n"
+                output += f"   Status: {status_str}\n"
+
+                if plan.remote_workspace:
+                    output += f"   Remote: {plan.remote_workspace}\n"
+                if plan.remote_branch:
+                    output += f"   Branch: {plan.remote_branch}\n"
+                if plan.pull_request:
+                    output += f"   PR: {plan.pull_request}\n"
+
+                # Task progress
+                if plan.tasks:
+                    done = sum(1 for t in plan.tasks if t.completed)
+                    verified = sum(1 for t in plan.tasks if t.verified)
+                    total = len(plan.tasks)
+                    output += (
+                        f"   Tasks: {done}/{total} done, {verified}/{total} verified\n"
+                    )
+
+                output += "\n"
+
+            _print(output)
+            return ""
+
+        elif command == "new" or command not in subcommands:
+            # /plan new or /plan <topic> - create a new plan with agent
+
+            # Parse --local/--global flags
+            force_location = None
+            remaining_args = []
+
+            if command == "new" and len(args_list) > 1:
+                for arg in args_list[1].split():
+                    if arg == "--local":
+                        force_location = LOCATION_LOCAL
+                    elif arg == "--global":
+                        force_location = LOCATION_GLOBAL
+                    else:
+                        remaining_args.append(arg)
+
+            # Get topic (either from args or prompt user)
+            if command == "new":
+                # /plan new or /plan new <topic>
+                if remaining_args:
+                    topic = " ".join(remaining_args)
+                else:
+                    topic = await user_interface.get_user_input(
+                        "What would you like to plan? "
+                    )
+                    if not topic.strip():
+                        _print("Cancelled - no topic provided.")
+                        return ""
+                    topic = topic.strip()
+            else:
+                # /plan <topic> (backwards compatible)
+                topic = user_input.strip()
+
+            # Determine storage location for display
+            if force_location:
+                loc_display = f" ({_location_emoji(force_location)} {force_location})"
+            elif project_root:
+                loc_display = f" ({_location_emoji(LOCATION_LOCAL)} local)"
+            else:
+                loc_display = f" ({_location_emoji(LOCATION_GLOBAL)} global)"
+
+            _print(
+                f"📋 **Entering Plan Mode**{loc_display}\n\nTopic: {topic}\n\nThe agent will now help you create a structured plan..."
+            )
+
+            # Build location hint for agent
+            location_hint = ""
+            if force_location:
+                location_hint = f', location="{force_location}"'
+
+            # Create the planning prompt to send to agent
+            planning_prompt = f"""I'd like to enter plan mode to work on: {topic}
+
+Please use the `enter_plan_mode` tool to start planning this{location_hint}. Then:
+1. Analyze what's needed for this task
+2. Ask me clarifying questions using `ask_clarifications` if anything is unclear
+3. Document the implementation approach using `update_plan`
+4. Break down the work into tasks using `add_plan_tasks`
+
+Let's collaborate on creating a solid plan before implementation."""
+
+            # Return (content, auto_add=True) to automatically add to conversation
+            # and trigger agent response
+            return (planning_prompt, True)
 
     def _discover_user_tools(self):
         """Discover user-created tools from ~/.silica/tools/."""

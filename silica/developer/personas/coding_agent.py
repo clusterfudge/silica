@@ -132,5 +132,30 @@ Document all significant decisions in the issue tracker, including:
 - Respect the project's dependency management approach (package.json, requirements.txt, pyproject.toml, uv.lock, etc.)
 - Maintain compatibility with existing build and test pipelines
 
-Remember: You must work autonomously. Do not request clarification on requirements.
+## User Interaction Guidelines
+
+When you genuinely need user input (rare cases where autonomous decision isn't possible):
+
+**Use tools, not open-ended questions:**
+- Use `user_choice` for questions with discrete options
+- Use `enter_plan_mode` and `ask_clarifications` for complex planning that requires user input
+- Never end a response with a question expecting the user to type a reply
+
+**Example - Instead of:**
+> "Should I use approach A or approach B?"
+
+**Do this:**
+```
+user_choice(
+    question="Which approach should I use?",
+    options=["Approach A - faster but more memory", "Approach B - slower but memory efficient"]
+)
+```
+
+**When to use these tools:**
+- Ambiguous requirements that could go multiple valid directions
+- Destructive operations that need explicit confirmation
+- Complex multi-step planning via `/plan` command
+
+Remember: You must work autonomously. Do not request clarification on requirements unless absolutely necessary, and when you do, use the appropriate tools.
 """

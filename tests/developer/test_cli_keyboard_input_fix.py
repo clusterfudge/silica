@@ -7,7 +7,10 @@ import time
 from silica.developer.context import AgentContext
 from silica.developer.sandbox import SandboxMode
 from silica.developer.user_interface import UserInterface
-from silica.developer.tools.shell import shell_execute
+from silica.developer.tools.shell import (
+    shell_execute,
+    _run_shell_command_with_interactive_timeout,
+)
 
 
 class MockUserInterface(UserInterface):
@@ -120,9 +123,11 @@ class TestCLIKeyboardInputFix:
         """Test that keyboard input remains responsive during timeout scenarios."""
         context, ui = self.create_test_context(persona_base_dir, input_responses=["K"])
 
-        # Run a command that will trigger timeout
+        # Run a command that will trigger timeout - use internal function to bypass 30s minimum
         start_time = time.time()
-        result = await shell_execute(context, "sleep 5", timeout=1)
+        result = await _run_shell_command_with_interactive_timeout(
+            context, "sleep 5", initial_timeout=1
+        )
         execution_time = time.time() - start_time
 
         # Verify the command was handled properly
@@ -139,7 +144,10 @@ class TestCLIKeyboardInputFix:
     async def test_kill_choice_works(self, persona_base_dir):
         """Test that Kill choice (K) works with responsive input."""
         context, ui = self.create_test_context(persona_base_dir, input_responses=["K"])
-        result = await shell_execute(context, "sleep 5", timeout=1)
+        # Use internal function to bypass 30s minimum timeout for testing
+        result = await _run_shell_command_with_interactive_timeout(
+            context, "sleep 5", initial_timeout=1
+        )
         assert "Command was killed by user" in result
         assert ui.input_responsive
 
@@ -149,7 +157,10 @@ class TestCLIKeyboardInputFix:
         context, ui = self.create_test_context(
             persona_base_dir, input_responses=["C", "K"]
         )
-        result = await shell_execute(context, "sleep 5", timeout=1)
+        # Use internal function to bypass 30s minimum timeout for testing
+        result = await _run_shell_command_with_interactive_timeout(
+            context, "sleep 5", initial_timeout=1
+        )
         assert "Command was killed by user" in result  # Should eventually be killed
         assert ui.input_responsive
 
@@ -175,7 +186,10 @@ class TestCLIKeyboardInputFix:
             )
 
             # Run a command that will definitely timeout and be backgrounded
-            result = await shell_execute(context, "sleep 2", timeout=0.1)
+            # Use internal function to bypass 30s minimum timeout for testing
+            result = await _run_shell_command_with_interactive_timeout(
+                context, "sleep 2", initial_timeout=0.1
+            )
             assert "Command backgrounded" in result
             assert ui.input_responsive
 
@@ -230,7 +244,10 @@ class TestCLIKeyboardInputFix:
         )
 
         # Command will complete in 0.2s, but timeout is 0.1s and user responds in 0.3s
-        result = await shell_execute(context, "sleep 0.2", timeout=0.1)
+        # Use internal function to bypass 30s minimum timeout for testing
+        result = await _run_shell_command_with_interactive_timeout(
+            context, "sleep 0.2", initial_timeout=0.1
+        )
 
         # Process should complete naturally, not be killed
         assert "Exit code: 0" in result
@@ -303,7 +320,10 @@ class TestCLIKeyboardInputFix:
         """Test that multiple concurrent processes don't interfere with input."""
 
         async def run_timeout_command(context):
-            return await shell_execute(context, "sleep 3", timeout=1)
+            # Use internal function to bypass 30s minimum timeout for testing
+            return await _run_shell_command_with_interactive_timeout(
+                context, "sleep 3", initial_timeout=1
+            )
 
         # Create multiple contexts that will all timeout and need user input
         contexts_and_uis = [

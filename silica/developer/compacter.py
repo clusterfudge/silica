@@ -514,8 +514,29 @@ class ConversationCompacter:
             messages_for_summary, for_summary=True
         )
 
+        # Check for active plan and include in summary context
+        active_plan_context = ""
+        try:
+            from silica.developer.tools.planning import get_active_plan_status
+
+            plan_status = get_active_plan_status(agent_context)
+            if plan_status:
+                status_emoji = "📋" if plan_status["status"] == "planning" else "🚀"
+                active_plan_context = f"""
+
+**IMPORTANT: Active Plan in Progress**
+{status_emoji} Plan ID: {plan_status["id"]}
+Title: {plan_status["title"]}
+Status: {plan_status["status"]}
+Tasks: {plan_status["total_tasks"] - plan_status["incomplete_tasks"]}/{plan_status["total_tasks"]} complete
+
+The resumed conversation should continue working on this plan.
+"""
+        except Exception:
+            pass  # Don't fail compaction if planning module has issues
+
         # Create summarization prompt
-        system_prompt = """
+        system_prompt = f"""
         Summarize the following conversation for continuity.
         Include:
         1. Key points and decisions
@@ -528,7 +549,7 @@ class ConversationCompacter:
         
         Be comprehensive yet concise. The summary will be used to start a new conversation 
         that continues where this one left off.
-        """
+        {active_plan_context}"""
 
         # Generate summary using Claude
         summary_messages = [{"role": "user", "content": conversation_str}]
@@ -800,6 +821,40 @@ class ConversationCompacter:
             history_base_dir=agent_context.history_base_dir,
         )
         temp_context._chat_history = messages_to_summarize
+
+        # Check if messages to summarize fit within model's context window
+        # Reserve 10k tokens for system prompt and response
+        model_spec = get_model(model)
+        model_name = model_spec["title"]
+        context_window = self.model_context_windows.get(model_name, 200000)
+        max_input_tokens = context_window - 10000
+
+        messages_token_count = self.count_tokens(temp_context, model)
+
+        # If messages exceed context window, reduce the number of turns
+        while messages_token_count > max_input_tokens and messages_to_compact > 3:
+            # Reduce by 20% each iteration
+            messages_to_compact = max(3, int(messages_to_compact * 0.8))
+            turns = (messages_to_compact + 1) // 2
+
+            messages_to_summarize = agent_context.chat_history[:messages_to_compact]
+            messages_to_keep = agent_context.chat_history[messages_to_compact:]
+            temp_context._chat_history = messages_to_summarize
+            messages_token_count = self.count_tokens(temp_context, model)
+
+            if debug_compaction:
+                print(
+                    f"[Compaction] Reduced to {turns} turns ({messages_to_compact} messages) "
+                    f"to fit context window ({messages_token_count}/{max_input_tokens} tokens)"
+                )
+
+        if messages_token_count > max_input_tokens:
+            # Still too big, cannot compact
+            print(
+                f"[Compaction] Cannot compact: messages ({messages_token_count} tokens) "
+                f"exceed model context window ({max_input_tokens} tokens)"
+            )
+            return None
 
         # Use the existing generate_summary method
         summary_obj = self.generate_summary(temp_context, model)

@@ -463,4 +463,13 @@ class TestWebAppSafety:
             response = client.get("/connect")
             assert response.status_code == 200
 
+            # Test capabilities endpoint
+            response = client.get("/capabilities")
+            assert response.status_code == 200
+            data = response.json()
+            assert "capabilities" in data
+            assert "version" in data
+            assert "execute-plan" in data["capabilities"]
+            assert "initialize" in data["capabilities"]
+
         # Test response models

@@ -23,5 +23,11 @@ When taking actions:
 - When using tools that modify the environment (like writing files), be cautious and confirm
   intentions when appropriate
 
+When you need user input:
+- Use the `user_choice` tool for questions with specific options
+- Use `ask_clarifications` (in plan mode) for gathering multiple pieces of information
+- Avoid ending your response with open-ended questions - use tools instead
+- This provides better UX with selectable options and structured responses
+
 Always aim to be helpful, accurate, and respectful of the user's time and resources.
 """

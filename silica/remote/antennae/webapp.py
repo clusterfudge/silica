@@ -72,6 +72,15 @@ class TellRequest(BaseModel):
     message: str
 
 
+class ExecutePlanRequest(BaseModel):
+    """Request model for executing a plan from a remote repository."""
+
+    repo_url: str
+    branch: str
+    plan_id: str
+    plan_title: str = ""
+
+
 class StatusResponse(BaseModel):
     """Response model for workspace status."""
 
@@ -115,6 +124,26 @@ async def root():
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "workspace": config.get_workspace_name()}
+
+
+@app.get("/capabilities")
+async def get_capabilities():
+    """Get server capabilities for feature detection.
+
+    Clients should check this endpoint to determine which features
+    are supported before using them.
+    """
+    return {
+        "version": __version__,
+        "workspace": config.get_workspace_name(),
+        "capabilities": [
+            "initialize",
+            "tell",
+            "status",
+            "destroy",
+            "execute-plan",  # Plan execution support
+        ],
+    }
 
 
 @app.post("/initialize", response_model=MessageResponse)
@@ -249,6 +278,117 @@ async def tell_agent(request: TellRequest):
 
     logger.info("tell_agent_success", workspace_name=workspace_name)
     return MessageResponse(success=True, message="Message sent to agent successfully")
+
+
+@app.post("/execute-plan", response_model=MessageResponse)
+async def execute_plan(request: ExecutePlanRequest):
+    """Initialize workspace and execute a plan.
+
+    This endpoint:
+    1. Clones/updates the repository on the specified branch
+    2. Sets up the environment
+    3. Starts the agent with instructions to execute the plan
+
+    Args:
+        request: Plan execution parameters
+
+    Returns:
+        Success/failure response
+    """
+    workspace_name = config.get_workspace_name()
+
+    logger.info(
+        "execute_plan_started",
+        workspace_name=workspace_name,
+        repo_url=request.repo_url,
+        branch=request.branch,
+        plan_id=request.plan_id,
+        plan_title=request.plan_title,
+    )
+
+    try:
+        # Step 1: Setup code directory and repository
+        logger.info(
+            "repository_setup_starting",
+            workspace_name=workspace_name,
+            repo_url=request.repo_url,
+            branch=request.branch,
+        )
+        if not agent_manager.clone_repository(request.repo_url, request.branch):
+            logger.error(
+                "repository_setup_failed",
+                workspace_name=workspace_name,
+                repo_url=request.repo_url,
+                branch=request.branch,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to setup repository",
+            )
+
+        # Step 2: Setup development environment
+        logger.info("environment_setup_starting", workspace_name=workspace_name)
+        if not agent_manager.setup_environment():
+            logger.error("environment_setup_failed", workspace_name=workspace_name)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to setup development environment",
+            )
+
+        # Step 3: Start tmux session
+        logger.info("tmux_session_starting", workspace_name=workspace_name)
+        if not agent_manager.start_tmux_session():
+            logger.error("tmux_session_start_failed", workspace_name=workspace_name)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to start tmux session",
+            )
+
+        # Step 4: Send plan execution message to agent
+        plan_title = request.plan_title or request.plan_id
+        execution_message = f"""Execute plan "{plan_title}" (ID: {request.plan_id}).
+
+The plan file should be in .agent/plans/active/{request.plan_id}.md or .silica/plans/active/{request.plan_id}.md.
+
+Please:
+1. Read the plan using `read_plan("{request.plan_id}")`
+2. Start execution with `exit_plan_mode("{request.plan_id}", "execute")`
+3. Work through each task, calling `complete_plan_task` and `verify_plan_task` as you go
+4. When done, call `complete_plan("{request.plan_id}")`
+5. Create a PR with your changes using `gh pr create`
+6. Link the PR to the plan using `link_plan_pr("{request.plan_id}", "<pr_url>")`
+"""
+
+        if not agent_manager.send_message_to_session(execution_message):
+            logger.error("execute_plan_send_failed", workspace_name=workspace_name)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to send plan execution message to agent",
+            )
+
+        logger.info(
+            "execute_plan_completed",
+            workspace_name=workspace_name,
+            plan_id=request.plan_id,
+        )
+        return MessageResponse(
+            success=True,
+            message=f"Plan {request.plan_id} execution started in workspace {workspace_name}",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "execute_plan_unexpected_error",
+            workspace_name=workspace_name,
+            error=str(e),
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Plan execution failed: {str(e)}",
+        )
 
 
 @app.get("/status", response_model=StatusResponse)
