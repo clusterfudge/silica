@@ -1836,6 +1836,7 @@ Use `/groups` to see available tool groups."""
         user_tools_by_status = {
             "available": [],
             "needs_auth": [],
+            "schema_invalid": [],  # Tools with invalid schemas (won't be sent to API)
             "error": [],
         }
 
@@ -1849,10 +1850,15 @@ Use `/groups` to see available tool groups."""
                 "requires_auth": tool.metadata.requires_auth,
                 "is_authorized": tool.is_authorized,
                 "error": tool.error,
+                "schema_valid": tool.schema_valid,
+                "schema_errors": tool.schema_errors,
                 "type": "user",
             }
             if tool.error and not tool.is_authorized and tool.metadata.requires_auth:
                 user_tools_by_status["needs_auth"].append(tool_info)
+            elif not tool.schema_valid:
+                # Schema invalid - separate category for clarity
+                user_tools_by_status["schema_invalid"].append(tool_info)
             elif tool.error:
                 user_tools_by_status["error"].append(tool_info)
             else:
@@ -1910,7 +1916,17 @@ Use `/groups` to see available tool groups."""
                     }
                 )
 
-        # User tools with errors
+        # User tools with invalid schemas (won't be sent to API)
+        if user_tools_by_status["schema_invalid"]:
+            for tool in sorted(
+                user_tools_by_status["schema_invalid"], key=lambda t: t["name"]
+            ):
+                options.append(f"  ✗ {tool['name']} (invalid schema)")
+                option_metadata.append(
+                    {"type": "user_tool_schema_invalid", "tool": tool}
+                )
+
+        # User tools with other errors
         if user_tools_by_status["error"]:
             for tool in sorted(user_tools_by_status["error"], key=lambda t: t["name"]):
                 options.append(f"  ✗ {tool['name']} (error)")
@@ -2092,6 +2108,17 @@ Use `/groups` to see available tool groups."""
                             "action": "authorize",
                         }
                     )
+                elif not tool.schema_valid:
+                    options.append(f"  ✗ {tool.name} (invalid schema)")
+                    metadata.append(
+                        {
+                            "type": "user_tool_schema_invalid",
+                            "tool": {
+                                "name": tool.name,
+                                "schema_errors": tool.schema_errors,
+                            },
+                        }
+                    )
                 elif tool.error:
                     options.append(f"  ✗ {tool.name} (error)")
                     metadata.append(
@@ -2160,8 +2187,19 @@ Use `/groups` to see available tool groups."""
                 output += f"  • `{tool['file_stem']}` - {tool['error'] or 'Requires authorization'}\n"
             output += "\n"
 
+        if user_tools_by_status["schema_invalid"]:
+            output += "### ✗ Invalid Schema (excluded from API)\n\n"
+            for tool in sorted(
+                user_tools_by_status["schema_invalid"], key=lambda t: t["name"]
+            ):
+                output += f"  • `{tool['name']}`\n"
+                # Show schema errors for debugging
+                for err in tool.get("schema_errors", []):
+                    output += f"      - {err}\n"
+            output += "\n"
+
         if user_tools_by_status["error"]:
-            output += "### ✗ Errors\n\n"
+            output += "### ✗ Other Errors\n\n"
             for tool in sorted(user_tools_by_status["error"], key=lambda t: t["name"]):
                 output += f"  • `{tool['name']}` - {tool['error']}\n"
             output += "\n"
