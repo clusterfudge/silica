@@ -933,6 +933,31 @@ The resumed conversation should continue working on this plan.
 
         return metadata
 
+    def _make_json_serializable(self, obj):
+        """Recursively convert objects to JSON-serializable types.
+
+        Handles Anthropic SDK objects like ThinkingBlock, TextBlock, etc.
+        """
+        if obj is None:
+            return None
+        if isinstance(obj, (str, int, float, bool)):
+            return obj
+        if isinstance(obj, dict):
+            return {k: self._make_json_serializable(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [self._make_json_serializable(v) for v in obj]
+        # Handle Anthropic SDK objects - convert to dict
+        if hasattr(obj, "__dict__"):
+            # Get the type name for debugging
+            type_name = type(obj).__name__
+            result = {"_type": type_name}
+            for key, value in obj.__dict__.items():
+                if not key.startswith("_"):
+                    result[key] = self._make_json_serializable(value)
+            return result
+        # Fallback to string representation
+        return str(obj)
+
     def _dump_compaction_debug(
         self, agent_context, model: str, error: Exception
     ) -> None:
@@ -960,6 +985,9 @@ The resumed conversation should continue working on this plan.
 
             # Get the API context that would be sent
             context_dict = agent_context.get_api_context()
+
+            # Make everything JSON serializable
+            context_dict = self._make_json_serializable(context_dict)
 
             # Calculate sizes of each component
             system_size = 0
