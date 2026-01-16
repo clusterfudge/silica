@@ -706,15 +706,11 @@ def validate_tool(path: Path) -> ValidationResult:
             try:
                 spec = json.loads(result.stdout)
 
-                # 3. Validate spec structure
-                if "name" not in spec:
-                    errors.append("Spec missing required field: name")
-                if "description" not in spec:
-                    warnings.append("Spec missing recommended field: description")
-                if "input_schema" not in spec:
-                    errors.append("Spec missing required field: input_schema")
-                elif not isinstance(spec.get("input_schema"), dict):
-                    errors.append("input_schema must be an object")
+                # 3. Validate spec against Anthropic API schema requirements
+                # This replaces the basic field checks with comprehensive validation
+                schema_valid, schema_errors = validate_tool_schema(spec)
+                if not schema_valid:
+                    errors.extend(schema_errors)
 
             except json.JSONDecodeError as e:
                 errors.append(f"--toolspec returned invalid JSON: {e}")
