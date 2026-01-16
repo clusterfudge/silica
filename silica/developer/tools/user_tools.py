@@ -440,6 +440,8 @@ def _discover_tools_from_file(
             tools = []
             for spec in spec_data:
                 tool_name = spec.get("name", file_stem)
+                # Validate schema against Anthropic API requirements
+                schema_valid, schema_errors = validate_tool_schema(spec)
                 tools.append(
                     DiscoveredTool(
                         name=tool_name,
@@ -449,12 +451,16 @@ def _discover_tools_from_file(
                         file_stem=file_stem,
                         is_authorized=is_authorized,
                         error=auth_error,
+                        schema_valid=schema_valid,
+                        schema_errors=schema_errors,
                     )
                 )
             return tools
         else:
             # Single tool
             tool_name = spec_data.get("name", file_stem)
+            # Validate schema against Anthropic API requirements
+            schema_valid, schema_errors = validate_tool_schema(spec_data)
             return [
                 DiscoveredTool(
                     name=tool_name,
@@ -464,6 +470,8 @@ def _discover_tools_from_file(
                     file_stem=file_stem,
                     is_authorized=is_authorized,
                     error=auth_error,
+                    schema_valid=schema_valid,
+                    schema_errors=schema_errors,
                 )
             ]
 
