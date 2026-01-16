@@ -697,6 +697,104 @@ Focus your summary on preserving this information:
             summary=summary,
         )
 
+    def _generate_summary_standalone(
+        self, messages: List[MessageParam], model: str, guidance: str = None
+    ) -> CompactionSummary:
+        """Generate a summary from raw messages without full API context overhead.
+
+        This is used in Pass 2 of two-pass compaction. Unlike generate_summary(),
+        this method doesn't use get_api_context() which adds system prompt and tools.
+        Instead, it sends just the messages as a conversation string with a minimal
+        summarization prompt.
+
+        Args:
+            messages: Raw messages to summarize (not a full AgentContext)
+            model: Model name or alias to use for summarization
+            guidance: Optional guidance from Pass 1 to focus the summary
+
+        Returns:
+            CompactionSummary with the generated summary
+        """
+        # Resolve model alias to full model name for the API
+        model_spec = get_model(model)
+        model_name = model_spec["title"]
+
+        original_message_count = len(messages)
+
+        # Convert messages to a string for the summarization prompt
+        conversation_str = self._messages_to_string(messages, for_summary=True)
+
+        # Estimate original token count from the conversation string
+        original_token_count = self._estimate_token_count(conversation_str)
+
+        # Build guidance section if provided
+        guidance_section = ""
+        if guidance:
+            guidance_section = f"""
+**Summary Guidance (from analyzing full conversation context):**
+{guidance}
+
+Use this guidance to focus on what's most important to preserve.
+
+---
+"""
+
+        # Create a minimal summarization prompt (no tools, minimal system prompt)
+        system_prompt = f"""Summarize this conversation excerpt for continuity.
+{guidance_section}
+Include:
+1. Key points and decisions
+2. Current state of any ongoing work
+3. Important context that later messages may reference
+
+Be comprehensive yet concise. This summary will replace the original messages."""
+
+        # Send just the conversation string as the user message
+        summary_messages = [{"role": "user", "content": conversation_str}]
+
+        # Log the request if logger is available
+        if self.logger:
+            self.logger.log_request(
+                messages=summary_messages,
+                system_message=[{"type": "text", "text": system_prompt}],
+                model=model_name,
+                max_tokens=4000,
+                tools=[],
+                thinking_config=None,
+            )
+
+        response = self.client.messages.create(
+            model=model_name,
+            system=system_prompt,
+            messages=summary_messages,
+            max_tokens=4000,
+        )
+
+        # Log the response if logger is available
+        if self.logger:
+            self.logger.log_response(
+                message=response,
+                usage=response.usage,
+                stop_reason=response.stop_reason,
+                thinking_content=None,
+            )
+
+        summary = response.content[0].text
+        summary_token_count = self._estimate_token_count(summary)
+        compaction_ratio = (
+            float(summary_token_count) / float(original_token_count)
+            if original_token_count > 0
+            else 0
+        )
+
+        return CompactionSummary(
+            original_message_count=original_message_count,
+            original_token_count=original_token_count,
+            summary_token_count=summary_token_count,
+            compaction_ratio=compaction_ratio,
+            summary=summary,
+        )
+
     def _archive_and_rotate(
         self,
         agent_context: AgentContext,
@@ -952,16 +1050,38 @@ Focus your summary on preserving this information:
                 )
 
         if messages_token_count > max_input_tokens:
-            # Still too big, cannot compact
+            # Still too big for single-pass, use two-pass approach
+            # This happens when we need to compact most of the conversation
             print(
-                f"[Compaction] Cannot compact: messages ({messages_token_count} tokens) "
-                f"exceed model context window ({max_input_tokens} tokens)"
+                f"[Compaction] Messages ({messages_token_count:,} tokens) exceed "
+                f"single-pass limit ({max_input_tokens:,} tokens). Using two-pass compaction..."
             )
-            return None
 
-        # Use the existing generate_summary method
-        summary_obj = self.generate_summary(temp_context, model)
-        summary = summary_obj.summary
+            # Pass 1: Generate guidance using FULL conversation context
+            # This works because the current conversation fits (we're compacting to make room)
+            guidance = self.generate_summary_guidance(
+                agent_context, model, messages_to_compact
+            )
+
+            if debug_compaction:
+                print(f"[Compaction] Pass 1 complete. Guidance: {len(guidance)} chars")
+
+            # Pass 2: Summarize just the messages-to-compact with guidance
+            # We send the messages as a conversation string, not via get_api_context()
+            # This avoids the system prompt and tools overhead
+            summary_obj = self._generate_summary_standalone(
+                messages_to_summarize, model, guidance
+            )
+            summary = summary_obj.summary
+        else:
+            # Single-pass: messages fit in context window
+            if debug_compaction:
+                print(
+                    f"[Compaction] Using single-pass compaction "
+                    f"({messages_token_count:,}/{max_input_tokens:,} tokens)"
+                )
+            summary_obj = self.generate_summary(temp_context, model)
+            summary = summary_obj.summary
 
         # Create new message history with summary + kept messages
         new_messages = [
