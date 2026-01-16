@@ -486,6 +486,91 @@ class ConversationCompacter:
 
         return should_compact
 
+    def generate_summary_guidance(
+        self, agent_context, model: str, messages_to_compact_count: int
+    ) -> str:
+        """Generate guidance for summarization using the current conversation context.
+
+        This is Pass 1 of the two-pass compaction strategy. It asks the model
+        (which has full context of the conversation) to identify what's important
+        to preserve when summarizing the first N messages.
+
+        This works because the current conversation fits in the context window
+        (we're compacting because we're approaching the limit, not over it).
+        The model can see both the messages we're about to compact AND the
+        recent messages that depend on them.
+
+        Args:
+            agent_context: AgentContext instance with full conversation
+            model: Model name or alias to use for guidance generation
+            messages_to_compact_count: Number of messages that will be compacted
+
+        Returns:
+            A guidance string (~500-1000 tokens) identifying what to preserve
+        """
+        # Resolve model alias to full model name for the API
+        model_spec = get_model(model)
+        model_name = model_spec["title"]
+
+        # Create a user message asking for guidance
+        # This gets appended to the current conversation context
+        guidance_request = f"""We are about to compact (summarize) the first {messages_to_compact_count} messages of this conversation to free up context space.
+
+Please analyze the conversation and identify what MUST be preserved in the summary for the remaining conversation to make sense. Be concise but comprehensive.
+
+Focus on:
+1. **Key decisions made** - What was decided that affects later work?
+2. **Important context** - What background info do the recent messages depend on?
+3. **Current state** - What is the state of any ongoing work/tasks?
+4. **Critical references** - What files, code, or concepts are referenced later?
+
+Output a brief guidance document (under 500 words) that a summarizer can use to create an effective summary of those first {messages_to_compact_count} messages."""
+
+        # Build the API call - this uses the existing conversation context
+        # We're essentially asking the model "what should we preserve?"
+        context_dict = agent_context.get_api_context()
+
+        # Create messages: existing conversation + our guidance request
+        messages_for_guidance = list(context_dict["messages"])
+        messages_for_guidance.append({"role": "user", "content": guidance_request})
+
+        # Log the request if logger is available
+        if self.logger:
+            self.logger.log_request(
+                messages=messages_for_guidance,
+                system_message=context_dict["system"],
+                model=model_name,
+                max_tokens=2000,
+                tools=[],  # No tools needed for guidance generation
+                thinking_config=None,
+            )
+
+        try:
+            response = self.client.messages.create(
+                model=model_name,
+                system=context_dict["system"],
+                messages=messages_for_guidance,
+                max_tokens=2000,
+            )
+
+            # Log the response if logger is available
+            if self.logger:
+                self.logger.log_response(
+                    message=response,
+                    usage=response.usage,
+                    stop_reason=response.stop_reason,
+                    thinking_content=None,
+                )
+
+            guidance = response.content[0].text
+            return guidance
+
+        except Exception as e:
+            # If guidance generation fails, return empty string
+            # The caller can fall back to summarization without guidance
+            print(f"[Compaction] Warning: Failed to generate summary guidance: {e}")
+            return ""
+
     def generate_summary(self, agent_context, model: str) -> CompactionSummary:
         """Generate a summary of the conversation.
 
