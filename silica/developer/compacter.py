@@ -373,11 +373,17 @@ class ConversationCompacter:
 
         Args:
             messages: List of messages in the conversation
-            for_summary: If True, filter out content elements containing mentioned_file blocks
+            for_summary: If True, filter out/truncate content to reduce token count:
+                - Replace mentioned_file blocks with just file path reference
+                - Truncate large tool results (file contents, long outputs)
 
         Returns:
             str: String representation of the messages
         """
+        # Maximum characters for tool results when summarizing
+        # This prevents read_file results from bloating the summary
+        MAX_TOOL_RESULT_CHARS = 2000 if for_summary else float("inf")
+
         conversation_str = ""
 
         for message in messages:
@@ -421,9 +427,35 @@ class ConversationCompacter:
                                 f"[Tool Use: {tool_name}]\n{input_str}"
                             )
                         elif item.get("type") == "tool_result":
-                            content_parts.append(
-                                f"[Tool Result]\n{item.get('content', '')}"
-                            )
+                            tool_content = item.get("content", "")
+                            # Convert to string if it's a list
+                            if isinstance(tool_content, list):
+                                parts = []
+                                for block in tool_content:
+                                    if isinstance(block, dict) and "text" in block:
+                                        parts.append(block["text"])
+                                tool_content = "\n".join(parts)
+                            # Truncate large tool results when summarizing
+                            if (
+                                for_summary
+                                and len(tool_content) > MAX_TOOL_RESULT_CHARS
+                            ):
+                                # For file contents, just note the file was read
+                                if (
+                                    "File contents:" in tool_content
+                                    or tool_content.count("\n") > 50
+                                ):
+                                    content_parts.append(
+                                        f"[Tool Result: Large output truncated, "
+                                        f"{len(tool_content):,} chars / ~{len(tool_content)//4} tokens]"
+                                    )
+                                else:
+                                    truncated = tool_content[:MAX_TOOL_RESULT_CHARS]
+                                    content_parts.append(
+                                        f"[Tool Result (truncated)]:\n{truncated}..."
+                                    )
+                            else:
+                                content_parts.append(f"[Tool Result]\n{tool_content}")
                 content_str = "\n".join(content_parts)
             else:
                 content_str = str(content)
@@ -503,9 +535,10 @@ class ConversationCompacter:
         # Get original token count using accurate method
         original_token_count = self.count_tokens(agent_context, model)
 
-        # Get the API context to access processed messages
-        context_dict = agent_context.get_api_context()
-        messages_for_summary = context_dict["messages"]
+        # Use raw chat history for summary - DON'T use get_api_context()
+        # because that inlines file contents which massively inflates token count.
+        # The _messages_to_string method will handle truncation of large content.
+        messages_for_summary = agent_context.chat_history
         original_message_count = len(messages_for_summary)
 
         # Convert messages to a string for the summarization prompt
