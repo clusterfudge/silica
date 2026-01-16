@@ -293,12 +293,16 @@ class DiscoveredTool:
     is_authorized: bool = (
         True  # Whether the tool is authorized (for tools requiring auth)
     )
+    schema_valid: bool = True  # Whether the schema passes Anthropic API validation
+    schema_errors: list[str] = None  # Specific schema validation errors
 
     def __post_init__(self):
         if self.file_stem is None:
             self.file_stem = self.path.stem if self.path else self.name
         if self.group is None:
             self.group = self.file_stem
+        if self.schema_errors is None:
+            self.schema_errors = []
 
 
 def discover_tools(check_auth: bool = False) -> list[DiscoveredTool]:
