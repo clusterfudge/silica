@@ -2944,25 +2944,33 @@ Let's collaborate on creating a solid plan before implementation."""
 
         User tools take precedence over built-in tools with the same name, ensuring
         no duplicates in the final schema list.
+
+        User tools with invalid schemas are silently skipped to prevent API failures
+        that would affect all agent instances due to hot reloading.
         """
         schemas = []
 
-        # Collect user tool names first (they take precedence)
-        user_tool_names = set(self.user_tools.keys())
+        # Collect valid user tool names first (they take precedence)
+        # Only include tools with valid schemas to prevent API failures
+        valid_user_tool_names = set()
+        for name, tool in self.user_tools.items():
+            if tool.spec and tool.schema_valid:
+                valid_user_tool_names.add(name)
 
-        # Built-in tools (skip if user tool with same name exists)
+        # Built-in tools (skip if valid user tool with same name exists)
         for tool in self.agent_tools:
             if hasattr(tool, "schema"):
                 schema = tool.schema()
                 tool_name = schema.get("name", tool.__name__)
                 # Skip built-in tools that have user tool replacements
-                if tool_name not in user_tool_names:
+                if tool_name not in valid_user_tool_names:
                     schemas.append(schema)
 
-        # User-created tools (always included, they take precedence)
+        # User-created tools (only include those with valid schemas)
         for name, tool in self.user_tools.items():
-            if tool.spec:
+            if tool.spec and tool.schema_valid:
                 schemas.append(tool.spec)
+            # Silently skip invalid tools - they will be shown in /tools with errors
 
         if schemas and enable_caching:
             schemas[-1]["cache_control"] = {"type": "ephemeral"}
