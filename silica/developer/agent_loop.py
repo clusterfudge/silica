@@ -233,7 +233,10 @@ def _inline_latest_file_mentions(
                 for block in content
             )
 
-        if has_tool_results:
+        # Only inject plan state for top-level agents, not subagents
+        # Subagents have a parent_session_id and shouldn't be distracted by plan context
+        is_subagent = agent_context.parent_session_id is not None
+        if has_tool_results and not is_subagent:
             try:
                 from silica.developer.tools.planning import get_ephemeral_plan_state
 
