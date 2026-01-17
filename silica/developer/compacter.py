@@ -111,7 +111,7 @@ class ConversationCompacter:
             for model_data in [get_model(ms) for ms in model_names()]
         }
 
-    def count_tokens(self, agent_context, model: str) -> int:
+    def count_tokens(self, agent_context, model: str, messages: list = None) -> int:
         """Count tokens for the complete context sent to the API.
 
         This method accurately counts tokens for the complete API call including
@@ -120,6 +120,8 @@ class ConversationCompacter:
         Args:
             agent_context: AgentContext instance to get full API context from
             model: Model name or alias to use for token counting
+            messages: Optional override for messages (used when counting tokens
+                for a subset of messages with the same system/tools context)
 
         Returns:
             int: Number of tokens for the complete context
@@ -129,8 +131,16 @@ class ConversationCompacter:
         model = model_spec["title"]
 
         try:
-            # Get the full context that would be sent to the API
+            # Get the full context from AgentContext
             context_dict = agent_context.get_api_context()
+
+            # Allow overriding messages (useful for counting subsets)
+            if messages is not None:
+                context_dict = {
+                    "system": context_dict["system"],
+                    "tools": context_dict["tools"],
+                    "messages": messages,
+                }
 
             # Check if conversation has incomplete tool_use without tool_result
             # This would cause an API error, so use estimation instead
@@ -486,12 +496,105 @@ class ConversationCompacter:
 
         return should_compact
 
-    def generate_summary(self, agent_context, model: str) -> CompactionSummary:
+    def generate_summary_guidance(
+        self, agent_context, model: str, messages_to_compact_count: int
+    ) -> str:
+        """Generate guidance for summarization using the current conversation context.
+
+        This is Pass 1 of the two-pass compaction strategy. It asks the model
+        (which has full context of the conversation) to identify what's important
+        to preserve when summarizing the first N messages.
+
+        This works because the current conversation fits in the context window
+        (we're compacting because we're approaching the limit, not over it).
+        The model can see both the messages we're about to compact AND the
+        recent messages that depend on them.
+
+        Args:
+            agent_context: AgentContext instance with full conversation
+            model: Model name or alias to use for guidance generation
+            messages_to_compact_count: Number of messages that will be compacted
+
+        Returns:
+            A guidance string (~500-1000 tokens) identifying what to preserve
+        """
+        # Resolve model alias to full model name for the API
+        model_spec = get_model(model)
+        model_name = model_spec["title"]
+
+        # Create a user message asking for guidance
+        # This gets appended to the current conversation context
+        guidance_request = f"""We are about to compact (summarize) the first {messages_to_compact_count} messages of this conversation to free up context space.
+
+Please analyze the conversation and identify what MUST be preserved in the summary for the remaining conversation to make sense. Be concise but comprehensive.
+
+Focus on:
+1. **Key decisions made** - What was decided that affects later work?
+2. **Important context** - What background info do the recent messages depend on?
+3. **Current state** - What is the state of any ongoing work/tasks?
+4. **Critical references** - What files, code, or concepts are referenced later?
+
+Output a brief guidance document (under 500 words) that a summarizer can use to create an effective summary of those first {messages_to_compact_count} messages."""
+
+        # Build the API call - this uses the existing conversation context
+        # We're essentially asking the model "what should we preserve?"
+        context_dict = agent_context.get_api_context()
+
+        # Create messages: existing conversation + our guidance request
+        messages_for_guidance = list(context_dict["messages"])
+        messages_for_guidance.append({"role": "user", "content": guidance_request})
+
+        # Log the request if logger is available
+        # Include tools for cache efficiency (same prefix as original context)
+        if self.logger:
+            self.logger.log_request(
+                messages=messages_for_guidance,
+                system_message=context_dict["system"],
+                model=model_name,
+                max_tokens=2000,
+                tools=context_dict["tools"] if context_dict["tools"] else [],
+                thinking_config=None,
+            )
+
+        try:
+            response = self.client.messages.create(
+                model=model_name,
+                tools=context_dict["tools"] if context_dict["tools"] else None,
+                tool_choice={
+                    "type": "none"
+                },  # Prevent tool use, but keep tools for cache
+                system=context_dict["system"],
+                messages=messages_for_guidance,
+                max_tokens=2000,
+            )
+
+            # Log the response if logger is available
+            if self.logger:
+                self.logger.log_response(
+                    message=response,
+                    usage=response.usage,
+                    stop_reason=response.stop_reason,
+                    thinking_content=None,
+                )
+
+            return self._extract_text_from_response(response)
+
+        except Exception as e:
+            # If guidance generation fails, return empty string
+            # The caller can fall back to summarization without guidance
+            print(f"[Compaction] Warning: Failed to generate summary guidance: {e}")
+            return ""
+
+    def generate_summary(
+        self, agent_context, model: str, guidance: str = None
+    ) -> CompactionSummary:
         """Generate a summary of the conversation.
 
         Args:
             agent_context: AgentContext instance to get full API context from
             model: Model name or alias to use for summarization
+            guidance: Optional guidance from Pass 1 of two-pass compaction.
+                      When provided, focuses the summary on what matters.
 
         Returns:
             CompactionSummary: Summary of the compacted conversation
@@ -535,9 +638,23 @@ The resumed conversation should continue working on this plan.
         except Exception:
             pass  # Don't fail compaction if planning module has issues
 
+        # Build guidance section if provided (from Pass 1 of two-pass compaction)
+        guidance_section = ""
+        if guidance:
+            guidance_section = f"""
+**IMPORTANT: Summary Guidance**
+The following guidance was generated by analyzing the full conversation context.
+Focus your summary on preserving this information:
+
+{guidance}
+
+---
+"""
+
         # Create summarization prompt
         system_prompt = f"""
         Summarize the following conversation for continuity.
+        {guidance_section}
         Include:
         1. Key points and decisions
         2. Current state of development/discussion
@@ -581,7 +698,13 @@ The resumed conversation should continue working on this plan.
                 thinking_content=None,
             )
 
-        summary = response.content[0].text
+        summary = self._extract_text_from_response(response)
+
+        if not summary:
+            raise ValueError(
+                f"No text content in response (stop_reason: {response.stop_reason})"
+            )
+
         # For summary token counting, estimate tokens since it's just the summary text
         summary_token_count = self._estimate_token_count(summary)
         compaction_ratio = float(summary_token_count) / float(original_token_count)
@@ -593,6 +716,243 @@ The resumed conversation should continue working on this plan.
             compaction_ratio=compaction_ratio,
             summary=summary,
         )
+
+    def _add_cache_control_to_last_block(self, message: dict) -> None:
+        """Add cache_control to the last content block of a message.
+
+        This marks the cache boundary so content before this point can be cached.
+        Modifies the message in place.
+        """
+        content = message.get("content", "")
+
+        if isinstance(content, str):
+            # Convert to list format with cache_control
+            message["content"] = [
+                {
+                    "type": "text",
+                    "text": content,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
+        elif isinstance(content, list) and content:
+            # Add cache_control to the last block
+            last_block = dict(content[-1])
+            last_block["cache_control"] = {"type": "ephemeral"}
+            content[-1] = last_block
+
+    def _is_tool_result_only(self, content) -> bool:
+        """Check if content consists only of tool_result blocks (no text).
+
+        Args:
+            content: Message content (string or list of blocks)
+
+        Returns:
+            bool: True if content has tool_result blocks but no text blocks
+        """
+        if not isinstance(content, list):
+            return False
+
+        has_text = any(isinstance(b, dict) and b.get("type") == "text" for b in content)
+        has_tool_result = any(
+            isinstance(b, dict) and b.get("type") == "tool_result" for b in content
+        )
+        return has_tool_result and not has_text
+
+    def _extract_text_from_response(self, response) -> str:
+        """Extract and concatenate text from an API response.
+
+        Args:
+            response: Anthropic API response object
+
+        Returns:
+            str: Concatenated text from all text blocks in the response
+        """
+        if not response.content:
+            return ""
+
+        text_parts = []
+        for block in response.content:
+            if hasattr(block, "text"):
+                text_parts.append(block.text)
+        return "".join(text_parts)
+
+    def _generate_summary_with_context(
+        self,
+        agent_context,
+        messages_to_summarize: List[MessageParam],
+        model: str,
+        guidance: str,
+    ) -> CompactionSummary:
+        """Generate a summary using the same system/tools context for cache efficiency.
+
+        This is Pass 2 of two-pass compaction. It reuses the same system prompt
+        and tools from the original context (which are cached), but only includes
+        the message prefix we want to summarize. Since messages_to_summarize is
+        a prefix of the original messages, this also benefits from caching.
+
+        Args:
+            agent_context: Original AgentContext (for system prompt and tools)
+            messages_to_summarize: Prefix of messages to summarize
+            model: Model name or alias to use for summarization
+            guidance: Guidance from Pass 1 about what to preserve
+
+        Returns:
+            CompactionSummary with the generated summary
+        """
+        if not messages_to_summarize:
+            raise ValueError("No messages to summarize")
+
+        # Resolve model alias to full model name for the API
+        model_spec = get_model(model)
+        model_name = model_spec["title"]
+
+        original_message_count = len(messages_to_summarize)
+
+        # Get the original context (system prompt and tools are cached)
+        context_dict = agent_context.get_api_context()
+
+        # Build the summarization request message
+        summary_request = f"""Please summarize the conversation above for continuity. This summary will replace the messages you just saw.
+
+**Summary Guidance (from analyzing the full conversation context):**
+{guidance}
+
+Focus on preserving what the guidance identifies as important. Be comprehensive yet concise."""
+
+        # Prepare messages with summary request appended appropriately
+        messages_for_summary = self._prepare_messages_for_summary(
+            messages_to_summarize, summary_request
+        )
+
+        # Estimate original token count
+        original_token_count = self._estimate_token_count(
+            self._messages_to_string(messages_to_summarize, for_summary=True)
+        )
+
+        # Log the request if logger is available
+        if self.logger:
+            self.logger.log_request(
+                messages=messages_for_summary,
+                system_message=context_dict["system"],
+                model=model_name,
+                max_tokens=4000,
+                tools=context_dict["tools"] if context_dict["tools"] else [],
+                thinking_config=None,
+            )
+
+        response = self.client.messages.create(
+            model=model_name,
+            system=context_dict["system"],
+            tools=context_dict["tools"] if context_dict["tools"] else None,
+            tool_choice={"type": "none"},  # Prevent tool use, but keep tools for cache
+            messages=messages_for_summary,
+            max_tokens=4000,
+        )
+
+        # Log the response if logger is available
+        if self.logger:
+            self.logger.log_response(
+                message=response,
+                usage=response.usage,
+                stop_reason=response.stop_reason,
+                thinking_content=None,
+            )
+
+        summary = self._extract_text_from_response(response)
+
+        if not summary:
+            raise ValueError(
+                f"No text content in response (stop_reason: {response.stop_reason})"
+            )
+
+        summary_token_count = self._estimate_token_count(summary)
+        compaction_ratio = (
+            float(summary_token_count) / float(original_token_count)
+            if original_token_count > 0
+            else 0
+        )
+
+        return CompactionSummary(
+            original_message_count=original_message_count,
+            original_token_count=original_token_count,
+            summary_token_count=summary_token_count,
+            compaction_ratio=compaction_ratio,
+            summary=summary,
+        )
+
+    def _prepare_messages_for_summary(
+        self, messages_to_summarize: List[MessageParam], summary_request: str
+    ) -> List[MessageParam]:
+        """Prepare messages for summary generation by appending the summary request.
+
+        Uses guard clauses to handle different message ending scenarios:
+        - Ends with assistant: append new user message
+        - Ends with tool_result-only user message: add assistant acknowledgment + user request
+        - Ends with user message (string content): convert to list and append request
+        - Ends with user message (list content): add cache control and append request
+
+        Args:
+            messages_to_summarize: Original messages to summarize
+            summary_request: The summary request text to append
+
+        Returns:
+            List of messages ready for the summarization API call
+        """
+        messages_for_summary = list(messages_to_summarize)
+        last_msg = messages_for_summary[-1]
+
+        # Guard: ends with assistant - just append new user message
+        if last_msg.get("role") != "user":
+            self._add_cache_control_to_last_block(messages_for_summary[-1])
+            messages_for_summary.append({"role": "user", "content": summary_request})
+            return messages_for_summary
+
+        existing_content = last_msg.get("content", "")
+
+        # Guard: tool_result-only message needs assistant acknowledgment first
+        if self._is_tool_result_only(existing_content):
+            self._add_cache_control_to_last_block(messages_for_summary[-1])
+            messages_for_summary.append(
+                {
+                    "role": "assistant",
+                    "content": "I'll analyze the conversation for summarization.",
+                }
+            )
+            messages_for_summary.append({"role": "user", "content": summary_request})
+            return messages_for_summary
+
+        # Guard: string content - convert to list format
+        if isinstance(existing_content, str):
+            new_content = [
+                {
+                    "type": "text",
+                    "text": existing_content,
+                    "cache_control": {"type": "ephemeral"},
+                },
+                {"type": "text", "text": "\n\n---\n\n" + summary_request},
+            ]
+            messages_for_summary[-1] = {"role": "user", "content": new_content}
+            return messages_for_summary
+
+        # Guard: list content - add cache control and append request
+        if isinstance(existing_content, list):
+            new_content = list(existing_content)
+            if new_content:
+                last_block = dict(new_content[-1])
+                last_block["cache_control"] = {"type": "ephemeral"}
+                new_content[-1] = last_block
+            new_content.append(
+                {"type": "text", "text": "\n\n---\n\n" + summary_request}
+            )
+            messages_for_summary[-1] = {"role": "user", "content": new_content}
+            return messages_for_summary
+
+        # Fallback: unknown content type - just set the summary request
+        messages_for_summary[-1] = {
+            "role": "user",
+            "content": [{"type": "text", "text": summary_request}],
+        }
+        return messages_for_summary
 
     def _archive_and_rotate(
         self,
@@ -793,71 +1153,48 @@ The resumed conversation should continue working on this plan.
             # Adjust to compact all messages except the last one
             messages_to_compact = len(agent_context.chat_history) - 1
             adjusted_turns = (messages_to_compact + 1) // 2
-            print(
-                f"Initiating compaction of {messages_to_compact} messages "
-                f"({adjusted_turns} turns, adjusted from {turns})..."
-            )
             turns = adjusted_turns
-        else:
-            print(
-                f"Initiating compaction of first {turns} turns ({messages_to_compact} messages)..."
-            )
+
+        # Show progress: starting compaction
+        print("Compacting conversation...")
 
         # Separate messages to compact from messages to keep
         messages_to_summarize = agent_context.chat_history[:messages_to_compact]
         messages_to_keep = agent_context.chat_history[messages_to_compact:]
 
-        # Create a temporary context with just the messages to summarize
-        from silica.developer.context import AgentContext
+        # Two-pass compaction leverages caching for efficiency:
+        #
+        # Pass 1: Full context (cached) + "what should we preserve?"
+        #   - Reuses cached system prompt, tools, and all messages
+        #   - Model sees full context so it knows what later messages depend on
+        #
+        # Pass 2: Same system/tools (cached) + messages prefix (cached) + guidance
+        #   - System prompt and tools are identical → cached
+        #   - Messages 1-N are a PREFIX of the original → cached
+        #   - Only the guidance/summary request is new
 
-        temp_context = AgentContext(
-            parent_session_id=agent_context.parent_session_id,
-            session_id=agent_context.session_id,
-            model_spec=agent_context.model_spec,
-            sandbox=agent_context.sandbox,
-            user_interface=agent_context.user_interface,
-            usage=agent_context.usage,
-            memory_manager=agent_context.memory_manager,
-            history_base_dir=agent_context.history_base_dir,
-        )
-        temp_context._chat_history = messages_to_summarize
+        # Show progress: Pass 1
+        print("Pass 1/2: Analyzing context for key information...")
 
-        # Check if messages to summarize fit within model's context window
-        # Reserve 10k tokens for system prompt and response
-        model_spec = get_model(model)
-        model_name = model_spec["title"]
-        context_window = self.model_context_windows.get(model_name, 200000)
-        max_input_tokens = context_window - 10000
-
-        messages_token_count = self.count_tokens(temp_context, model)
-
-        # If messages exceed context window, reduce the number of turns
-        while messages_token_count > max_input_tokens and messages_to_compact > 3:
-            # Reduce by 20% each iteration
-            messages_to_compact = max(3, int(messages_to_compact * 0.8))
-            turns = (messages_to_compact + 1) // 2
-
-            messages_to_summarize = agent_context.chat_history[:messages_to_compact]
-            messages_to_keep = agent_context.chat_history[messages_to_compact:]
-            temp_context._chat_history = messages_to_summarize
-            messages_token_count = self.count_tokens(temp_context, model)
-
-            if debug_compaction:
-                print(
-                    f"[Compaction] Reduced to {turns} turns ({messages_to_compact} messages) "
-                    f"to fit context window ({messages_token_count}/{max_input_tokens} tokens)"
-                )
-
-        if messages_token_count > max_input_tokens:
-            # Still too big, cannot compact
+        if debug_compaction:
             print(
-                f"[Compaction] Cannot compact: messages ({messages_token_count} tokens) "
-                f"exceed model context window ({max_input_tokens} tokens)"
+                "[Compaction] Pass 1: Generating summary guidance from full context..."
             )
-            return None
 
-        # Use the existing generate_summary method
-        summary_obj = self.generate_summary(temp_context, model)
+        guidance = self.generate_summary_guidance(
+            agent_context, model, messages_to_compact
+        )
+
+        if debug_compaction:
+            print(f"[Compaction] Pass 1 complete. Guidance: {len(guidance)} chars")
+
+        # Show progress: Pass 2
+        print("Pass 2/2: Generating summary...")
+
+        # Pass 2: Use same system/tools + message prefix + guidance
+        summary_obj = self._generate_summary_with_context(
+            agent_context, messages_to_summarize, model, guidance
+        )
         summary = summary_obj.summary
 
         # Create new message history with summary + kept messages
@@ -899,6 +1236,148 @@ The resumed conversation should continue working on this plan.
         metadata.archive_name = archive_name
 
         return metadata
+
+    def _make_json_serializable(self, obj):
+        """Recursively convert objects to JSON-serializable types.
+
+        Handles Anthropic SDK objects like ThinkingBlock, TextBlock, etc.
+        """
+        if obj is None:
+            return None
+        if isinstance(obj, (str, int, float, bool)):
+            return obj
+        if isinstance(obj, dict):
+            return {k: self._make_json_serializable(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [self._make_json_serializable(v) for v in obj]
+        # Handle Anthropic SDK objects - convert to dict
+        if hasattr(obj, "__dict__"):
+            # Get the type name for debugging
+            type_name = type(obj).__name__
+            result = {"_type": type_name}
+            for key, value in obj.__dict__.items():
+                if not key.startswith("_"):
+                    result[key] = self._make_json_serializable(value)
+            return result
+        # Fallback to string representation
+        return str(obj)
+
+    def _dump_compaction_debug(
+        self, agent_context, model: str, error: Exception
+    ) -> None:
+        """Dump compaction debug info to disk for analysis.
+
+        When compaction fails, this dumps all the relevant data to a debug file
+        so we can analyze what went wrong.
+
+        Args:
+            agent_context: The agent context that failed to compact
+            model: Model name that was being used
+            error: The exception that occurred
+        """
+        from datetime import datetime
+        from pathlib import Path
+        import traceback
+
+        try:
+            # Create debug directory
+            debug_dir = Path.home() / ".silica" / "compaction_debug"
+            debug_dir.mkdir(parents=True, exist_ok=True)
+
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            debug_file = debug_dir / f"compaction_failed_{timestamp}.json"
+
+            # Get the API context that would be sent
+            context_dict = agent_context.get_api_context()
+
+            # Make everything JSON serializable
+            context_dict = self._make_json_serializable(context_dict)
+
+            # Calculate sizes of each component
+            system_size = 0
+            if context_dict.get("system"):
+                system_json = json.dumps(context_dict["system"])
+                system_size = len(system_json)
+
+            tools_size = 0
+            if context_dict.get("tools"):
+                tools_json = json.dumps(context_dict["tools"])
+                tools_size = len(tools_json)
+
+            messages_size = 0
+            if context_dict.get("messages"):
+                messages_json = json.dumps(context_dict["messages"])
+                messages_size = len(messages_json)
+
+            # Build the conversation string that would be sent to generate_summary
+            messages_for_summary = context_dict.get("messages", [])
+            conversation_str = self._messages_to_string(
+                messages_for_summary, for_summary=True
+            )
+            conversation_str_size = len(conversation_str)
+
+            # Build debug payload
+            debug_payload = {
+                "timestamp": timestamp,
+                "error": str(error),
+                "error_traceback": traceback.format_exc(),
+                "model": model,
+                "sizes": {
+                    "system_chars": system_size,
+                    "tools_chars": tools_size,
+                    "messages_chars": messages_size,
+                    "conversation_str_chars": conversation_str_size,
+                    "total_chars": system_size + tools_size + messages_size,
+                    "estimated_tokens": {
+                        "system": int(system_size / 3.5),
+                        "tools": int(tools_size / 3.5),
+                        "messages": int(messages_size / 3.5),
+                        "conversation_str": int(conversation_str_size / 3.5),
+                        "total": int((system_size + tools_size + messages_size) / 3.5),
+                    },
+                },
+                "message_count": len(messages_for_summary),
+                "message_details": [],
+                # The actual payloads (can be large)
+                "system": context_dict.get("system"),
+                "tools": context_dict.get("tools"),
+                "messages": context_dict.get("messages"),
+                "conversation_str_for_summary": conversation_str,
+            }
+
+            # Add per-message size details
+            for i, msg in enumerate(messages_for_summary):
+                msg_json = json.dumps(msg)
+                msg_size = len(msg_json)
+                debug_payload["message_details"].append(
+                    {
+                        "index": i,
+                        "role": msg.get("role", "unknown"),
+                        "chars": msg_size,
+                        "estimated_tokens": int(msg_size / 3.5),
+                        "content_preview": str(msg.get("content", ""))[:200] + "..."
+                        if len(str(msg.get("content", ""))) > 200
+                        else str(msg.get("content", "")),
+                    }
+                )
+
+            # Write to file
+            with open(debug_file, "w") as f:
+                json.dump(debug_payload, f, indent=2, default=str)
+
+            print(f"\n[Compaction Debug] Dumped debug info to: {debug_file}")
+            print(f"  System: {system_size:,} chars (~{int(system_size/3.5):,} tokens)")
+            print(f"  Tools: {tools_size:,} chars (~{int(tools_size/3.5):,} tokens)")
+            print(
+                f"  Messages: {messages_size:,} chars (~{int(messages_size/3.5):,} tokens)"
+            )
+            print(
+                f"  Conversation str: {conversation_str_size:,} chars (~{int(conversation_str_size/3.5):,} tokens)"
+            )
+            print(f"  Message count: {len(messages_for_summary)}")
+
+        except Exception as dump_error:
+            print(f"\n[Compaction Debug] Failed to dump debug info: {dump_error}")
 
     def check_and_apply_compaction(
         self, agent_context, model: str, user_interface, enable_compaction: bool = True
@@ -969,22 +1448,31 @@ The resumed conversation should continue working on this plan.
 
             if metadata:
                 # Calculate actual reduction for user feedback
-                if metadata.original_token_count > 0:
-                    reduction_pct = (
+                if metadata.original_message_count > 0:
+                    msg_reduction_pct = (
                         1
                         - metadata.compacted_message_count
                         / metadata.original_message_count
                     ) * 100
                 else:
-                    reduction_pct = 0
+                    msg_reduction_pct = 0
 
-                # Notify user about the compaction
+                # Format token counts compactly (e.g., "225K" or "8K")
+                def format_tokens(tokens: int) -> str:
+                    if tokens >= 1000:
+                        return f"{tokens / 1000:.0f}K"
+                    return str(tokens)
+
+                orig_tokens = format_tokens(metadata.original_token_count)
+                summary_tokens = format_tokens(metadata.summary_token_count)
+
+                # Notify user about the compaction with compact summary
                 user_interface.handle_system_message(
-                    f"[bold green]Conversation compacted: "
-                    f"{metadata.original_message_count} messages → "
-                    f"{metadata.compacted_message_count} messages "
-                    f"({reduction_pct:.0f}% reduction, "
-                    f"archived to {metadata.archive_name})[/bold green]",
+                    f"[bold green]✓ Compacted: "
+                    f"{metadata.original_message_count} msgs → {metadata.compacted_message_count} msgs "
+                    f"({msg_reduction_pct:.0f}% reduction) | "
+                    f"{orig_tokens} → {summary_tokens} tokens | "
+                    f"archived to {metadata.archive_name}[/bold green]",
                     markdown=False,
                 )
 
@@ -1009,5 +1497,8 @@ The resumed conversation should continue working on this plan.
             # Print detailed error to stderr for debugging
             print("\n[Compaction Error Details]", file=sys.stderr)
             print(error_details, file=sys.stderr)
+
+            # Dump debug info to disk for analysis
+            self._dump_compaction_debug(agent_context, model, e)
 
         return agent_context, False

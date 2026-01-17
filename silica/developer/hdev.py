@@ -641,54 +641,64 @@ class CLIUserInterface(UserInterface):
         thinking_tokens: int | None = None,
         thinking_cost: float | None = None,
     ) -> None:
-        token_components = [
-            ("Token Count:\n", "bold"),
-            (
-                f"Prompt: {prompt_tokens}{f' (cached: {cached_tokens})' if cached_tokens else ''}\n",
-                "cyan",
-            ),
-            (f"Completion: {completion_tokens}\n", "green"),
-        ]
+        def fmt_k(n: int) -> str:
+            """Format number with K suffix for thousands (e.g., 1.2K, 125K)."""
+            if n >= 1000:
+                val = n / 1000
+                if val >= 100:
+                    return f"{val:.0f}K"
+                elif val >= 10:
+                    return f"{val:.1f}K".replace(".0K", "K")
+                else:
+                    return f"{val:.1f}K".replace(".0K", "K")
+            return str(n)
 
-        # Add thinking tokens if present
+        # Build compact single-line summary
+        # Format: "in: 1.2K (cached: 500) | out: 150 | thinking: 2K | ctx: 45K/200K (22%) | $0.0234"
+        parts = []
+
+        # Input tokens with optional cache info
+        in_str = f"in: {fmt_k(prompt_tokens)}"
+        if cached_tokens:
+            in_str += f" (cached: {fmt_k(cached_tokens)})"
+        parts.append((in_str, "cyan"))
+
+        # Output tokens
+        parts.append((f"out: {fmt_k(completion_tokens)}", "green"))
+
+        # Thinking tokens if present
         if thinking_tokens and thinking_tokens > 0:
-            token_components.append(
-                (f"Thinking: {thinking_tokens} (${thinking_cost:.4f})\n", "magenta")
-            )
+            parts.append((f"thinking: {fmt_k(thinking_tokens)}", "magenta"))
 
-        token_components.append((f"Total: {total_tokens}\n", "yellow"))
-
-        # Add conversation size and context window information if available
+        # Context usage if available
         if conversation_size is not None and context_window is not None:
-            # Calculate percentage of context window used
-            usage_percentage = (conversation_size / context_window) * 100
+            usage_pct = (conversation_size / context_window) * 100
 
-            # Calculate tokens remaining before compaction threshold (85% by default)
-            compaction_threshold = int(context_window * 0.85)
-            tokens_remaining = max(0, compaction_threshold - conversation_size)
-
-            # Choose color based on how full the context window is
+            # Choose color based on usage
             color = "green"
-            if usage_percentage > 70:
+            if usage_pct > 70:
                 color = "yellow"
-            if usage_percentage > 80:
+            if usage_pct > 80:
                 color = "orange"
-            if usage_percentage > 90:
+            if usage_pct > 90:
                 color = "red"
 
-            token_components.extend(
-                [
-                    (f"Conversation size: {conversation_size:,} tokens ", color),
-                    (f"({usage_percentage:.1f}% of {context_window:,})\n", color),
-                    (
-                        f"Remaining before compaction: {tokens_remaining:,} tokens\n",
-                        color,
-                    ),
-                ]
+            parts.append(
+                (
+                    f"ctx: {fmt_k(conversation_size)}/{fmt_k(context_window)} ({usage_pct:.0f}%)",
+                    color,
+                )
             )
 
-        # Add cost information
-        token_components.append((f"Cost: ${round(total_cost, 6)}", "orange"))
+        # Cost
+        parts.append((f"${total_cost:.4f}", "orange"))
+
+        # Assemble with " | " separators
+        token_components = []
+        for i, (text, style) in enumerate(parts):
+            if i > 0:
+                token_components.append((" | ", "dim"))
+            token_components.append((text, style))
 
         token_count = Text.assemble(*token_components)
         self.console.print(token_count)

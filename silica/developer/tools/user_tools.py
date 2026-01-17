@@ -293,12 +293,16 @@ class DiscoveredTool:
     is_authorized: bool = (
         True  # Whether the tool is authorized (for tools requiring auth)
     )
+    schema_valid: bool = True  # Whether the schema passes Anthropic API validation
+    schema_errors: list[str] = None  # Specific schema validation errors
 
     def __post_init__(self):
         if self.file_stem is None:
             self.file_stem = self.path.stem if self.path else self.name
         if self.group is None:
             self.group = self.file_stem
+        if self.schema_errors is None:
+            self.schema_errors = []
 
 
 def discover_tools(check_auth: bool = False) -> list[DiscoveredTool]:
@@ -436,6 +440,8 @@ def _discover_tools_from_file(
             tools = []
             for spec in spec_data:
                 tool_name = spec.get("name", file_stem)
+                # Validate schema against Anthropic API requirements
+                schema_valid, schema_errors = validate_tool_schema(spec)
                 tools.append(
                     DiscoveredTool(
                         name=tool_name,
@@ -445,12 +451,16 @@ def _discover_tools_from_file(
                         file_stem=file_stem,
                         is_authorized=is_authorized,
                         error=auth_error,
+                        schema_valid=schema_valid,
+                        schema_errors=schema_errors,
                     )
                 )
             return tools
         else:
             # Single tool
             tool_name = spec_data.get("name", file_stem)
+            # Validate schema against Anthropic API requirements
+            schema_valid, schema_errors = validate_tool_schema(spec_data)
             return [
                 DiscoveredTool(
                     name=tool_name,
@@ -460,6 +470,8 @@ def _discover_tools_from_file(
                     file_stem=file_stem,
                     is_authorized=is_authorized,
                     error=auth_error,
+                    schema_valid=schema_valid,
+                    schema_errors=schema_errors,
                 )
             ]
 
@@ -496,6 +508,132 @@ def _extract_module_docstring(source: str) -> str:
         return ast.get_docstring(tree) or ""
     except SyntaxError:
         return ""
+
+
+# Valid JSON Schema types for Anthropic tool parameters
+VALID_PARAM_TYPES = {"string", "integer", "number", "boolean", "array", "object"}
+
+# Pattern for valid tool names (must be valid identifier)
+TOOL_NAME_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+
+def validate_tool_schema(spec: dict) -> tuple[bool, list[str]]:
+    """Validate a tool spec against Anthropic API schema requirements.
+
+    This performs comprehensive validation to ensure the tool spec will be
+    accepted by the Anthropic API, preventing runtime failures that could
+    affect all agent instances due to hot reloading.
+
+    Validation rules:
+    - name: Required string, must be valid identifier (alphanumeric + underscore,
+            not starting with number)
+    - description: Required string
+    - input_schema: Required dict with:
+        - type: Must be "object"
+        - properties: Must be a dict (can be empty)
+        - required: If present, must be a list of strings that exist in properties
+        - Each property must have a valid "type" field
+
+    Args:
+        spec: The tool specification dictionary to validate
+
+    Returns:
+        Tuple of (is_valid, errors) where errors is a list of error messages.
+        Empty errors list means the spec is valid.
+    """
+    errors = []
+
+    if not isinstance(spec, dict):
+        return False, ["Tool spec must be a dictionary"]
+
+    # Validate name
+    name = spec.get("name")
+    if name is None:
+        errors.append("Missing required field: name")
+    elif not isinstance(name, str):
+        errors.append("Field 'name' must be a string")
+    elif not TOOL_NAME_PATTERN.match(name):
+        errors.append(
+            f"Invalid tool name '{name}': must be a valid identifier "
+            "(alphanumeric and underscore, cannot start with a number)"
+        )
+
+    # Validate description
+    description = spec.get("description")
+    if description is None:
+        errors.append("Missing required field: description")
+    elif not isinstance(description, str):
+        errors.append("Field 'description' must be a string")
+
+    # Validate input_schema
+    input_schema = spec.get("input_schema")
+    if input_schema is None:
+        errors.append("Missing required field: input_schema")
+    elif not isinstance(input_schema, dict):
+        errors.append("Field 'input_schema' must be an object")
+    else:
+        # Validate input_schema.type
+        schema_type = input_schema.get("type")
+        if schema_type is None:
+            errors.append("input_schema missing required field: type")
+        elif schema_type != "object":
+            errors.append(f"input_schema.type must be 'object', got '{schema_type}'")
+
+        # Validate input_schema.properties
+        properties = input_schema.get("properties")
+        if properties is None:
+            errors.append("input_schema missing required field: properties")
+        elif not isinstance(properties, dict):
+            errors.append("input_schema.properties must be an object")
+        else:
+            # Validate each property
+            for prop_name, prop_def in properties.items():
+                if not isinstance(prop_name, str):
+                    errors.append(
+                        f"Property name must be a string, got {type(prop_name).__name__}"
+                    )
+                    continue
+
+                if not isinstance(prop_def, dict):
+                    errors.append(
+                        f"Property '{prop_name}' definition must be an object"
+                    )
+                    continue
+
+                # Validate property type
+                prop_type = prop_def.get("type")
+                if prop_type is None:
+                    errors.append(
+                        f"Property '{prop_name}' missing required field: type"
+                    )
+                elif not isinstance(prop_type, str):
+                    errors.append(f"Property '{prop_name}' type must be a string")
+                elif prop_type not in VALID_PARAM_TYPES:
+                    errors.append(
+                        f"Property '{prop_name}' has invalid type '{prop_type}'. "
+                        f"Valid types: {', '.join(sorted(VALID_PARAM_TYPES))}"
+                    )
+
+        # Validate input_schema.required
+        required = input_schema.get("required")
+        if required is not None:
+            if not isinstance(required, list):
+                errors.append("input_schema.required must be an array")
+            else:
+                for i, req_name in enumerate(required):
+                    if not isinstance(req_name, str):
+                        errors.append(
+                            f"input_schema.required[{i}] must be a string, "
+                            f"got {type(req_name).__name__}"
+                        )
+                    elif properties is not None and isinstance(properties, dict):
+                        if req_name not in properties:
+                            errors.append(
+                                f"input_schema.required references non-existent "
+                                f"property: '{req_name}'"
+                            )
+
+    return len(errors) == 0, errors
 
 
 @dataclass
@@ -568,15 +706,11 @@ def validate_tool(path: Path) -> ValidationResult:
             try:
                 spec = json.loads(result.stdout)
 
-                # 3. Validate spec structure
-                if "name" not in spec:
-                    errors.append("Spec missing required field: name")
-                if "description" not in spec:
-                    warnings.append("Spec missing recommended field: description")
-                if "input_schema" not in spec:
-                    errors.append("Spec missing required field: input_schema")
-                elif not isinstance(spec.get("input_schema"), dict):
-                    errors.append("input_schema must be an object")
+                # 3. Validate spec against Anthropic API schema requirements
+                # This replaces the basic field checks with comprehensive validation
+                schema_valid, schema_errors = validate_tool_schema(spec)
+                if not schema_valid:
+                    errors.extend(schema_errors)
 
             except json.JSONDecodeError as e:
                 errors.append(f"--toolspec returned invalid JSON: {e}")

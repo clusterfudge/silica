@@ -159,6 +159,11 @@ class Toolbox:
             self._micro_compact,
             "Micro-compact: summarize first N turns and keep the rest (default N=3)",
         )
+        self.register_cli_tool(
+            "compact-rollback",
+            self._compact_rollback,
+            "Rollback to the conversation state before the last compaction",
+        )
 
         # Register permission management CLI tools
         self.register_cli_tool(
@@ -505,6 +510,7 @@ class Toolbox:
             "- **/compact** - Explicitly trigger full conversation compaction\n"
         )
         help_text += "- **/mc [N]** - Micro-compact: summarize first N turns (default 3) and keep the rest\n"
+        help_text += "- **/compact-rollback** - Rollback to conversation state before the last compaction\n"
 
         displayed_tools = set()
         for tool_name, spec in self.local.items():
@@ -562,6 +568,7 @@ class Toolbox:
 **Conversation Compaction:**
 * Use `/compact` to manually compress the entire conversation
 * Use `/mc [N]` to micro-compact just the first N turns (default 3) while keeping the rest
+* Use `/compact-rollback` to restore the conversation from before the last compaction
 * Compaction helps manage token usage in long conversations
 * Automatic compaction triggers at 65% of context window
 
@@ -1455,6 +1462,71 @@ class Toolbox:
             )
             return f"Error: Micro-compaction failed - {e}"
 
+    def _compact_rollback(self, user_interface, sandbox, user_input, *args, **kwargs):
+        """Rollback to the conversation state before the last compaction.
+
+        This restores the chat history from the most recent pre-compaction archive.
+        """
+        import json
+
+        try:
+            # Get the history directory for this session
+            history_dir = self.context._get_history_dir()
+
+            # Find all pre-compaction archives
+            archives = sorted(
+                history_dir.glob("pre-compaction-*.json"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,  # Most recent first
+            )
+
+            if not archives:
+                return "No compaction archives found. Nothing to rollback to."
+
+            # Get the most recent archive
+            latest_archive = archives[0]
+
+            # Load the archived conversation
+            with open(latest_archive, "r") as f:
+                archived_data = json.load(f)
+
+            # Extract chat history from archive (key is "messages" in the archive format)
+            if "messages" in archived_data:
+                archived_history = archived_data["messages"]
+            elif "chat_history" in archived_data:
+                archived_history = archived_data["chat_history"]
+            else:
+                return f"Error: Archive {latest_archive.name} has no messages or chat_history"
+            archived_count = len(archived_history)
+            current_count = len(self.context.chat_history)
+
+            # Restore the chat history
+            self.context._chat_history = archived_history
+            self.context._tool_result_buffer.clear()
+
+            # Flush to save the restored state
+            self.context.flush(self.context.chat_history, compact=False)
+
+            # Optionally remove the used archive (or keep for multiple rollbacks)
+            # For now, we'll keep it so users can rollback multiple times if needed
+
+            result = "✓ Conversation rolled back successfully!\n\n"
+            result += f"**Restored from:** {latest_archive.name}\n\n"
+            result += f"**Messages:** {current_count} → {archived_count}\n\n"
+            if len(archives) > 1:
+                result += f"**Note:** {len(archives) - 1} older archive(s) still available\n\n"
+
+            return result
+
+        except Exception as e:
+            import traceback
+
+            error_details = traceback.format_exc()
+            user_interface.handle_system_message(
+                f"Rollback failed: {e}\n\n{error_details}", markdown=False
+            )
+            return f"Error: Rollback failed - {e}"
+
     def _permissions(self, user_interface, sandbox, user_input, *args, **kwargs):
         """Manage tool permissions for this persona.
 
@@ -1836,6 +1908,7 @@ Use `/groups` to see available tool groups."""
         user_tools_by_status = {
             "available": [],
             "needs_auth": [],
+            "schema_invalid": [],  # Tools with invalid schemas (won't be sent to API)
             "error": [],
         }
 
@@ -1849,10 +1922,15 @@ Use `/groups` to see available tool groups."""
                 "requires_auth": tool.metadata.requires_auth,
                 "is_authorized": tool.is_authorized,
                 "error": tool.error,
+                "schema_valid": tool.schema_valid,
+                "schema_errors": tool.schema_errors,
                 "type": "user",
             }
             if tool.error and not tool.is_authorized and tool.metadata.requires_auth:
                 user_tools_by_status["needs_auth"].append(tool_info)
+            elif not tool.schema_valid:
+                # Schema invalid - separate category for clarity
+                user_tools_by_status["schema_invalid"].append(tool_info)
             elif tool.error:
                 user_tools_by_status["error"].append(tool_info)
             else:
@@ -1910,7 +1988,17 @@ Use `/groups` to see available tool groups."""
                     }
                 )
 
-        # User tools with errors
+        # User tools with invalid schemas (won't be sent to API)
+        if user_tools_by_status["schema_invalid"]:
+            for tool in sorted(
+                user_tools_by_status["schema_invalid"], key=lambda t: t["name"]
+            ):
+                options.append(f"  ✗ {tool['name']} (invalid schema)")
+                option_metadata.append(
+                    {"type": "user_tool_schema_invalid", "tool": tool}
+                )
+
+        # User tools with other errors
         if user_tools_by_status["error"]:
             for tool in sorted(user_tools_by_status["error"], key=lambda t: t["name"]):
                 options.append(f"  ✗ {tool['name']} (error)")
@@ -2092,6 +2180,17 @@ Use `/groups` to see available tool groups."""
                             "action": "authorize",
                         }
                     )
+                elif not tool.schema_valid:
+                    options.append(f"  ✗ {tool.name} (invalid schema)")
+                    metadata.append(
+                        {
+                            "type": "user_tool_schema_invalid",
+                            "tool": {
+                                "name": tool.name,
+                                "schema_errors": tool.schema_errors,
+                            },
+                        }
+                    )
                 elif tool.error:
                     options.append(f"  ✗ {tool.name} (error)")
                     metadata.append(
@@ -2160,8 +2259,19 @@ Use `/groups` to see available tool groups."""
                 output += f"  • `{tool['file_stem']}` - {tool['error'] or 'Requires authorization'}\n"
             output += "\n"
 
+        if user_tools_by_status["schema_invalid"]:
+            output += "### ✗ Invalid Schema (excluded from API)\n\n"
+            for tool in sorted(
+                user_tools_by_status["schema_invalid"], key=lambda t: t["name"]
+            ):
+                output += f"  • `{tool['name']}`\n"
+                # Show schema errors for debugging
+                for err in tool.get("schema_errors", []):
+                    output += f"      - {err}\n"
+            output += "\n"
+
         if user_tools_by_status["error"]:
-            output += "### ✗ Errors\n\n"
+            output += "### ✗ Other Errors\n\n"
             for tool in sorted(user_tools_by_status["error"], key=lambda t: t["name"]):
                 output += f"  • `{tool['name']}` - {tool['error']}\n"
             output += "\n"
@@ -2944,25 +3054,33 @@ Let's collaborate on creating a solid plan before implementation."""
 
         User tools take precedence over built-in tools with the same name, ensuring
         no duplicates in the final schema list.
+
+        User tools with invalid schemas are silently skipped to prevent API failures
+        that would affect all agent instances due to hot reloading.
         """
         schemas = []
 
-        # Collect user tool names first (they take precedence)
-        user_tool_names = set(self.user_tools.keys())
+        # Collect valid user tool names first (they take precedence)
+        # Only include tools with valid schemas to prevent API failures
+        valid_user_tool_names = set()
+        for name, tool in self.user_tools.items():
+            if tool.spec and tool.schema_valid:
+                valid_user_tool_names.add(name)
 
-        # Built-in tools (skip if user tool with same name exists)
+        # Built-in tools (skip if valid user tool with same name exists)
         for tool in self.agent_tools:
             if hasattr(tool, "schema"):
                 schema = tool.schema()
                 tool_name = schema.get("name", tool.__name__)
                 # Skip built-in tools that have user tool replacements
-                if tool_name not in user_tool_names:
+                if tool_name not in valid_user_tool_names:
                     schemas.append(schema)
 
-        # User-created tools (always included, they take precedence)
+        # User-created tools (only include those with valid schemas)
         for name, tool in self.user_tools.items():
-            if tool.spec:
+            if tool.spec and tool.schema_valid:
                 schemas.append(tool.spec)
+            # Silently skip invalid tools - they will be shown in /tools with errors
 
         if schemas and enable_caching:
             schemas[-1]["cache_control"] = {"type": "ephemeral"}
