@@ -781,27 +781,52 @@ Focus on preserving what the guidance identifies as important. Be comprehensive 
             raise ValueError("No messages to summarize")
 
         if messages_for_summary[-1].get("role") == "user":
-            # Append summary request to the last user message as additional text block
+            # Check if the last user message is tool_result only (no text)
             last_msg = messages_for_summary[-1]
             existing_content = last_msg.get("content", "")
 
-            if isinstance(existing_content, str):
+            # Check if it's a tool_result-only message
+            is_tool_result_only = False
+            if isinstance(existing_content, list):
+                has_text = any(
+                    isinstance(b, dict) and b.get("type") == "text"
+                    for b in existing_content
+                )
+                has_tool_result = any(
+                    isinstance(b, dict) and b.get("type") == "tool_result"
+                    for b in existing_content
+                )
+                is_tool_result_only = has_tool_result and not has_text
+
+            if is_tool_result_only:
+                # For tool_result-only messages, we need the assistant to respond first
+                # Add a minimal assistant acknowledgment, then our user request
+                messages_for_summary.append(
+                    {
+                        "role": "assistant",
+                        "content": "I'll analyze the conversation for summarization.",
+                    }
+                )
+                messages_for_summary.append(
+                    {"role": "user", "content": summary_request}
+                )
+            elif isinstance(existing_content, str):
                 # Convert to list format and add our request
                 new_content = [
                     {"type": "text", "text": existing_content},
                     {"type": "text", "text": "\n\n---\n\n" + summary_request},
                 ]
+                messages_for_summary[-1] = {"role": "user", "content": new_content}
             elif isinstance(existing_content, list):
-                # Already a list, append our request
+                # Already a list with text, append our request
                 new_content = list(existing_content)
                 new_content.append(
                     {"type": "text", "text": "\n\n---\n\n" + summary_request}
                 )
+                messages_for_summary[-1] = {"role": "user", "content": new_content}
             else:
                 new_content = [{"type": "text", "text": summary_request}]
-
-            # Create a new message dict (don't mutate the original)
-            messages_for_summary[-1] = {"role": "user", "content": new_content}
+                messages_for_summary[-1] = {"role": "user", "content": new_content}
         else:
             # Ends with assistant, safe to append new user message
             messages_for_summary.append({"role": "user", "content": summary_request})
