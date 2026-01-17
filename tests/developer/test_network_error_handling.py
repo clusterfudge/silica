@@ -315,3 +315,229 @@ async def test_other_errors_not_caught(agent_context):
 
         # Should only try once since it's not a retryable error
         assert mock_client.messages.stream.call_count == 1
+
+
+def create_mock_api_status_error(message, status_code):
+    """Create a mock Anthropic APIStatusError for testing.
+
+    We need to use the actual anthropic.APIStatusError class so that
+    the except clause in agent_loop.py can catch it properly.
+    """
+    import anthropic
+
+    # Create a mock response object
+    mock_response = Mock()
+    mock_response.status_code = status_code
+    mock_response.headers = {
+        "anthropic-ratelimit-tokens-remaining": "100000",
+        "anthropic-ratelimit-tokens-reset": "2024-03-20T00:00:00Z",
+    }
+    mock_response.text = message
+    mock_response.json.return_value = {"error": {"message": message}}
+
+    # Create actual APIStatusError with the mock response
+    error = anthropic.APIStatusError(
+        message=message,
+        response=mock_response,
+        body={"error": {"message": message}},
+    )
+    error.status_code = status_code
+    return error
+
+
+class MockStreamWithAPIError:
+    """Mock stream that raises APIStatusError during iteration."""
+
+    def __init__(
+        self, content, error_status_code=None, fail_count=0, error_message=None
+    ):
+        self.content = content
+        self.error_status_code = error_status_code
+        self.fail_count = fail_count
+        self.error_message = (
+            error_message or f"Server error (status {error_status_code})"
+        )
+        self.attempt_count = 0
+        self.final_message = MockMessage(
+            type="message",
+            content=[{"type": "text", "text": content}],
+            usage=Usage(input_tokens=100, output_tokens=50),
+            stop_reason="end_turn",
+        )
+        self.response = MockResponse(
+            {
+                "anthropic-ratelimit-tokens-remaining": "100000",
+                "anthropic-ratelimit-tokens-reset": "2024-03-20T00:00:00Z",
+            }
+        )
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
+
+    def __iter__(self):
+        self.attempt_count += 1
+
+        # Simulate failure for first N attempts
+        if self.error_status_code and self.attempt_count <= self.fail_count:
+            error = create_mock_api_status_error(
+                self.error_message,
+                self.error_status_code,
+            )
+            raise error
+
+        # Succeed after retry attempts
+        yield MockMessage(type="text", text=self.content)
+
+    def get_final_message(self):
+        return self.final_message
+
+
+@pytest.mark.asyncio
+async def test_api_500_error_with_successful_retry(agent_context):
+    """Test that API 500 internal server errors are retried and eventually succeed."""
+    with (
+        patch("anthropic.Client") as mock_anthropic_client,
+        patch("silica.developer.agent_loop.load_dotenv"),
+        patch("os.getenv", return_value="test-key"),
+        patch(
+            "silica.developer.agent_loop.create_system_message",
+            return_value="Test system",
+        ),
+        patch("silica.developer.agent_loop.Toolbox") as mock_toolbox_class,
+        patch("time.sleep"),
+    ):
+        # Setup mock client with streams that fail once with 500 then succeed
+        mock_client = Mock()
+        call_count = [0]
+
+        def create_stream(**kwargs):
+            call_count[0] += 1
+            # First call fails with 500, second succeeds
+            if call_count[0] == 1:
+                return MockStreamWithAPIError(
+                    "Test response", error_status_code=500, fail_count=1
+                )
+            else:
+                return MockStreamWithAPIError("Test response")
+
+        mock_client.messages.stream.side_effect = create_stream
+        mock_anthropic_client.return_value = mock_client
+
+        # Setup mock toolbox
+        mock_toolbox = Mock()
+        mock_toolbox.agent_schema = []
+        mock_toolbox.local = {}
+        mock_toolbox_class.return_value = mock_toolbox
+
+        # Run the agent with a single prompt
+        await run(
+            agent_context=agent_context,
+            initial_prompt="Test prompt",
+            single_response=True,
+        )
+
+        # Verify retry behavior
+        assert mock_client.messages.stream.call_count == 2, "Should have retried once"
+
+        # Verify user was informed about retry
+        system_messages = [
+            msg
+            for msg_type, msg in agent_context.user_interface.messages
+            if msg_type == "system"
+        ]
+        retry_messages = [
+            msg
+            for msg in system_messages
+            if "Server error" in msg and "Retrying" in msg
+        ]
+        assert (
+            len(retry_messages) > 0
+        ), "Should have displayed server error retry message"
+
+
+@pytest.mark.asyncio
+async def test_api_503_error_with_successful_retry(agent_context):
+    """Test that API 503 service unavailable errors are retried."""
+    with (
+        patch("anthropic.Client") as mock_anthropic_client,
+        patch("silica.developer.agent_loop.load_dotenv"),
+        patch("os.getenv", return_value="test-key"),
+        patch(
+            "silica.developer.agent_loop.create_system_message",
+            return_value="Test system",
+        ),
+        patch("silica.developer.agent_loop.Toolbox") as mock_toolbox_class,
+        patch("time.sleep"),
+    ):
+        mock_client = Mock()
+        call_count = [0]
+
+        def create_stream(**kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return MockStreamWithAPIError(
+                    "Test response", error_status_code=503, fail_count=1
+                )
+            else:
+                return MockStreamWithAPIError("Test response")
+
+        mock_client.messages.stream.side_effect = create_stream
+        mock_anthropic_client.return_value = mock_client
+
+        mock_toolbox = Mock()
+        mock_toolbox.agent_schema = []
+        mock_toolbox.local = {}
+        mock_toolbox_class.return_value = mock_toolbox
+
+        await run(
+            agent_context=agent_context,
+            initial_prompt="Test prompt",
+            single_response=True,
+        )
+
+        assert mock_client.messages.stream.call_count == 2, "Should have retried once"
+
+
+@pytest.mark.asyncio
+async def test_api_400_error_not_retried(agent_context):
+    """Test that API 400 bad request errors are NOT retried."""
+    import anthropic
+
+    with (
+        patch("anthropic.Client") as mock_anthropic_client,
+        patch("silica.developer.agent_loop.load_dotenv"),
+        patch("os.getenv", return_value="test-key"),
+        patch(
+            "silica.developer.agent_loop.create_system_message",
+            return_value="Test system",
+        ),
+        patch("silica.developer.agent_loop.Toolbox") as mock_toolbox_class,
+        patch("time.sleep"),
+    ):
+        mock_client = Mock()
+        # Always fail with 400
+        mock_client.messages.stream.side_effect = (
+            lambda **kwargs: MockStreamWithAPIError(
+                "Bad request", error_status_code=400, fail_count=999
+            )
+        )
+        mock_anthropic_client.return_value = mock_client
+
+        mock_toolbox = Mock()
+        mock_toolbox.agent_schema = []
+        mock_toolbox.local = {}
+        mock_toolbox_class.return_value = mock_toolbox
+
+        # Run and expect it to raise immediately (not retry)
+        with pytest.raises(anthropic.APIStatusError):
+            await run(
+                agent_context=agent_context,
+                initial_prompt="Test prompt",
+                single_response=True,
+            )
+
+        # Should only try once since 400 is not retryable
+        assert mock_client.messages.stream.call_count == 1, "Should NOT have retried"
