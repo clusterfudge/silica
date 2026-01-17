@@ -159,6 +159,11 @@ class Toolbox:
             self._micro_compact,
             "Micro-compact: summarize first N turns and keep the rest (default N=3)",
         )
+        self.register_cli_tool(
+            "compact-rollback",
+            self._compact_rollback,
+            "Rollback to the conversation state before the last compaction",
+        )
 
         # Register permission management CLI tools
         self.register_cli_tool(
@@ -505,6 +510,7 @@ class Toolbox:
             "- **/compact** - Explicitly trigger full conversation compaction\n"
         )
         help_text += "- **/mc [N]** - Micro-compact: summarize first N turns (default 3) and keep the rest\n"
+        help_text += "- **/compact-rollback** - Rollback to conversation state before the last compaction\n"
 
         displayed_tools = set()
         for tool_name, spec in self.local.items():
@@ -562,6 +568,7 @@ class Toolbox:
 **Conversation Compaction:**
 * Use `/compact` to manually compress the entire conversation
 * Use `/mc [N]` to micro-compact just the first N turns (default 3) while keeping the rest
+* Use `/compact-rollback` to restore the conversation from before the last compaction
 * Compaction helps manage token usage in long conversations
 * Automatic compaction triggers at 65% of context window
 
@@ -1454,6 +1461,69 @@ class Toolbox:
                 f"Micro-compaction failed: {e}\n\n{error_details}", markdown=False
             )
             return f"Error: Micro-compaction failed - {e}"
+
+    def _compact_rollback(self, user_interface, sandbox, user_input, *args, **kwargs):
+        """Rollback to the conversation state before the last compaction.
+
+        This restores the chat history from the most recent pre-compaction archive.
+        """
+        import json
+
+        try:
+            # Get the history directory for this session
+            history_dir = self.context._get_history_dir()
+
+            # Find all pre-compaction archives
+            archives = sorted(
+                history_dir.glob("pre-compaction-*.json"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,  # Most recent first
+            )
+
+            if not archives:
+                return "No compaction archives found. Nothing to rollback to."
+
+            # Get the most recent archive
+            latest_archive = archives[0]
+
+            # Load the archived conversation
+            with open(latest_archive, "r") as f:
+                archived_data = json.load(f)
+
+            # Extract chat history from archive
+            if "chat_history" not in archived_data:
+                return f"Error: Archive {latest_archive.name} has no chat_history"
+
+            archived_history = archived_data["chat_history"]
+            archived_count = len(archived_history)
+            current_count = len(self.context.chat_history)
+
+            # Restore the chat history
+            self.context._chat_history = archived_history
+            self.context._tool_result_buffer.clear()
+
+            # Flush to save the restored state
+            self.context.flush(self.context.chat_history, compact=False)
+
+            # Optionally remove the used archive (or keep for multiple rollbacks)
+            # For now, we'll keep it so users can rollback multiple times if needed
+
+            result = "✓ Conversation rolled back successfully!\n\n"
+            result += f"**Restored from:** {latest_archive.name}\n\n"
+            result += f"**Messages:** {current_count} → {archived_count}\n\n"
+            if len(archives) > 1:
+                result += f"**Note:** {len(archives) - 1} older archive(s) still available\n\n"
+
+            return result
+
+        except Exception as e:
+            import traceback
+
+            error_details = traceback.format_exc()
+            user_interface.handle_system_message(
+                f"Rollback failed: {e}\n\n{error_details}", markdown=False
+            )
+            return f"Error: Rollback failed - {e}"
 
     def _permissions(self, user_interface, sandbox, user_input, *args, **kwargs):
         """Manage tool permissions for this persona.
