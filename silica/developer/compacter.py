@@ -111,18 +111,14 @@ class ConversationCompacter:
             for model_data in [get_model(ms) for ms in model_names()]
         }
 
-    def count_tokens(
-        self, agent_context_or_dict, model: str, messages: list = None
-    ) -> int:
+    def count_tokens(self, agent_context, model: str, messages: list = None) -> int:
         """Count tokens for the complete context sent to the API.
 
         This method accurately counts tokens for the complete API call including
         system prompt, tools, and messages - fixing HDEV-61.
 
         Args:
-            agent_context_or_dict: Either an AgentContext instance, or a dict with
-                'system', 'tools', and 'messages' keys. Using a dict allows testing
-                without a full AgentContext with memory_manager, etc.
+            agent_context: AgentContext instance to get full API context from
             model: Model name or alias to use for token counting
             messages: Optional override for messages (used when counting tokens
                 for a subset of messages with the same system/tools context)
@@ -135,11 +131,8 @@ class ConversationCompacter:
         model = model_spec["title"]
 
         try:
-            # Get the full context - either from AgentContext or use dict directly
-            if isinstance(agent_context_or_dict, dict):
-                context_dict = agent_context_or_dict
-            else:
-                context_dict = agent_context_or_dict.get_api_context()
+            # Get the full context from AgentContext
+            context_dict = agent_context.get_api_context()
 
             # Allow overriding messages (useful for counting subsets)
             if messages is not None:
@@ -238,10 +231,7 @@ class ConversationCompacter:
         except Exception as e:
             print(f"Error counting tokens for full context: {e}")
             # Fallback to estimation
-            if isinstance(agent_context_or_dict, dict):
-                context_dict = agent_context_or_dict
-            else:
-                context_dict = agent_context_or_dict.get_api_context()
+            context_dict = agent_context.get_api_context()
             return self._estimate_full_context_tokens(context_dict)
 
     def _has_incomplete_tool_use(self, messages: list) -> bool:
