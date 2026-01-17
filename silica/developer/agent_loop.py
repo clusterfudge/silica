@@ -674,14 +674,15 @@ async def run(
                             thinking_content = ""
                             continue
                         except anthropic.APIStatusError as e:
-                            # Handle API errors during streaming (e.g., overloaded mid-stream)
+                            # Handle API errors during streaming (e.g., overloaded mid-stream, server errors)
+                            status_code = getattr(e, "status_code", None)
                             logger.log_error(
                                 error_type="APIStatusError",
                                 error_message=str(e),
                                 context={
                                     "attempt": attempt + 1,
                                     "max_retries": max_retries,
-                                    "status_code": getattr(e, "status_code", None),
+                                    "status_code": status_code,
                                     "during_streaming": True,
                                 },
                             )
@@ -693,13 +694,25 @@ async def run(
                                 )
                                 raise
 
-                            if "Overloaded" in str(e) or "overloaded" in str(e).lower():
+                            # Retry on overloaded (529) or internal server errors (500, 503)
+                            is_retryable = (
+                                "Overloaded" in str(e)
+                                or "overloaded" in str(e).lower()
+                                or status_code in [500, 503, 529]
+                                or "internal server error" in str(e).lower()
+                            )
+                            if is_retryable:
                                 delay = min(
                                     base_delay * (2**attempt) + random.uniform(0, 1),
                                     max_delay,
                                 )
+                                error_desc = (
+                                    "API overloaded"
+                                    if "overloaded" in str(e).lower()
+                                    else f"Server error (status {status_code})"
+                                )
                                 user_interface.handle_system_message(
-                                    f"[bold yellow]API overloaded during streaming. Retrying in {delay:.2f} seconds... (Attempt {attempt + 1}/{max_retries})[/bold yellow]",
+                                    f"[bold yellow]{error_desc} during streaming. Retrying in {delay:.2f} seconds... (Attempt {attempt + 1}/{max_retries})[/bold yellow]",
                                     markdown=False,
                                 )
                                 time.sleep(delay)
@@ -708,7 +721,7 @@ async def run(
                                 thinking_content = ""
                                 continue
                             else:
-                                # For non-overloaded API errors, re-raise
+                                # For non-retryable API errors, re-raise
                                 raise
                     except anthropic.RateLimitError as e:
                         # Handle rate limit errors specifically
@@ -742,6 +755,8 @@ async def run(
                     except anthropic.APIStatusError as e:
                         rate_limiter.update(e.response.headers)
 
+                        status_code = getattr(e, "status_code", None)
+
                         # Log the error
                         logger.log_error(
                             error_type="APIStatusError",
@@ -749,19 +764,32 @@ async def run(
                             context={
                                 "attempt": attempt + 1,
                                 "max_retries": max_retries,
-                                "status_code": getattr(e, "status_code", None),
+                                "status_code": status_code,
                             },
                         )
 
                         if attempt == max_retries - 1:
                             raise
-                        if "Overloaded" in str(e):
+
+                        # Retry on overloaded (529) or internal server errors (500, 503)
+                        is_retryable = (
+                            "Overloaded" in str(e)
+                            or "overloaded" in str(e).lower()
+                            or status_code in [500, 503, 529]
+                            or "internal server error" in str(e).lower()
+                        )
+                        if is_retryable:
                             delay = min(
                                 base_delay * (2**attempt) + random.uniform(0, 1),
                                 max_delay,
                             )
+                            error_desc = (
+                                "API overloaded"
+                                if "overloaded" in str(e).lower()
+                                else f"Server error (status {status_code})"
+                            )
                             user_interface.handle_system_message(
-                                f"API overloaded. Retrying in {delay:.2f} seconds...",
+                                f"{error_desc}. Retrying in {delay:.2f} seconds...",
                                 markdown=False,
                             )
                             time.sleep(delay)
