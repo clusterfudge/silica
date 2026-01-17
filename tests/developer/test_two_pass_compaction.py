@@ -56,7 +56,7 @@ class MockMessagesClient:
 
         return TokenResponse(count)
 
-    def create(self, model, system, messages, max_tokens, tools=None):
+    def create(self, model, system, messages, max_tokens, tools=None, tool_choice=None):
         """Mock create that returns configurable responses."""
         self.create_calls.append(
             {
@@ -65,6 +65,7 @@ class MockMessagesClient:
                 "messages": messages,
                 "max_tokens": max_tokens,
                 "tools": tools,
+                "tool_choice": tool_choice,
             }
         )
 

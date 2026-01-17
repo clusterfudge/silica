@@ -560,6 +560,9 @@ Output a brief guidance document (under 500 words) that a summarizer can use to 
             response = self.client.messages.create(
                 model=model_name,
                 tools=context_dict["tools"] if context_dict["tools"] else None,
+                tool_choice={
+                    "type": "none"
+                },  # Prevent tool use, but keep tools for cache
                 system=context_dict["system"],
                 messages=messages_for_guidance,
                 max_tokens=2000,
@@ -774,6 +777,7 @@ Focus on preserving what the guidance identifies as important. Be comprehensive 
             model=model_name,
             system=context_dict["system"],
             tools=context_dict["tools"] if context_dict["tools"] else None,
+            tool_choice={"type": "none"},  # Prevent tool use, but keep tools for cache
             messages=messages_for_summary,
             max_tokens=4000,
         )
