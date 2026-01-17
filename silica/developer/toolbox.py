@@ -2294,8 +2294,10 @@ Use `/groups` to see available tool groups."""
             /plan list                 - List active plans
             /plan view [id]            - View plan details
             /plan approve [id] [--shelve]  - Approve plan for execution
+            /plan approve [id] --push [workspace]  - Approve and push to remote
             /plan reject [id] [feedback]   - Reject and request revisions
             /plan abandon [id]         - Abandon/archive plan
+            /plan reopen [id]          - Reopen completed/abandoned plan
             /plan move <id> [--local|--global]  - Move plan storage
             /plan push [id] [--local=PORT]  - Push to remote workspace
             /plan push --all           - Push all shelved plans
@@ -2357,6 +2359,7 @@ Use `/groups` to see available tool groups."""
             "approve",
             "reject",
             "abandon",
+            "reopen",
             "new",
             "move",
             "push",
@@ -2434,13 +2437,29 @@ Use `/groups` to see available tool groups."""
         elif command == "approve":
             # Parse flags
             shelve = False
+            push_workspace = None  # None = no push, "" = push with default name
             plan_id = None
             if len(args_list) >= 2:
-                for arg in args_list[1].split():
+                args_parts = args_list[1].split()
+                i = 0
+                while i < len(args_parts):
+                    arg = args_parts[i]
                     if arg == "--shelve":
                         shelve = True
+                    elif arg == "--push":
+                        # Check if next arg is workspace name (not another flag)
+                        if i + 1 < len(args_parts) and not args_parts[i + 1].startswith(
+                            "-"
+                        ):
+                            push_workspace = args_parts[i + 1]
+                            i += 1
+                        else:
+                            push_workspace = ""  # Use default (slug-based) name
+                    elif arg.startswith("--push="):
+                        push_workspace = arg.split("=", 1)[1]
                     elif not plan_id and not arg.startswith("-"):
                         plan_id = arg
+                    i += 1
 
             if not plan_id:
                 # Use active plan if it's in review, otherwise show picker
@@ -2461,8 +2480,36 @@ Use `/groups` to see available tool groups."""
                 plan_id = plans_in_review[0].id
                 _print(f"Approving plan `{plan_id}`...")
 
+            # If --push is specified, we approve (not shelved) and then push
+            # The push will transition to IN_PROGRESS with remote tracking
+            if push_workspace is not None:
+                shelve = False  # --push overrides --shelve
+
             if plan_manager.approve_plan(plan_id, shelve=shelve):
                 plan = plan_manager.get_plan(plan_id)
+
+                if push_workspace is not None:
+                    # Approve and push to remote workspace
+                    _print(f"✅ Plan `{plan_id}` approved! Pushing to remote...")
+
+                    # Determine workspace name
+                    if push_workspace == "":
+                        # Use plan slug as default workspace name
+                        ws_name = f"plan-{plan.get_slug()}"
+                    else:
+                        ws_name = push_workspace
+
+                    # Recursively call /plan push with the workspace name
+                    # Build the push command args
+                    push_args = f"{plan_id} --workspace={ws_name}"
+                    # Store original args and call push handler
+                    return await self._plan(
+                        user_interface,
+                        sandbox,
+                        f"push {push_args}",
+                        *args,
+                        **kwargs,
+                    )
 
                 if shelve:
                     # Shelved - don't trigger execution, just confirm
@@ -2592,6 +2639,90 @@ When all tasks are done, call `complete_plan(plan_id)`."""
                 _print(f"🗑️ Plan `{plan_id}` abandoned and archived.")
             else:
                 _print(f"Could not abandon plan {plan_id}.")
+            return ""
+
+        elif command == "reopen":
+            # /plan reopen [plan-id]
+            # Reopen a completed or abandoned plan
+            plan_id = None
+            if len(args_list) >= 2:
+                plan_id = args_list[1].strip()
+
+            if not plan_id:
+                # Show interactive selector for completed/abandoned plans
+                completed_plans = plan_manager.list_completed_plans(
+                    limit=20, root_dir=root_dir
+                )
+                if not completed_plans:
+                    _print(
+                        "No completed or abandoned plans to reopen for this project."
+                    )
+                    return ""
+
+                # Build options for selector
+                options = []
+                for plan in completed_plans:
+                    loc = _location_emoji(plan.storage_location)
+                    status_str = (
+                        "completed"
+                        if plan.status == PlanStatus.COMPLETED
+                        else "abandoned"
+                    )
+                    options.append(f"{loc} {plan.id} - {plan.title} ({status_str})")
+
+                # Use interactive selector
+                result = await user_interface.get_user_choice(
+                    "Select a plan to reopen:", options
+                )
+
+                if result == "cancelled" or not result:
+                    _print("Cancelled.")
+                    return ""
+
+                # Extract plan ID from selection
+                for i, option in enumerate(options):
+                    if result == option:
+                        plan_id = completed_plans[i].id
+                        break
+
+                if not plan_id:
+                    # User typed something - try to use it as plan ID
+                    plan_id = result.split()[0] if result else None
+
+            if not plan_id:
+                _print("No plan selected.")
+                return ""
+
+            plan = plan_manager.get_plan(plan_id)
+            if not plan:
+                _print(f"Plan `{plan_id}` not found.")
+                return ""
+
+            if plan.status not in (PlanStatus.COMPLETED, PlanStatus.ABANDONED):
+                _print(
+                    f"Plan `{plan_id}` is in {plan.status.value} status. "
+                    "Only COMPLETED or ABANDONED plans can be reopened."
+                )
+                return ""
+
+            if plan_manager.reopen_plan(plan_id):
+                self.context.active_plan_id = plan_id
+                _print(f"🔄 Plan `{plan_id}` ({plan.title}) reopened.")
+                _print("Status changed to IN_PROGRESS.")
+
+                # Show task summary
+                plan = plan_manager.get_plan(plan_id)
+                if plan and plan.tasks:
+                    incomplete = len(plan.get_incomplete_tasks())
+                    unverified = len(plan.get_unverified_tasks())
+                    verified = len([t for t in plan.tasks if t.verified])
+                    _print(
+                        f"\n**Tasks:** {verified} verified, {unverified} unverified, "
+                        f"{incomplete} incomplete"
+                    )
+                    _print("\nUse `/plan view` to see full plan details.")
+            else:
+                _print(f"Could not reopen plan `{plan_id}`.")
             return ""
 
         elif command == "move":
@@ -2791,12 +2922,14 @@ When all tasks are done, call `complete_plan(plan_id)`."""
                     )
 
                     if success:
+                        # Transition plan to IN_PROGRESS now that remote is executing
+                        plan_manager.start_execution(plan.id)
                         return (
                             True,
                             f"📤 Plan `{plan.id}` ({plan.title})\n"
                             f"   Workspace: {ws}\n"
                             f"   Branch: {br}\n"
-                            f"   Status: Executing",
+                            f"   Status: IN_PROGRESS (executing remotely)",
                         )
                     else:
                         return (

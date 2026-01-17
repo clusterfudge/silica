@@ -441,6 +441,113 @@ class TestPlanManager:
         completed = plan_manager.list_completed_plans()
         assert len(completed) == 2
 
+    def test_reopen_completed_plan(self, plan_manager):
+        """Test reopening a completed plan."""
+        # Create and complete a plan
+        plan = plan_manager.create_plan("Test", "sess123")
+        plan_manager.submit_for_review(plan.id)
+        plan_manager.approve_plan(plan.id)
+        plan_manager.start_execution(plan.id)
+        plan_manager.complete_plan(plan.id, "Done!")
+
+        # Verify it's in completed directory
+        active_file = plan_manager.active_dir / f"{plan.id}.md"
+        completed_file = plan_manager.completed_dir / f"{plan.id}.md"
+        assert not active_file.exists()
+        assert completed_file.exists()
+
+        # Reopen the plan
+        result = plan_manager.reopen_plan(plan.id, "Need to add more features")
+        assert result is True
+
+        # Verify state changed
+        reopened = plan_manager.get_plan(plan.id)
+        assert reopened.status == PlanStatus.IN_PROGRESS
+        assert reopened.completion_notes == ""  # Cleared
+
+        # Verify file moved back to active directory
+        assert active_file.exists()
+        assert not completed_file.exists()
+
+        # Verify progress log has reopen entry
+        assert any(
+            "reopened" in entry.message.lower() for entry in reopened.progress_log
+        )
+
+    def test_reopen_abandoned_plan(self, plan_manager):
+        """Test reopening an abandoned plan."""
+        plan = plan_manager.create_plan("Test", "sess123")
+        plan_manager.abandon_plan(plan.id, "Requirements changed")
+
+        # Reopen
+        result = plan_manager.reopen_plan(plan.id)
+        assert result is True
+
+        reopened = plan_manager.get_plan(plan.id)
+        assert reopened.status == PlanStatus.IN_PROGRESS
+
+    def test_reopen_preserves_task_state(self, plan_manager):
+        """Test that reopening preserves task completion/verification state."""
+        plan = plan_manager.create_plan("Test", "sess123")
+        task1 = plan.add_task("Task 1")
+        task2 = plan.add_task("Task 2")
+        plan.complete_task(task1.id)
+        plan.verify_task(task1.id, "Tests passed")
+        plan_manager.update_plan(plan)
+
+        # Complete and reopen
+        plan_manager.submit_for_review(plan.id)
+        plan_manager.approve_plan(plan.id)
+        plan_manager.start_execution(plan.id)
+        plan_manager.complete_plan(plan.id)
+        plan_manager.reopen_plan(plan.id)
+
+        # Check task state preserved
+        reopened = plan_manager.get_plan(plan.id)
+        task1_reopened = next(t for t in reopened.tasks if t.id == task1.id)
+        task2_reopened = next(t for t in reopened.tasks if t.id == task2.id)
+
+        assert task1_reopened.completed is True
+        assert task1_reopened.verified is True
+        assert task2_reopened.completed is False
+        assert task2_reopened.verified is False
+
+    def test_reopen_nonexistent_plan(self, plan_manager):
+        """Test reopening a plan that doesn't exist."""
+        result = plan_manager.reopen_plan("nonexistent")
+        assert result is False
+
+    def test_reopen_active_plan_fails(self, plan_manager):
+        """Test that reopening an active (non-completed) plan fails."""
+        plan = plan_manager.create_plan("Test", "sess123")
+
+        # Try to reopen a draft plan
+        result = plan_manager.reopen_plan(plan.id)
+        assert result is False
+
+        # Try to reopen an in-progress plan
+        plan_manager.submit_for_review(plan.id)
+        plan_manager.approve_plan(plan.id)
+        plan_manager.start_execution(plan.id)
+
+        result = plan_manager.reopen_plan(plan.id)
+        assert result is False
+
+    def test_reopen_with_reason(self, plan_manager):
+        """Test reopening with a reason logs it in progress."""
+        plan = plan_manager.create_plan("Test", "sess123")
+        plan_manager.submit_for_review(plan.id)
+        plan_manager.approve_plan(plan.id)
+        plan_manager.complete_plan(plan.id)
+
+        plan_manager.reopen_plan(plan.id, "Incomplete implementation")
+
+        reopened = plan_manager.get_plan(plan.id)
+        assert any(
+            "Incomplete implementation" in entry.message
+            for entry in reopened.progress_log
+        )
+
     def test_full_plan_lifecycle(self, plan_manager):
         """Test a complete plan lifecycle from creation to completion."""
         # Create
