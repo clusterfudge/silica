@@ -577,8 +577,15 @@ Output a brief guidance document (under 500 words) that a summarizer can use to 
                     thinking_content=None,
                 )
 
-            guidance = response.content[0].text
-            return guidance
+            # Extract text from response content
+            if not response.content:
+                return ""
+
+            for block in response.content:
+                if hasattr(block, "text"):
+                    return block.text
+
+            return ""
 
         except Exception as e:
             # If guidance generation fails, return empty string
@@ -699,7 +706,18 @@ Focus your summary on preserving this information:
                 thinking_content=None,
             )
 
-        summary = response.content[0].text
+        # Extract text from response content
+        summary = ""
+        if response.content:
+            for block in response.content:
+                if hasattr(block, "text"):
+                    summary += block.text
+
+        if not summary:
+            raise ValueError(
+                f"No text content in response (stop_reason: {response.stop_reason})"
+            )
+
         # For summary token counting, estimate tokens since it's just the summary text
         summary_token_count = self._estimate_token_count(summary)
         compaction_ratio = float(summary_token_count) / float(original_token_count)
@@ -791,7 +809,18 @@ Focus on preserving what the guidance identifies as important. Be comprehensive 
                 thinking_content=None,
             )
 
-        summary = response.content[0].text
+        # Extract text from response content
+        summary = ""
+        if response.content:
+            for block in response.content:
+                if hasattr(block, "text"):
+                    summary += block.text
+
+        if not summary:
+            raise ValueError(
+                f"No text content in response (stop_reason: {response.stop_reason})"
+            )
+
         summary_token_count = self._estimate_token_count(summary)
         compaction_ratio = (
             float(summary_token_count) / float(original_token_count)
