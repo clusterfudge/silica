@@ -641,6 +641,10 @@ class CLIUserInterface(UserInterface):
         thinking_tokens: int | None = None,
         thinking_cost: float | None = None,
         elapsed_seconds: float | None = None,
+        plan_slug: str | None = None,
+        plan_tasks_completed: int | None = None,
+        plan_tasks_verified: int | None = None,
+        plan_tasks_total: int | None = None,
     ) -> None:
         def fmt_k(n: int) -> str:
             """Format number with K suffix for thousands (e.g., 1.2K, 125K)."""
@@ -707,6 +711,13 @@ class CLIUserInterface(UserInterface):
                 minutes = int((elapsed_seconds % 3600) // 60)
                 time_str = f"{hours}h{minutes}m"
             parts.append((f"⏱ {time_str}", "dim"))
+
+        # Plan status if executing a plan
+        if plan_slug and plan_tasks_total is not None and plan_tasks_total > 0:
+            # Format: 📋 slug [verified✓/total]
+            verified = plan_tasks_verified or 0
+            plan_str = f"📋 {plan_slug} [{verified}✓/{plan_tasks_total}]"
+            parts.append((plan_str, "cyan"))
 
         # Assemble with " | " separators
         token_components = []

@@ -127,6 +127,10 @@ class UserInterface(ABC):
         thinking_tokens: int | None = None,
         thinking_cost: float | None = None,
         elapsed_seconds: float | None = None,
+        plan_slug: str | None = None,
+        plan_tasks_completed: int | None = None,
+        plan_tasks_verified: int | None = None,
+        plan_tasks_total: int | None = None,
     ) -> None:
         """
         Display token count information.
@@ -141,6 +145,10 @@ class UserInterface(ABC):
         :param thinking_tokens: Number of thinking tokens used
         :param thinking_cost: Cost of thinking tokens
         :param elapsed_seconds: Wall-clock time since user input in seconds
+        :param plan_slug: Short slug of the active plan (if executing)
+        :param plan_tasks_completed: Number of completed tasks in the plan
+        :param plan_tasks_verified: Number of verified tasks in the plan
+        :param plan_tasks_total: Total number of tasks in the plan
         """
 
     @abstractmethod

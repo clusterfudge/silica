@@ -1169,3 +1169,99 @@ class TestPushWorkflowStateTransitions:
         assert final.remote_workspace == "plan-full-workflow-plan"
         assert final.remote_branch == "plan/full-workflow-plan"
         assert any("Pushed to remote" in e.message for e in final.progress_log)
+
+
+class TestGetActivePlanStatusSlug:
+    """Tests for get_active_plan_status returning slug for token summary."""
+
+    def test_get_active_plan_status_includes_slug(self, mock_context, temp_persona_dir):
+        """Test that get_active_plan_status returns slug field."""
+        from silica.developer.tools.planning import get_active_plan_status
+
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan(
+            "Add User Avatars", "session123", root_dir=str(temp_persona_dir)
+        )
+        plan_manager.submit_for_review(plan.id)
+        plan_manager.approve_plan(plan.id)
+        plan_manager.start_execution(plan.id)
+
+        status = get_active_plan_status(mock_context)
+
+        assert status is not None
+        assert "slug" in status
+        assert status["slug"] == "add-user-avatars"
+
+    def test_get_active_plan_status_slug_special_chars(
+        self, mock_context, temp_persona_dir
+    ):
+        """Test slug generation handles special characters."""
+        from silica.developer.tools.planning import get_active_plan_status
+
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan(
+            "Fix Bug #123: Auth/OAuth Issue",
+            "session123",
+            root_dir=str(temp_persona_dir),
+        )
+        plan_manager.submit_for_review(plan.id)
+        plan_manager.approve_plan(plan.id)
+        plan_manager.start_execution(plan.id)
+
+        status = get_active_plan_status(mock_context)
+
+        assert status is not None
+        assert status["slug"] == "fix-bug-123-auth-oauth-issue"
+
+    def test_plan_status_for_token_summary_executing(
+        self, mock_context, temp_persona_dir
+    ):
+        """Test plan status fields needed for token summary display."""
+        from silica.developer.tools.planning import get_active_plan_status
+
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan(
+            "Test Feature", "session123", root_dir=str(temp_persona_dir)
+        )
+        plan.add_task("Task 1")
+        plan.add_task("Task 2")
+        plan.add_task("Task 3")
+        plan.tasks[0].completed = True
+        plan.tasks[0].verified = True
+        plan.tasks[1].completed = True
+        plan_manager.update_plan(plan)
+
+        plan_manager.submit_for_review(plan.id)
+        plan_manager.approve_plan(plan.id)
+        plan_manager.start_execution(plan.id)
+
+        status = get_active_plan_status(mock_context)
+
+        assert status is not None
+        assert status["status"] == "executing"
+        assert status["slug"] == "test-feature"
+        assert status["total_tasks"] == 3
+        assert status["verified_tasks"] == 1
+        assert status["incomplete_tasks"] == 1  # Task 3 is incomplete
+
+    def test_plan_status_not_shown_when_planning(self, mock_context, temp_persona_dir):
+        """Test that plan status is 'planning' for draft/in-review plans."""
+        from silica.developer.tools.planning import get_active_plan_status
+
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan(
+            "Draft Plan", "session123", root_dir=str(temp_persona_dir)
+        )
+        plan.add_task("Task 1")
+        plan_manager.update_plan(plan)
+
+        # Draft plan
+        status = get_active_plan_status(mock_context)
+        assert status is not None
+        assert status["status"] == "planning"
+        assert "slug" in status  # Slug should still be available
+
+        # In review plan
+        plan_manager.submit_for_review(plan.id)
+        status = get_active_plan_status(mock_context)
+        assert status["status"] == "planning"

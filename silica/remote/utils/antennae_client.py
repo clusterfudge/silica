@@ -285,3 +285,31 @@ class AntennaeClient:
         return self._make_request(
             "POST", "execute-plan", data, retries=retries, retry_delay=2.0
         )
+
+    def get_plan_status(
+        self,
+        plan_id: str,
+        retries: int = 2,
+    ) -> Tuple[bool, Dict[str, Any]]:
+        """Get status of a plan being executed in the workspace.
+
+        Args:
+            plan_id: ID of the plan to query
+            retries: Number of retries for transient failures
+
+        Returns:
+            Tuple of (success, response_data) where response_data contains:
+            - plan_id: str
+            - plan_title: str
+            - plan_slug: str
+            - status: str ("unknown", "draft", "in_progress", "completed", "abandoned")
+            - current_task: str | None
+            - tasks_completed: int
+            - tasks_verified: int
+            - tasks_total: int
+            - elapsed_seconds: float | None
+            - agent_status: str ("idle", "working", "error", "unknown")
+        """
+        return self._make_request(
+            "GET", f"plan-status/{plan_id}", retries=retries, retry_delay=1.0
+        )

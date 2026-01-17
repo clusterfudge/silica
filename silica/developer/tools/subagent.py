@@ -196,6 +196,10 @@ class CaptureInterface(UserInterface):
         thinking_tokens: int | None = None,
         thinking_cost: float | None = None,
         elapsed_seconds: float | None = None,
+        plan_slug: str | None = None,
+        plan_tasks_completed: int | None = None,
+        plan_tasks_verified: int | None = None,
+        plan_tasks_total: int | None = None,
     ):
         pass
 
