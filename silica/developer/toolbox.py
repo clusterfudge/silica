@@ -1490,11 +1490,13 @@ class Toolbox:
             with open(latest_archive, "r") as f:
                 archived_data = json.load(f)
 
-            # Extract chat history from archive
-            if "chat_history" not in archived_data:
-                return f"Error: Archive {latest_archive.name} has no chat_history"
-
-            archived_history = archived_data["chat_history"]
+            # Extract chat history from archive (key is "messages" in the archive format)
+            if "messages" in archived_data:
+                archived_history = archived_data["messages"]
+            elif "chat_history" in archived_data:
+                archived_history = archived_data["chat_history"]
+            else:
+                return f"Error: Archive {latest_archive.name} has no messages or chat_history"
             archived_count = len(archived_history)
             current_count = len(self.context.chat_history)
 
