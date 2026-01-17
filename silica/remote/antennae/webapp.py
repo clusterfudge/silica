@@ -601,19 +601,15 @@ async def get_connection_info():
 
 
 # Error handlers
-@app.exception_handler(404)
-async def not_found_handler(request, exc):
-    """Handle 404 errors with workspace context."""
-    return {
-        "error": "Not found",
-        "workspace": config.get_workspace_name(),
-        "message": "The requested endpoint was not found",
-    }
+@app.exception_handler(Exception)
+async def general_exception_handler(request, exc):
+    """Handle unexpected exceptions with workspace context."""
+    from starlette.responses import JSONResponse
 
+    # Don't override HTTPException - let FastAPI handle it
+    if isinstance(exc, HTTPException):
+        raise exc
 
-@app.exception_handler(500)
-async def internal_server_error_handler(request, exc):
-    """Handle 500 errors with workspace context."""
     workspace_name = config.get_workspace_name()
     logger.error(
         "internal_server_error",
@@ -621,11 +617,14 @@ async def internal_server_error_handler(request, exc):
         error=str(exc),
         exc_info=True,
     )
-    return {
-        "error": "Internal server error",
-        "workspace": workspace_name,
-        "message": "An unexpected error occurred",
-    }
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Internal server error",
+            "workspace": workspace_name,
+            "message": "An unexpected error occurred",
+        },
+    )
 
 
 if __name__ == "__main__":
