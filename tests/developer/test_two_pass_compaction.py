@@ -239,7 +239,8 @@ class TestGenerateSummaryWithContext:
         """Test that Pass 2 uses message prefix + summary request."""
         compacter.client.responses = ["Summary"]
 
-        messages_to_summarize = mock_agent_context.chat_history[:3]
+        # Use 2 messages (ends with assistant) so we don't drop any
+        messages_to_summarize = mock_agent_context.chat_history[:2]
         guidance = "Focus on the greeting"
 
         compacter._generate_summary_with_context(
@@ -248,6 +249,7 @@ class TestGenerateSummaryWithContext:
 
         call = compacter.client.messages.create_calls[0]
         # Should have prefix messages + summary request
+        # Prefix ends with assistant, so no messages dropped
         assert len(call["messages"]) == len(messages_to_summarize) + 1
         # Last message should contain guidance
         assert "Summary Guidance" in call["messages"][-1]["content"]

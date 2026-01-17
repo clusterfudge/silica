@@ -771,8 +771,17 @@ Focus your summary on preserving this information:
 Focus on preserving what the guidance identifies as important. Be comprehensive yet concise."""
 
         # Use the message prefix + summary request
-        # The prefix is the same bytes as the original, so it benefits from caching
+        # The prefix must end with assistant so we can append a user request
+        # If it ends with user, drop that last message (still benefits from cache on earlier messages)
         messages_for_summary = list(messages_to_summarize)
+        if messages_for_summary and messages_for_summary[-1].get("role") == "user":
+            messages_for_summary = messages_for_summary[:-1]
+
+        if not messages_for_summary:
+            raise ValueError(
+                "No messages remaining after ensuring valid conversation structure"
+            )
+
         messages_for_summary.append({"role": "user", "content": summary_request})
 
         # Estimate original token count
