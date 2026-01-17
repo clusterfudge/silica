@@ -249,10 +249,19 @@ class TestGenerateSummaryWithContext:
 
         call = compacter.client.messages.create_calls[0]
         # Should have prefix messages + summary request
-        # Prefix ends with assistant, so no messages dropped
+        # Prefix ends with assistant, so a new user message is appended
         assert len(call["messages"]) == len(messages_to_summarize) + 1
         # Last message should contain guidance
-        assert "Summary Guidance" in call["messages"][-1]["content"]
+        last_content = call["messages"][-1]["content"]
+        if isinstance(last_content, list):
+            content_str = " ".join(
+                block.get("text", "")
+                for block in last_content
+                if isinstance(block, dict)
+            )
+        else:
+            content_str = last_content
+        assert "Summary Guidance" in content_str
 
     def test_includes_guidance_in_request(self, compacter, mock_agent_context):
         """Test that guidance is included in the summary request."""
@@ -266,8 +275,18 @@ class TestGenerateSummaryWithContext:
         )
 
         call = compacter.client.messages.create_calls[0]
-        last_message = call["messages"][-1]["content"]
-        assert "Important: preserve the greeting context" in last_message
+        last_message_content = call["messages"][-1]["content"]
+        # Content may be string or list of blocks
+        if isinstance(last_message_content, list):
+            # Check if guidance appears in any text block
+            content_str = " ".join(
+                block.get("text", "")
+                for block in last_message_content
+                if isinstance(block, dict)
+            )
+        else:
+            content_str = last_message_content
+        assert "Important: preserve the greeting context" in content_str
 
 
 class TestGenerateSummaryWithGuidance:

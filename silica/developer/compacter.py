@@ -772,17 +772,39 @@ Focus on preserving what the guidance identifies as important. Be comprehensive 
 
         # Use the message prefix + summary request
         # The prefix must end with assistant so we can append a user request
-        # If it ends with user, drop that last message (still benefits from cache on earlier messages)
+        # Use the message prefix + summary request
+        # If prefix ends with user, append the summary request to that message
+        # If prefix ends with assistant, add a new user message
         messages_for_summary = list(messages_to_summarize)
-        if messages_for_summary and messages_for_summary[-1].get("role") == "user":
-            messages_for_summary = messages_for_summary[:-1]
 
         if not messages_for_summary:
-            raise ValueError(
-                "No messages remaining after ensuring valid conversation structure"
-            )
+            raise ValueError("No messages to summarize")
 
-        messages_for_summary.append({"role": "user", "content": summary_request})
+        if messages_for_summary[-1].get("role") == "user":
+            # Append summary request to the last user message as additional text block
+            last_msg = messages_for_summary[-1]
+            existing_content = last_msg.get("content", "")
+
+            if isinstance(existing_content, str):
+                # Convert to list format and add our request
+                new_content = [
+                    {"type": "text", "text": existing_content},
+                    {"type": "text", "text": "\n\n---\n\n" + summary_request},
+                ]
+            elif isinstance(existing_content, list):
+                # Already a list, append our request
+                new_content = list(existing_content)
+                new_content.append(
+                    {"type": "text", "text": "\n\n---\n\n" + summary_request}
+                )
+            else:
+                new_content = [{"type": "text", "text": summary_request}]
+
+            # Create a new message dict (don't mutate the original)
+            messages_for_summary[-1] = {"role": "user", "content": new_content}
+        else:
+            # Ends with assistant, safe to append new user message
+            messages_for_summary.append({"role": "user", "content": summary_request})
 
         # Estimate original token count
         original_token_count = self._estimate_token_count(
