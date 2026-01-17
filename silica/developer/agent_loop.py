@@ -838,7 +838,10 @@ async def run(
             context_window = getattr(agent_context, "_last_context_window", None)
 
             # Calculate elapsed time since user input
-            elapsed_seconds = time.time() - agent_work_start_time
+            # Only show elapsed time on final response (not during tool use loops)
+            elapsed_seconds = None
+            if final_message.stop_reason == "end_turn":
+                elapsed_seconds = time.time() - agent_work_start_time
 
             user_interface.display_token_count(
                 usage_summary["total_input_tokens"],
