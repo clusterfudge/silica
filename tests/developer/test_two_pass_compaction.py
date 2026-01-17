@@ -296,25 +296,30 @@ class TestTwoPassDecisionLogic:
         )
 
         # Mock count_tokens to return a small value (fits in context)
-        # Mock generate_summary to avoid real API context creation
+        # Mock _generate_summary_standalone since that's what single-pass uses now
         with patch.object(compacter, "should_compact", return_value=True):
             with patch.object(
                 compacter, "count_tokens", return_value=50000
             ):  # Well under 190k
                 with patch.object(
-                    compacter, "generate_summary", return_value=mock_summary
-                ) as mock_gen:
+                    compacter, "_generate_summary_standalone", return_value=mock_summary
+                ) as mock_standalone:
                     with patch.object(
-                        compacter, "_archive_and_rotate", return_value="archive.json"
-                    ):
-                        compacter.compact_conversation(
-                            mock_agent_context, "haiku", turns=2, force=True
-                        )
+                        compacter, "generate_summary_guidance"
+                    ) as mock_guidance:
+                        with patch.object(
+                            compacter,
+                            "_archive_and_rotate",
+                            return_value="archive.json",
+                        ):
+                            compacter.compact_conversation(
+                                mock_agent_context, "haiku", turns=2, force=True
+                            )
 
-        # Should call generate_summary (single-pass), not generate_summary_guidance
-        assert mock_gen.called
-        # generate_summary_guidance should NOT have been called
-        # (we can verify by checking that generate_summary was called without guidance flow)
+        # Single-pass should call _generate_summary_standalone (not guidance)
+        assert mock_standalone.called
+        # generate_summary_guidance should NOT have been called for single-pass
+        assert not mock_guidance.called
 
     def test_uses_two_pass_when_messages_exceed_limit(
         self, compacter, mock_agent_context

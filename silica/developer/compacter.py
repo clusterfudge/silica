@@ -111,15 +111,21 @@ class ConversationCompacter:
             for model_data in [get_model(ms) for ms in model_names()]
         }
 
-    def count_tokens(self, agent_context, model: str) -> int:
+    def count_tokens(
+        self, agent_context_or_dict, model: str, messages: list = None
+    ) -> int:
         """Count tokens for the complete context sent to the API.
 
         This method accurately counts tokens for the complete API call including
         system prompt, tools, and messages - fixing HDEV-61.
 
         Args:
-            agent_context: AgentContext instance to get full API context from
+            agent_context_or_dict: Either an AgentContext instance, or a dict with
+                'system', 'tools', and 'messages' keys. Using a dict allows testing
+                without a full AgentContext with memory_manager, etc.
             model: Model name or alias to use for token counting
+            messages: Optional override for messages (used when counting tokens
+                for a subset of messages with the same system/tools context)
 
         Returns:
             int: Number of tokens for the complete context
@@ -129,8 +135,19 @@ class ConversationCompacter:
         model = model_spec["title"]
 
         try:
-            # Get the full context that would be sent to the API
-            context_dict = agent_context.get_api_context()
+            # Get the full context - either from AgentContext or use dict directly
+            if isinstance(agent_context_or_dict, dict):
+                context_dict = agent_context_or_dict
+            else:
+                context_dict = agent_context_or_dict.get_api_context()
+
+            # Allow overriding messages (useful for counting subsets)
+            if messages is not None:
+                context_dict = {
+                    "system": context_dict["system"],
+                    "tools": context_dict["tools"],
+                    "messages": messages,
+                }
 
             # Check if conversation has incomplete tool_use without tool_result
             # This would cause an API error, so use estimation instead
@@ -221,7 +238,10 @@ class ConversationCompacter:
         except Exception as e:
             print(f"Error counting tokens for full context: {e}")
             # Fallback to estimation
-            context_dict = agent_context.get_api_context()
+            if isinstance(agent_context_or_dict, dict):
+                context_dict = agent_context_or_dict
+            else:
+                context_dict = agent_context_or_dict.get_api_context()
             return self._estimate_full_context_tokens(context_dict)
 
     def _has_incomplete_tool_use(self, messages: list) -> bool:
@@ -1008,29 +1028,17 @@ Be comprehensive yet concise. This summary will replace the original messages.""
         messages_to_summarize = agent_context.chat_history[:messages_to_compact]
         messages_to_keep = agent_context.chat_history[messages_to_compact:]
 
-        # Create a temporary context with just the messages to summarize
-        from silica.developer.context import AgentContext
-
-        temp_context = AgentContext(
-            parent_session_id=agent_context.parent_session_id,
-            session_id=agent_context.session_id,
-            model_spec=agent_context.model_spec,
-            sandbox=agent_context.sandbox,
-            user_interface=agent_context.user_interface,
-            usage=agent_context.usage,
-            memory_manager=agent_context.memory_manager,
-            history_base_dir=agent_context.history_base_dir,
-        )
-        temp_context._chat_history = messages_to_summarize
-
         # Check if messages to summarize fit within model's context window
         # Reserve 10k tokens for system prompt and response
+        # Use the messages override parameter to count tokens for just the subset
         model_spec = get_model(model)
         model_name = model_spec["title"]
         context_window = self.model_context_windows.get(model_name, 200000)
         max_input_tokens = context_window - 10000
 
-        messages_token_count = self.count_tokens(temp_context, model)
+        messages_token_count = self.count_tokens(
+            agent_context, model, messages=messages_to_summarize
+        )
 
         # If messages exceed context window, reduce the number of turns
         while messages_token_count > max_input_tokens and messages_to_compact > 3:
@@ -1040,8 +1048,9 @@ Be comprehensive yet concise. This summary will replace the original messages.""
 
             messages_to_summarize = agent_context.chat_history[:messages_to_compact]
             messages_to_keep = agent_context.chat_history[messages_to_compact:]
-            temp_context._chat_history = messages_to_summarize
-            messages_token_count = self.count_tokens(temp_context, model)
+            messages_token_count = self.count_tokens(
+                agent_context, model, messages=messages_to_summarize
+            )
 
             if debug_compaction:
                 print(
@@ -1080,7 +1089,10 @@ Be comprehensive yet concise. This summary will replace the original messages.""
                     f"[Compaction] Using single-pass compaction "
                     f"({messages_token_count:,}/{max_input_tokens:,} tokens)"
                 )
-            summary_obj = self.generate_summary(temp_context, model)
+            # Use standalone summary for the subset of messages (no guidance needed)
+            summary_obj = self._generate_summary_standalone(
+                messages_to_summarize, model, guidance=None
+            )
             summary = summary_obj.summary
 
         # Create new message history with summary + kept messages
