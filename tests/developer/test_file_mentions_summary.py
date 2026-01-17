@@ -7,63 +7,88 @@ from silica.developer.context import AgentContext
 from silica.developer.sandbox import Sandbox, SandboxMode
 from silica.developer.memory import MemoryManager
 
-
-class MockUserInterface:
-    def permission_callback(
-        self, action, resource, sandbox_mode, action_arguments, group=None
-    ):
-        return True
-
-    def permission_rendering_callback(self, action, resource, action_arguments):
-        pass
+# Import shared test fixtures
+from tests.developer.conftest import MockAnthropicClient, MockUserInterface
 
 
-class MockAnthropicClient:
-    """Mock Anthropic client for testing."""
+class MockFileMentionAnthropicClient(MockAnthropicClient):
+    """Extended mock Anthropic client for file mention tests.
+
+    Returns different token counts based on whether file content is present.
+    """
 
     def __init__(self):
-        self.messages = MockMessagesAPI()
+        super().__init__()
+        # Override the messages client with custom behavior
+        self.messages = MockFileMentionMessagesClient(self)
 
 
-class MockMessagesAPI:
-    """Mock Messages API for the Anthropic client."""
+class MockFileMentionMessagesClient:
+    """Mock Messages API that distinguishes file mentions in token counting."""
+
+    def __init__(self, parent):
+        self.parent = parent
+        self.create_calls = []
+        self.count_tokens_calls = []
 
     def count_tokens(self, model, system=None, messages=None, tools=None):
-        """Mock token counting that returns a fixed value."""
-        # Return different token counts for with/without file mentions to verify behavior
+        """Mock token counting that returns different values for file content."""
+        self.count_tokens_calls.append(
+            {
+                "model": model,
+                "system": system,
+                "messages": messages,
+                "tools": tools,
+            }
+        )
+        self.parent.count_tokens_called = True
+
+        # Return different token counts for with/without file mentions
         if messages and len(messages) > 0:
             message_content = str(messages[0].get("content", ""))
             if "<mentioned_file" in message_content:
-                return MockTokenCountResponse(100)  # With file content
+                count = 100  # With file content
             else:
-                return MockTokenCountResponse(50)  # Without file content
-        return MockTokenCountResponse(50)
+                count = 50  # Without file content
+        else:
+            count = 50
 
-    def create(self, model, system, messages, max_tokens):
+        class TokenResponse:
+            def __init__(self, token_count):
+                self.token_count = token_count
+
+        return TokenResponse(count)
+
+    def create(self, model, system, messages, max_tokens, tools=None, tool_choice=None):
         """Mock message creation that returns a fixed summary."""
-        return MockMessageResponse("This is a test summary.")
+        self.create_calls.append(
+            {
+                "model": model,
+                "system": system,
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "tools": tools,
+                "tool_choice": tool_choice,
+            }
+        )
+        self.parent.messages_create_called = True
 
+        class ContentItem:
+            def __init__(self, text):
+                self.text = text
+                self.type = "text"
 
-class MockTokenCountResponse:
-    """Mock response for token counting."""
+        class Usage:
+            input_tokens = 50
+            output_tokens = 20
 
-    def __init__(self, token_count):
-        self.token_count = token_count
+        class MessageResponse:
+            def __init__(self, content_text):
+                self.content = [ContentItem(content_text)]
+                self.usage = Usage()
+                self.stop_reason = "end_turn"
 
-
-class MockMessageResponse:
-    """Mock response for message creation."""
-
-    def __init__(self, summary):
-        self.content = [MockTextBlock(summary)]
-        self.usage = {"input_tokens": 50, "output_tokens": 20}
-
-
-class MockTextBlock:
-    """Mock text block for message response."""
-
-    def __init__(self, text):
-        self.text = text
+        return MessageResponse("This is a test summary.")
 
 
 class TestFileMentionSummary(unittest.TestCase):
@@ -80,7 +105,7 @@ class TestFileMentionSummary(unittest.TestCase):
             f.write("This is test file content.\nIt has multiple lines.\n")
 
         # Create a mock compacter with a mock client
-        self.compacter = ConversationCompacter(client=MockAnthropicClient())
+        self.compacter = ConversationCompacter(client=MockFileMentionAnthropicClient())
 
         # Create a test agent context
         self.ui = MockUserInterface()

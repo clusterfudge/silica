@@ -9,109 +9,8 @@ from unittest.mock import MagicMock, patch
 
 from silica.developer.compacter import ConversationCompacter
 
-
-class MockMessagesClient:
-    """Mock for the Anthropic messages client."""
-
-    def __init__(self, parent):
-        self.parent = parent
-        self.create_calls = []
-        self.count_tokens_calls = []
-
-    def count_tokens(self, model, system=None, messages=None, tools=None):
-        """Mock count_tokens that returns configurable token counts."""
-        self.count_tokens_calls.append(
-            {
-                "model": model,
-                "system": system,
-                "messages": messages,
-                "tools": tools,
-            }
-        )
-
-        # Return the configured token count or estimate from content
-        if self.parent.token_count is not None:
-            count = self.parent.token_count
-        else:
-            # Estimate from content
-            total_chars = 0
-            if system:
-                for block in system:
-                    if isinstance(block, dict) and block.get("type") == "text":
-                        total_chars += len(block.get("text", ""))
-            if messages:
-                for msg in messages:
-                    content = msg.get("content", "")
-                    if isinstance(content, str):
-                        total_chars += len(content)
-                    elif isinstance(content, list):
-                        for block in content:
-                            if isinstance(block, dict) and "text" in block:
-                                total_chars += len(block["text"])
-            count = max(1, total_chars // 4)
-
-        class TokenResponse:
-            def __init__(self, token_count):
-                self.token_count = token_count
-
-        return TokenResponse(count)
-
-    def create(self, model, system, messages, max_tokens, tools=None, tool_choice=None):
-        """Mock create that returns configurable responses."""
-        self.create_calls.append(
-            {
-                "model": model,
-                "system": system,
-                "messages": messages,
-                "max_tokens": max_tokens,
-                "tools": tools,
-                "tool_choice": tool_choice,
-            }
-        )
-
-        # Get the appropriate response
-        response_text = self.parent.get_next_response()
-
-        class ContentItem:
-            def __init__(self, text):
-                self.text = text
-                self.type = "text"
-
-        class Usage:
-            input_tokens = 100
-            output_tokens = 50
-
-        class MessageResponse:
-            def __init__(self, content_text):
-                self.content = [ContentItem(content_text)]
-                self.usage = Usage()
-                self.stop_reason = "end_turn"
-
-        return MessageResponse(response_text)
-
-
-class MockAnthropicClient:
-    """Mock Anthropic client for testing."""
-
-    def __init__(self, responses=None, token_count=None):
-        """Initialize mock client.
-
-        Args:
-            responses: List of response strings to return in order
-            token_count: Fixed token count to return (None = estimate)
-        """
-        self.responses = responses or ["Mock summary response"]
-        self.response_index = 0
-        self.token_count = token_count
-        self.messages = MockMessagesClient(self)
-
-    def get_next_response(self):
-        """Get the next response in the queue."""
-        if self.response_index < len(self.responses):
-            response = self.responses[self.response_index]
-            self.response_index += 1
-            return response
-        return self.responses[-1] if self.responses else "Default response"
+# Import shared test fixtures
+from tests.developer.conftest import MockAnthropicClient
 
 
 @pytest.fixture
@@ -165,6 +64,7 @@ class TestGenerateSummaryGuidance:
         compacter.client.responses = [
             "Key points to preserve:\n1. User greeted\n2. Assistant responded"
         ]
+        compacter.client.response_index = 0  # Reset for fresh responses
 
         guidance = compacter.generate_summary_guidance(
             mock_agent_context, "haiku", messages_to_compact_count=3
@@ -182,6 +82,7 @@ class TestGenerateSummaryGuidance:
     def test_includes_system_and_tools_for_cache(self, compacter, mock_agent_context):
         """Test that guidance request includes system and tools for cache efficiency."""
         compacter.client.responses = ["Guidance output"]
+        compacter.client.response_index = 0
 
         compacter.generate_summary_guidance(
             mock_agent_context, "haiku", messages_to_compact_count=3
@@ -206,6 +107,7 @@ class TestGenerateSummaryGuidance:
     def test_uses_full_conversation_context(self, compacter, mock_agent_context):
         """Test that guidance uses the full conversation context."""
         compacter.client.responses = ["Guidance output"]
+        compacter.client.response_index = 0
 
         compacter.generate_summary_guidance(
             mock_agent_context, "haiku", messages_to_compact_count=3
@@ -222,6 +124,7 @@ class TestGenerateSummaryWithContext:
     def test_uses_same_system_and_tools(self, compacter, mock_agent_context):
         """Test that Pass 2 uses same system/tools as original context."""
         compacter.client.responses = ["Summary with context"]
+        compacter.client.response_index = 0
 
         messages_to_summarize = mock_agent_context.chat_history[:3]
         guidance = "Focus on the greeting"
@@ -238,6 +141,7 @@ class TestGenerateSummaryWithContext:
     def test_uses_message_prefix_plus_request(self, compacter, mock_agent_context):
         """Test that Pass 2 uses message prefix + summary request."""
         compacter.client.responses = ["Summary"]
+        compacter.client.response_index = 0
 
         # Use 2 messages (ends with assistant) so we don't drop any
         messages_to_summarize = mock_agent_context.chat_history[:2]
@@ -266,6 +170,7 @@ class TestGenerateSummaryWithContext:
     def test_includes_guidance_in_request(self, compacter, mock_agent_context):
         """Test that guidance is included in the summary request."""
         compacter.client.responses = ["Summary with guidance"]
+        compacter.client.response_index = 0
 
         messages_to_summarize = mock_agent_context.chat_history[:3]
         guidance = "Important: preserve the greeting context"
@@ -295,6 +200,7 @@ class TestGenerateSummaryWithGuidance:
     def test_incorporates_guidance_into_prompt(self, compacter, mock_agent_context):
         """Test that guidance is incorporated into the system prompt."""
         compacter.client.responses = ["Summary with guidance applied"]
+        compacter.client.response_index = 0
 
         guidance = "Focus on: user greeting, assistant response quality"
         summary = compacter.generate_summary(
@@ -310,6 +216,7 @@ class TestGenerateSummaryWithGuidance:
     def test_works_without_guidance(self, compacter, mock_agent_context):
         """Test that generate_summary works without guidance (backward compatible)."""
         compacter.client.responses = ["Summary without guidance"]
+        compacter.client.response_index = 0
 
         summary = compacter.generate_summary(mock_agent_context, "haiku")
 
@@ -326,6 +233,7 @@ class TestTwoPassCompaction:
             "Guidance for summarization",  # Pass 1 response
             "Summary with guidance",  # Pass 2 response
         ]
+        compacter.client.response_index = 0
 
         with patch.object(compacter, "should_compact", return_value=True):
             with patch.object(
@@ -345,6 +253,7 @@ class TestTwoPassCompaction:
             "Guidance",
             "Summary",
         ]
+        compacter.client.response_index = 0
 
         with patch.object(compacter, "should_compact", return_value=True):
             with patch.object(
@@ -368,6 +277,7 @@ class TestTwoPassCompaction:
             "Guidance",
             "Summary",
         ]
+        compacter.client.response_index = 0
 
         with patch.object(compacter, "should_compact", return_value=True):
             with patch.object(

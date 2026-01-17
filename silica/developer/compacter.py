@@ -577,15 +577,7 @@ Output a brief guidance document (under 500 words) that a summarizer can use to 
                     thinking_content=None,
                 )
 
-            # Extract text from response content
-            if not response.content:
-                return ""
-
-            for block in response.content:
-                if hasattr(block, "text"):
-                    return block.text
-
-            return ""
+            return self._extract_text_from_response(response)
 
         except Exception as e:
             # If guidance generation fails, return empty string
@@ -706,12 +698,7 @@ Focus your summary on preserving this information:
                 thinking_content=None,
             )
 
-        # Extract text from response content
-        summary = ""
-        if response.content:
-            for block in response.content:
-                if hasattr(block, "text"):
-                    summary += block.text
+        summary = self._extract_text_from_response(response)
 
         if not summary:
             raise ValueError(
@@ -753,6 +740,42 @@ Focus your summary on preserving this information:
             last_block["cache_control"] = {"type": "ephemeral"}
             content[-1] = last_block
 
+    def _is_tool_result_only(self, content) -> bool:
+        """Check if content consists only of tool_result blocks (no text).
+
+        Args:
+            content: Message content (string or list of blocks)
+
+        Returns:
+            bool: True if content has tool_result blocks but no text blocks
+        """
+        if not isinstance(content, list):
+            return False
+
+        has_text = any(isinstance(b, dict) and b.get("type") == "text" for b in content)
+        has_tool_result = any(
+            isinstance(b, dict) and b.get("type") == "tool_result" for b in content
+        )
+        return has_tool_result and not has_text
+
+    def _extract_text_from_response(self, response) -> str:
+        """Extract and concatenate text from an API response.
+
+        Args:
+            response: Anthropic API response object
+
+        Returns:
+            str: Concatenated text from all text blocks in the response
+        """
+        if not response.content:
+            return ""
+
+        text_parts = []
+        for block in response.content:
+            if hasattr(block, "text"):
+                text_parts.append(block.text)
+        return "".join(text_parts)
+
     def _generate_summary_with_context(
         self,
         agent_context,
@@ -776,6 +799,9 @@ Focus your summary on preserving this information:
         Returns:
             CompactionSummary with the generated summary
         """
+        if not messages_to_summarize:
+            raise ValueError("No messages to summarize")
+
         # Resolve model alias to full model name for the API
         model_spec = get_model(model)
         model_name = model_spec["title"]
@@ -793,79 +819,10 @@ Focus your summary on preserving this information:
 
 Focus on preserving what the guidance identifies as important. Be comprehensive yet concise."""
 
-        # Use the message prefix + summary request
-        # The prefix must end with assistant so we can append a user request
-        # Use the message prefix + summary request
-        # If prefix ends with user, append the summary request to that message
-        # If prefix ends with assistant, add a new user message
-        messages_for_summary = list(messages_to_summarize)
-
-        if not messages_for_summary:
-            raise ValueError("No messages to summarize")
-
-        if messages_for_summary[-1].get("role") == "user":
-            # Check if the last user message is tool_result only (no text)
-            last_msg = messages_for_summary[-1]
-            existing_content = last_msg.get("content", "")
-
-            # Check if it's a tool_result-only message
-            is_tool_result_only = False
-            if isinstance(existing_content, list):
-                has_text = any(
-                    isinstance(b, dict) and b.get("type") == "text"
-                    for b in existing_content
-                )
-                has_tool_result = any(
-                    isinstance(b, dict) and b.get("type") == "tool_result"
-                    for b in existing_content
-                )
-                is_tool_result_only = has_tool_result and not has_text
-
-            if is_tool_result_only:
-                # For tool_result-only messages, we need the assistant to respond first
-                # First, add cache_control to the last block to mark cache boundary
-                self._add_cache_control_to_last_block(messages_for_summary[-1])
-                # Add a minimal assistant acknowledgment, then our user request
-                messages_for_summary.append(
-                    {
-                        "role": "assistant",
-                        "content": "I'll analyze the conversation for summarization.",
-                    }
-                )
-                messages_for_summary.append(
-                    {"role": "user", "content": summary_request}
-                )
-            elif isinstance(existing_content, str):
-                # Convert to list format with cache_control on original, then add request
-                new_content = [
-                    {
-                        "type": "text",
-                        "text": existing_content,
-                        "cache_control": {"type": "ephemeral"},
-                    },
-                    {"type": "text", "text": "\n\n---\n\n" + summary_request},
-                ]
-                messages_for_summary[-1] = {"role": "user", "content": new_content}
-            elif isinstance(existing_content, list):
-                # Already a list, add cache_control to last block, then append request
-                new_content = list(existing_content)
-                if new_content:
-                    # Add cache_control to the last block
-                    last_block = dict(new_content[-1])
-                    last_block["cache_control"] = {"type": "ephemeral"}
-                    new_content[-1] = last_block
-                new_content.append(
-                    {"type": "text", "text": "\n\n---\n\n" + summary_request}
-                )
-                messages_for_summary[-1] = {"role": "user", "content": new_content}
-            else:
-                new_content = [{"type": "text", "text": summary_request}]
-                messages_for_summary[-1] = {"role": "user", "content": new_content}
-        else:
-            # Ends with assistant, add cache_control then append new user message
-            self._add_cache_control_to_last_block(messages_for_summary[-1])
-            # Ends with assistant, safe to append new user message
-            messages_for_summary.append({"role": "user", "content": summary_request})
+        # Prepare messages with summary request appended appropriately
+        messages_for_summary = self._prepare_messages_for_summary(
+            messages_to_summarize, summary_request
+        )
 
         # Estimate original token count
         original_token_count = self._estimate_token_count(
@@ -901,12 +858,7 @@ Focus on preserving what the guidance identifies as important. Be comprehensive 
                 thinking_content=None,
             )
 
-        # Extract text from response content
-        summary = ""
-        if response.content:
-            for block in response.content:
-                if hasattr(block, "text"):
-                    summary += block.text
+        summary = self._extract_text_from_response(response)
 
         if not summary:
             raise ValueError(
@@ -927,6 +879,80 @@ Focus on preserving what the guidance identifies as important. Be comprehensive 
             compaction_ratio=compaction_ratio,
             summary=summary,
         )
+
+    def _prepare_messages_for_summary(
+        self, messages_to_summarize: List[MessageParam], summary_request: str
+    ) -> List[MessageParam]:
+        """Prepare messages for summary generation by appending the summary request.
+
+        Uses guard clauses to handle different message ending scenarios:
+        - Ends with assistant: append new user message
+        - Ends with tool_result-only user message: add assistant acknowledgment + user request
+        - Ends with user message (string content): convert to list and append request
+        - Ends with user message (list content): add cache control and append request
+
+        Args:
+            messages_to_summarize: Original messages to summarize
+            summary_request: The summary request text to append
+
+        Returns:
+            List of messages ready for the summarization API call
+        """
+        messages_for_summary = list(messages_to_summarize)
+        last_msg = messages_for_summary[-1]
+
+        # Guard: ends with assistant - just append new user message
+        if last_msg.get("role") != "user":
+            self._add_cache_control_to_last_block(messages_for_summary[-1])
+            messages_for_summary.append({"role": "user", "content": summary_request})
+            return messages_for_summary
+
+        existing_content = last_msg.get("content", "")
+
+        # Guard: tool_result-only message needs assistant acknowledgment first
+        if self._is_tool_result_only(existing_content):
+            self._add_cache_control_to_last_block(messages_for_summary[-1])
+            messages_for_summary.append(
+                {
+                    "role": "assistant",
+                    "content": "I'll analyze the conversation for summarization.",
+                }
+            )
+            messages_for_summary.append({"role": "user", "content": summary_request})
+            return messages_for_summary
+
+        # Guard: string content - convert to list format
+        if isinstance(existing_content, str):
+            new_content = [
+                {
+                    "type": "text",
+                    "text": existing_content,
+                    "cache_control": {"type": "ephemeral"},
+                },
+                {"type": "text", "text": "\n\n---\n\n" + summary_request},
+            ]
+            messages_for_summary[-1] = {"role": "user", "content": new_content}
+            return messages_for_summary
+
+        # Guard: list content - add cache control and append request
+        if isinstance(existing_content, list):
+            new_content = list(existing_content)
+            if new_content:
+                last_block = dict(new_content[-1])
+                last_block["cache_control"] = {"type": "ephemeral"}
+                new_content[-1] = last_block
+            new_content.append(
+                {"type": "text", "text": "\n\n---\n\n" + summary_request}
+            )
+            messages_for_summary[-1] = {"role": "user", "content": new_content}
+            return messages_for_summary
+
+        # Fallback: unknown content type - just set the summary request
+        messages_for_summary[-1] = {
+            "role": "user",
+            "content": [{"type": "text", "text": summary_request}],
+        }
+        return messages_for_summary
 
     def _archive_and_rotate(
         self,
@@ -1127,15 +1153,10 @@ Focus on preserving what the guidance identifies as important. Be comprehensive 
             # Adjust to compact all messages except the last one
             messages_to_compact = len(agent_context.chat_history) - 1
             adjusted_turns = (messages_to_compact + 1) // 2
-            print(
-                f"Initiating compaction of {messages_to_compact} messages "
-                f"({adjusted_turns} turns, adjusted from {turns})..."
-            )
             turns = adjusted_turns
-        else:
-            print(
-                f"Initiating compaction of first {turns} turns ({messages_to_compact} messages)..."
-            )
+
+        # Show progress: starting compaction
+        print("Compacting conversation...")
 
         # Separate messages to compact from messages to keep
         messages_to_summarize = agent_context.chat_history[:messages_to_compact]
@@ -1152,6 +1173,9 @@ Focus on preserving what the guidance identifies as important. Be comprehensive 
         #   - Messages 1-N are a PREFIX of the original → cached
         #   - Only the guidance/summary request is new
 
+        # Show progress: Pass 1
+        print("Pass 1/2: Analyzing context for key information...")
+
         if debug_compaction:
             print(
                 "[Compaction] Pass 1: Generating summary guidance from full context..."
@@ -1163,7 +1187,9 @@ Focus on preserving what the guidance identifies as important. Be comprehensive 
 
         if debug_compaction:
             print(f"[Compaction] Pass 1 complete. Guidance: {len(guidance)} chars")
-            print(f"[Compaction] Pass 2: Summarizing {messages_to_compact} messages...")
+
+        # Show progress: Pass 2
+        print("Pass 2/2: Generating summary...")
 
         # Pass 2: Use same system/tools + message prefix + guidance
         summary_obj = self._generate_summary_with_context(
@@ -1422,22 +1448,31 @@ Focus on preserving what the guidance identifies as important. Be comprehensive 
 
             if metadata:
                 # Calculate actual reduction for user feedback
-                if metadata.original_token_count > 0:
-                    reduction_pct = (
+                if metadata.original_message_count > 0:
+                    msg_reduction_pct = (
                         1
                         - metadata.compacted_message_count
                         / metadata.original_message_count
                     ) * 100
                 else:
-                    reduction_pct = 0
+                    msg_reduction_pct = 0
 
-                # Notify user about the compaction
+                # Format token counts compactly (e.g., "225K" or "8K")
+                def format_tokens(tokens: int) -> str:
+                    if tokens >= 1000:
+                        return f"{tokens / 1000:.0f}K"
+                    return str(tokens)
+
+                orig_tokens = format_tokens(metadata.original_token_count)
+                summary_tokens = format_tokens(metadata.summary_token_count)
+
+                # Notify user about the compaction with compact summary
                 user_interface.handle_system_message(
-                    f"[bold green]Conversation compacted: "
-                    f"{metadata.original_message_count} messages → "
-                    f"{metadata.compacted_message_count} messages "
-                    f"({reduction_pct:.0f}% reduction, "
-                    f"archived to {metadata.archive_name})[/bold green]",
+                    f"[bold green]✓ Compacted: "
+                    f"{metadata.original_message_count} msgs → {metadata.compacted_message_count} msgs "
+                    f"({msg_reduction_pct:.0f}% reduction) | "
+                    f"{orig_tokens} → {summary_tokens} tokens | "
+                    f"archived to {metadata.archive_name}[/bold green]",
                     markdown=False,
                 )
 
