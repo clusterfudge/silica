@@ -1136,6 +1136,82 @@ def verify_plan_task(
 
 
 @tool(group="Planning")
+def reopen_plan(
+    context: "AgentContext",
+    plan_id: str,
+    reason: str = "",
+) -> str:
+    """Reopen a completed or abandoned plan.
+
+    Use this when a plan was incorrectly marked as completed, or when
+    additional work is needed on a previously completed plan.
+
+    Task completion/verification state is preserved - you can decide
+    which tasks need to be redone.
+
+    Args:
+        plan_id: ID of the plan to reopen
+        reason: Optional reason for reopening (e.g., "incomplete implementation",
+                "missed requirements", "tests failing")
+
+    Returns:
+        Confirmation message with next steps
+    """
+    plan_manager = _get_plan_manager(context)
+    plan = plan_manager.get_plan(plan_id)
+
+    if plan is None:
+        return f"Error: Plan {plan_id} not found"
+
+    if plan.status not in (PlanStatus.COMPLETED, PlanStatus.ABANDONED):
+        return f"Error: Can only reopen COMPLETED or ABANDONED plans (current: {plan.status.value})"
+
+    if not plan_manager.reopen_plan(plan_id, reason):
+        return f"Error: Failed to reopen plan {plan_id}"
+
+    # Set as active plan in context
+    context.active_plan_id = plan_id
+
+    # Refresh plan to get updated state
+    plan = plan_manager.get_plan(plan_id)
+
+    # Build task summary
+    incomplete = plan.get_incomplete_tasks()
+    unverified = plan.get_unverified_tasks()
+    verified = [t for t in plan.tasks if t.verified]
+
+    task_summary = ""
+    if plan.tasks:
+        task_summary = "\n\n**Task Status:**\n"
+        for t in plan.tasks[:8]:
+            if t.verified:
+                status = "✓✓"
+            elif t.completed:
+                status = "✅"
+            else:
+                status = "⬜"
+            task_summary += f"- {status} `{t.id}`: {t.description}\n"
+        if len(plan.tasks) > 8:
+            task_summary += f"- ... and {len(plan.tasks) - 8} more tasks\n"
+
+    return f"""🔄 **Plan Reopened**
+
+Plan `{plan_id}`: **{plan.title}**
+
+{f"**Reason:** {reason}" if reason else ""}
+
+Status changed to IN_PROGRESS.
+{task_summary}
+**Summary:** {len(verified)} verified, {len(unverified)} completed but unverified, {len(incomplete)} incomplete
+
+**Next steps:**
+1. Review which tasks need to be redone
+2. Work through incomplete/unverified tasks
+3. Call `complete_plan("{plan_id}")` when finished
+"""
+
+
+@tool(group="Planning")
 def complete_plan(
     context: "AgentContext",
     plan_id: str,

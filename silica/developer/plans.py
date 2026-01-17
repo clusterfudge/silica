@@ -974,6 +974,49 @@ class PlanManager:
             return True
         return False
 
+    def reopen_plan(self, plan_id: str, reason: str = "") -> bool:
+        """Reopen a completed or abandoned plan.
+
+        Transitions the plan back to IN_PROGRESS status and moves it
+        from the completed directory back to the active directory.
+        Task completion/verification state is preserved - the user or
+        agent can decide which tasks need to be redone.
+
+        Args:
+            plan_id: ID of the plan to reopen
+            reason: Optional reason for reopening
+
+        Returns:
+            True if successful, False otherwise
+        """
+        plan = self.get_plan(plan_id)
+        if not plan:
+            return False
+
+        if plan.status not in [PlanStatus.COMPLETED, PlanStatus.ABANDONED]:
+            return False  # Can only reopen completed or abandoned plans
+
+        # Clear completion notes since we're reopening
+        plan.completion_notes = ""
+
+        # Transition to IN_PROGRESS
+        plan.status = PlanStatus.IN_PROGRESS
+
+        if reason:
+            plan.add_progress(f"Plan reopened: {reason}")
+        else:
+            plan.add_progress("Plan reopened")
+
+        # Remove from completed directory
+        for directory, _ in self._get_all_completed_dirs():
+            completed_file = directory / f"{plan.id}.md"
+            if completed_file.exists():
+                completed_file.unlink()
+
+        # Save to active directory
+        self._save_plan(plan)
+        return True
+
     def _save_plan(self, plan: Plan) -> None:
         """Save a plan to the appropriate directory based on its storage_location."""
         active_dir, completed_dir = self._get_dirs_for_location(plan.storage_location)

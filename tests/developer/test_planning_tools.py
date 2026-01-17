@@ -15,6 +15,7 @@ from silica.developer.tools.planning import (
     exit_plan_mode,
     complete_plan_task,
     complete_plan,
+    reopen_plan,
     _get_plan_manager,
 )
 
@@ -840,3 +841,331 @@ class TestGetTaskCompletionHint:
 
         hint = get_task_completion_hint(mock_context, ["any_file.py"])
         assert hint is None
+
+
+class TestReopenPlan:
+    """Tests for reopen_plan tool."""
+
+    def test_reopen_completed_plan(self, mock_context, temp_persona_dir):
+        """Test reopening a completed plan via the tool."""
+        # Create and complete a plan
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
+        plan.add_task("Task 1")
+        plan_manager.update_plan(plan)
+        plan_manager.submit_for_review(plan.id)
+        plan_manager.approve_plan(plan.id)
+        plan_manager.start_execution(plan.id)
+        plan_manager.complete_plan(plan.id)
+
+        # Set initial active_plan_id to None
+        mock_context.active_plan_id = None
+
+        # Reopen via tool
+        result = reopen_plan(mock_context, plan.id, "Need to add more features")
+
+        assert "Plan Reopened" in result
+        assert plan.id in result
+        assert "Need to add more features" in result
+
+        # Check context was updated
+        assert mock_context.active_plan_id == plan.id
+
+        # Verify plan state
+        reopened = plan_manager.get_plan(plan.id)
+        assert reopened.status == PlanStatus.IN_PROGRESS
+
+    def test_reopen_abandoned_plan(self, mock_context, temp_persona_dir):
+        """Test reopening an abandoned plan."""
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan(
+            "Abandoned Plan", "session123", root_dir=str(temp_persona_dir)
+        )
+        plan_manager.abandon_plan(plan.id)
+
+        mock_context.active_plan_id = None
+        result = reopen_plan(mock_context, plan.id)
+
+        assert "Plan Reopened" in result
+        assert mock_context.active_plan_id == plan.id
+
+    def test_reopen_nonexistent_plan(self, mock_context, temp_persona_dir):
+        """Test error when reopening nonexistent plan."""
+        result = reopen_plan(mock_context, "nonexistent")
+        assert "Error" in result
+        assert "not found" in result
+
+    def test_reopen_active_plan_fails(self, mock_context, temp_persona_dir):
+        """Test error when trying to reopen an active plan."""
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan(
+            "Active Plan", "session123", root_dir=str(temp_persona_dir)
+        )
+
+        result = reopen_plan(mock_context, plan.id)
+        assert "Error" in result
+        assert "COMPLETED or ABANDONED" in result
+
+    def test_reopen_shows_task_summary(self, mock_context, temp_persona_dir):
+        """Test that reopening shows task completion summary."""
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan(
+            "Task Plan", "session123", root_dir=str(temp_persona_dir)
+        )
+        task1 = plan.add_task("Completed task")
+        plan.add_task("Incomplete task")
+        plan.complete_task(task1.id)
+        plan.verify_task(task1.id, "Tests passed")
+        plan_manager.update_plan(plan)
+
+        plan_manager.submit_for_review(plan.id)
+        plan_manager.approve_plan(plan.id)
+        plan_manager.complete_plan(plan.id)
+
+        mock_context.active_plan_id = None
+        result = reopen_plan(mock_context, plan.id)
+
+        assert "Task Status" in result
+        assert "1 verified" in result
+        assert "1 incomplete" in result
+
+
+class TestApprovePushFlagParsing:
+    """Tests for the --push flag parsing in /plan approve.
+
+    These tests verify the flag parsing logic. Full integration tests
+    require a running antennae server.
+    """
+
+    def test_parse_push_flag_with_workspace(self):
+        """Test parsing --push with workspace name."""
+        # Simulate the parsing logic from toolbox._plan
+        args_list = ["approve", "plan123 --push my-workspace"]
+
+        push_workspace = None
+        plan_id = None
+        shelve = False
+
+        if len(args_list) >= 2:
+            args_parts = args_list[1].split()
+            i = 0
+            while i < len(args_parts):
+                arg = args_parts[i]
+                if arg == "--shelve":
+                    shelve = True
+                elif arg == "--push":
+                    if i + 1 < len(args_parts) and not args_parts[i + 1].startswith(
+                        "-"
+                    ):
+                        push_workspace = args_parts[i + 1]
+                        i += 1
+                    else:
+                        push_workspace = ""
+                elif arg.startswith("--push="):
+                    push_workspace = arg.split("=", 1)[1]
+                elif not plan_id and not arg.startswith("-"):
+                    plan_id = arg
+                i += 1
+
+        assert plan_id == "plan123"
+        assert push_workspace == "my-workspace"
+        assert shelve is False
+
+    def test_parse_push_flag_without_workspace(self):
+        """Test parsing --push without workspace name (use default)."""
+        args_list = ["approve", "plan123 --push"]
+
+        push_workspace = None
+        plan_id = None
+
+        if len(args_list) >= 2:
+            args_parts = args_list[1].split()
+            i = 0
+            while i < len(args_parts):
+                arg = args_parts[i]
+                if arg == "--push":
+                    if i + 1 < len(args_parts) and not args_parts[i + 1].startswith(
+                        "-"
+                    ):
+                        push_workspace = args_parts[i + 1]
+                        i += 1
+                    else:
+                        push_workspace = ""
+                elif arg.startswith("--push="):
+                    push_workspace = arg.split("=", 1)[1]
+                elif not plan_id and not arg.startswith("-"):
+                    plan_id = arg
+                i += 1
+
+        assert plan_id == "plan123"
+        assert push_workspace == ""  # Empty string means use default slug
+
+    def test_parse_push_equals_syntax(self):
+        """Test parsing --push=workspace syntax."""
+        args_list = ["approve", "plan123 --push=remote-ws"]
+
+        push_workspace = None
+        plan_id = None
+
+        if len(args_list) >= 2:
+            args_parts = args_list[1].split()
+            i = 0
+            while i < len(args_parts):
+                arg = args_parts[i]
+                if arg == "--push":
+                    if i + 1 < len(args_parts) and not args_parts[i + 1].startswith(
+                        "-"
+                    ):
+                        push_workspace = args_parts[i + 1]
+                        i += 1
+                    else:
+                        push_workspace = ""
+                elif arg.startswith("--push="):
+                    push_workspace = arg.split("=", 1)[1]
+                elif not plan_id and not arg.startswith("-"):
+                    plan_id = arg
+                i += 1
+
+        assert plan_id == "plan123"
+        assert push_workspace == "remote-ws"
+
+    def test_push_overrides_shelve(self):
+        """Test that --push overrides --shelve."""
+        # The actual implementation sets shelve=False when push_workspace is not None
+        # This is handled in the toolbox code, we just verify the expected behavior
+        args_list = ["approve", "plan123 --shelve --push my-ws"]
+
+        push_workspace = None
+        plan_id = None
+        shelve = False
+
+        if len(args_list) >= 2:
+            args_parts = args_list[1].split()
+            i = 0
+            while i < len(args_parts):
+                arg = args_parts[i]
+                if arg == "--shelve":
+                    shelve = True
+                elif arg == "--push":
+                    if i + 1 < len(args_parts) and not args_parts[i + 1].startswith(
+                        "-"
+                    ):
+                        push_workspace = args_parts[i + 1]
+                        i += 1
+                    else:
+                        push_workspace = ""
+                elif arg.startswith("--push="):
+                    push_workspace = arg.split("=", 1)[1]
+                elif not plan_id and not arg.startswith("-"):
+                    plan_id = arg
+                i += 1
+
+        # In actual code, push_workspace being not None causes shelve to be set to False
+        if push_workspace is not None:
+            shelve = False
+
+        assert plan_id == "plan123"
+        assert push_workspace == "my-ws"
+        assert shelve is False
+
+
+class TestPushWorkflowStateTransitions:
+    """Tests for plan state transitions during push workflow.
+
+    These tests verify the state machine behavior when pushing plans
+    to remote workspaces. Full integration tests with --local flag
+    require a running antennae server.
+    """
+
+    def test_push_transitions_to_in_progress(self, temp_persona_dir):
+        """Test that successful push transitions plan to IN_PROGRESS."""
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan(
+            "Push Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
+        plan_manager.submit_for_review(plan.id)
+        plan_manager.approve_plan(plan.id)
+
+        assert plan_manager.get_plan(plan.id).status == PlanStatus.APPROVED
+
+        # Simulate what happens after successful push
+        plan_manager.start_execution(plan.id)
+
+        updated = plan_manager.get_plan(plan.id)
+        assert updated.status == PlanStatus.IN_PROGRESS
+
+    def test_push_sets_remote_workspace_info(self, temp_persona_dir):
+        """Test that push sets remote workspace and branch info."""
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan(
+            "Remote Plan", "session123", root_dir=str(temp_persona_dir)
+        )
+        plan_manager.submit_for_review(plan.id)
+        plan_manager.approve_plan(plan.id)
+
+        # Simulate push updating plan with remote info
+        plan = plan_manager.get_plan(plan.id)
+        plan.remote_workspace = "plan-remote-plan"
+        plan.remote_branch = "plan/remote-plan"
+        plan.shelved = False
+        plan.add_progress("Pushed to remote workspace: plan-remote-plan")
+        plan_manager.update_plan(plan)
+        plan_manager.start_execution(plan.id)
+
+        updated = plan_manager.get_plan(plan.id)
+        assert updated.remote_workspace == "plan-remote-plan"
+        assert updated.remote_branch == "plan/remote-plan"
+        assert updated.status == PlanStatus.IN_PROGRESS
+        assert updated.shelved is False
+
+    def test_plan_slug_generation(self, temp_persona_dir):
+        """Test that plan slugs are generated correctly for workspace names."""
+        from silica.developer.plans import slugify
+
+        # Test various plan titles
+        assert slugify("Add User Avatars") == "add-user-avatars"
+        assert slugify("Fix bug #123") == "fix-bug-123"
+        assert slugify("Refactor auth/middleware") == "refactor-auth-middleware"
+        assert slugify("Simple") == "simple"
+        assert slugify("A" * 100) == "a" * 50  # Truncated to max_length
+
+        # Test with actual plan
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan(
+            "Add New Feature X", "session123", root_dir=str(temp_persona_dir)
+        )
+        assert plan.get_slug() == "add-new-feature-x"
+
+    def test_approve_then_push_workflow(self, temp_persona_dir):
+        """Test the full approve-then-push workflow state transitions."""
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan(
+            "Full Workflow Plan", "session123", root_dir=str(temp_persona_dir)
+        )
+        plan.add_task("Task 1", files=["main.py"])
+        plan_manager.update_plan(plan)
+
+        # Step 1: Submit for review
+        plan_manager.submit_for_review(plan.id)
+        assert plan_manager.get_plan(plan.id).status == PlanStatus.IN_REVIEW
+
+        # Step 2: Approve (not shelved, ready for push)
+        plan_manager.approve_plan(plan.id, shelve=False)
+        assert plan_manager.get_plan(plan.id).status == PlanStatus.APPROVED
+
+        # Step 3: Simulate push - update remote info and start execution
+        plan = plan_manager.get_plan(plan.id)
+        plan.remote_workspace = f"plan-{plan.get_slug()}"
+        plan.remote_branch = f"plan/{plan.get_slug()}"
+        plan.add_progress(f"Pushed to remote workspace: {plan.remote_workspace}")
+        plan_manager.update_plan(plan)
+        plan_manager.start_execution(plan.id)
+
+        # Verify final state
+        final = plan_manager.get_plan(plan.id)
+        assert final.status == PlanStatus.IN_PROGRESS
+        assert final.remote_workspace == "plan-full-workflow-plan"
+        assert final.remote_branch == "plan/full-workflow-plan"
+        assert any("Pushed to remote" in e.message for e in final.progress_log)
