@@ -82,7 +82,7 @@ class MockAnthropicClient:
 
             return TokenResponse(token_count)
 
-        def create(self, model, system, messages, max_tokens):
+        def create(self, model, system, messages, max_tokens, tools=None):
             """Mock for the messages.create method."""
             self.parent.messages_create_called = True
 
@@ -91,8 +91,14 @@ class MockAnthropicClient:
                 def __init__(self, text):
                     self.text = text
 
+            class Usage:
+                input_tokens = 100
+                output_tokens = 50
+
             class MessageResponse:
                 def __init__(self, content_text):
+                    self.usage = Usage()
+                    self.stop_reason = "end_turn"
                     self.content = [ContentItem(content_text)]
 
             return MessageResponse(self.parent.response_content)

@@ -1,14 +1,13 @@
 """Tests for two-pass compaction strategy.
 
-Tests the generate_summary_guidance(), generate_summary() with guidance,
-_generate_summary_standalone(), and the two-pass decision logic in compact_conversation().
+Tests the generate_summary_guidance(), _generate_summary_with_context(),
+and the two-pass compaction flow in compact_conversation().
 """
 
 import pytest
 from unittest.mock import MagicMock, patch
-from pathlib import Path
 
-from silica.developer.compacter import ConversationCompacter, CompactionSummary
+from silica.developer.compacter import ConversationCompacter
 
 
 class MockMessagesClient:
@@ -57,7 +56,7 @@ class MockMessagesClient:
 
         return TokenResponse(count)
 
-    def create(self, model, system, messages, max_tokens):
+    def create(self, model, system, messages, max_tokens, tools=None):
         """Mock create that returns configurable responses."""
         self.create_calls.append(
             {
@@ -65,6 +64,7 @@ class MockMessagesClient:
                 "system": system,
                 "messages": messages,
                 "max_tokens": max_tokens,
+                "tools": tools,
             }
         )
 
@@ -136,7 +136,7 @@ def mock_agent_context():
     context.user_interface = MagicMock()
     context.usage = MagicMock()
     context.memory_manager = None
-    context.history_base_dir = Path("/tmp/test")
+    context.history_base_dir = None
     context.thinking_mode = "off"
     context.chat_history = [
         {"role": "user", "content": "Hello"},
@@ -149,7 +149,7 @@ def mock_agent_context():
     # Mock get_api_context
     context.get_api_context.return_value = {
         "system": [{"type": "text", "text": "You are a helpful assistant."}],
-        "tools": [],
+        "tools": [{"name": "test_tool", "description": "A test tool"}],
         "messages": context.chat_history,
     }
 
@@ -157,7 +157,7 @@ def mock_agent_context():
 
 
 class TestGenerateSummaryGuidance:
-    """Tests for generate_summary_guidance() method."""
+    """Tests for generate_summary_guidance() method (Pass 1)."""
 
     def test_generates_guidance_successfully(self, compacter, mock_agent_context):
         """Test that guidance is generated from conversation context."""
@@ -177,6 +177,19 @@ class TestGenerateSummaryGuidance:
         last_message = call["messages"][-1]
         assert "compact" in last_message["content"].lower()
         assert "3" in last_message["content"]  # messages_to_compact_count
+
+    def test_includes_system_and_tools_for_cache(self, compacter, mock_agent_context):
+        """Test that guidance request includes system and tools for cache efficiency."""
+        compacter.client.responses = ["Guidance output"]
+
+        compacter.generate_summary_guidance(
+            mock_agent_context, "haiku", messages_to_compact_count=3
+        )
+
+        call = compacter.client.messages.create_calls[0]
+        # Should include system prompt and tools for cache efficiency
+        assert call["system"] is not None
+        assert call["tools"] is not None
 
     def test_returns_empty_on_error(self, compacter, mock_agent_context):
         """Test that empty string is returned when guidance generation fails."""
@@ -202,8 +215,60 @@ class TestGenerateSummaryGuidance:
         assert len(call["messages"]) == len(mock_agent_context.chat_history) + 1
 
 
+class TestGenerateSummaryWithContext:
+    """Tests for _generate_summary_with_context() method (Pass 2)."""
+
+    def test_uses_same_system_and_tools(self, compacter, mock_agent_context):
+        """Test that Pass 2 uses same system/tools as original context."""
+        compacter.client.responses = ["Summary with context"]
+
+        messages_to_summarize = mock_agent_context.chat_history[:3]
+        guidance = "Focus on the greeting"
+
+        compacter._generate_summary_with_context(
+            mock_agent_context, messages_to_summarize, "haiku", guidance
+        )
+
+        call = compacter.client.messages.create_calls[0]
+        # Should use the same system and tools from original context
+        assert call["system"] == mock_agent_context.get_api_context()["system"]
+        assert call["tools"] == mock_agent_context.get_api_context()["tools"]
+
+    def test_uses_message_prefix_plus_request(self, compacter, mock_agent_context):
+        """Test that Pass 2 uses message prefix + summary request."""
+        compacter.client.responses = ["Summary"]
+
+        messages_to_summarize = mock_agent_context.chat_history[:3]
+        guidance = "Focus on the greeting"
+
+        compacter._generate_summary_with_context(
+            mock_agent_context, messages_to_summarize, "haiku", guidance
+        )
+
+        call = compacter.client.messages.create_calls[0]
+        # Should have prefix messages + summary request
+        assert len(call["messages"]) == len(messages_to_summarize) + 1
+        # Last message should contain guidance
+        assert "Summary Guidance" in call["messages"][-1]["content"]
+
+    def test_includes_guidance_in_request(self, compacter, mock_agent_context):
+        """Test that guidance is included in the summary request."""
+        compacter.client.responses = ["Summary with guidance"]
+
+        messages_to_summarize = mock_agent_context.chat_history[:3]
+        guidance = "Important: preserve the greeting context"
+
+        compacter._generate_summary_with_context(
+            mock_agent_context, messages_to_summarize, "haiku", guidance
+        )
+
+        call = compacter.client.messages.create_calls[0]
+        last_message = call["messages"][-1]["content"]
+        assert "Important: preserve the greeting context" in last_message
+
+
 class TestGenerateSummaryWithGuidance:
-    """Tests for generate_summary() with guidance parameter."""
+    """Tests for generate_summary() with guidance parameter (legacy support)."""
 
     def test_incorporates_guidance_into_prompt(self, compacter, mock_agent_context):
         """Test that guidance is incorporated into the system prompt."""
@@ -230,149 +295,80 @@ class TestGenerateSummaryWithGuidance:
         assert len(compacter.client.messages.create_calls) == 1
 
 
-class TestGenerateSummaryStandalone:
-    """Tests for _generate_summary_standalone() method."""
+class TestTwoPassCompaction:
+    """Tests for two-pass compaction flow."""
 
-    def test_summarizes_raw_messages(self, compacter):
-        """Test that standalone summary works with raw messages."""
-        compacter.client.responses = ["Standalone summary"]
-
-        messages = [
-            {"role": "user", "content": "Hello"},
-            {"role": "assistant", "content": "Hi!"},
-        ]
-
-        summary = compacter._generate_summary_standalone(messages, "haiku")
-
-        assert summary.summary == "Standalone summary"
-        assert summary.original_message_count == 2
-
-    def test_includes_guidance_when_provided(self, compacter):
-        """Test that guidance is included in standalone summary."""
-        compacter.client.responses = ["Guided standalone summary"]
-
-        messages = [
-            {"role": "user", "content": "Hello"},
-            {"role": "assistant", "content": "Hi!"},
-        ]
-
-        guidance = "Focus on the greeting"
-        summary = compacter._generate_summary_standalone(
-            messages, "haiku", guidance=guidance
-        )
-
-        assert summary.summary == "Guided standalone summary"
-
-        # Check guidance is in system prompt
-        call = compacter.client.messages.create_calls[0]
-        assert "Focus on the greeting" in call["system"]
-
-    def test_minimal_system_prompt(self, compacter):
-        """Test that standalone uses minimal system prompt (no tools overhead)."""
-        compacter.client.responses = ["Summary"]
-
-        messages = [{"role": "user", "content": "Test"}]
-        compacter._generate_summary_standalone(messages, "haiku")
-
-        call = compacter.client.messages.create_calls[0]
-        # System prompt should be relatively short
-        assert len(call["system"]) < 1000
-
-
-class TestTwoPassDecisionLogic:
-    """Tests for the two-pass vs single-pass decision in compact_conversation()."""
-
-    def test_uses_single_pass_when_messages_fit(self, compacter, mock_agent_context):
-        """Test that single-pass is used when messages fit in context window."""
-        compacter.client.responses = ["Single pass summary"]
-
-        # Create a mock summary to return
-        mock_summary = CompactionSummary(
-            original_message_count=3,
-            original_token_count=1000,
-            summary_token_count=100,
-            compaction_ratio=0.1,
-            summary="Single pass summary",
-        )
-
-        # Mock count_tokens to return a small value (fits in context)
-        # Mock _generate_summary_standalone since that's what single-pass uses now
-        with patch.object(compacter, "should_compact", return_value=True):
-            with patch.object(
-                compacter, "count_tokens", return_value=50000
-            ):  # Well under 190k
-                with patch.object(
-                    compacter, "_generate_summary_standalone", return_value=mock_summary
-                ) as mock_standalone:
-                    with patch.object(
-                        compacter, "generate_summary_guidance"
-                    ) as mock_guidance:
-                        with patch.object(
-                            compacter,
-                            "_archive_and_rotate",
-                            return_value="archive.json",
-                        ):
-                            compacter.compact_conversation(
-                                mock_agent_context, "haiku", turns=2, force=True
-                            )
-
-        # Single-pass should call _generate_summary_standalone (not guidance)
-        assert mock_standalone.called
-        # generate_summary_guidance should NOT have been called for single-pass
-        assert not mock_guidance.called
-
-    def test_uses_two_pass_when_messages_exceed_limit(
-        self, compacter, mock_agent_context
-    ):
-        """Test that two-pass is used when messages exceed context window."""
-        # Set up a larger conversation
-        mock_agent_context.chat_history = [
-            {"role": "user", "content": f"Message {i}"} for i in range(20)
-        ]
-        mock_agent_context.get_api_context.return_value = {
-            "system": [{"type": "text", "text": "System prompt"}],
-            "tools": [],
-            "messages": mock_agent_context.chat_history,
-        }
-
+    def test_always_uses_two_passes(self, compacter, mock_agent_context):
+        """Test that compaction always uses two passes (guidance + summary)."""
         compacter.client.responses = [
             "Guidance for summarization",  # Pass 1 response
-            "Two pass summary",  # Pass 2 response
+            "Summary with guidance",  # Pass 2 response
         ]
 
-        # Mock count_tokens to return high value (exceeds limit)
         with patch.object(compacter, "should_compact", return_value=True):
             with patch.object(
-                compacter, "count_tokens", return_value=250000
-            ):  # Exceeds 190k
-                with patch.object(
-                    compacter, "_archive_and_rotate", return_value="archive.json"
-                ):
-                    compacter.compact_conversation(
-                        mock_agent_context, "haiku", turns=5, force=True
-                    )
+                compacter, "_archive_and_rotate", return_value="archive.json"
+            ):
+                compacter.compact_conversation(
+                    mock_agent_context, "haiku", turns=2, force=True
+                )
 
         # Should have two create calls (guidance + summary)
         create_calls = compacter.client.messages.create_calls
         assert len(create_calls) == 2
 
+    def test_both_passes_use_same_system_and_tools(self, compacter, mock_agent_context):
+        """Test that both passes use same system/tools for cache efficiency."""
+        compacter.client.responses = [
+            "Guidance",
+            "Summary",
+        ]
+
+        with patch.object(compacter, "should_compact", return_value=True):
+            with patch.object(
+                compacter, "_archive_and_rotate", return_value="archive.json"
+            ):
+                compacter.compact_conversation(
+                    mock_agent_context, "haiku", turns=2, force=True
+                )
+
+        create_calls = compacter.client.messages.create_calls
+        pass1_call = create_calls[0]
+        pass2_call = create_calls[1]
+
+        # Both passes should have same system and tools
+        assert pass1_call["system"] == pass2_call["system"]
+        assert pass1_call["tools"] == pass2_call["tools"]
+
+    def test_pass2_uses_message_prefix(self, compacter, mock_agent_context):
+        """Test that Pass 2 uses only the messages to be compacted."""
+        compacter.client.responses = [
+            "Guidance",
+            "Summary",
+        ]
+
+        with patch.object(compacter, "should_compact", return_value=True):
+            with patch.object(
+                compacter, "_archive_and_rotate", return_value="archive.json"
+            ):
+                compacter.compact_conversation(
+                    mock_agent_context, "haiku", turns=2, force=True
+                )
+
+        create_calls = compacter.client.messages.create_calls
+        pass1_call = create_calls[0]
+        pass2_call = create_calls[1]
+
+        # Pass 1 should have more messages (full context + guidance request)
+        # Pass 2 should have fewer (just prefix + summary request)
+        assert len(pass1_call["messages"]) > len(pass2_call["messages"])
+
 
 class TestErrorHandling:
     """Tests for error handling in two-pass compaction."""
 
-    def test_falls_back_when_guidance_fails(self, compacter, mock_agent_context):
-        """Test that summarization proceeds even if guidance generation fails."""
-        # Set up conversation
-        mock_agent_context.chat_history = [
-            {"role": "user", "content": f"Message {i}"} for i in range(10)
-        ]
-        mock_agent_context.get_api_context.return_value = {
-            "system": [{"type": "text", "text": "System prompt"}],
-            "tools": [],
-            "messages": mock_agent_context.chat_history,
-        }
-
-        # Make guidance generation fail, but summary succeed
+    def test_proceeds_when_guidance_fails(self, compacter, mock_agent_context):
+        """Test that summarization proceeds with empty guidance on Pass 1 failure."""
         call_count = [0]
 
         def mock_create(*args, **kwargs):
@@ -400,18 +396,16 @@ class TestErrorHandling:
 
         compacter.client.messages.create = mock_create
 
-        # Mock count_tokens to return high value (trigger two-pass)
         with patch.object(compacter, "should_compact", return_value=True):
-            with patch.object(compacter, "count_tokens", return_value=250000):
-                with patch.object(
-                    compacter, "_archive_and_rotate", return_value="archive.json"
-                ):
-                    # Should not raise, should proceed with empty guidance
-                    compacter.compact_conversation(
-                        mock_agent_context, "haiku", turns=3, force=True
-                    )
+            with patch.object(
+                compacter, "_archive_and_rotate", return_value="archive.json"
+            ):
+                # Should not raise, should proceed with empty guidance
+                compacter.compact_conversation(
+                    mock_agent_context, "haiku", turns=2, force=True
+                )
 
-        # The summary should still be generated (call_count should be 2: failed guidance + summary)
+        # Both calls should have been attempted
         assert call_count[0] == 2
 
     def test_generate_summary_guidance_handles_exception(
