@@ -640,6 +640,7 @@ class CLIUserInterface(UserInterface):
         context_window: int | None = None,
         thinking_tokens: int | None = None,
         thinking_cost: float | None = None,
+        elapsed_seconds: float | None = None,
     ) -> None:
         def fmt_k(n: int) -> str:
             """Format number with K suffix for thousands (e.g., 1.2K, 125K)."""
@@ -692,6 +693,20 @@ class CLIUserInterface(UserInterface):
 
         # Cost
         parts.append((f"${total_cost:.4f}", "orange"))
+
+        # Elapsed time if available
+        if elapsed_seconds is not None and elapsed_seconds > 0:
+            if elapsed_seconds < 60:
+                time_str = f"{elapsed_seconds:.1f}s"
+            elif elapsed_seconds < 3600:
+                minutes = int(elapsed_seconds // 60)
+                seconds = int(elapsed_seconds % 60)
+                time_str = f"{minutes}m{seconds}s"
+            else:
+                hours = int(elapsed_seconds // 3600)
+                minutes = int((elapsed_seconds % 3600) // 60)
+                time_str = f"{hours}h{minutes}m"
+            parts.append((f"⏱ {time_str}", "dim"))
 
         # Assemble with " | " separators
         token_components = []

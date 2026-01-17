@@ -195,6 +195,7 @@ class CaptureInterface(UserInterface):
         context_window=None,
         thinking_tokens: int | None = None,
         thinking_cost: float | None = None,
+        elapsed_seconds: float | None = None,
     ):
         pass
 
