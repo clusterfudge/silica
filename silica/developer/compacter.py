@@ -730,6 +730,29 @@ Focus your summary on preserving this information:
             summary=summary,
         )
 
+    def _add_cache_control_to_last_block(self, message: dict) -> None:
+        """Add cache_control to the last content block of a message.
+
+        This marks the cache boundary so content before this point can be cached.
+        Modifies the message in place.
+        """
+        content = message.get("content", "")
+
+        if isinstance(content, str):
+            # Convert to list format with cache_control
+            message["content"] = [
+                {
+                    "type": "text",
+                    "text": content,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
+        elif isinstance(content, list) and content:
+            # Add cache_control to the last block
+            last_block = dict(content[-1])
+            last_block["cache_control"] = {"type": "ephemeral"}
+            content[-1] = last_block
+
     def _generate_summary_with_context(
         self,
         agent_context,
@@ -800,6 +823,8 @@ Focus on preserving what the guidance identifies as important. Be comprehensive 
 
             if is_tool_result_only:
                 # For tool_result-only messages, we need the assistant to respond first
+                # First, add cache_control to the last block to mark cache boundary
+                self._add_cache_control_to_last_block(messages_for_summary[-1])
                 # Add a minimal assistant acknowledgment, then our user request
                 messages_for_summary.append(
                     {
@@ -811,15 +836,24 @@ Focus on preserving what the guidance identifies as important. Be comprehensive 
                     {"role": "user", "content": summary_request}
                 )
             elif isinstance(existing_content, str):
-                # Convert to list format and add our request
+                # Convert to list format with cache_control on original, then add request
                 new_content = [
-                    {"type": "text", "text": existing_content},
+                    {
+                        "type": "text",
+                        "text": existing_content,
+                        "cache_control": {"type": "ephemeral"},
+                    },
                     {"type": "text", "text": "\n\n---\n\n" + summary_request},
                 ]
                 messages_for_summary[-1] = {"role": "user", "content": new_content}
             elif isinstance(existing_content, list):
-                # Already a list with text, append our request
+                # Already a list, add cache_control to last block, then append request
                 new_content = list(existing_content)
+                if new_content:
+                    # Add cache_control to the last block
+                    last_block = dict(new_content[-1])
+                    last_block["cache_control"] = {"type": "ephemeral"}
+                    new_content[-1] = last_block
                 new_content.append(
                     {"type": "text", "text": "\n\n---\n\n" + summary_request}
                 )
@@ -828,6 +862,8 @@ Focus on preserving what the guidance identifies as important. Be comprehensive 
                 new_content = [{"type": "text", "text": summary_request}]
                 messages_for_summary[-1] = {"role": "user", "content": new_content}
         else:
+            # Ends with assistant, add cache_control then append new user message
+            self._add_cache_control_to_last_block(messages_for_summary[-1])
             # Ends with assistant, safe to append new user message
             messages_for_summary.append({"role": "user", "content": summary_request})
 
