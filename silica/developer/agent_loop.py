@@ -1120,6 +1120,8 @@ async def run(
                         markdown=False,
                     )
                     # Add plan reminder as a user message and continue the loop
+                    # Note: Don't add cache_control here - _process_file_mentions will add it
+                    # to the last text block, and we must stay under the 4 block limit
                     agent_context.chat_history.append(
                         {
                             "role": "user",
@@ -1127,7 +1129,6 @@ async def run(
                                 {
                                     "type": "text",
                                     "text": plan_state,
-                                    "cache_control": {"type": "ephemeral"},
                                 }
                             ],
                         }
