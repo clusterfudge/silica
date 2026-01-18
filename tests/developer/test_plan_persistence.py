@@ -29,6 +29,17 @@ def mock_context(temp_persona_dir):
     context.sandbox = MagicMock()
     context.sandbox.root_directory = temp_persona_dir
 
+    # Mock usage_summary for metrics baseline tracking
+    context.usage_summary = MagicMock(
+        return_value={
+            "total_input_tokens": 1000,
+            "total_output_tokens": 500,
+            "total_thinking_tokens": 100,
+            "cached_tokens": 200,
+            "total_cost": 0.05,
+        }
+    )
+
     return context
 
 
