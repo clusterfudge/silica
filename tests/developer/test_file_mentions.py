@@ -6,7 +6,7 @@ import pytest
 
 from silica.developer.agent_loop import (
     _extract_file_mentions,
-    _inline_latest_file_mentions,
+    _process_file_mentions,
 )
 from silica.developer.context import AgentContext
 from silica.developer.sandbox import SandboxMode
@@ -107,7 +107,7 @@ def test_extract_file_mentions_nonexistent_files():
     assert len(result) == 0
 
 
-def test_inline_latest_file_mentions_basic(temp_files, persona_base_dir):
+def test_process_file_mentions_basic(temp_files, persona_base_dir):
     chat_history = [
         {
             "role": "user",
@@ -135,7 +135,7 @@ def test_inline_latest_file_mentions_basic(temp_files, persona_base_dir):
         persona_base_directory=persona_base_dir,
     )
 
-    result = _inline_latest_file_mentions(chat_history, context)
+    result = _process_file_mentions(chat_history, context)
 
     # Verify original is not modified
     assert chat_history == original
@@ -150,7 +150,7 @@ def test_inline_latest_file_mentions_basic(temp_files, persona_base_dir):
     assert isinstance(result[0]["content"], list)
 
 
-def test_inline_latest_file_mentions_multiple_files(temp_files, persona_base_dir):
+def test_process_file_mentions_multiple_files(temp_files, persona_base_dir):
     chat_history = [
         {
             "role": "user",
@@ -181,7 +181,7 @@ def test_inline_latest_file_mentions_multiple_files(temp_files, persona_base_dir
     )
 
     original = copy.deepcopy(chat_history)
-    result = _inline_latest_file_mentions(chat_history, context)
+    result = _process_file_mentions(chat_history, context)
 
     # Verify original is not modified
     assert chat_history == original
@@ -201,7 +201,7 @@ def test_inline_latest_file_mentions_multiple_files(temp_files, persona_base_dir
     )
 
 
-def test_inline_latest_file_mentions_preserves_non_user_messages(
+def test_process_file_mentions_preserves_non_user_messages(
     temp_files, persona_base_dir
 ):
     chat_history = [
@@ -224,7 +224,7 @@ def test_inline_latest_file_mentions_preserves_non_user_messages(
     )
 
     original = copy.deepcopy(chat_history)
-    result = _inline_latest_file_mentions(chat_history, context)
+    result = _process_file_mentions(chat_history, context)
 
     # Verify original is not modified
     assert chat_history == original
