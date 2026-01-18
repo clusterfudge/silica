@@ -78,6 +78,7 @@
                 <div class="flex items-center space-x-4">
                     <h1 class="text-lg font-semibold" id="session-title">Select a session</h1>
                     <span class="text-sm text-gray-400" id="session-meta"></span>
+                    <button id="btn-show-metrics" class="hidden px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-sm" title="Show plan metrics">📊 Metrics</button>
                 </div>
                 <div class="flex items-center space-x-2" id="playback-controls" style="display: none;">
                     <button id="btn-first" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm" title="First turn">⏮</button>
@@ -110,6 +111,17 @@
                         <button id="close-subagent" class="text-gray-400 hover:text-white">✕</button>
                     </div>
                     <div id="subagent-messages" class="p-4"></div>
+                </div>
+                
+                <!-- Metrics panel (hidden by default) -->
+                <div id="metrics-panel" class="w-1/2 border-l border-gray-700 overflow-y-auto hidden">
+                    <div class="bg-gray-800 border-b border-gray-700 p-3 flex items-center justify-between sticky top-0">
+                        <span class="text-sm font-medium">📊 Plan Metrics</span>
+                        <button id="close-metrics" class="text-gray-400 hover:text-white">✕</button>
+                    </div>
+                    <div id="metrics-content" class="p-4">
+                        <div class="text-gray-500 text-sm">Loading metrics...</div>
+                    </div>
                 </div>
             </div>
         </div>

@@ -229,6 +229,226 @@ class ProgressEntry:
         return cls(timestamp=timestamp, message=data.get("message", ""))
 
 
+def get_agent_version() -> str:
+    """Get agent version as tag or short SHA.
+
+    Returns the git tag if HEAD is tagged, otherwise the short SHA.
+    Falls back to 'unknown' if git is not available.
+    """
+    try:
+        # Try to get tag at HEAD
+        result = subprocess.run(
+            ["git", "describe", "--tags", "--exact-match", "HEAD"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+
+        # Fall back to short SHA
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return "unknown"
+
+
+def get_silica_version() -> str:
+    """Get the silica package version."""
+    try:
+        from silica import __version__
+
+        return __version__
+    except ImportError:
+        return "unknown"
+
+
+@dataclass
+class MetricDefinition:
+    """Definition of a trackable metric for a plan.
+
+    Metrics can be either burn-up (higher is better) or burn-down (lower is better).
+    The capture_command is a shell command that outputs the metric value.
+    """
+
+    name: str  # e.g., "tests_passing", "test_failures"
+    metric_type: str = "int"  # "int", "float", "percent"
+    direction: str = "up"  # "up" (higher is better) or "down" (lower is better)
+    capture_command: str = ""  # Shell command to capture value
+    description: str = ""  # Human-readable description
+    target_value: float | None = None  # Optional goal value (0 for burn-down)
+    validated: bool = False  # Has the capture command been tested?
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "metric_type": self.metric_type,
+            "direction": self.direction,
+            "capture_command": self.capture_command,
+            "description": self.description,
+            "target_value": self.target_value,
+            "validated": self.validated,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "MetricDefinition":
+        return cls(
+            name=data.get("name", ""),
+            metric_type=data.get("metric_type", "int"),
+            direction=data.get("direction", "up"),
+            capture_command=data.get("capture_command", ""),
+            description=data.get("description", ""),
+            target_value=data.get("target_value"),
+            validated=data.get("validated", False),
+        )
+
+
+@dataclass
+class MetricSnapshot:
+    """A point-in-time capture of all metrics.
+
+    Snapshots are taken at plan milestones (start, task completion, end)
+    and can be manually triggered. They track both custom metrics and
+    cost/token usage.
+    """
+
+    timestamp: datetime
+    wall_clock_seconds: float  # Seconds since plan execution started
+    trigger: str  # "plan_start", "task_complete:abc123", "manual", "plan_end"
+
+    # Cost metrics (cumulative since plan start)
+    input_tokens: int = 0
+    output_tokens: int = 0
+    thinking_tokens: int = 0
+    cached_tokens: int = 0
+    cost_dollars: float = 0.0
+
+    # Version info
+    agent_version: str = ""
+    silica_version: str = ""
+
+    # Custom metrics
+    metrics: dict[str, float] = field(default_factory=dict)
+    metric_errors: dict[str, str] = field(default_factory=dict)  # capture failures
+
+    def to_dict(self) -> dict:
+        return {
+            "timestamp": self.timestamp.isoformat(),
+            "wall_clock_seconds": self.wall_clock_seconds,
+            "trigger": self.trigger,
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "thinking_tokens": self.thinking_tokens,
+            "cached_tokens": self.cached_tokens,
+            "cost_dollars": self.cost_dollars,
+            "agent_version": self.agent_version,
+            "silica_version": self.silica_version,
+            "metrics": self.metrics,
+            "metric_errors": self.metric_errors,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "MetricSnapshot":
+        timestamp = datetime.now(timezone.utc)
+        if data.get("timestamp"):
+            try:
+                timestamp = datetime.fromisoformat(
+                    data["timestamp"].replace("Z", "+00:00")
+                )
+            except (ValueError, AttributeError):
+                pass
+
+        return cls(
+            timestamp=timestamp,
+            wall_clock_seconds=data.get("wall_clock_seconds", 0.0),
+            trigger=data.get("trigger", ""),
+            input_tokens=data.get("input_tokens", 0),
+            output_tokens=data.get("output_tokens", 0),
+            thinking_tokens=data.get("thinking_tokens", 0),
+            cached_tokens=data.get("cached_tokens", 0),
+            cost_dollars=data.get("cost_dollars", 0.0),
+            agent_version=data.get("agent_version", ""),
+            silica_version=data.get("silica_version", ""),
+            metrics=data.get("metrics", {}),
+            metric_errors=data.get("metric_errors", {}),
+        )
+
+
+@dataclass
+class PlanMetrics:
+    """Metrics tracking for a plan.
+
+    Contains metric definitions, snapshots over time, and baseline
+    cost information for calculating deltas.
+    """
+
+    definitions: list[MetricDefinition] = field(default_factory=list)
+    snapshots: list[MetricSnapshot] = field(default_factory=list)
+    execution_started_at: datetime | None = None
+    # Baseline tokens at plan start for calculating deltas
+    baseline_input_tokens: int = 0
+    baseline_output_tokens: int = 0
+    baseline_thinking_tokens: int = 0
+    baseline_cached_tokens: int = 0
+    baseline_cost_dollars: float = 0.0
+
+    def to_dict(self) -> dict:
+        return {
+            "definitions": [d.to_dict() for d in self.definitions],
+            "snapshots": [s.to_dict() for s in self.snapshots],
+            "execution_started_at": self.execution_started_at.isoformat()
+            if self.execution_started_at
+            else None,
+            "baseline_input_tokens": self.baseline_input_tokens,
+            "baseline_output_tokens": self.baseline_output_tokens,
+            "baseline_thinking_tokens": self.baseline_thinking_tokens,
+            "baseline_cached_tokens": self.baseline_cached_tokens,
+            "baseline_cost_dollars": self.baseline_cost_dollars,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "PlanMetrics":
+        execution_started_at = None
+        if data.get("execution_started_at"):
+            try:
+                execution_started_at = datetime.fromisoformat(
+                    data["execution_started_at"].replace("Z", "+00:00")
+                )
+            except (ValueError, AttributeError):
+                pass
+
+        return cls(
+            definitions=[
+                MetricDefinition.from_dict(d) for d in data.get("definitions", [])
+            ],
+            snapshots=[MetricSnapshot.from_dict(s) for s in data.get("snapshots", [])],
+            execution_started_at=execution_started_at,
+            baseline_input_tokens=data.get("baseline_input_tokens", 0),
+            baseline_output_tokens=data.get("baseline_output_tokens", 0),
+            baseline_thinking_tokens=data.get("baseline_thinking_tokens", 0),
+            baseline_cached_tokens=data.get("baseline_cached_tokens", 0),
+            baseline_cost_dollars=data.get("baseline_cost_dollars", 0.0),
+        )
+
+    def get_start_snapshot(self) -> MetricSnapshot | None:
+        """Get the plan_start snapshot if it exists."""
+        for snapshot in self.snapshots:
+            if snapshot.trigger == "plan_start":
+                return snapshot
+        return None
+
+    def get_previous_snapshot(self) -> MetricSnapshot | None:
+        """Get the most recent snapshot."""
+        if self.snapshots:
+            return self.snapshots[-1]
+        return None
+
+
 @dataclass
 class Plan:
     """A structured plan for complex changes."""
@@ -254,6 +474,8 @@ class Plan:
     considerations: dict[str, str] = field(default_factory=dict)
     progress_log: list[ProgressEntry] = field(default_factory=list)
     completion_notes: str = ""
+    # Metrics tracking
+    metrics: PlanMetrics = field(default_factory=PlanMetrics)
 
     def get_slug(self) -> str:
         """Get a slugified version of the plan title."""
@@ -296,6 +518,7 @@ class Plan:
             "considerations": self.considerations,
             "progress_log": [p.to_dict() for p in self.progress_log],
             "completion_notes": self.completion_notes,
+            "metrics": self.metrics.to_dict(),
         }
 
     @classmethod
@@ -352,6 +575,7 @@ class Plan:
                 ProgressEntry.from_dict(p) for p in data.get("progress_log", [])
             ],
             completion_notes=data.get("completion_notes", ""),
+            metrics=PlanMetrics.from_dict(data.get("metrics", {})),
         )
 
     def to_markdown(self) -> str:
@@ -459,6 +683,113 @@ class Plan:
             lines.append("")
             lines.append(self.completion_notes)
             lines.append("")
+
+        # Metrics
+        if self.metrics.definitions:
+            lines.append("## Metrics")
+            lines.append("")
+
+            # Show metric definitions
+            lines.append("### Tracked Metrics")
+            lines.append("")
+            for d in self.metrics.definitions:
+                dir_indicator = "↑" if d.direction == "up" else "↓"
+                validated = "✓" if d.validated else "⚠️ not configured"
+                target = (
+                    f", target: {d.target_value}" if d.target_value is not None else ""
+                )
+                lines.append(
+                    f"- **{d.name}** {dir_indicator} ({d.metric_type}{target}) {validated}"
+                )
+            lines.append("")
+
+            # Show latest snapshot if available
+            if self.metrics.snapshots:
+                latest = self.metrics.snapshots[-1]
+                start = self.metrics.get_start_snapshot()
+
+                lines.append("### Latest Snapshot")
+                lines.append("")
+                lines.append(f"**Trigger:** {latest.trigger}")
+                lines.append(
+                    f"**Time:** {latest.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')}"
+                )
+
+                mins = int(latest.wall_clock_seconds // 60)
+                secs = int(latest.wall_clock_seconds % 60)
+                lines.append(f"**Elapsed:** {mins}m {secs}s")
+
+                cost_str = (
+                    f"${latest.cost_dollars:.4f}"
+                    if latest.cost_dollars < 1
+                    else f"${latest.cost_dollars:.2f}"
+                )
+                lines.append(
+                    f"**Cost:** {cost_str} ({latest.input_tokens:,} in, {latest.output_tokens:,} out)"
+                )
+                lines.append("")
+
+                # Show metric values
+                if latest.metrics:
+                    lines.append("| Metric | Current | Δ Start | Target | Progress |")
+                    lines.append("|--------|---------|---------|--------|----------|")
+
+                    for d in self.metrics.definitions:
+                        if d.name in latest.metrics:
+                            current = latest.metrics[d.name]
+                            current_str = (
+                                f"{current:.1f}"
+                                if isinstance(current, float)
+                                and not current.is_integer()
+                                else str(int(current))
+                            )
+
+                            # Delta from start
+                            delta_start = "-"
+                            if start and d.name in start.metrics:
+                                diff = current - start.metrics[d.name]
+                                if diff != 0:
+                                    sign = "+" if diff > 0 else ""
+                                    delta_start = (
+                                        f"{sign}{diff:.1f}"
+                                        if isinstance(diff, float)
+                                        else f"{sign}{int(diff)}"
+                                    )
+
+                            # Target and progress
+                            target_str = (
+                                str(int(d.target_value))
+                                if d.target_value is not None
+                                else "-"
+                            )
+                            progress = "-"
+                            if d.target_value is not None:
+                                if d.direction == "up" and d.target_value != 0:
+                                    pct = (current / d.target_value) * 100
+                                    progress = f"{pct:.1f}%"
+                                elif (
+                                    d.direction == "down"
+                                    and start
+                                    and d.name in start.metrics
+                                ):
+                                    start_val = start.metrics[d.name]
+                                    if start_val != 0:
+                                        pct = ((start_val - current) / start_val) * 100
+                                        progress = f"{pct:.1f}%"
+
+                            dir_indicator = "↑" if d.direction == "up" else "↓"
+                            lines.append(
+                                f"| {d.name} {dir_indicator} | {current_str} | {delta_start} | {target_str} | {progress} |"
+                            )
+
+                    lines.append("")
+
+                # Show errors if any
+                if latest.metric_errors:
+                    lines.append("**Metric Errors:**")
+                    for name, error in latest.metric_errors.items():
+                        lines.append(f"- {name}: {error}")
+                    lines.append("")
 
         # JSON data block for round-trip parsing
         lines.append("---")

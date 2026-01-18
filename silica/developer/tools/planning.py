@@ -9,7 +9,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from silica.developer.tools.framework import tool
-from silica.developer.plans import PlanManager, PlanStatus
+from silica.developer.plans import (
+    MetricSnapshot,
+    Plan,
+    PlanManager,
+    PlanStatus,
+)
 
 if TYPE_CHECKING:
     from silica.developer.context import AgentContext
@@ -386,6 +391,358 @@ Run tests and call: `verify_plan_task("{plan.id}", "{task.id}", "<test results>"
     return None
 
 
+def _record_metrics_baseline(plan: "Plan", context: "AgentContext") -> None:
+    """Record cost baseline when plan execution starts.
+
+    This captures the current token/cost totals from the agent context
+    so we can calculate deltas during plan execution.
+
+    Args:
+        plan: The plan to record baseline for
+        context: Agent context with usage information
+    """
+    from datetime import datetime, timezone
+
+    # Get current usage from context
+    usage = context.usage_summary()
+
+    # Record baseline in plan metrics
+    plan.metrics.execution_started_at = datetime.now(timezone.utc)
+    plan.metrics.baseline_input_tokens = usage.get("total_input_tokens", 0)
+    plan.metrics.baseline_output_tokens = usage.get("total_output_tokens", 0)
+    plan.metrics.baseline_thinking_tokens = usage.get("total_thinking_tokens", 0)
+    plan.metrics.baseline_cached_tokens = usage.get("cached_tokens", 0)
+    plan.metrics.baseline_cost_dollars = usage.get("total_cost", 0.0)
+
+
+def _get_cost_delta(plan: "Plan", context: "AgentContext") -> dict:
+    """Get the cost delta since plan execution started.
+
+    Args:
+        plan: The plan with baseline metrics
+        context: Agent context with current usage
+
+    Returns:
+        Dict with delta values for tokens and cost
+    """
+    usage = context.usage_summary()
+
+    return {
+        "input_tokens": usage.get("total_input_tokens", 0)
+        - plan.metrics.baseline_input_tokens,
+        "output_tokens": usage.get("total_output_tokens", 0)
+        - plan.metrics.baseline_output_tokens,
+        "thinking_tokens": usage.get("total_thinking_tokens", 0)
+        - plan.metrics.baseline_thinking_tokens,
+        "cached_tokens": usage.get("cached_tokens", 0)
+        - plan.metrics.baseline_cached_tokens,
+        "cost_dollars": usage.get("total_cost", 0.0)
+        - plan.metrics.baseline_cost_dollars,
+    }
+
+
+def _run_capture_command(command: str, timeout: int = 30) -> tuple[bool, str]:
+    """Run a metric capture command and return the output.
+
+    Args:
+        command: Shell command to run
+        timeout: Timeout in seconds
+
+    Returns:
+        Tuple of (success: bool, output_or_error: str)
+    """
+    import subprocess
+
+    if not command:
+        return False, "No capture command defined"
+
+    try:
+        result = subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        if result.returncode != 0:
+            return False, f"Command failed (exit {result.returncode}): {result.stderr}"
+        return True, result.stdout.strip()
+    except subprocess.TimeoutExpired:
+        return False, f"Command timed out after {timeout}s"
+    except Exception as e:
+        return False, f"Command error: {str(e)}"
+
+
+def _parse_metric_value(output: str, metric_type: str) -> float:
+    """Parse command output into a metric value.
+
+    Args:
+        output: Raw command output
+        metric_type: Expected type ("int", "float", "percent")
+
+    Returns:
+        Parsed numeric value
+
+    Raises:
+        ValueError: If output cannot be parsed
+    """
+    # Strip whitespace and handle empty output
+    output = output.strip()
+    if not output:
+        raise ValueError("Empty output")
+
+    # For percent, strip % suffix if present
+    if metric_type == "percent" and output.endswith("%"):
+        output = output[:-1].strip()
+
+    # Parse based on type
+    if metric_type == "int":
+        return float(int(output))
+    else:  # float or percent
+        return float(output)
+
+
+def capture_metric_snapshot(
+    plan: Plan,
+    context: "AgentContext",
+    trigger: str,
+) -> MetricSnapshot:
+    """Capture a metric snapshot for the plan.
+
+    Captures current cost delta, runs capture commands for all defined
+    metrics, and records version information.
+
+    Args:
+        plan: The plan to capture metrics for
+        context: Agent context with usage information
+        trigger: What triggered this snapshot (e.g., "plan_start", "task_complete:abc")
+
+    Returns:
+        The created MetricSnapshot (also added to plan.metrics.snapshots)
+    """
+    from datetime import datetime, timezone
+
+    from silica.developer.plans import (
+        MetricSnapshot,
+        get_agent_version,
+        get_silica_version,
+    )
+
+    # Calculate wall clock time since execution started
+    wall_clock_seconds = 0.0
+    if plan.metrics.execution_started_at:
+        delta = datetime.now(timezone.utc) - plan.metrics.execution_started_at
+        wall_clock_seconds = delta.total_seconds()
+
+    # Get cost delta
+    cost_delta = _get_cost_delta(plan, context)
+
+    # Capture custom metrics
+    metrics: dict[str, float] = {}
+    metric_errors: dict[str, str] = {}
+
+    for definition in plan.metrics.definitions:
+        if not definition.validated or not definition.capture_command:
+            # Skip unvalidated metrics
+            metric_errors[definition.name] = "Not validated"
+            continue
+
+        success, output = _run_capture_command(definition.capture_command)
+        if success:
+            try:
+                value = _parse_metric_value(output, definition.metric_type)
+                metrics[definition.name] = value
+            except ValueError as e:
+                metric_errors[definition.name] = f"Parse error: {e} (output: {output})"
+        else:
+            metric_errors[definition.name] = output
+
+    # Create snapshot
+    snapshot = MetricSnapshot(
+        timestamp=datetime.now(timezone.utc),
+        wall_clock_seconds=wall_clock_seconds,
+        trigger=trigger,
+        input_tokens=cost_delta["input_tokens"],
+        output_tokens=cost_delta["output_tokens"],
+        thinking_tokens=cost_delta["thinking_tokens"],
+        cached_tokens=cost_delta["cached_tokens"],
+        cost_dollars=cost_delta["cost_dollars"],
+        agent_version=get_agent_version(),
+        silica_version=get_silica_version(),
+        metrics=metrics,
+        metric_errors=metric_errors,
+    )
+
+    # Add to plan's snapshots
+    plan.metrics.snapshots.append(snapshot)
+
+    return snapshot
+
+
+def _generate_metrics_feedback(plan: Plan, snapshot: MetricSnapshot) -> str:
+    """Generate a feedback message showing metric changes.
+
+    Shows current values, delta from previous snapshot, delta from start,
+    and progress toward targets. Highlights regressions.
+
+    Args:
+        plan: The plan with metric definitions
+        snapshot: The just-captured snapshot
+
+    Returns:
+        Formatted feedback message
+    """
+    if not plan.metrics.definitions:
+        return ""
+
+    lines = [
+        f"📊 **Metrics Snapshot** ({snapshot.trigger})",
+        "━" * 50,
+        "",
+    ]
+
+    # Get previous and start snapshots for comparison
+    snapshots = plan.metrics.snapshots
+    prev_snapshot = None
+    start_snapshot = None
+
+    for s in snapshots:
+        if s.trigger == "plan_start":
+            start_snapshot = s
+        if s != snapshot:
+            prev_snapshot = s  # Will end up being the one before current
+
+    # Build metrics table
+    has_metrics = False
+    regressions = []
+    on_track = []
+
+    for definition in plan.metrics.definitions:
+        if not definition.validated:
+            continue
+
+        name = definition.name
+        direction = definition.direction
+        target = definition.target_value
+
+        # Get current value
+        if name in snapshot.metrics:
+            current = snapshot.metrics[name]
+            has_metrics = True
+        elif name in snapshot.metric_errors:
+            lines.append(f"⚠️ **{name}**: {snapshot.metric_errors[name]}")
+            continue
+        else:
+            continue
+
+        # Calculate deltas
+        delta_prev = ""
+        delta_start = ""
+        is_regression = False
+
+        if prev_snapshot and name in prev_snapshot.metrics:
+            prev_val = prev_snapshot.metrics[name]
+            diff = current - prev_val
+            if diff != 0:
+                sign = "+" if diff > 0 else ""
+                delta_prev = (
+                    f"{sign}{diff:.1f}"
+                    if isinstance(diff, float)
+                    else f"{sign}{int(diff)}"
+                )
+
+                # Check for regression based on direction
+                if direction == "up" and diff < 0:
+                    is_regression = True
+                    delta_prev += " ⚠️"
+                elif direction == "down" and diff > 0:
+                    is_regression = True
+                    delta_prev += " ⚠️"
+                else:
+                    delta_prev += " ✓"
+
+        if start_snapshot and name in start_snapshot.metrics:
+            start_val = start_snapshot.metrics[name]
+            diff = current - start_val
+            if diff != 0:
+                sign = "+" if diff > 0 else ""
+                delta_start = (
+                    f"{sign}{diff:.1f}"
+                    if isinstance(diff, float)
+                    else f"{sign}{int(diff)}"
+                )
+
+        # Calculate progress toward target
+        progress = ""
+        if target is not None:
+            if direction == "up":
+                if target != 0:
+                    pct = (current / target) * 100
+                    progress = f"{pct:.1f}%"
+            else:  # direction == "down"
+                if start_snapshot and name in start_snapshot.metrics:
+                    start_val = start_snapshot.metrics[name]
+                    if start_val != 0:
+                        # Progress = how much we've reduced from start
+                        pct = ((start_val - current) / start_val) * 100
+                        progress = f"{pct:.1f}%"
+
+        # Format direction indicator
+        dir_indicator = "↑" if direction == "up" else "↓"
+
+        # Build line
+        current_str = (
+            f"{current:.1f}"
+            if isinstance(current, float) and not current.is_integer()
+            else str(int(current))
+        )
+        target_str = str(int(target)) if target is not None else "-"
+
+        lines.append(
+            f"| {name} {dir_indicator} | {current_str} | {delta_prev or '-'} | {delta_start or '-'} | {target_str} | {progress or '-'} |"
+        )
+
+        if is_regression:
+            regressions.append(name)
+        elif delta_prev and "✓" in delta_prev:
+            on_track.append(name)
+
+    if has_metrics:
+        # Insert table header before metrics
+        header_idx = 3  # After the title and separator
+        lines.insert(
+            header_idx, "| Metric | Current | Δ Prev | Δ Start | Target | Progress |"
+        )
+        lines.insert(
+            header_idx + 1,
+            "|--------|---------|--------|---------|--------|----------|",
+        )
+
+    # Add cost summary
+    lines.append("")
+    cost_str = (
+        f"${snapshot.cost_dollars:.4f}"
+        if snapshot.cost_dollars < 1
+        else f"${snapshot.cost_dollars:.2f}"
+    )
+    tokens_str = f"{snapshot.input_tokens:,} in, {snapshot.output_tokens:,} out"
+    lines.append(f"💰 **Cost**: {cost_str} | Tokens: {tokens_str}")
+
+    # Add time
+    mins = int(snapshot.wall_clock_seconds // 60)
+    secs = int(snapshot.wall_clock_seconds % 60)
+    lines.append(f"⏱️ **Time**: {mins}m {secs}s elapsed")
+
+    # Add regression/progress summary
+    if regressions:
+        lines.append("")
+        lines.append(f"⚠️ **Regression**: {', '.join(regressions)}")
+    if on_track:
+        lines.append(f"✅ **On track**: {', '.join(on_track)}")
+
+    return "\n".join(lines)
+
+
 def _get_plan_manager(context: "AgentContext") -> PlanManager:
     """Get or create a PlanManager for the current persona with project awareness."""
     from silica.developer.plans import get_git_root
@@ -697,6 +1054,225 @@ def add_plan_tasks(
 
 
 @tool(group="Planning")
+def add_plan_metrics(
+    context: "AgentContext",
+    plan_id: str,
+    metrics: str,
+) -> str:
+    """Add metrics to track during plan execution.
+
+    Define what metrics to track for this plan. Capture commands can be
+    set later using `define_metric_capture` during the setup phase.
+
+    Args:
+        plan_id: ID of the plan
+        metrics: JSON array of metric definitions. Each object has:
+            - name: Metric name (required, e.g., "tests_passing")
+            - direction: "up" (higher is better) or "down" (lower is better)
+            - metric_type: "int", "float", or "percent" (default: "int")
+            - target_value: Target value to reach (optional)
+            - description: Human-readable description (optional)
+
+    Returns:
+        Confirmation with added metrics
+
+    Example:
+        metrics = '[
+            {"name": "tests_passing", "direction": "up", "target_value": 149},
+            {"name": "test_failures", "direction": "down", "target_value": 0},
+            {"name": "coverage_percent", "direction": "up", "metric_type": "percent", "target_value": 80}
+        ]'
+    """
+    from silica.developer.plans import MetricDefinition
+
+    plan_manager = _get_plan_manager(context)
+    plan = plan_manager.get_plan(plan_id)
+
+    if plan is None:
+        return f"Error: Plan {plan_id} not found"
+
+    try:
+        metrics_list = json.loads(metrics)
+        if not isinstance(metrics_list, list):
+            return "Error: metrics must be a JSON array"
+    except json.JSONDecodeError as e:
+        return f"Error: Invalid JSON: {e}"
+
+    added_metrics = []
+    for metric_data in metrics_list:
+        if not isinstance(metric_data, dict):
+            continue
+        if "name" not in metric_data:
+            continue
+
+        # Check for duplicate names
+        name = metric_data["name"]
+        if any(d.name == name for d in plan.metrics.definitions):
+            continue  # Skip duplicates
+
+        definition = MetricDefinition(
+            name=name,
+            metric_type=metric_data.get("metric_type", "int"),
+            direction=metric_data.get("direction", "up"),
+            description=metric_data.get("description", ""),
+            target_value=metric_data.get("target_value"),
+            capture_command="",  # Set later via define_metric_capture
+            validated=False,
+        )
+        plan.metrics.definitions.append(definition)
+        added_metrics.append(definition)
+
+    plan.add_progress(f"Added {len(added_metrics)} metrics to track")
+    plan_manager.update_plan(plan)
+
+    result = f"✅ Added {len(added_metrics)} metrics to plan {plan_id}:\n\n"
+    for metric in added_metrics:
+        dir_str = (
+            "↑ higher is better" if metric.direction == "up" else "↓ lower is better"
+        )
+        target_str = (
+            f", target: {metric.target_value}"
+            if metric.target_value is not None
+            else ""
+        )
+        result += f"- **{metric.name}** ({metric.metric_type}, {dir_str}{target_str})\n"
+
+    result += "\n⚠️ **Next:** Use `define_metric_capture` to set capture commands for each metric."
+    result += "\nMetrics must be validated before plan execution starts."
+
+    return result
+
+
+@tool(group="Planning")
+def define_metric_capture(
+    context: "AgentContext",
+    plan_id: str,
+    metric_name: str,
+    capture_command: str,
+) -> str:
+    """Define and validate the capture command for a metric.
+
+    Runs the command to validate it works and shows the captured value.
+    The metric must have been declared using `add_plan_metrics` first.
+
+    Args:
+        plan_id: ID of the plan
+        metric_name: Name of the metric to configure
+        capture_command: Shell command that outputs the metric value
+
+    Returns:
+        Validation result with current metric value
+
+    Example:
+        define_metric_capture(
+            plan_id="abc123",
+            metric_name="tests_passing",
+            capture_command="./run_tests.sh 2>&1 | grep -oP '\\d+(?= passed)'"
+        )
+    """
+    plan_manager = _get_plan_manager(context)
+    plan = plan_manager.get_plan(plan_id)
+
+    if plan is None:
+        return f"Error: Plan {plan_id} not found"
+
+    # Find the metric
+    metric = None
+    for d in plan.metrics.definitions:
+        if d.name == metric_name:
+            metric = d
+            break
+
+    if metric is None:
+        return f"Error: Metric '{metric_name}' not found in plan. Use `add_plan_metrics` to declare it first."
+
+    # Run the capture command to validate
+    success, output = _run_capture_command(capture_command)
+    if not success:
+        return f"❌ **Capture command failed:**\n\n```\n{output}\n```\n\nPlease fix the command and try again."
+
+    # Parse the output
+    try:
+        value = _parse_metric_value(output, metric.metric_type)
+    except ValueError as e:
+        return f"❌ **Could not parse output as {metric.metric_type}:**\n\nOutput: `{output}`\nError: {e}\n\nThe command should output a single numeric value."
+
+    # Update the metric definition
+    metric.capture_command = capture_command
+    metric.validated = True
+    plan_manager.update_plan(plan)
+
+    # Build response
+    dir_str = "higher" if metric.direction == "up" else "lower"
+    result = f"""✅ **Metric '{metric_name}' configured successfully**
+
+**Command:** `{capture_command}`
+**Current value:** {value}
+**Direction:** {dir_str} is better
+"""
+    if metric.target_value is not None:
+        result += f"**Target:** {metric.target_value}\n"
+
+    # Check how many metrics still need configuration
+    unvalidated = [d for d in plan.metrics.definitions if not d.validated]
+    if unvalidated:
+        result += f"\n⚠️ **{len(unvalidated)} metrics still need configuration:**\n"
+        for d in unvalidated:
+            result += f"- {d.name}\n"
+    else:
+        result += "\n✅ **All metrics configured!** Ready for plan execution."
+
+    return result
+
+
+@tool(group="Planning")
+def capture_plan_metrics(
+    context: "AgentContext",
+    plan_id: str,
+    note: str = "",
+) -> str:
+    """Manually capture a metrics snapshot.
+
+    Use this to check progress at any point during task execution,
+    not just at task completion milestones. Useful for:
+    - Checking if a fix improved metrics before committing
+    - Monitoring progress during long-running tasks
+    - Debugging metric capture commands
+
+    Args:
+        plan_id: ID of the plan
+        note: Optional note to include in the snapshot trigger
+
+    Returns:
+        Metrics feedback showing current values and changes
+    """
+    plan_manager = _get_plan_manager(context)
+    plan = plan_manager.get_plan(plan_id)
+
+    if plan is None:
+        return f"Error: Plan {plan_id} not found"
+
+    if not plan.metrics.definitions:
+        return "No metrics defined for this plan. Use `add_plan_metrics` to define metrics to track."
+
+    # Check if any metrics are validated
+    validated = [d for d in plan.metrics.definitions if d.validated]
+    if not validated:
+        unvalidated = [d.name for d in plan.metrics.definitions]
+        return f"No metrics are configured yet. Use `define_metric_capture` to configure: {', '.join(unvalidated)}"
+
+    # Capture snapshot
+    trigger = f"manual:{note}" if note else "manual"
+    snapshot = capture_metric_snapshot(plan, context, trigger)
+    plan_manager.update_plan(plan)
+
+    # Generate feedback
+    feedback = _generate_metrics_feedback(plan, snapshot)
+
+    return f"📸 **Manual Metrics Capture**\n\n{feedback}"
+
+
+@tool(group="Planning")
 def read_plan(
     context: "AgentContext",
     plan_id: str,
@@ -834,6 +1410,18 @@ The plan is ready for your review. Options:
     elif action == "execute":
         if plan.status == PlanStatus.APPROVED:
             plan_manager.start_execution(plan_id)
+
+            # Re-fetch plan after status change, then record metrics baseline
+            plan = plan_manager.get_plan(plan_id)
+            _record_metrics_baseline(plan, context)
+
+            # Capture initial snapshot if metrics are defined and validated
+            if plan.metrics.definitions:
+                has_validated = any(d.validated for d in plan.metrics.definitions)
+                if has_validated:
+                    capture_metric_snapshot(plan, context, "plan_start")
+
+            plan_manager.update_plan(plan)
 
             incomplete_tasks = plan.get_incomplete_tasks()
 
@@ -1034,6 +1622,12 @@ def complete_plan_task(
     else:
         plan.add_progress(f"Completed task {task_id}")
 
+    # Capture metrics snapshot if metrics are configured
+    metrics_feedback = ""
+    if plan.metrics.definitions and any(d.validated for d in plan.metrics.definitions):
+        snapshot = capture_metric_snapshot(plan, context, f"task_complete:{task_id}")
+        metrics_feedback = _generate_metrics_feedback(plan, snapshot)
+
     plan_manager.update_plan(plan)
 
     # Build verification reminder
@@ -1058,6 +1652,10 @@ Run tests to confirm the implementation is correct, then call:
 
     if unverified and len(unverified) > 1:  # More than just the current task
         status += f"\n\n**Unverified tasks ({len(unverified)}):** Remember to verify completed tasks!"
+
+    # Add metrics feedback if available
+    if metrics_feedback:
+        status += f"\n\n{metrics_feedback}"
 
     return status
 
@@ -1114,6 +1712,13 @@ def verify_plan_task(
         return f"Error: Could not verify task {task_id}"
 
     plan.add_progress(f"Verified task {task_id}")
+
+    # Capture metrics snapshot if metrics are configured
+    metrics_feedback = ""
+    if plan.metrics.definitions and any(d.validated for d in plan.metrics.definitions):
+        snapshot = capture_metric_snapshot(plan, context, f"task_verified:{task_id}")
+        metrics_feedback = _generate_metrics_feedback(plan, snapshot)
+
     plan_manager.update_plan(plan)
 
     # Check remaining work
@@ -1133,6 +1738,10 @@ def verify_plan_task(
     else:
         status += "\n🎉 **All tasks completed and verified!**\n"
         status += f'Use `complete_plan("{plan_id}")` to finish the plan.'
+
+    # Add metrics feedback if available
+    if metrics_feedback:
+        status += f"\n\n{metrics_feedback}"
 
     return status
 
@@ -1255,12 +1864,20 @@ def complete_plan(
 Run tests and use `verify_plan_task` for each task to confirm the implementation is correct.
 All tasks must be verified before the plan can be completed."""
 
+    # Capture final metrics snapshot before completing
+    metrics_feedback = ""
+    if plan.metrics.definitions and any(d.validated for d in plan.metrics.definitions):
+        snapshot = capture_metric_snapshot(plan, context, "plan_end")
+        metrics_feedback = _generate_metrics_feedback(plan, snapshot)
+        # Update plan with final snapshot before completing
+        plan_manager.update_plan(plan)
+
     plan_manager.complete_plan(plan_id, notes)
 
     # Clear active plan from context when completing
     context.active_plan_id = None
 
-    return f"""🎉 **Plan Completed!**
+    result = f"""🎉 **Plan Completed!**
 
 Plan `{plan_id}`: {plan.title}
 
@@ -1268,3 +1885,8 @@ Plan `{plan_id}`: {plan.title}
 
 The plan has been archived to the completed plans directory.
 """
+
+    if metrics_feedback:
+        result += f"\n**Final Metrics:**\n{metrics_feedback}"
+
+    return result
