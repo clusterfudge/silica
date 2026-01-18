@@ -109,6 +109,21 @@ class MessageResponse(BaseModel):
     message: str
 
 
+class PlanStatusResponse(BaseModel):
+    """Response model for plan execution status."""
+
+    plan_id: str
+    plan_title: str
+    plan_slug: str
+    status: str  # "unknown", "draft", "in_progress", "completed", "abandoned"
+    current_task: str | None = None  # Description of current task being worked on
+    tasks_completed: int = 0
+    tasks_verified: int = 0
+    tasks_total: int = 0
+    elapsed_seconds: float | None = None  # Time since plan started
+    agent_status: str = "unknown"  # "idle", "working", "error"
+
+
 @app.get("/")
 async def root():
     """Root endpoint providing basic information."""
@@ -142,6 +157,7 @@ async def get_capabilities():
             "status",
             "destroy",
             "execute-plan",  # Plan execution support
+            "plan-status",  # Query plan execution status
         ],
     }
 
@@ -414,6 +430,121 @@ async def get_workspace_status():
     )
 
 
+@app.get("/plan-status/{plan_id}", response_model=PlanStatusResponse)
+async def get_plan_status(plan_id: str):
+    """Get status of a plan being executed in this workspace.
+
+    Args:
+        plan_id: The ID of the plan to query
+
+    Returns:
+        Plan execution status including task progress
+    """
+    from pathlib import Path
+    from datetime import datetime, timezone
+
+    workspace_name = config.get_workspace_name()
+    logger.debug(
+        "get_plan_status_request", workspace_name=workspace_name, plan_id=plan_id
+    )
+
+    code_dir = config.get_code_directory()
+    if not code_dir:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workspace not initialized",
+        )
+
+    # Look for the plan in the workspace's .silica/plans directory
+    silica_dir = Path(code_dir) / ".silica"
+    plans_active_dir = silica_dir / "plans" / "active"
+    plans_completed_dir = silica_dir / "plans" / "completed"
+
+    plan_file = None
+    for search_dir in [plans_active_dir, plans_completed_dir]:
+        candidate = search_dir / f"{plan_id}.md"
+        if candidate.exists():
+            plan_file = candidate
+            break
+
+    if not plan_file:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Plan {plan_id} not found in workspace",
+        )
+
+    try:
+        # Parse the plan file
+        from silica.developer.plans import Plan
+
+        plan_content = plan_file.read_text()
+        plan = Plan.from_markdown(plan_content)
+
+        # Calculate task stats
+        tasks_completed = len([t for t in plan.tasks if t.completed])
+        tasks_verified = len([t for t in plan.tasks if t.verified])
+        tasks_total = len(plan.tasks)
+
+        # Find current task (first incomplete task)
+        current_task = None
+        for task in plan.tasks:
+            if not task.completed:
+                current_task = task.description
+                break
+
+        # Calculate elapsed time if remote_started_at is set
+        elapsed_seconds = None
+        if plan.remote_started_at:
+            elapsed_seconds = (
+                datetime.now(timezone.utc) - plan.remote_started_at
+            ).total_seconds()
+
+        # Determine agent status based on tmux session
+        agent_status = "unknown"
+        try:
+            tmux_status = agent_manager.get_workspace_status().get("tmux_session", {})
+            if tmux_status.get("exists"):
+                agent_status = "working"
+            else:
+                agent_status = "idle"
+        except Exception:
+            pass
+
+        logger.info(
+            "get_plan_status_success",
+            workspace_name=workspace_name,
+            plan_id=plan_id,
+            status=plan.status.value,
+            tasks_completed=tasks_completed,
+            tasks_total=tasks_total,
+        )
+
+        return PlanStatusResponse(
+            plan_id=plan.id,
+            plan_title=plan.title,
+            plan_slug=plan.get_slug(),
+            status=plan.status.value,
+            current_task=current_task,
+            tasks_completed=tasks_completed,
+            tasks_verified=tasks_verified,
+            tasks_total=tasks_total,
+            elapsed_seconds=elapsed_seconds,
+            agent_status=agent_status,
+        )
+
+    except Exception as e:
+        logger.error(
+            "get_plan_status_error",
+            workspace_name=workspace_name,
+            plan_id=plan_id,
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to read plan status: {str(e)}",
+        )
+
+
 @app.post("/destroy", response_model=MessageResponse)
 async def destroy_workspace():
     """Destroy workspace by killing tmux session and cleaning up files.
@@ -470,19 +601,15 @@ async def get_connection_info():
 
 
 # Error handlers
-@app.exception_handler(404)
-async def not_found_handler(request, exc):
-    """Handle 404 errors with workspace context."""
-    return {
-        "error": "Not found",
-        "workspace": config.get_workspace_name(),
-        "message": "The requested endpoint was not found",
-    }
+@app.exception_handler(Exception)
+async def general_exception_handler(request, exc):
+    """Handle unexpected exceptions with workspace context."""
+    from starlette.responses import JSONResponse
 
+    # Don't override HTTPException - let FastAPI handle it
+    if isinstance(exc, HTTPException):
+        raise exc
 
-@app.exception_handler(500)
-async def internal_server_error_handler(request, exc):
-    """Handle 500 errors with workspace context."""
     workspace_name = config.get_workspace_name()
     logger.error(
         "internal_server_error",
@@ -490,11 +617,14 @@ async def internal_server_error_handler(request, exc):
         error=str(exc),
         exc_info=True,
     )
-    return {
-        "error": "Internal server error",
-        "workspace": workspace_name,
-        "message": "An unexpected error occurred",
-    }
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Internal server error",
+            "workspace": workspace_name,
+            "message": "An unexpected error occurred",
+        },
+    )
 
 
 if __name__ == "__main__":

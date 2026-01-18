@@ -30,6 +30,7 @@ def get_active_plan_status(context: "AgentContext") -> dict | None:
         {
             "id": str,
             "title": str,
+            "slug": str,  # URL-friendly version of title
             "status": str,  # "planning" or "executing"
             "incomplete_tasks": int,
             "unverified_tasks": int,
@@ -70,6 +71,7 @@ def get_active_plan_status(context: "AgentContext") -> dict | None:
     return {
         "id": plan.id,
         "title": plan.title,
+        "slug": plan.get_slug(),
         "status": status,
         "incomplete_tasks": incomplete,
         "unverified_tasks": unverified,

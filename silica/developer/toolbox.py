@@ -1,5 +1,6 @@
 import json
 import os
+from datetime import datetime, timezone
 from typing import Callable, List, Dict
 
 from anthropic.types import MessageParam
@@ -2870,6 +2871,7 @@ When all tasks are done, call `complete_plan(plan_id)`."""
                 # Update plan with remote info
                 plan.remote_workspace = ws
                 plan.remote_branch = br
+                plan.remote_started_at = datetime.now(timezone.utc)
                 plan.shelved = False
                 plan.add_progress(f"Pushed to remote workspace: {ws} (branch: {br})")
                 plan_manager.update_plan(plan)
@@ -3003,9 +3005,112 @@ When all tasks are done, call `complete_plan(plan_id)`."""
                 return ""
 
         elif command == "status":
-            # /plan status [--remote]
-            show_remote_only = len(args_list) >= 2 and "--remote" in args_list[1]
+            # /plan status [id] [--remote]
+            # If id provided, show detailed status for that plan
+            # If --remote flag, only show plans with remote workspaces
+            plan_id = None
+            show_remote_only = False
 
+            if len(args_list) >= 2:
+                for arg in args_list[1].split():
+                    if arg == "--remote":
+                        show_remote_only = True
+                    elif not arg.startswith("-") and not plan_id:
+                        plan_id = arg
+
+            # If specific plan ID requested, show detailed status
+            if plan_id:
+                plan = plan_manager.get_plan(plan_id)
+                if not plan:
+                    _print(f"Plan `{plan_id}` not found.")
+                    return ""
+
+                loc = _location_emoji(plan.storage_location)
+                output = f"## {loc} Plan: {plan.title}\n\n"
+                output += f"**ID:** {plan.id}\n"
+                output += f"**Status:** {plan.status.value}"
+                if plan.shelved:
+                    output += " (shelved)"
+                output += "\n"
+
+                # Task progress (local)
+                if plan.tasks:
+                    done = sum(1 for t in plan.tasks if t.completed)
+                    verified = sum(1 for t in plan.tasks if t.verified)
+                    total = len(plan.tasks)
+                    output += (
+                        f"**Tasks:** {done}/{total} done, {verified}/{total} verified\n"
+                    )
+
+                # Remote info and status
+                if plan.remote_workspace:
+                    output += "\n### Remote Execution\n"
+                    output += f"**Workspace:** {plan.remote_workspace}\n"
+                    if plan.remote_branch:
+                        output += f"**Branch:** {plan.remote_branch}\n"
+                    if plan.remote_started_at:
+                        from silica.developer.utils import format_elapsed_time
+
+                        elapsed = (
+                            datetime.now(timezone.utc) - plan.remote_started_at
+                        ).total_seconds()
+                        output += f"**Elapsed:** {format_elapsed_time(elapsed)}\n"
+
+                    # Fetch remote status
+                    output += "\n**Fetching remote status...**\n"
+                    _print(output)
+
+                    try:
+                        from silica.remote.utils.antennae_client import (
+                            get_antennae_client,
+                        )
+
+                        silica_dir = Path(root_dir) / ".silica"
+                        client = get_antennae_client(silica_dir, plan.remote_workspace)
+
+                        # Check if server supports plan-status
+                        supported, _ = client.supports_capability("plan-status")
+                        if not supported:
+                            _print(
+                                "Remote server does not support plan-status. Upgrade antennae."
+                            )
+                            return ""
+
+                        success, remote_status = client.get_plan_status(plan.id)
+                        if success:
+                            remote_output = "**Remote Status:**\n"
+                            remote_output += (
+                                f"  Status: {remote_status.get('status', 'unknown')}\n"
+                            )
+                            remote_output += f"  Agent: {remote_status.get('agent_status', 'unknown')}\n"
+
+                            tasks_done = remote_status.get("tasks_completed", 0)
+                            tasks_verified = remote_status.get("tasks_verified", 0)
+                            tasks_total = remote_status.get("tasks_total", 0)
+                            if tasks_total > 0:
+                                remote_output += f"  Tasks: {tasks_done}/{tasks_total} done, {tasks_verified}/{tasks_total} verified\n"
+
+                            current_task = remote_status.get("current_task")
+                            if current_task:
+                                remote_output += f"  Current: {current_task}\n"
+
+                            _print(remote_output)
+                        else:
+                            _print(
+                                f"Failed to fetch remote status: {remote_status.get('error', 'Unknown error')}"
+                            )
+                    except Exception as e:
+                        _print(f"Could not connect to remote: {e}")
+
+                    return ""
+
+                if plan.pull_request:
+                    output += f"**PR:** {plan.pull_request}\n"
+
+                _print(output)
+                return ""
+
+            # List all active plans
             plans = plan_manager.list_active_plans(root_dir=root_dir)
             if show_remote_only:
                 plans = [p for p in plans if p.remote_workspace]
@@ -3029,6 +3134,13 @@ When all tasks are done, call `complete_plan(plan_id)`."""
 
                 if plan.remote_workspace:
                     output += f"   Remote: {plan.remote_workspace}\n"
+                    if plan.remote_started_at:
+                        from silica.developer.utils import format_elapsed_time
+
+                        elapsed = (
+                            datetime.now(timezone.utc) - plan.remote_started_at
+                        ).total_seconds()
+                        output += f"   Elapsed: {format_elapsed_time(elapsed)}\n"
                 if plan.remote_branch:
                     output += f"   Branch: {plan.remote_branch}\n"
                 if plan.pull_request:

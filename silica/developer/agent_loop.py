@@ -338,6 +338,9 @@ async def run(
             f"[bold blue]You:[/bold blue] {initial_prompt}"
         )
 
+    # Track when agent starts working (will be updated on each user input)
+    agent_work_start_time = time.time()
+
     while True:
         try:
             if return_to_user_after_interrupt or (
@@ -380,6 +383,9 @@ async def run(
                         pass  # Don't fail if planning module has issues
 
                     user_input = await user_interface.get_user_input(prompt)
+
+                # Track when user input was received to measure agent work duration
+                agent_work_start_time = time.time()
 
                 command_name = (
                     user_input.split()[0][1:] if user_input.startswith("/") else ""
@@ -831,6 +837,28 @@ async def run(
             conversation_size = getattr(agent_context, "_last_conversation_size", None)
             context_window = getattr(agent_context, "_last_context_window", None)
 
+            # Calculate elapsed time since user input
+            elapsed_seconds = time.time() - agent_work_start_time
+
+            # Get active plan status for token summary display
+            plan_slug = None
+            plan_tasks_completed = None
+            plan_tasks_verified = None
+            plan_tasks_total = None
+            try:
+                from silica.developer.tools.planning import get_active_plan_status
+
+                plan_status = get_active_plan_status(agent_context)
+                if plan_status and plan_status.get("status") == "executing":
+                    plan_slug = plan_status.get("slug")
+                    total = plan_status.get("total_tasks", 0)
+                    incomplete = plan_status.get("incomplete_tasks", 0)
+                    plan_tasks_completed = total - incomplete
+                    plan_tasks_verified = plan_status.get("verified_tasks", 0)
+                    plan_tasks_total = total
+            except Exception:
+                pass  # Don't fail token display if plan status fails
+
             user_interface.display_token_count(
                 usage_summary["total_input_tokens"],
                 usage_summary["total_output_tokens"],
@@ -842,6 +870,11 @@ async def run(
                 context_window=context_window,
                 thinking_tokens=usage_summary.get("total_thinking_tokens", 0),
                 thinking_cost=usage_summary.get("thinking_cost", 0.0),
+                elapsed_seconds=elapsed_seconds,
+                plan_slug=plan_slug,
+                plan_tasks_completed=plan_tasks_completed,
+                plan_tasks_verified=plan_tasks_verified,
+                plan_tasks_total=plan_tasks_total,
             )
 
             if final_message.stop_reason == "tool_use":

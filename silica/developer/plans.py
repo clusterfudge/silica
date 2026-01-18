@@ -246,6 +246,7 @@ class Plan:
     shelved: bool = False  # Approved but deferred for later/remote execution
     remote_workspace: str = ""  # Remote workspace name if pushed
     remote_branch: str = ""  # Branch name for remote execution
+    remote_started_at: datetime | None = None  # When plan was pushed to remote
     context: str = ""
     approach: str = ""
     tasks: list[PlanTask] = field(default_factory=list)
@@ -285,6 +286,9 @@ class Plan:
             "shelved": self.shelved,
             "remote_workspace": self.remote_workspace,
             "remote_branch": self.remote_branch,
+            "remote_started_at": self.remote_started_at.isoformat()
+            if self.remote_started_at
+            else None,
             "context": self.context,
             "approach": self.approach,
             "tasks": [t.to_dict() for t in self.tasks],
@@ -334,6 +338,9 @@ class Plan:
             shelved=data.get("shelved", False),
             remote_workspace=data.get("remote_workspace", ""),
             remote_branch=data.get("remote_branch", ""),
+            remote_started_at=datetime.fromisoformat(data["remote_started_at"])
+            if data.get("remote_started_at")
+            else None,
             context=data.get("context", ""),
             approach=data.get("approach", ""),
             tasks=[PlanTask.from_dict(t) for t in data.get("tasks", [])],

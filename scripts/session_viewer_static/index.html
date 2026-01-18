@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Session Viewer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen">
+    <div class="flex h-screen">
+        <!-- Left Sidebar -->
+        <div class="w-80 bg-gray-800 border-r border-gray-700 flex flex-col overflow-hidden">
+            <!-- Persona Picker -->
+            <div class="p-4 border-b border-gray-700">
+                <label class="block text-sm font-medium text-gray-400 mb-2">Persona</label>
+                <select id="persona-select" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                    <option value="">Loading...</option>
+                </select>
+            </div>
+            
+            <!-- Session List -->
+            <div class="flex-1 overflow-y-auto">
+                <div class="p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <h2 class="text-sm font-medium text-gray-400">Sessions</h2>
+                        <label class="flex items-center text-xs text-gray-400 cursor-pointer">
+                            <input type="checkbox" id="filter-cwd" class="mr-1" checked>
+                            Current dir only
+                        </label>
+                    </div>
+                    <div id="session-list" class="space-y-2">
+                        <div class="text-gray-500 text-sm">Loading sessions...</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- System Prompt Panel -->
+            <div class="border-t border-gray-700">
+                <div class="p-4">
+                    <h2 class="text-sm font-medium text-gray-400 mb-2">System Prompt</h2>
+                    <div id="system-prompt-sections" class="space-y-1">
+                        <div class="collapsible-section">
+                            <button class="section-toggle w-full text-left px-2 py-1 text-sm bg-gray-700 hover:bg-gray-600 rounded flex items-center" data-section="persona">
+                                <span class="toggle-icon mr-2">▶</span> Persona
+                            </button>
+                            <div class="section-content hidden p-2 bg-gray-750 rounded-b text-xs font-mono overflow-x-auto max-h-48 overflow-y-auto" id="section-persona"></div>
+                        </div>
+                        <div class="collapsible-section">
+                            <button class="section-toggle w-full text-left px-2 py-1 text-sm bg-gray-700 hover:bg-gray-600 rounded flex items-center" data-section="sandbox">
+                                <span class="toggle-icon mr-2">▶</span> Sandbox
+                            </button>
+                            <div class="section-content hidden p-2 bg-gray-750 rounded-b text-xs font-mono overflow-x-auto max-h-48 overflow-y-auto" id="section-sandbox"></div>
+                        </div>
+                        <div class="collapsible-section">
+                            <button class="section-toggle w-full text-left px-2 py-1 text-sm bg-gray-700 hover:bg-gray-600 rounded flex items-center" data-section="memory">
+                                <span class="toggle-icon mr-2">▶</span> Memory
+                            </button>
+                            <div class="section-content hidden p-2 bg-gray-750 rounded-b text-xs font-mono overflow-x-auto max-h-48 overflow-y-auto" id="section-memory"></div>
+                        </div>
+                        <div class="collapsible-section">
+                            <button class="section-toggle w-full text-left px-2 py-1 text-sm bg-gray-700 hover:bg-gray-600 rounded flex items-center" data-section="tools">
+                                <span class="toggle-icon mr-2">▶</span> Tools
+                            </button>
+                            <div class="section-content hidden p-2 bg-gray-750 rounded-b text-xs font-mono overflow-x-auto max-h-64 overflow-y-auto" id="section-tools"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Main Content -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+            <!-- Header with playback controls -->
+            <div class="bg-gray-800 border-b border-gray-700 p-4 flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <h1 class="text-lg font-semibold" id="session-title">Select a session</h1>
+                    <span class="text-sm text-gray-400" id="session-meta"></span>
+                </div>
+                <div class="flex items-center space-x-2" id="playback-controls" style="display: none;">
+                    <button id="btn-first" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm" title="First turn">⏮</button>
+                    <button id="btn-prev" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm" title="Previous turn">◀</button>
+                    <span class="text-sm text-gray-400 mx-2">
+                        Turn <span id="current-turn">0</span> / <span id="total-turns">0</span>
+                    </span>
+                    <button id="btn-next" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm" title="Next turn">▶</button>
+                    <button id="btn-last" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm" title="Last turn">⏭</button>
+                    <label class="flex items-center ml-4 text-sm text-gray-400">
+                        <input type="checkbox" id="show-all" class="mr-2" checked>
+                        Show all
+                    </label>
+                </div>
+            </div>
+            
+            <!-- Messages Area -->
+            <div class="flex-1 flex overflow-hidden">
+                <!-- Main messages -->
+                <div class="flex-1 overflow-y-auto p-4" id="messages-container">
+                    <div class="text-gray-500 text-center py-8">
+                        Select a session from the sidebar to view messages
+                    </div>
+                </div>
+                
+                <!-- Sub-agent panel (hidden by default) -->
+                <div id="subagent-panel" class="w-1/2 border-l border-gray-700 overflow-y-auto hidden">
+                    <div class="bg-gray-800 border-b border-gray-700 p-3 flex items-center justify-between sticky top-0">
+                        <span class="text-sm font-medium">Sub-agent Session</span>
+                        <button id="close-subagent" class="text-gray-400 hover:text-white">✕</button>
+                    </div>
+                    <div id="subagent-messages" class="p-4"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="/static/app.js"></script>
+</body>
+</html>

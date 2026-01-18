@@ -640,6 +640,11 @@ class CLIUserInterface(UserInterface):
         context_window: int | None = None,
         thinking_tokens: int | None = None,
         thinking_cost: float | None = None,
+        elapsed_seconds: float | None = None,
+        plan_slug: str | None = None,
+        plan_tasks_completed: int | None = None,
+        plan_tasks_verified: int | None = None,
+        plan_tasks_total: int | None = None,
     ) -> None:
         def fmt_k(n: int) -> str:
             """Format number with K suffix for thousands (e.g., 1.2K, 125K)."""
@@ -692,6 +697,20 @@ class CLIUserInterface(UserInterface):
 
         # Cost
         parts.append((f"${total_cost:.4f}", "orange"))
+
+        # Elapsed time if available
+        if elapsed_seconds is not None and elapsed_seconds > 0:
+            from silica.developer.utils import format_elapsed_time
+
+            time_str = format_elapsed_time(elapsed_seconds)
+            parts.append((f"⏱ {time_str}", "dim"))
+
+        # Plan status if executing a plan
+        if plan_slug and plan_tasks_total is not None and plan_tasks_total > 0:
+            # Format: 📋 slug [verified✓/total]
+            verified = plan_tasks_verified or 0
+            plan_str = f"📋 {plan_slug} [{verified}✓/{plan_tasks_total}]"
+            parts.append((plan_str, "cyan"))
 
         # Assemble with " | " separators
         token_components = []
@@ -1466,6 +1485,61 @@ def resume(
         history_base_dir = persona_obj.base_directory
 
     resume_session(session_id, history_base_dir=history_base_dir)
+
+
+def view_session(
+    session_id: Annotated[Optional[str], cyclopts.Parameter("session_id")] = None,
+    *,
+    persona: Annotated[
+        Optional[str], cyclopts.Parameter(help="Persona to view sessions for")
+    ] = None,
+    port: Annotated[int, cyclopts.Parameter(help="Port to run viewer on")] = 8000,
+):
+    """Launch the session viewer web interface.
+
+    Opens a web-based viewer to inspect session state, including messages,
+    tool calls, sub-agent sessions, and system prompt sections.
+
+    Args:
+        session_id: Optional session ID to open directly
+        persona: Optional persona to filter by (defaults to 'default')
+        port: Port to run the viewer on (default: 8000)
+    """
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    # Find the session_viewer.py script
+    script_path = Path(__file__).parent.parent.parent / "scripts" / "session_viewer.py"
+
+    if not script_path.exists():
+        # Try relative to working directory
+        script_path = Path("scripts/session_viewer.py")
+
+    if not script_path.exists():
+        print("Error: session_viewer.py not found")
+        print("Run from the silica project root or install silica properly")
+        return
+
+    # Build command
+    cmd = [sys.executable, str(script_path)]
+    if session_id:
+        cmd.append(session_id)
+    if persona:
+        cmd.extend(["--persona", persona])
+    else:
+        cmd.extend(["--persona", "default"])
+    cmd.extend(["--port", str(port)])
+    # Pass current working directory for filtering
+    cmd.extend(["--cwd", str(Path.cwd())])
+
+    print(f"Starting session viewer on http://localhost:{port}")
+    print("Press Ctrl+C to stop")
+
+    try:
+        subprocess.run(cmd)
+    except KeyboardInterrupt:
+        print("\nSession viewer stopped")
 
 
 def attach_tools(app):

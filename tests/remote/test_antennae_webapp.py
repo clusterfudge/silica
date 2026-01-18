@@ -471,5 +471,172 @@ class TestWebAppSafety:
             assert "version" in data
             assert "execute-plan" in data["capabilities"]
             assert "initialize" in data["capabilities"]
+            assert "plan-status" in data["capabilities"]
+
+
+class TestPlanStatusEndpoint:
+    """Test the /plan-status endpoint."""
+
+    def test_plan_status_response_model(self):
+        """Test PlanStatusResponse model for type safety."""
+        from silica.remote.antennae.webapp import PlanStatusResponse
+
+        # Test basic instantiation
+        response = PlanStatusResponse(
+            plan_id="test-123",
+            plan_title="Test Plan",
+            plan_slug="test-plan",
+            status="in-progress",
+            current_task="Working on task 1",
+            tasks_completed=2,
+            tasks_verified=1,
+            tasks_total=5,
+            elapsed_seconds=123.5,
+            agent_status="working",
+        )
+
+        assert response.plan_id == "test-123"
+        assert response.plan_title == "Test Plan"
+        assert response.plan_slug == "test-plan"
+        assert response.status == "in-progress"
+        assert response.current_task == "Working on task 1"
+        assert response.tasks_completed == 2
+        assert response.tasks_verified == 1
+        assert response.tasks_total == 5
+        assert response.elapsed_seconds == 123.5
+        assert response.agent_status == "working"
+
+    def test_plan_status_response_defaults(self):
+        """Test PlanStatusResponse default values."""
+        from silica.remote.antennae.webapp import PlanStatusResponse
+
+        # Test with minimal required fields
+        response = PlanStatusResponse(
+            plan_id="test-123",
+            plan_title="Test Plan",
+            plan_slug="test-plan",
+            status="draft",
+        )
+
+        assert response.current_task is None
+        assert response.tasks_completed == 0
+        assert response.tasks_verified == 0
+        assert response.tasks_total == 0
+        assert response.elapsed_seconds is None
+        assert response.agent_status == "unknown"
+
+    def test_plan_status_success(self):
+        """Test plan-status returns correct data for existing plan."""
+        from fastapi.testclient import TestClient
+        from silica.remote.antennae import webapp
+        from silica.developer.plans import Plan, PlanStatus
+        from datetime import datetime, timezone
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Create a plan file
+            plans_dir = Path(temp_dir) / ".silica" / "plans" / "active"
+            plans_dir.mkdir(parents=True)
+
+            now = datetime.now(timezone.utc)
+            plan = Plan(
+                id="test-plan-123",
+                title="Test Plan",
+                status=PlanStatus.IN_PROGRESS,
+                session_id="test-session",
+                created_at=now,
+                updated_at=now,
+                remote_started_at=now,
+            )
+            plan.add_task("Task 1")
+            plan.add_task("Task 2")
+            plan.tasks[0].completed = True
+            plan.tasks[0].verified = True
+
+            plan_file = plans_dir / "test-plan-123.md"
+            plan_file.write_text(plan.to_markdown())
+
+            # Patch at module level before creating TestClient
+            original_get_code_directory = webapp.config.get_code_directory
+            original_get_workspace_status = webapp.agent_manager.get_workspace_status
+
+            webapp.config.get_code_directory = lambda: temp_dir
+            webapp.agent_manager.get_workspace_status = lambda: {
+                "tmux_session": {"exists": True}
+            }
+
+            try:
+                with patch.dict(os.environ, {"WORKSPACE_NAME": "test-workspace"}):
+                    client = TestClient(webapp.app)
+                    response = client.get("/plan-status/test-plan-123")
+
+                    assert response.status_code == 200
+                    data = response.json()
+
+                    assert data["plan_id"] == "test-plan-123"
+                    assert data["plan_title"] == "Test Plan"
+                    assert data["plan_slug"] == "test-plan"
+                    assert data["status"] == "in-progress"
+                    assert data["tasks_total"] == 2
+                    assert data["tasks_completed"] == 1
+                    assert data["tasks_verified"] == 1
+                    assert data["current_task"] == "Task 2"  # First incomplete task
+                    assert data["elapsed_seconds"] is not None
+                    assert data["agent_status"] == "working"
+            finally:
+                webapp.config.get_code_directory = original_get_code_directory
+                webapp.agent_manager.get_workspace_status = (
+                    original_get_workspace_status
+                )
+
+    def test_plan_status_completed_plan(self):
+        """Test plan-status works for completed plans in completed directory."""
+        from fastapi.testclient import TestClient
+        from silica.remote.antennae import webapp
+        from silica.developer.plans import Plan, PlanStatus
+        from datetime import datetime, timezone
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Create a completed plan file
+            plans_dir = Path(temp_dir) / ".silica" / "plans" / "completed"
+            plans_dir.mkdir(parents=True)
+
+            now = datetime.now(timezone.utc)
+            plan = Plan(
+                id="completed-plan",
+                title="Completed Plan",
+                status=PlanStatus.COMPLETED,
+                session_id="test-session",
+                created_at=now,
+                updated_at=now,
+            )
+
+            plan_file = plans_dir / "completed-plan.md"
+            plan_file.write_text(plan.to_markdown())
+
+            # Patch at module level
+            original_get_code_directory = webapp.config.get_code_directory
+            original_get_workspace_status = webapp.agent_manager.get_workspace_status
+
+            webapp.config.get_code_directory = lambda: temp_dir
+            webapp.agent_manager.get_workspace_status = lambda: {
+                "tmux_session": {"exists": False}
+            }
+
+            try:
+                with patch.dict(os.environ, {"WORKSPACE_NAME": "test-workspace"}):
+                    client = TestClient(webapp.app)
+                    response = client.get("/plan-status/completed-plan")
+
+                    assert response.status_code == 200
+                    data = response.json()
+
+                    assert data["plan_id"] == "completed-plan"
+                    assert data["status"] == "completed"
+                    assert data["agent_status"] == "idle"
+            finally:
+                webapp.config.get_code_directory = original_get_code_directory
+                webapp.agent_manager.get_workspace_status = (
+                    original_get_workspace_status
+                )
 
         # Test response models

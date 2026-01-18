@@ -205,3 +205,24 @@ def render_tree(
             is_last_child = i == len(root_keys) - 1
             child_node = {key: node[key]} if isinstance(node[key], dict) else {}
             render_tree(lines, child_node, prefix, is_last_child)
+
+
+def format_elapsed_time(seconds: float) -> str:
+    """Format elapsed time for display.
+
+    Args:
+        seconds: Elapsed time in seconds
+
+    Returns:
+        Formatted string like "32.5s", "5m23s", or "1h15m"
+    """
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    elif seconds < 3600:
+        minutes = int(seconds // 60)
+        secs = int(seconds % 60)
+        return f"{minutes}m{secs}s"
+    else:
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        return f"{hours}h{minutes}m"
