@@ -1530,6 +1530,8 @@ def view_session(
     else:
         cmd.extend(["--persona", "default"])
     cmd.extend(["--port", str(port)])
+    # Pass current working directory for filtering
+    cmd.extend(["--cwd", str(Path.cwd())])
 
     print(f"Starting session viewer on http://localhost:{port}")
     print("Press Ctrl+C to stop")

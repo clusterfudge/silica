@@ -24,7 +24,13 @@
             <!-- Session List -->
             <div class="flex-1 overflow-y-auto">
                 <div class="p-4">
-                    <h2 class="text-sm font-medium text-gray-400 mb-2">Sessions</h2>
+                    <div class="flex items-center justify-between mb-2">
+                        <h2 class="text-sm font-medium text-gray-400">Sessions</h2>
+                        <label class="flex items-center text-xs text-gray-400 cursor-pointer">
+                            <input type="checkbox" id="filter-cwd" class="mr-1" checked>
+                            Current dir only
+                        </label>
+                    </div>
                     <div id="session-list" class="space-y-2">
                         <div class="text-gray-500 text-sm">Loading sessions...</div>
                     </div>

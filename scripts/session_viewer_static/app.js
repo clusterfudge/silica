@@ -8,6 +8,8 @@ let currentTurn = -1; // -1 means show all
 let totalTurns = 0;
 let tools = [];
 let rootDir = null;
+let launchCwd = null;  // Directory where command was launched
+let filterByCwd = true;  // Filter to current directory by default
 
 // DOM Elements
 const personaSelect = document.getElementById('persona-select');
@@ -40,6 +42,9 @@ async function loadConfig() {
         if (config.initial_session_id) {
             // Will be loaded after personas are loaded
             window.initialSessionId = config.initial_session_id;
+        }
+        if (config.launch_cwd) {
+            launchCwd = config.launch_cwd;
         }
     } catch (e) {
         console.error('Failed to load config:', e);
@@ -76,8 +81,31 @@ async function loadSessions(persona) {
     try {
         sessionList.innerHTML = '<div class="text-gray-500 text-sm">Loading...</div>';
         
-        const response = await fetch(`/api/sessions?persona=${encodeURIComponent(persona)}`);
+        // Build URL with optional root_dir filter
+        let url = `/api/sessions?persona=${encodeURIComponent(persona)}`;
+        if (filterByCwd && launchCwd) {
+            url += `&root_dir=${encodeURIComponent(launchCwd)}`;
+        }
+        
+        const response = await fetch(url);
         const data = await response.json();
+        
+        // If filtering by cwd returned no results, try without filter
+        if (data.sessions.length === 0 && filterByCwd && launchCwd) {
+            // Fetch all sessions to check if there are any
+            const allResponse = await fetch(`/api/sessions?persona=${encodeURIComponent(persona)}`);
+            const allData = await allResponse.json();
+            
+            if (allData.sessions.length > 0) {
+                // There are sessions, just not in cwd - show message and fall back
+                sessionList.innerHTML = `<div class="text-yellow-500 text-sm mb-2">No sessions in current directory. Showing all sessions.</div>`;
+                filterByCwd = false;
+                const cwdCheckbox = document.getElementById('filter-cwd');
+                if (cwdCheckbox) cwdCheckbox.checked = false;
+                renderSessionList(allData.sessions);
+                return;
+            }
+        }
         
         sessionList.innerHTML = '';
         
@@ -86,44 +114,55 @@ async function loadSessions(persona) {
             return;
         }
         
-        data.sessions.forEach(session => {
-            const item = document.createElement('div');
-            item.className = 'session-item';
-            item.dataset.sessionId = session.session_id;
-            item.dataset.persona = session.persona;
-            
-            const date = session.last_updated || session.created_at;
-            const dateStr = date ? new Date(date).toLocaleString() : 'Unknown date';
-            const shortId = session.session_id.substring(0, 8);
-            
-            item.innerHTML = `
-                <div class="session-item-id">${shortId}...</div>
-                <div class="session-item-date">${dateStr}</div>
-                <div class="session-item-meta">
-                    ${session.message_count} msgs
-                    ${session.subagent_count > 0 ? `• ${session.subagent_count} subagents` : ''}
-                    ${session.has_active_plan ? '• 📋 plan' : ''}
-                </div>
-            `;
-            
-            item.addEventListener('click', () => loadSession(session.persona, session.session_id));
-            sessionList.appendChild(item);
-        });
-        
-        // Load initial session if specified
-        if (window.initialSessionId) {
-            const matchingSession = data.sessions.find(s => 
-                s.session_id === window.initialSessionId || 
-                s.session_id.startsWith(window.initialSessionId)
-            );
-            if (matchingSession) {
-                loadSession(matchingSession.persona, matchingSession.session_id);
-            }
-            window.initialSessionId = null;
-        }
+        renderSessionList(data.sessions);
     } catch (e) {
         console.error('Failed to load sessions:', e);
         sessionList.innerHTML = '<div class="text-red-500 text-sm">Error loading sessions</div>';
+    }
+}
+
+function renderSessionList(sessions) {
+    // Clear any previous content except the "no sessions in cwd" message
+    const existingMessage = sessionList.querySelector('.text-yellow-500');
+    sessionList.innerHTML = '';
+    if (existingMessage) {
+        sessionList.appendChild(existingMessage);
+    }
+    
+    sessions.forEach(session => {
+        const item = document.createElement('div');
+        item.className = 'session-item';
+        item.dataset.sessionId = session.session_id;
+        item.dataset.persona = session.persona;
+        
+        const date = session.last_updated || session.created_at;
+        const dateStr = date ? new Date(date).toLocaleString() : 'Unknown date';
+        const shortId = session.session_id.substring(0, 8);
+        
+        item.innerHTML = `
+            <div class="session-item-id">${shortId}...</div>
+            <div class="session-item-date">${dateStr}</div>
+            <div class="session-item-meta">
+                ${session.message_count} msgs
+                ${session.subagent_count > 0 ? `• ${session.subagent_count} subagents` : ''}
+                ${session.has_active_plan ? '• 📋 plan' : ''}
+            </div>
+        `;
+        
+        item.addEventListener('click', () => loadSession(session.persona, session.session_id));
+        sessionList.appendChild(item);
+    });
+    
+    // Load initial session if specified
+    if (window.initialSessionId) {
+        const matchingSession = sessions.find(s => 
+            s.session_id === window.initialSessionId || 
+            s.session_id.startsWith(window.initialSessionId)
+        );
+        if (matchingSession) {
+            loadSession(matchingSession.persona, matchingSession.session_id);
+        }
+        window.initialSessionId = null;
     }
 }
 
@@ -448,6 +487,17 @@ function setupEventListeners() {
         currentPersona = e.target.value;
         loadSessions(currentPersona);
     });
+    
+    // CWD filter checkbox
+    const cwdCheckbox = document.getElementById('filter-cwd');
+    if (cwdCheckbox) {
+        cwdCheckbox.addEventListener('change', (e) => {
+            filterByCwd = e.target.checked;
+            if (currentPersona) {
+                loadSessions(currentPersona);
+            }
+        });
+    }
     
     // Playback controls
     document.getElementById('btn-first').addEventListener('click', () => goToTurn(1));

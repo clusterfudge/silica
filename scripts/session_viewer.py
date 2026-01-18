@@ -28,6 +28,7 @@ SILICA_DIR = Path.home() / ".silica"
 PERSONAS_DIR = SILICA_DIR / "personas"
 ACTIVE_PERSONA: str | None = None
 INITIAL_SESSION_ID: str | None = None
+LAUNCH_CWD: str | None = None  # Directory where the command was launched
 
 app = FastAPI(title="Session Viewer", description="Debug viewer for silica sessions")
 
@@ -55,6 +56,7 @@ async def get_config():
     return {
         "active_persona": ACTIVE_PERSONA,
         "initial_session_id": INITIAL_SESSION_ID,
+        "launch_cwd": LAUNCH_CWD,
     }
 
 
@@ -82,8 +84,18 @@ async def list_personas():
 
 
 @app.get("/api/sessions")
-async def list_sessions(persona: str | None = None, limit: int = 50):
-    """List sessions for a persona or all personas."""
+async def list_sessions(
+    persona: str | None = None,
+    limit: int = 50,
+    root_dir: str | None = None,
+):
+    """List sessions for a persona or all personas.
+
+    Args:
+        persona: Filter by persona name
+        limit: Maximum number of sessions to return
+        root_dir: Filter by root_dir (working directory)
+    """
     sessions = []
 
     if persona:
@@ -114,6 +126,11 @@ async def list_sessions(persona: str | None = None, limit: int = 50):
 
                 metadata = data.get("metadata", {})
                 messages = data.get("messages", [])
+                session_root_dir = metadata.get("root_dir")
+
+                # Filter by root_dir if specified
+                if root_dir and session_root_dir != root_dir:
+                    continue
 
                 # Count sub-agent sessions
                 subagent_files = list(session_dir.glob("toolu_*.json"))
@@ -124,7 +141,7 @@ async def list_sessions(persona: str | None = None, limit: int = 50):
                         "persona": persona_dir.name,
                         "created_at": metadata.get("created_at"),
                         "last_updated": metadata.get("last_updated"),
-                        "root_dir": metadata.get("root_dir"),
+                        "root_dir": session_root_dir,
                         "message_count": len(messages),
                         "subagent_count": len(subagent_files),
                         "has_active_plan": bool(data.get("active_plan_id")),
@@ -139,7 +156,12 @@ async def list_sessions(persona: str | None = None, limit: int = 50):
         key=lambda s: s.get("last_updated") or s.get("created_at") or "", reverse=True
     )
 
-    return {"sessions": sessions[:limit]}
+    # Return sessions with metadata about filtering
+    return {
+        "sessions": sessions[:limit],
+        "filtered_by_root_dir": root_dir is not None,
+        "total_before_limit": len(sessions),
+    }
 
 
 @app.get("/api/session/{persona}/{session_id}")
@@ -281,21 +303,28 @@ async def read_file(path: str, root_dir: str | None = None):
 
 
 def main():
-    global ACTIVE_PERSONA, INITIAL_SESSION_ID
+    global ACTIVE_PERSONA, INITIAL_SESSION_ID, LAUNCH_CWD
 
     parser = argparse.ArgumentParser(description="Session state viewer for debugging")
     parser.add_argument("session_id", nargs="?", help="Session ID to view")
     parser.add_argument("--persona", "-p", help="Persona to filter by")
     parser.add_argument("--port", type=int, default=8000, help="Port to run on")
+    parser.add_argument(
+        "--cwd",
+        help="Working directory to filter sessions by (default: current directory)",
+    )
 
     args = parser.parse_args()
 
     ACTIVE_PERSONA = args.persona or "default"
     INITIAL_SESSION_ID = args.session_id
+    LAUNCH_CWD = args.cwd or str(Path.cwd())
 
     print(f"Starting session viewer on http://localhost:{args.port}")
     if ACTIVE_PERSONA:
         print(f"Default persona: {ACTIVE_PERSONA}")
+    if LAUNCH_CWD:
+        print(f"Working directory: {LAUNCH_CWD}")
     if INITIAL_SESSION_ID:
         print(f"Initial session: {INITIAL_SESSION_ID}")
 
