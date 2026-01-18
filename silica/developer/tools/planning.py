@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from silica.developer.tools.framework import tool
-from silica.developer.plans import PlanManager, PlanStatus
+from silica.developer.plans import Plan, PlanManager, PlanStatus
 
 if TYPE_CHECKING:
     from silica.developer.context import AgentContext
@@ -384,6 +384,56 @@ def get_task_completion_hint(
 Run tests and call: `verify_plan_task("{plan.id}", "{task.id}", "<test results>")`"""
 
     return None
+
+
+def _record_metrics_baseline(plan: "Plan", context: "AgentContext") -> None:
+    """Record cost baseline when plan execution starts.
+
+    This captures the current token/cost totals from the agent context
+    so we can calculate deltas during plan execution.
+
+    Args:
+        plan: The plan to record baseline for
+        context: Agent context with usage information
+    """
+    from datetime import datetime, timezone
+
+    # Get current usage from context
+    usage = context.usage_summary()
+
+    # Record baseline in plan metrics
+    plan.metrics.execution_started_at = datetime.now(timezone.utc)
+    plan.metrics.baseline_input_tokens = usage.get("total_input_tokens", 0)
+    plan.metrics.baseline_output_tokens = usage.get("total_output_tokens", 0)
+    plan.metrics.baseline_thinking_tokens = usage.get("total_thinking_tokens", 0)
+    plan.metrics.baseline_cached_tokens = usage.get("cached_tokens", 0)
+    plan.metrics.baseline_cost_dollars = usage.get("total_cost", 0.0)
+
+
+def _get_cost_delta(plan: "Plan", context: "AgentContext") -> dict:
+    """Get the cost delta since plan execution started.
+
+    Args:
+        plan: The plan with baseline metrics
+        context: Agent context with current usage
+
+    Returns:
+        Dict with delta values for tokens and cost
+    """
+    usage = context.usage_summary()
+
+    return {
+        "input_tokens": usage.get("total_input_tokens", 0)
+        - plan.metrics.baseline_input_tokens,
+        "output_tokens": usage.get("total_output_tokens", 0)
+        - plan.metrics.baseline_output_tokens,
+        "thinking_tokens": usage.get("total_thinking_tokens", 0)
+        - plan.metrics.baseline_thinking_tokens,
+        "cached_tokens": usage.get("cached_tokens", 0)
+        - plan.metrics.baseline_cached_tokens,
+        "cost_dollars": usage.get("total_cost", 0.0)
+        - plan.metrics.baseline_cost_dollars,
+    }
 
 
 def _get_plan_manager(context: "AgentContext") -> PlanManager:
@@ -834,6 +884,11 @@ The plan is ready for your review. Options:
     elif action == "execute":
         if plan.status == PlanStatus.APPROVED:
             plan_manager.start_execution(plan_id)
+
+            # Re-fetch plan after status change, then record metrics baseline
+            plan = plan_manager.get_plan(plan_id)
+            _record_metrics_baseline(plan, context)
+            plan_manager.update_plan(plan)
 
             incomplete_tasks = plan.get_incomplete_tasks()
 
