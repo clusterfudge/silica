@@ -1054,6 +1054,178 @@ def add_plan_tasks(
 
 
 @tool(group="Planning")
+def add_plan_metrics(
+    context: "AgentContext",
+    plan_id: str,
+    metrics: str,
+) -> str:
+    """Add metrics to track during plan execution.
+
+    Define what metrics to track for this plan. Capture commands can be
+    set later using `define_metric_capture` during the setup phase.
+
+    Args:
+        plan_id: ID of the plan
+        metrics: JSON array of metric definitions. Each object has:
+            - name: Metric name (required, e.g., "tests_passing")
+            - direction: "up" (higher is better) or "down" (lower is better)
+            - metric_type: "int", "float", or "percent" (default: "int")
+            - target_value: Target value to reach (optional)
+            - description: Human-readable description (optional)
+
+    Returns:
+        Confirmation with added metrics
+
+    Example:
+        metrics = '[
+            {"name": "tests_passing", "direction": "up", "target_value": 149},
+            {"name": "test_failures", "direction": "down", "target_value": 0},
+            {"name": "coverage_percent", "direction": "up", "metric_type": "percent", "target_value": 80}
+        ]'
+    """
+    from silica.developer.plans import MetricDefinition
+
+    plan_manager = _get_plan_manager(context)
+    plan = plan_manager.get_plan(plan_id)
+
+    if plan is None:
+        return f"Error: Plan {plan_id} not found"
+
+    try:
+        metrics_list = json.loads(metrics)
+        if not isinstance(metrics_list, list):
+            return "Error: metrics must be a JSON array"
+    except json.JSONDecodeError as e:
+        return f"Error: Invalid JSON: {e}"
+
+    added_metrics = []
+    for metric_data in metrics_list:
+        if not isinstance(metric_data, dict):
+            continue
+        if "name" not in metric_data:
+            continue
+
+        # Check for duplicate names
+        name = metric_data["name"]
+        if any(d.name == name for d in plan.metrics.definitions):
+            continue  # Skip duplicates
+
+        definition = MetricDefinition(
+            name=name,
+            metric_type=metric_data.get("metric_type", "int"),
+            direction=metric_data.get("direction", "up"),
+            description=metric_data.get("description", ""),
+            target_value=metric_data.get("target_value"),
+            capture_command="",  # Set later via define_metric_capture
+            validated=False,
+        )
+        plan.metrics.definitions.append(definition)
+        added_metrics.append(definition)
+
+    plan.add_progress(f"Added {len(added_metrics)} metrics to track")
+    plan_manager.update_plan(plan)
+
+    result = f"✅ Added {len(added_metrics)} metrics to plan {plan_id}:\n\n"
+    for metric in added_metrics:
+        dir_str = (
+            "↑ higher is better" if metric.direction == "up" else "↓ lower is better"
+        )
+        target_str = (
+            f", target: {metric.target_value}"
+            if metric.target_value is not None
+            else ""
+        )
+        result += f"- **{metric.name}** ({metric.metric_type}, {dir_str}{target_str})\n"
+
+    result += "\n⚠️ **Next:** Use `define_metric_capture` to set capture commands for each metric."
+    result += "\nMetrics must be validated before plan execution starts."
+
+    return result
+
+
+@tool(group="Planning")
+def define_metric_capture(
+    context: "AgentContext",
+    plan_id: str,
+    metric_name: str,
+    capture_command: str,
+) -> str:
+    """Define and validate the capture command for a metric.
+
+    Runs the command to validate it works and shows the captured value.
+    The metric must have been declared using `add_plan_metrics` first.
+
+    Args:
+        plan_id: ID of the plan
+        metric_name: Name of the metric to configure
+        capture_command: Shell command that outputs the metric value
+
+    Returns:
+        Validation result with current metric value
+
+    Example:
+        define_metric_capture(
+            plan_id="abc123",
+            metric_name="tests_passing",
+            capture_command="./run_tests.sh 2>&1 | grep -oP '\\d+(?= passed)'"
+        )
+    """
+    plan_manager = _get_plan_manager(context)
+    plan = plan_manager.get_plan(plan_id)
+
+    if plan is None:
+        return f"Error: Plan {plan_id} not found"
+
+    # Find the metric
+    metric = None
+    for d in plan.metrics.definitions:
+        if d.name == metric_name:
+            metric = d
+            break
+
+    if metric is None:
+        return f"Error: Metric '{metric_name}' not found in plan. Use `add_plan_metrics` to declare it first."
+
+    # Run the capture command to validate
+    success, output = _run_capture_command(capture_command)
+    if not success:
+        return f"❌ **Capture command failed:**\n\n```\n{output}\n```\n\nPlease fix the command and try again."
+
+    # Parse the output
+    try:
+        value = _parse_metric_value(output, metric.metric_type)
+    except ValueError as e:
+        return f"❌ **Could not parse output as {metric.metric_type}:**\n\nOutput: `{output}`\nError: {e}\n\nThe command should output a single numeric value."
+
+    # Update the metric definition
+    metric.capture_command = capture_command
+    metric.validated = True
+    plan_manager.update_plan(plan)
+
+    # Build response
+    dir_str = "higher" if metric.direction == "up" else "lower"
+    result = f"""✅ **Metric '{metric_name}' configured successfully**
+
+**Command:** `{capture_command}`
+**Current value:** {value}
+**Direction:** {dir_str} is better
+"""
+    if metric.target_value is not None:
+        result += f"**Target:** {metric.target_value}\n"
+
+    # Check how many metrics still need configuration
+    unvalidated = [d for d in plan.metrics.definitions if not d.validated]
+    if unvalidated:
+        result += f"\n⚠️ **{len(unvalidated)} metrics still need configuration:**\n"
+        for d in unvalidated:
+            result += f"- {d.name}\n"
+    else:
+        result += "\n✅ **All metrics configured!** Ready for plan execution."
+
+    return result
+
+
+@tool(group="Planning")
 def read_plan(
     context: "AgentContext",
     plan_id: str,
