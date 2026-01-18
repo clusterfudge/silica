@@ -579,6 +579,170 @@ def capture_metric_snapshot(
     return snapshot
 
 
+def _generate_metrics_feedback(plan: Plan, snapshot: MetricSnapshot) -> str:
+    """Generate a feedback message showing metric changes.
+
+    Shows current values, delta from previous snapshot, delta from start,
+    and progress toward targets. Highlights regressions.
+
+    Args:
+        plan: The plan with metric definitions
+        snapshot: The just-captured snapshot
+
+    Returns:
+        Formatted feedback message
+    """
+    if not plan.metrics.definitions:
+        return ""
+
+    lines = [
+        f"📊 **Metrics Snapshot** ({snapshot.trigger})",
+        "━" * 50,
+        "",
+    ]
+
+    # Get previous and start snapshots for comparison
+    snapshots = plan.metrics.snapshots
+    prev_snapshot = None
+    start_snapshot = None
+
+    for s in snapshots:
+        if s.trigger == "plan_start":
+            start_snapshot = s
+        if s != snapshot:
+            prev_snapshot = s  # Will end up being the one before current
+
+    # Build metrics table
+    has_metrics = False
+    regressions = []
+    on_track = []
+
+    for definition in plan.metrics.definitions:
+        if not definition.validated:
+            continue
+
+        name = definition.name
+        direction = definition.direction
+        target = definition.target_value
+
+        # Get current value
+        if name in snapshot.metrics:
+            current = snapshot.metrics[name]
+            has_metrics = True
+        elif name in snapshot.metric_errors:
+            lines.append(f"⚠️ **{name}**: {snapshot.metric_errors[name]}")
+            continue
+        else:
+            continue
+
+        # Calculate deltas
+        delta_prev = ""
+        delta_start = ""
+        is_regression = False
+
+        if prev_snapshot and name in prev_snapshot.metrics:
+            prev_val = prev_snapshot.metrics[name]
+            diff = current - prev_val
+            if diff != 0:
+                sign = "+" if diff > 0 else ""
+                delta_prev = (
+                    f"{sign}{diff:.1f}"
+                    if isinstance(diff, float)
+                    else f"{sign}{int(diff)}"
+                )
+
+                # Check for regression based on direction
+                if direction == "up" and diff < 0:
+                    is_regression = True
+                    delta_prev += " ⚠️"
+                elif direction == "down" and diff > 0:
+                    is_regression = True
+                    delta_prev += " ⚠️"
+                else:
+                    delta_prev += " ✓"
+
+        if start_snapshot and name in start_snapshot.metrics:
+            start_val = start_snapshot.metrics[name]
+            diff = current - start_val
+            if diff != 0:
+                sign = "+" if diff > 0 else ""
+                delta_start = (
+                    f"{sign}{diff:.1f}"
+                    if isinstance(diff, float)
+                    else f"{sign}{int(diff)}"
+                )
+
+        # Calculate progress toward target
+        progress = ""
+        if target is not None:
+            if direction == "up":
+                if target != 0:
+                    pct = (current / target) * 100
+                    progress = f"{pct:.1f}%"
+            else:  # direction == "down"
+                if start_snapshot and name in start_snapshot.metrics:
+                    start_val = start_snapshot.metrics[name]
+                    if start_val != 0:
+                        # Progress = how much we've reduced from start
+                        pct = ((start_val - current) / start_val) * 100
+                        progress = f"{pct:.1f}%"
+
+        # Format direction indicator
+        dir_indicator = "↑" if direction == "up" else "↓"
+
+        # Build line
+        current_str = (
+            f"{current:.1f}"
+            if isinstance(current, float) and not current.is_integer()
+            else str(int(current))
+        )
+        target_str = str(int(target)) if target is not None else "-"
+
+        lines.append(
+            f"| {name} {dir_indicator} | {current_str} | {delta_prev or '-'} | {delta_start or '-'} | {target_str} | {progress or '-'} |"
+        )
+
+        if is_regression:
+            regressions.append(name)
+        elif delta_prev and "✓" in delta_prev:
+            on_track.append(name)
+
+    if has_metrics:
+        # Insert table header before metrics
+        header_idx = 3  # After the title and separator
+        lines.insert(
+            header_idx, "| Metric | Current | Δ Prev | Δ Start | Target | Progress |"
+        )
+        lines.insert(
+            header_idx + 1,
+            "|--------|---------|--------|---------|--------|----------|",
+        )
+
+    # Add cost summary
+    lines.append("")
+    cost_str = (
+        f"${snapshot.cost_dollars:.4f}"
+        if snapshot.cost_dollars < 1
+        else f"${snapshot.cost_dollars:.2f}"
+    )
+    tokens_str = f"{snapshot.input_tokens:,} in, {snapshot.output_tokens:,} out"
+    lines.append(f"💰 **Cost**: {cost_str} | Tokens: {tokens_str}")
+
+    # Add time
+    mins = int(snapshot.wall_clock_seconds // 60)
+    secs = int(snapshot.wall_clock_seconds % 60)
+    lines.append(f"⏱️ **Time**: {mins}m {secs}s elapsed")
+
+    # Add regression/progress summary
+    if regressions:
+        lines.append("")
+        lines.append(f"⚠️ **Regression**: {', '.join(regressions)}")
+    if on_track:
+        lines.append(f"✅ **On track**: {', '.join(on_track)}")
+
+    return "\n".join(lines)
+
+
 def _get_plan_manager(context: "AgentContext") -> PlanManager:
     """Get or create a PlanManager for the current persona with project awareness."""
     from silica.developer.plans import get_git_root
@@ -1031,6 +1195,13 @@ The plan is ready for your review. Options:
             # Re-fetch plan after status change, then record metrics baseline
             plan = plan_manager.get_plan(plan_id)
             _record_metrics_baseline(plan, context)
+
+            # Capture initial snapshot if metrics are defined and validated
+            if plan.metrics.definitions:
+                has_validated = any(d.validated for d in plan.metrics.definitions)
+                if has_validated:
+                    capture_metric_snapshot(plan, context, "plan_start")
+
             plan_manager.update_plan(plan)
 
             incomplete_tasks = plan.get_incomplete_tasks()
@@ -1232,6 +1403,12 @@ def complete_plan_task(
     else:
         plan.add_progress(f"Completed task {task_id}")
 
+    # Capture metrics snapshot if metrics are configured
+    metrics_feedback = ""
+    if plan.metrics.definitions and any(d.validated for d in plan.metrics.definitions):
+        snapshot = capture_metric_snapshot(plan, context, f"task_complete:{task_id}")
+        metrics_feedback = _generate_metrics_feedback(plan, snapshot)
+
     plan_manager.update_plan(plan)
 
     # Build verification reminder
@@ -1256,6 +1433,10 @@ Run tests to confirm the implementation is correct, then call:
 
     if unverified and len(unverified) > 1:  # More than just the current task
         status += f"\n\n**Unverified tasks ({len(unverified)}):** Remember to verify completed tasks!"
+
+    # Add metrics feedback if available
+    if metrics_feedback:
+        status += f"\n\n{metrics_feedback}"
 
     return status
 
@@ -1312,6 +1493,13 @@ def verify_plan_task(
         return f"Error: Could not verify task {task_id}"
 
     plan.add_progress(f"Verified task {task_id}")
+
+    # Capture metrics snapshot if metrics are configured
+    metrics_feedback = ""
+    if plan.metrics.definitions and any(d.validated for d in plan.metrics.definitions):
+        snapshot = capture_metric_snapshot(plan, context, f"task_verified:{task_id}")
+        metrics_feedback = _generate_metrics_feedback(plan, snapshot)
+
     plan_manager.update_plan(plan)
 
     # Check remaining work
@@ -1331,6 +1519,10 @@ def verify_plan_task(
     else:
         status += "\n🎉 **All tasks completed and verified!**\n"
         status += f'Use `complete_plan("{plan_id}")` to finish the plan.'
+
+    # Add metrics feedback if available
+    if metrics_feedback:
+        status += f"\n\n{metrics_feedback}"
 
     return status
 
@@ -1453,12 +1645,20 @@ def complete_plan(
 Run tests and use `verify_plan_task` for each task to confirm the implementation is correct.
 All tasks must be verified before the plan can be completed."""
 
+    # Capture final metrics snapshot before completing
+    metrics_feedback = ""
+    if plan.metrics.definitions and any(d.validated for d in plan.metrics.definitions):
+        snapshot = capture_metric_snapshot(plan, context, "plan_end")
+        metrics_feedback = _generate_metrics_feedback(plan, snapshot)
+        # Update plan with final snapshot before completing
+        plan_manager.update_plan(plan)
+
     plan_manager.complete_plan(plan_id, notes)
 
     # Clear active plan from context when completing
     context.active_plan_id = None
 
-    return f"""🎉 **Plan Completed!**
+    result = f"""🎉 **Plan Completed!**
 
 Plan `{plan_id}`: {plan.title}
 
@@ -1466,3 +1666,8 @@ Plan `{plan_id}`: {plan.title}
 
 The plan has been archived to the completed plans directory.
 """
+
+    if metrics_feedback:
+        result += f"\n**Final Metrics:**\n{metrics_feedback}"
+
+    return result
