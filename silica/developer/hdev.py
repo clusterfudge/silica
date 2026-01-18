@@ -1487,6 +1487,59 @@ def resume(
     resume_session(session_id, history_base_dir=history_base_dir)
 
 
+def view_session(
+    session_id: Annotated[Optional[str], cyclopts.Parameter("session_id")] = None,
+    *,
+    persona: Annotated[
+        Optional[str], cyclopts.Parameter(help="Persona to view sessions for")
+    ] = None,
+    port: Annotated[int, cyclopts.Parameter(help="Port to run viewer on")] = 8000,
+):
+    """Launch the session viewer web interface.
+
+    Opens a web-based viewer to inspect session state, including messages,
+    tool calls, sub-agent sessions, and system prompt sections.
+
+    Args:
+        session_id: Optional session ID to open directly
+        persona: Optional persona to filter by (defaults to 'default')
+        port: Port to run the viewer on (default: 8000)
+    """
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    # Find the session_viewer.py script
+    script_path = Path(__file__).parent.parent.parent / "scripts" / "session_viewer.py"
+
+    if not script_path.exists():
+        # Try relative to working directory
+        script_path = Path("scripts/session_viewer.py")
+
+    if not script_path.exists():
+        print("Error: session_viewer.py not found")
+        print("Run from the silica project root or install silica properly")
+        return
+
+    # Build command
+    cmd = [sys.executable, str(script_path)]
+    if session_id:
+        cmd.append(session_id)
+    if persona:
+        cmd.extend(["--persona", persona])
+    else:
+        cmd.extend(["--persona", "default"])
+    cmd.extend(["--port", str(port)])
+
+    print(f"Starting session viewer on http://localhost:{port}")
+    print("Press Ctrl+C to stop")
+
+    try:
+        subprocess.run(cmd)
+    except KeyboardInterrupt:
+        print("\nSession viewer stopped")
+
+
 def attach_tools(app):
     console = Console()
     sandbox = Sandbox(".", SandboxMode.ALLOW_ALL)

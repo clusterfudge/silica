@@ -1,0 +1,289 @@
+/* Session Viewer Styles */
+
+/* Custom colors */
+.bg-gray-750 {
+    background-color: #2d3748;
+}
+
+/* Message styling */
+.message {
+    margin-bottom: 1rem;
+    padding: 1rem;
+    border-radius: 0.5rem;
+}
+
+.message-user {
+    background-color: #1e3a5f;
+    border-left: 4px solid #3b82f6;
+}
+
+.message-assistant {
+    background-color: #1a2e1a;
+    border-left: 4px solid #22c55e;
+}
+
+.message-system {
+    background-color: #3d2b1a;
+    border-left: 4px solid #f59e0b;
+}
+
+.message-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 0.5rem;
+    font-size: 0.875rem;
+    color: #9ca3af;
+}
+
+.message-role {
+    font-weight: 600;
+    text-transform: capitalize;
+}
+
+.message-content {
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* Tool use/result styling */
+.tool-use {
+    background-color: #2d2d4a;
+    border: 1px solid #4c4c7a;
+    border-radius: 0.375rem;
+    padding: 0.75rem;
+    margin: 0.5rem 0;
+}
+
+.tool-result {
+    background-color: #2a2a3a;
+    border: 1px solid #4a4a5a;
+    border-radius: 0.375rem;
+    padding: 0.75rem;
+    margin: 0.5rem 0;
+}
+
+.tool-name {
+    color: #a78bfa;
+    font-weight: 600;
+    font-family: monospace;
+}
+
+.tool-input {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    background-color: #1a1a2e;
+    border-radius: 0.25rem;
+    font-family: monospace;
+    font-size: 0.75rem;
+    overflow-x: auto;
+}
+
+/* Ephemeral content styling */
+.ephemeral-content {
+    background-color: #3d3d1a;
+    border: 1px dashed #a3a31a;
+    border-radius: 0.375rem;
+    padding: 0.75rem;
+    margin: 0.5rem 0;
+}
+
+.ephemeral-label {
+    color: #fbbf24;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+}
+
+/* File mention styling */
+.file-mention {
+    background-color: #1a3d3d;
+    border: 1px solid #0d9488;
+    border-radius: 0.375rem;
+    padding: 0.75rem;
+    margin: 0.5rem 0;
+}
+
+.file-mention-header {
+    color: #2dd4bf;
+    font-size: 0.875rem;
+    font-weight: 600;
+    font-family: monospace;
+    margin-bottom: 0.5rem;
+}
+
+.file-mention-content {
+    background-color: #0f2929;
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+    font-family: monospace;
+    font-size: 0.75rem;
+    overflow-x: auto;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+/* Sub-agent link styling */
+.subagent-link {
+    display: inline-flex;
+    align-items: center;
+    color: #60a5fa;
+    cursor: pointer;
+    text-decoration: underline;
+}
+
+.subagent-link:hover {
+    color: #93c5fd;
+}
+
+/* Collapsible sections */
+.section-toggle {
+    transition: background-color 0.15s;
+}
+
+.section-toggle .toggle-icon {
+    transition: transform 0.15s;
+}
+
+.section-toggle.expanded .toggle-icon {
+    transform: rotate(90deg);
+}
+
+/* Session list item */
+.session-item {
+    padding: 0.75rem;
+    background-color: #374151;
+    border-radius: 0.375rem;
+    cursor: pointer;
+    transition: background-color 0.15s;
+}
+
+.session-item:hover {
+    background-color: #4b5563;
+}
+
+.session-item.active {
+    background-color: #1e40af;
+    border-left: 3px solid #3b82f6;
+}
+
+.session-item-id {
+    font-family: monospace;
+    font-size: 0.75rem;
+    color: #9ca3af;
+}
+
+.session-item-date {
+    font-size: 0.75rem;
+    color: #6b7280;
+}
+
+.session-item-meta {
+    font-size: 0.75rem;
+    color: #6b7280;
+    margin-top: 0.25rem;
+}
+
+/* Code block styling */
+pre code {
+    display: block;
+    padding: 0.75rem;
+    border-radius: 0.375rem;
+    overflow-x: auto;
+    font-size: 0.75rem;
+}
+
+/* Thinking block styling */
+.thinking-block {
+    background-color: #2d2d3d;
+    border: 1px solid #5a5a7a;
+    border-radius: 0.375rem;
+    padding: 0.75rem;
+    margin: 0.5rem 0;
+    font-style: italic;
+    color: #a0a0c0;
+}
+
+.thinking-label {
+    color: #8b8bab;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+    font-style: normal;
+}
+
+/* Turn indicator */
+.turn-indicator {
+    position: absolute;
+    left: -1.5rem;
+    top: 0.5rem;
+    width: 1rem;
+    height: 1rem;
+    background-color: #3b82f6;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.625rem;
+    font-weight: 600;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #1f2937;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #4b5563;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #6b7280;
+}
+
+/* Tool schema in sidebar */
+.tool-schema-item {
+    padding: 0.5rem;
+    margin-bottom: 0.25rem;
+    background-color: #374151;
+    border-radius: 0.25rem;
+    cursor: pointer;
+}
+
+.tool-schema-item:hover {
+    background-color: #4b5563;
+}
+
+.tool-schema-name {
+    color: #a78bfa;
+    font-weight: 600;
+    font-family: monospace;
+    font-size: 0.75rem;
+}
+
+.tool-schema-desc {
+    color: #9ca3af;
+    font-size: 0.625rem;
+    margin-top: 0.125rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tool-schema-details {
+    display: none;
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    background-color: #1f2937;
+    border-radius: 0.25rem;
+    font-size: 0.625rem;
+}
+
+.tool-schema-item.expanded .tool-schema-details {
+    display: block;
+}
