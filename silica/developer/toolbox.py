@@ -617,7 +617,7 @@ class Toolbox:
     def _dump(self, user_interface, sandbox, user_input, *args, **kwargs):
         """Render the system message, tool specs, and chat history"""
         from .prompt import create_system_message
-        from .agent_loop import _inline_latest_file_mentions
+        from .agent_loop import _process_file_mentions
 
         content = "[bold cyan]System Message:[/bold cyan]\n\n"
         content += json.dumps(create_system_message(self.context), indent=2)
@@ -626,7 +626,7 @@ class Toolbox:
         content += (
             "\n\n[bold cyan]Chat History (with inlined file contents):[/bold cyan]\n"
         )
-        inlined_history = _inline_latest_file_mentions(kwargs["chat_history"])
+        inlined_history = _process_file_mentions(kwargs["chat_history"])
         for msg_idx, message in enumerate(inlined_history):
             content += f"\n\n[bold]Message {msg_idx} ({message['role']}):[/bold]"
 

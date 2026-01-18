@@ -150,14 +150,65 @@ def _extract_file_mentions(message: MessageParam) -> list[Path]:
     return paths
 
 
-def _inline_latest_file_mentions(
+def _should_inject_plan_reminder(
+    agent_context: "AgentContext",
+) -> tuple[bool, str | None]:
+    """Determine if a plan state reminder should be injected.
+
+    Plan reminders should only be injected when:
+    - There's an active plan in "executing" state
+    - The plan has incomplete tasks
+    - This is not a subagent (subagents have their own focused task)
+
+    This is called when the assistant responds WITHOUT tool_use blocks,
+    meaning it's about to return control to the user. The reminder nudges
+    the agent to continue working on the plan instead of stopping.
+
+    Args:
+        agent_context: The agent context to check
+
+    Returns:
+        Tuple of (should_inject: bool, plan_state: str | None)
+    """
+    # Don't inject for subagents - they have their own focused task
+    if agent_context.parent_session_id is not None:
+        return False, None
+
+    try:
+        from silica.developer.tools.planning import (
+            get_active_plan_status,
+            get_ephemeral_plan_state,
+        )
+
+        plan_status = get_active_plan_status(agent_context)
+        if not plan_status:
+            return False, None
+
+        # Only inject if plan is in executing state with incomplete tasks
+        if plan_status.get("status") != "executing":
+            return False, None
+
+        incomplete_tasks = plan_status.get("incomplete_tasks", 0)
+        if incomplete_tasks == 0:
+            return False, None
+
+        # Get the ephemeral plan state message
+        plan_state = get_ephemeral_plan_state(agent_context)
+        if not plan_state:
+            return False, None
+
+        return True, plan_state
+
+    except Exception:
+        # Don't fail if planning module has issues
+        return False, None
+
+
+def _process_file_mentions(
     chat_history: list[MessageParam],
     agent_context: "AgentContext",
 ) -> list[MessageParam]:
     """Process file mentions in chat history and inline their contents into the messages.
-
-    Also injects ephemeral plan state into the last user message when a plan is in progress.
-    This provides the agent with current plan state without accumulating in conversation history.
 
     This function operates outside the sandbox system, treating @ mentions as explicit
     permission to read the referenced files. This is in contrast to other file operations
@@ -170,7 +221,7 @@ def _inline_latest_file_mentions(
 
     Args:
         chat_history: List of message parameters from the conversation history
-        agent_context: Agent context for plan state injection
+        agent_context: Agent context (used for future extensions)
 
     Returns:
         Modified chat history with file contents inlined into the messages
@@ -216,42 +267,6 @@ def _inline_latest_file_mentions(
 
         # Add the file content as a new text block
         message_to_update["content"].append({"type": "text", "text": file_block})
-
-    # Inject ephemeral plan state into last user message (before cache marker)
-    # This provides current plan state to the agent without accumulating in history
-    if results and results[-1]["role"] == "user":
-        last_message = results[-1]
-
-        # Check if last message contains tool_result blocks - skip injection if so
-        # Inject plan state on tool result messages to keep agent on track during
-        # autonomous execution. This reminds the agent what plan it's executing and
-        # what task to work on next, preventing it from stopping to ask the user.
-        content = last_message.get("content", [])
-        has_tool_results = False
-        if isinstance(content, list):
-            has_tool_results = any(
-                isinstance(block, dict) and block.get("type") == "tool_result"
-                for block in content
-            )
-
-        # Only inject plan state for top-level agents, not subagents
-        # Subagents have a parent_session_id and shouldn't be distracted by plan context
-        is_subagent = agent_context.parent_session_id is not None
-        if has_tool_results and not is_subagent:
-            try:
-                from silica.developer.tools.planning import get_ephemeral_plan_state
-
-                plan_state = get_ephemeral_plan_state(agent_context)
-                if plan_state:
-                    # Ensure content is in list format
-                    if isinstance(last_message["content"], str):
-                        last_message["content"] = [
-                            {"type": "text", "text": last_message["content"]}
-                        ]
-                    # Inject plan state as a new text block
-                    last_message["content"].append({"type": "text", "text": plan_state})
-            except Exception:
-                pass  # Don't fail message processing if planning module has issues
 
     # HACK: we just happen to be seeing messages go past, so we'll handle cache_control here.
     # Add cache_control to the last text block in a user message, ensuring all content is list-type
@@ -388,13 +403,11 @@ async def run(
 
                     user_input = await user_interface.get_user_input(prompt)
 
-
                 # Track when user input was received to measure agent work duration
                 agent_work_start_time = time.time()
 
                 # Reset loop detector when user provides new input
                 loop_detector.reset()
-
 
                 command_name = (
                     user_input.split()[0][1:] if user_input.startswith("/") else ""
@@ -578,7 +591,7 @@ async def run(
                         agent_context._chat_history = cleaned_history
                         agent_context.flush(agent_context.chat_history, compact=False)
 
-                        messages = _inline_latest_file_mentions(
+                        messages = _process_file_mentions(
                             agent_context.chat_history, agent_context
                         )
 
@@ -955,8 +968,8 @@ async def run(
                             }
                         )
 
-                    # Note: Plan task hints are now handled via ephemeral plan state
-                    # injection in _inline_latest_file_mentions, avoiding context accumulation
+                    # Note: Plan state reminders are now injected after assistant
+                    # responses with no tool_use (see else branch below)
                 except KeyboardInterrupt:
                     # Handle Ctrl+C during tool execution
                     user_interface.handle_system_message(
@@ -1090,9 +1103,30 @@ async def run(
                     agent_context.chat_history.pop()
 
             else:
-                # Note: Plan reminders are now handled via ephemeral plan state
-                # injection in _inline_latest_file_mentions, avoiding context accumulation
-                pass
+                # Check if we should inject a plan reminder to keep the agent working
+                # This happens when the agent responds without tool_use but has an
+                # incomplete plan - we nudge it to continue instead of returning to user
+                should_inject, plan_state = _should_inject_plan_reminder(agent_context)
+                if should_inject and plan_state:
+                    user_interface.handle_system_message(
+                        "[dim]Plan in progress - nudging agent to continue...[/dim]",
+                        markdown=False,
+                    )
+                    # Add plan reminder as a user message and continue the loop
+                    agent_context.chat_history.append(
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": plan_state,
+                                    "cache_control": {"type": "ephemeral"},
+                                }
+                            ],
+                        }
+                    )
+                    # Continue the loop to give the agent another chance
+                    continue
 
             interrupt_count = 0
             last_interrupt_time = 0
@@ -1100,9 +1134,7 @@ async def run(
             # Exit after one response if in single-response mode
             if single_response and not agent_context.tool_result_buffer:
                 agent_context.flush(
-                    _inline_latest_file_mentions(
-                        agent_context.chat_history, agent_context
-                    ),
+                    _process_file_mentions(agent_context.chat_history, agent_context),
                     compact=False,  # Compaction handled explicitly above
                 )
                 break

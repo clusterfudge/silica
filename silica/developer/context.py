@@ -183,7 +183,7 @@ class AgentContext:
         """
         from silica.developer.prompt import create_system_message
         from silica.developer.toolbox import Toolbox
-        from silica.developer.agent_loop import _inline_latest_file_mentions
+        from silica.developer.agent_loop import _process_file_mentions
 
         # Create system message
         system_message = create_system_message(self)
@@ -194,7 +194,7 @@ class AgentContext:
         tools = toolbox.agent_schema
 
         # Process messages with inlined file mentions and ephemeral plan state
-        processed_messages = _inline_latest_file_mentions(self.chat_history, self)
+        processed_messages = _process_file_mentions(self.chat_history, self)
 
         return {
             "system": system_message,

@@ -2,7 +2,7 @@ import unittest
 import tempfile
 from pathlib import Path
 from silica.developer.compacter import ConversationCompacter
-from silica.developer.agent_loop import _inline_latest_file_mentions
+from silica.developer.agent_loop import _process_file_mentions
 from silica.developer.context import AgentContext
 from silica.developer.sandbox import Sandbox, SandboxMode
 from silica.developer.memory import MemoryManager
@@ -168,7 +168,7 @@ class TestFileMentionSummary(unittest.TestCase):
         )
 
         # Process the messages to inline file mentions
-        processed_messages = _inline_latest_file_mentions(messages, context)
+        processed_messages = _process_file_mentions(messages, context)
 
         # Get the summary string that would be used for summarization
         summary_string = self.compacter._messages_to_string(
