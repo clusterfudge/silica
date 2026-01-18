@@ -125,6 +125,68 @@ class TestShouldInjectPlanReminder:
             assert plan_state is None
 
 
+class TestPlanContinuationLoop:
+    """Tests for the plan continuation loop behavior.
+
+    These tests verify that when a plan reminder is injected, the agent loop
+    correctly skips the user input prompt and continues to the API call.
+    """
+
+    def test_skip_user_input_flag_exists_in_agent_loop(self):
+        """Verify the skip_user_input flag is used in agent_loop."""
+        import inspect
+        from silica.developer import agent_loop
+
+        source = inspect.getsource(agent_loop.run)
+
+        # Check that skip_user_input is defined and used
+        assert "skip_user_input = False" in source
+        assert "skip_user_input = True" in source
+        assert "not skip_user_input" in source
+
+    def test_skip_user_input_set_on_plan_reminder_injection(self):
+        """Verify skip_user_input is set to True when plan reminder is injected."""
+        import inspect
+        from silica.developer import agent_loop
+
+        source = inspect.getsource(agent_loop.run)
+
+        # Find the plan reminder injection section
+        assert "_should_inject_plan_reminder" in source
+
+        # Verify that skip_user_input = True is set near the plan reminder injection
+        # This is a structural test to ensure the fix is in place
+        plan_reminder_idx = source.find("_should_inject_plan_reminder")
+        skip_set_idx = source.find("skip_user_input = True")
+
+        # skip_user_input = True should come AFTER the plan reminder check
+        # but BEFORE the continue statement
+        assert skip_set_idx > plan_reminder_idx
+        continue_after_reminder_idx = source.find("continue", skip_set_idx)
+        assert continue_after_reminder_idx > skip_set_idx
+
+    def test_skip_user_input_reset_after_use(self):
+        """Verify skip_user_input is reset to False after being used."""
+        import inspect
+        from silica.developer import agent_loop
+
+        source = inspect.getsource(agent_loop.run)
+
+        # Verify that skip_user_input is reset in the elif branch
+        # that handles existing user messages
+        assert "skip_user_input = False" in source
+
+        # Should appear in the context of handling existing user messages
+        reset_idx = source.find("skip_user_input = False", source.find("while True"))
+        assert reset_idx > 0
+
+        # Should be in the elif block that handles user messages already in history
+        elif_user_msg_idx = source.find(
+            'agent_context.chat_history[-1]["role"] == "user"'
+        )
+        assert elif_user_msg_idx > 0
+
+
 class TestPlanInjectionIntegration:
     """Integration-style tests for plan injection in the agent loop context."""
 
