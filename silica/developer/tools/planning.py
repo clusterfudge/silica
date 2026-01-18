@@ -9,7 +9,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from silica.developer.tools.framework import tool
-from silica.developer.plans import Plan, PlanManager, PlanStatus
+from silica.developer.plans import (
+    MetricSnapshot,
+    Plan,
+    PlanManager,
+    PlanStatus,
+)
 
 if TYPE_CHECKING:
     from silica.developer.context import AgentContext
@@ -434,6 +439,144 @@ def _get_cost_delta(plan: "Plan", context: "AgentContext") -> dict:
         "cost_dollars": usage.get("total_cost", 0.0)
         - plan.metrics.baseline_cost_dollars,
     }
+
+
+def _run_capture_command(command: str, timeout: int = 30) -> tuple[bool, str]:
+    """Run a metric capture command and return the output.
+
+    Args:
+        command: Shell command to run
+        timeout: Timeout in seconds
+
+    Returns:
+        Tuple of (success: bool, output_or_error: str)
+    """
+    import subprocess
+
+    if not command:
+        return False, "No capture command defined"
+
+    try:
+        result = subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        if result.returncode != 0:
+            return False, f"Command failed (exit {result.returncode}): {result.stderr}"
+        return True, result.stdout.strip()
+    except subprocess.TimeoutExpired:
+        return False, f"Command timed out after {timeout}s"
+    except Exception as e:
+        return False, f"Command error: {str(e)}"
+
+
+def _parse_metric_value(output: str, metric_type: str) -> float:
+    """Parse command output into a metric value.
+
+    Args:
+        output: Raw command output
+        metric_type: Expected type ("int", "float", "percent")
+
+    Returns:
+        Parsed numeric value
+
+    Raises:
+        ValueError: If output cannot be parsed
+    """
+    # Strip whitespace and handle empty output
+    output = output.strip()
+    if not output:
+        raise ValueError("Empty output")
+
+    # For percent, strip % suffix if present
+    if metric_type == "percent" and output.endswith("%"):
+        output = output[:-1].strip()
+
+    # Parse based on type
+    if metric_type == "int":
+        return float(int(output))
+    else:  # float or percent
+        return float(output)
+
+
+def capture_metric_snapshot(
+    plan: Plan,
+    context: "AgentContext",
+    trigger: str,
+) -> MetricSnapshot:
+    """Capture a metric snapshot for the plan.
+
+    Captures current cost delta, runs capture commands for all defined
+    metrics, and records version information.
+
+    Args:
+        plan: The plan to capture metrics for
+        context: Agent context with usage information
+        trigger: What triggered this snapshot (e.g., "plan_start", "task_complete:abc")
+
+    Returns:
+        The created MetricSnapshot (also added to plan.metrics.snapshots)
+    """
+    from datetime import datetime, timezone
+
+    from silica.developer.plans import (
+        MetricSnapshot,
+        get_agent_version,
+        get_silica_version,
+    )
+
+    # Calculate wall clock time since execution started
+    wall_clock_seconds = 0.0
+    if plan.metrics.execution_started_at:
+        delta = datetime.now(timezone.utc) - plan.metrics.execution_started_at
+        wall_clock_seconds = delta.total_seconds()
+
+    # Get cost delta
+    cost_delta = _get_cost_delta(plan, context)
+
+    # Capture custom metrics
+    metrics: dict[str, float] = {}
+    metric_errors: dict[str, str] = {}
+
+    for definition in plan.metrics.definitions:
+        if not definition.validated or not definition.capture_command:
+            # Skip unvalidated metrics
+            metric_errors[definition.name] = "Not validated"
+            continue
+
+        success, output = _run_capture_command(definition.capture_command)
+        if success:
+            try:
+                value = _parse_metric_value(output, definition.metric_type)
+                metrics[definition.name] = value
+            except ValueError as e:
+                metric_errors[definition.name] = f"Parse error: {e} (output: {output})"
+        else:
+            metric_errors[definition.name] = output
+
+    # Create snapshot
+    snapshot = MetricSnapshot(
+        timestamp=datetime.now(timezone.utc),
+        wall_clock_seconds=wall_clock_seconds,
+        trigger=trigger,
+        input_tokens=cost_delta["input_tokens"],
+        output_tokens=cost_delta["output_tokens"],
+        thinking_tokens=cost_delta["thinking_tokens"],
+        cached_tokens=cost_delta["cached_tokens"],
+        cost_dollars=cost_delta["cost_dollars"],
+        agent_version=get_agent_version(),
+        silica_version=get_silica_version(),
+        metrics=metrics,
+        metric_errors=metric_errors,
+    )
+
+    # Add to plan's snapshots
+    plan.metrics.snapshots.append(snapshot)
+
+    return snapshot
 
 
 def _get_plan_manager(context: "AgentContext") -> PlanManager:
