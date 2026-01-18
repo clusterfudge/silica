@@ -684,6 +684,113 @@ class Plan:
             lines.append(self.completion_notes)
             lines.append("")
 
+        # Metrics
+        if self.metrics.definitions:
+            lines.append("## Metrics")
+            lines.append("")
+
+            # Show metric definitions
+            lines.append("### Tracked Metrics")
+            lines.append("")
+            for d in self.metrics.definitions:
+                dir_indicator = "↑" if d.direction == "up" else "↓"
+                validated = "✓" if d.validated else "⚠️ not configured"
+                target = (
+                    f", target: {d.target_value}" if d.target_value is not None else ""
+                )
+                lines.append(
+                    f"- **{d.name}** {dir_indicator} ({d.metric_type}{target}) {validated}"
+                )
+            lines.append("")
+
+            # Show latest snapshot if available
+            if self.metrics.snapshots:
+                latest = self.metrics.snapshots[-1]
+                start = self.metrics.get_start_snapshot()
+
+                lines.append("### Latest Snapshot")
+                lines.append("")
+                lines.append(f"**Trigger:** {latest.trigger}")
+                lines.append(
+                    f"**Time:** {latest.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')}"
+                )
+
+                mins = int(latest.wall_clock_seconds // 60)
+                secs = int(latest.wall_clock_seconds % 60)
+                lines.append(f"**Elapsed:** {mins}m {secs}s")
+
+                cost_str = (
+                    f"${latest.cost_dollars:.4f}"
+                    if latest.cost_dollars < 1
+                    else f"${latest.cost_dollars:.2f}"
+                )
+                lines.append(
+                    f"**Cost:** {cost_str} ({latest.input_tokens:,} in, {latest.output_tokens:,} out)"
+                )
+                lines.append("")
+
+                # Show metric values
+                if latest.metrics:
+                    lines.append("| Metric | Current | Δ Start | Target | Progress |")
+                    lines.append("|--------|---------|---------|--------|----------|")
+
+                    for d in self.metrics.definitions:
+                        if d.name in latest.metrics:
+                            current = latest.metrics[d.name]
+                            current_str = (
+                                f"{current:.1f}"
+                                if isinstance(current, float)
+                                and not current.is_integer()
+                                else str(int(current))
+                            )
+
+                            # Delta from start
+                            delta_start = "-"
+                            if start and d.name in start.metrics:
+                                diff = current - start.metrics[d.name]
+                                if diff != 0:
+                                    sign = "+" if diff > 0 else ""
+                                    delta_start = (
+                                        f"{sign}{diff:.1f}"
+                                        if isinstance(diff, float)
+                                        else f"{sign}{int(diff)}"
+                                    )
+
+                            # Target and progress
+                            target_str = (
+                                str(int(d.target_value))
+                                if d.target_value is not None
+                                else "-"
+                            )
+                            progress = "-"
+                            if d.target_value is not None:
+                                if d.direction == "up" and d.target_value != 0:
+                                    pct = (current / d.target_value) * 100
+                                    progress = f"{pct:.1f}%"
+                                elif (
+                                    d.direction == "down"
+                                    and start
+                                    and d.name in start.metrics
+                                ):
+                                    start_val = start.metrics[d.name]
+                                    if start_val != 0:
+                                        pct = ((start_val - current) / start_val) * 100
+                                        progress = f"{pct:.1f}%"
+
+                            dir_indicator = "↑" if d.direction == "up" else "↓"
+                            lines.append(
+                                f"| {d.name} {dir_indicator} | {current_str} | {delta_start} | {target_str} | {progress} |"
+                            )
+
+                    lines.append("")
+
+                # Show errors if any
+                if latest.metric_errors:
+                    lines.append("**Metric Errors:**")
+                    for name, error in latest.metric_errors.items():
+                        lines.append(f"- {name}: {error}")
+                    lines.append("")
+
         # JSON data block for round-trip parsing
         lines.append("---")
         lines.append("")
