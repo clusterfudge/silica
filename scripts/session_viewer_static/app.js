@@ -204,6 +204,12 @@ async function loadSession(persona, sessionId) {
         // Close subagent panel if open
         closeSubagentPanel();
         
+        // Close metrics panel if open
+        closeMetricsPanel();
+        
+        // Check for plan metrics
+        loadPlanMetrics();
+        
     } catch (e) {
         console.error('Failed to load session:', e);
         messagesContainer.innerHTML = '<div class="text-red-500 p-4">Error loading session</div>';
@@ -550,7 +556,186 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+// Metrics panel functions
+const metricsPanel = document.getElementById('metrics-panel');
+const metricsContent = document.getElementById('metrics-content');
+const btnShowMetrics = document.getElementById('btn-show-metrics');
+
+async function loadPlanMetrics() {
+    if (!currentSession || !currentPersona) return;
+    
+    try {
+        const response = await fetch(`/api/session/${encodeURIComponent(currentPersona)}/${encodeURIComponent(currentSession)}/plan-metrics`);
+        const data = await response.json();
+        
+        if (data.has_plan && data.metrics) {
+            btnShowMetrics.classList.remove('hidden');
+            btnShowMetrics.onclick = () => showMetricsPanel(data);
+        } else {
+            btnShowMetrics.classList.add('hidden');
+        }
+    } catch (e) {
+        console.error('Failed to load plan metrics:', e);
+        btnShowMetrics.classList.add('hidden');
+    }
+}
+
+function showMetricsPanel(data) {
+    metricsPanel.classList.remove('hidden');
+    
+    const { plan_id, plan_title, plan_status, metrics } = data;
+    const { definitions, snapshots, execution_started_at } = metrics;
+    
+    let html = `
+        <div class="mb-4">
+            <h3 class="text-lg font-semibold">${escapeHtml(plan_title)}</h3>
+            <p class="text-sm text-gray-400">Plan ID: ${plan_id} • Status: ${plan_status}</p>
+        </div>
+    `;
+    
+    // Metric definitions
+    html += `<div class="mb-4">
+        <h4 class="text-sm font-medium text-gray-400 mb-2">Tracked Metrics</h4>
+        <div class="space-y-1">`;
+    
+    definitions.forEach(def => {
+        const dirIcon = def.direction === 'up' ? '↑' : '↓';
+        const validated = def.validated ? '✓' : '⚠️';
+        const target = def.target_value !== null ? `, target: ${def.target_value}` : '';
+        html += `<div class="text-sm"><span class="font-mono">${escapeHtml(def.name)}</span> ${dirIcon} (${def.metric_type}${target}) ${validated}</div>`;
+    });
+    html += `</div></div>`;
+    
+    // Snapshots summary
+    if (snapshots && snapshots.length > 0) {
+        html += `<div class="mb-4">
+            <h4 class="text-sm font-medium text-gray-400 mb-2">Snapshots (${snapshots.length})</h4>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="border-b border-gray-700">
+                            <th class="text-left py-1 px-2">Trigger</th>
+                            <th class="text-left py-1 px-2">Time</th>
+                            <th class="text-left py-1 px-2">Cost</th>`;
+        
+        // Add columns for each metric
+        definitions.filter(d => d.validated).forEach(def => {
+            html += `<th class="text-left py-1 px-2">${escapeHtml(def.name)}</th>`;
+        });
+        
+        html += `</tr></thead><tbody>`;
+        
+        snapshots.forEach((snap, idx) => {
+            const mins = Math.floor(snap.wall_clock_seconds / 60);
+            const secs = Math.floor(snap.wall_clock_seconds % 60);
+            const cost = snap.cost_dollars < 1 ? `$${snap.cost_dollars.toFixed(4)}` : `$${snap.cost_dollars.toFixed(2)}`;
+            
+            html += `<tr class="border-b border-gray-700/50 hover:bg-gray-700/30">
+                <td class="py-1 px-2 font-mono text-xs">${escapeHtml(snap.trigger)}</td>
+                <td class="py-1 px-2">${mins}m ${secs}s</td>
+                <td class="py-1 px-2">${cost}</td>`;
+            
+            definitions.filter(d => d.validated).forEach(def => {
+                const val = snap.metrics[def.name];
+                const prevSnap = idx > 0 ? snapshots[idx - 1] : null;
+                const prevVal = prevSnap ? prevSnap.metrics[def.name] : null;
+                
+                let delta = '';
+                if (prevVal !== null && val !== undefined) {
+                    const diff = val - prevVal;
+                    if (diff !== 0) {
+                        const sign = diff > 0 ? '+' : '';
+                        const isRegression = (def.direction === 'up' && diff < 0) || (def.direction === 'down' && diff > 0);
+                        delta = `<span class="${isRegression ? 'text-red-400' : 'text-green-400'}">(${sign}${diff})</span>`;
+                    }
+                }
+                
+                html += `<td class="py-1 px-2">${val !== undefined ? val : '-'} ${delta}</td>`;
+            });
+            
+            html += `</tr>`;
+        });
+        
+        html += `</tbody></table></div></div>`;
+        
+        // Simple chart visualization using CSS bars
+        const validatedDefs = definitions.filter(d => d.validated);
+        if (validatedDefs.length > 0 && snapshots.length > 1) {
+            html += `<div class="mb-4">
+                <h4 class="text-sm font-medium text-gray-400 mb-2">Progress Charts</h4>`;
+            
+            validatedDefs.forEach(def => {
+                const values = snapshots.map(s => s.metrics[def.name]).filter(v => v !== undefined);
+                if (values.length < 2) return;
+                
+                const min = Math.min(...values);
+                const max = Math.max(...values);
+                const range = max - min || 1;
+                const target = def.target_value;
+                
+                html += `<div class="mb-3">
+                    <div class="text-xs text-gray-400 mb-1">${escapeHtml(def.name)} ${def.direction === 'up' ? '↑' : '↓'}</div>
+                    <div class="flex items-end h-16 gap-1 bg-gray-800 rounded p-2">`;
+                
+                values.forEach((val, i) => {
+                    const height = ((val - min) / range) * 100;
+                    const isLast = i === values.length - 1;
+                    const color = isLast ? 'bg-blue-500' : 'bg-gray-600';
+                    html += `<div class="${color} rounded-t" style="width: ${100 / values.length}%; height: ${Math.max(5, height)}%;" title="${val}"></div>`;
+                });
+                
+                html += `</div>
+                    <div class="flex justify-between text-xs text-gray-500">
+                        <span>Start: ${values[0]}</span>
+                        <span>Current: ${values[values.length - 1]}</span>
+                        ${target !== null ? `<span>Target: ${target}</span>` : ''}
+                    </div>
+                </div>`;
+            });
+            
+            html += `</div>`;
+        }
+        
+        // Cost chart
+        if (snapshots.length > 1) {
+            const costs = snapshots.map(s => s.cost_dollars);
+            const maxCost = Math.max(...costs);
+            
+            html += `<div class="mb-4">
+                <h4 class="text-sm font-medium text-gray-400 mb-2">Cost Over Time</h4>
+                <div class="flex items-end h-16 gap-1 bg-gray-800 rounded p-2">`;
+            
+            costs.forEach((cost, i) => {
+                const height = maxCost > 0 ? (cost / maxCost) * 100 : 0;
+                const isLast = i === costs.length - 1;
+                const color = isLast ? 'bg-green-500' : 'bg-gray-600';
+                html += `<div class="${color} rounded-t" style="width: ${100 / costs.length}%; height: ${Math.max(5, height)}%;" title="$${cost.toFixed(4)}"></div>`;
+            });
+            
+            html += `</div>
+                <div class="flex justify-between text-xs text-gray-500">
+                    <span>Start: $${costs[0].toFixed(4)}</span>
+                    <span>Current: $${costs[costs.length - 1].toFixed(4)}</span>
+                </div>
+            </div>`;
+        }
+    } else {
+        html += `<div class="text-gray-500 text-sm">No snapshots captured yet.</div>`;
+    }
+    
+    metricsContent.innerHTML = html;
+}
+
+function closeMetricsPanel() {
+    metricsPanel.classList.add('hidden');
+    metricsContent.innerHTML = '';
+}
+
+// Add close button handler
+document.getElementById('close-metrics')?.addEventListener('click', closeMetricsPanel);
+
 // Expose functions for inline handlers
 window.toggleToolSchema = toggleToolSchema;
 window.showFileMention = showFileMention;
 window.loadSubagent = loadSubagent;
+window.showMetricsPanel = showMetricsPanel;

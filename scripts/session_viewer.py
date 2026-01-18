@@ -222,6 +222,98 @@ async def get_subagent_session(persona: str, session_id: str, tool_id: str):
     return {"session": data}
 
 
+@app.get("/api/session/{persona}/{session_id}/plan-metrics")
+async def get_plan_metrics(persona: str, session_id: str):
+    """Get plan metrics for a session if an active plan exists."""
+    session_dir = PERSONAS_DIR / persona / "history" / session_id
+    root_file = session_dir / "root.json"
+
+    if not root_file.exists():
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    try:
+        with open(root_file) as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, IOError) as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read session: {e}")
+
+    # Check for active plan
+    active_plan_id = data.get("active_plan_id")
+    if not active_plan_id:
+        return {"has_plan": False, "metrics": None}
+
+    # Look for plan in local and global locations
+    plan_data = None
+
+    # Check local plans (in project directory)
+    root_dir = data.get("root_directory")
+    if root_dir:
+        local_plan_dir = Path(root_dir) / ".silica" / "plans"
+        if local_plan_dir.exists():
+            for plan_file in local_plan_dir.glob("*.md"):
+                try:
+                    content = plan_file.read_text()
+                    # Extract JSON from plan markdown
+                    if "<!-- plan-data" in content:
+                        json_start = content.index("<!-- plan-data") + len(
+                            "<!-- plan-data"
+                        )
+                        json_end = content.index("-->", json_start)
+                        plan_json = content[json_start:json_end].strip()
+                        parsed = json.loads(plan_json)
+                        if parsed.get("id") == active_plan_id:
+                            plan_data = parsed
+                            break
+                except (IOError, json.JSONDecodeError, ValueError):
+                    continue
+
+    # Check global plans (in persona directory)
+    if not plan_data:
+        global_plan_dir = PERSONAS_DIR / persona / "plans"
+        if global_plan_dir.exists():
+            for plan_file in global_plan_dir.glob("*.md"):
+                try:
+                    content = plan_file.read_text()
+                    if "<!-- plan-data" in content:
+                        json_start = content.index("<!-- plan-data") + len(
+                            "<!-- plan-data"
+                        )
+                        json_end = content.index("-->", json_start)
+                        plan_json = content[json_start:json_end].strip()
+                        parsed = json.loads(plan_json)
+                        if parsed.get("id") == active_plan_id:
+                            plan_data = parsed
+                            break
+                except (IOError, json.JSONDecodeError, ValueError):
+                    continue
+
+    if not plan_data:
+        return {"has_plan": True, "plan_id": active_plan_id, "metrics": None}
+
+    # Extract metrics
+    metrics = plan_data.get("metrics", {})
+    if not metrics or not metrics.get("definitions"):
+        return {
+            "has_plan": True,
+            "plan_id": active_plan_id,
+            "plan_title": plan_data.get("title"),
+            "metrics": None,
+        }
+
+    return {
+        "has_plan": True,
+        "plan_id": active_plan_id,
+        "plan_title": plan_data.get("title"),
+        "plan_status": plan_data.get("status"),
+        "metrics": {
+            "definitions": metrics.get("definitions", []),
+            "snapshots": metrics.get("snapshots", []),
+            "execution_started_at": metrics.get("execution_started_at"),
+            "baseline_cost": metrics.get("baseline_cost_dollars", 0),
+        },
+    }
+
+
 @app.get("/api/tools")
 async def get_tools():
     """Get tool schemas from silica."""
