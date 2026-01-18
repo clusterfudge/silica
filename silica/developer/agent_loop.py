@@ -360,12 +360,18 @@ async def run(
     # Track when agent starts working (will be updated on each user input)
     agent_work_start_time = time.time()
 
+    # Flag to skip user input prompt (e.g., after plan reminder injection)
+    skip_user_input = False
+
     while True:
         try:
-            if return_to_user_after_interrupt or (
-                not agent_context.tool_result_buffer
-                and not single_response
-                and not initial_prompt
+            if not skip_user_input and (
+                return_to_user_after_interrupt
+                or (
+                    not agent_context.tool_result_buffer
+                    and not single_response
+                    and not initial_prompt
+                )
             ):
                 # Reset the interrupt flag
                 return_to_user_after_interrupt = False
@@ -461,7 +467,8 @@ async def run(
                 and not agent_context.tool_result_buffer
             ):
                 # User message exists with no tool results - proceed to AI generation
-                pass
+                # Reset skip flag now that we've used it
+                skip_user_input = False
             else:
                 if agent_context.tool_result_buffer:
                     agent_context.chat_history.append(
@@ -1125,6 +1132,8 @@ async def run(
                             ],
                         }
                     )
+                    # Skip user input on next iteration - we just injected a message
+                    skip_user_input = True
                     # Continue the loop to give the agent another chance
                     continue
 
