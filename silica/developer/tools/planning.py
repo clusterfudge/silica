@@ -1226,6 +1226,53 @@ def define_metric_capture(
 
 
 @tool(group="Planning")
+def capture_plan_metrics(
+    context: "AgentContext",
+    plan_id: str,
+    note: str = "",
+) -> str:
+    """Manually capture a metrics snapshot.
+
+    Use this to check progress at any point during task execution,
+    not just at task completion milestones. Useful for:
+    - Checking if a fix improved metrics before committing
+    - Monitoring progress during long-running tasks
+    - Debugging metric capture commands
+
+    Args:
+        plan_id: ID of the plan
+        note: Optional note to include in the snapshot trigger
+
+    Returns:
+        Metrics feedback showing current values and changes
+    """
+    plan_manager = _get_plan_manager(context)
+    plan = plan_manager.get_plan(plan_id)
+
+    if plan is None:
+        return f"Error: Plan {plan_id} not found"
+
+    if not plan.metrics.definitions:
+        return "No metrics defined for this plan. Use `add_plan_metrics` to define metrics to track."
+
+    # Check if any metrics are validated
+    validated = [d for d in plan.metrics.definitions if d.validated]
+    if not validated:
+        unvalidated = [d.name for d in plan.metrics.definitions]
+        return f"No metrics are configured yet. Use `define_metric_capture` to configure: {', '.join(unvalidated)}"
+
+    # Capture snapshot
+    trigger = f"manual:{note}" if note else "manual"
+    snapshot = capture_metric_snapshot(plan, context, trigger)
+    plan_manager.update_plan(plan)
+
+    # Generate feedback
+    feedback = _generate_metrics_feedback(plan, snapshot)
+
+    return f"📸 **Manual Metrics Capture**\n\n{feedback}"
+
+
+@tool(group="Planning")
 def read_plan(
     context: "AgentContext",
     plan_id: str,
