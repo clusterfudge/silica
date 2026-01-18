@@ -851,8 +851,6 @@ async def run(
                 plan_status = get_active_plan_status(agent_context)
                 if plan_status and plan_status.get("status") == "executing":
                     plan_slug = plan_status.get("slug")
-                    plan_tasks_completed = plan_status.get("incomplete_tasks", 0)
-                    # Actually we want completed, not incomplete
                     total = plan_status.get("total_tasks", 0)
                     incomplete = plan_status.get("incomplete_tasks", 0)
                     plan_tasks_completed = total - incomplete

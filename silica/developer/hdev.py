@@ -700,16 +700,9 @@ class CLIUserInterface(UserInterface):
 
         # Elapsed time if available
         if elapsed_seconds is not None and elapsed_seconds > 0:
-            if elapsed_seconds < 60:
-                time_str = f"{elapsed_seconds:.1f}s"
-            elif elapsed_seconds < 3600:
-                minutes = int(elapsed_seconds // 60)
-                seconds = int(elapsed_seconds % 60)
-                time_str = f"{minutes}m{seconds}s"
-            else:
-                hours = int(elapsed_seconds // 3600)
-                minutes = int((elapsed_seconds % 3600) // 60)
-                time_str = f"{hours}h{minutes}m"
+            from silica.developer.utils import format_elapsed_time
+
+            time_str = format_elapsed_time(elapsed_seconds)
             parts.append((f"⏱ {time_str}", "dim"))
 
         # Plan status if executing a plan

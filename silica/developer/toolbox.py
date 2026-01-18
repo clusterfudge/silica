@@ -3049,16 +3049,12 @@ When all tasks are done, call `complete_plan(plan_id)`."""
                     if plan.remote_branch:
                         output += f"**Branch:** {plan.remote_branch}\n"
                     if plan.remote_started_at:
+                        from silica.developer.utils import format_elapsed_time
+
                         elapsed = (
                             datetime.now(timezone.utc) - plan.remote_started_at
                         ).total_seconds()
-                        if elapsed < 60:
-                            elapsed_str = f"{elapsed:.0f}s"
-                        elif elapsed < 3600:
-                            elapsed_str = f"{int(elapsed // 60)}m {int(elapsed % 60)}s"
-                        else:
-                            elapsed_str = f"{int(elapsed // 3600)}h {int((elapsed % 3600) // 60)}m"
-                        output += f"**Elapsed:** {elapsed_str}\n"
+                        output += f"**Elapsed:** {format_elapsed_time(elapsed)}\n"
 
                     # Fetch remote status
                     output += "\n**Fetching remote status...**\n"
@@ -3139,16 +3135,12 @@ When all tasks are done, call `complete_plan(plan_id)`."""
                 if plan.remote_workspace:
                     output += f"   Remote: {plan.remote_workspace}\n"
                     if plan.remote_started_at:
+                        from silica.developer.utils import format_elapsed_time
+
                         elapsed = (
                             datetime.now(timezone.utc) - plan.remote_started_at
                         ).total_seconds()
-                        if elapsed < 60:
-                            elapsed_str = f"{elapsed:.0f}s"
-                        elif elapsed < 3600:
-                            elapsed_str = f"{int(elapsed // 60)}m {int(elapsed % 60)}s"
-                        else:
-                            elapsed_str = f"{int(elapsed // 3600)}h {int((elapsed % 3600) // 60)}m"
-                        output += f"   Elapsed: {elapsed_str}\n"
+                        output += f"   Elapsed: {format_elapsed_time(elapsed)}\n"
                 if plan.remote_branch:
                     output += f"   Branch: {plan.remote_branch}\n"
                 if plan.pull_request:
