@@ -105,20 +105,22 @@ def test_system_message_includes_ripgrep():
         sections = create_system_message(
             mock_context, include_sandbox=False, include_memory=False
         )
-        # Should have default section + ripgrep section
-        assert len(sections) == 2
-        ripgrep_section = sections[1]
-        assert "ripgrep" in ripgrep_section["text"].lower()
-        assert "File Search Best Practices" in ripgrep_section["text"]
+        # Should have default section + ripgrep section + loop prevention section
+        assert len(sections) == 3
+        # Find ripgrep section
+        ripgrep_sections = [s for s in sections if "ripgrep" in s["text"].lower()]
+        assert len(ripgrep_sections) == 1
+        assert "File Search Best Practices" in ripgrep_sections[0]["text"]
 
     with patch("silica.developer.tools.memory._has_ripgrep", return_value=False):
         sections = create_system_message(
             mock_context, include_sandbox=False, include_memory=False
         )
-        # Should have only default section
-        assert len(sections) == 1
-        default_section = sections[0]
-        assert "ripgrep" not in default_section["text"].lower()
+        # Should have default section + loop prevention section (no ripgrep)
+        assert len(sections) == 2
+        # Verify no ripgrep section
+        ripgrep_sections = [s for s in sections if "ripgrep" in s["text"].lower()]
+        assert len(ripgrep_sections) == 0
 
 
 def test_system_message_with_custom_section():
@@ -139,10 +141,11 @@ def test_system_message_with_custom_section():
             include_sandbox=False,
             include_memory=False,
         )
-        # Should have custom section (wrapped in persona tags) + ripgrep section
-        assert len(sections) == 2
+        # Should have custom section (wrapped in persona tags) + ripgrep section + loop prevention section
+        assert len(sections) == 3
         assert "Custom system prompt" in sections[0]["text"]
         assert "<persona" in sections[0]["text"]  # Should be wrapped in persona tags
         assert "</persona>" in sections[0]["text"]
-        ripgrep_section = sections[1]
-        assert "ripgrep" in ripgrep_section["text"].lower()
+        # Find ripgrep section
+        ripgrep_sections = [s for s in sections if "ripgrep" in s["text"].lower()]
+        assert len(ripgrep_sections) == 1
