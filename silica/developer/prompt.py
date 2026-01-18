@@ -218,6 +218,15 @@ def create_system_message(
     except ImportError:
         pass
 
+    # Add loop prevention guidance
+    from silica.developer.loop_detection import LOOP_PREVENTION_SYSTEM_PROMPT
+
+    loop_prevention_section = {
+        "type": "text",
+        "text": LOOP_PREVENTION_SYSTEM_PROMPT,
+    }
+    sections.append(loop_prevention_section)
+
     if include_sandbox:
         system_message = "The current contents of the sandbox are:\n"
         sandbox_content = render_sandbox_content(agent_context.sandbox, False)

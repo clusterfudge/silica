@@ -13,6 +13,7 @@ from anthropic.types import TextBlock, MessageParam
 from dotenv import load_dotenv
 
 from silica.developer.context import AgentContext
+from silica.developer.loop_detection import LoopDetector
 from silica.developer.models import ModelSpec
 from silica.developer.prompt import create_system_message
 from silica.developer.rate_limiter import RateLimiter
@@ -329,6 +330,9 @@ async def run(
     last_interrupt_time = 0
     return_to_user_after_interrupt = False
 
+    # Initialize loop detector to catch repetitive tool calls
+    loop_detector = LoopDetector(threshold=3)
+
     # Handle initial prompt if provided
     if initial_prompt:
         agent_context.chat_history.append(
@@ -384,8 +388,13 @@ async def run(
 
                     user_input = await user_interface.get_user_input(prompt)
 
+
                 # Track when user input was received to measure agent work duration
                 agent_work_start_time = time.time()
+
+                # Reset loop detector when user provides new input
+                loop_detector.reset()
+
 
                 command_name = (
                     user_input.split()[0][1:] if user_input.startswith("/") else ""
@@ -892,6 +901,7 @@ async def run(
 
                     # Add all results to buffer and display them
                     modified_files = []
+                    loop_detected = False
                     for tool_use, result in zip(tool_uses, results):
                         tool_name = getattr(tool_use, "name", "unknown_tool")
                         tool_input = getattr(tool_use, "input", {})
@@ -910,6 +920,40 @@ async def run(
 
                         agent_context.tool_result_buffer.append(result)
                         user_interface.handle_tool_result(tool_name, result)
+
+                        # Check for repetitive loops
+                        # Extract result content as string for comparison
+                        result_content = result.get("content", "")
+                        if isinstance(result_content, list):
+                            # Handle list of content blocks
+                            result_content = "".join(
+                                c.get("text", str(c))
+                                for c in result_content
+                                if isinstance(c, dict)
+                            )
+                        elif not isinstance(result_content, str):
+                            result_content = str(result_content)
+
+                        if loop_detector.record_call(
+                            tool_name, tool_input, result_content
+                        ):
+                            loop_detected = True
+
+                    # If loop detected, inject intervention message
+                    if loop_detected:
+                        intervention_msg = loop_detector.get_intervention_message()
+                        user_interface.handle_system_message(
+                            f"[bold yellow]{intervention_msg}[/bold yellow]",
+                            markdown=False,
+                        )
+                        # Add intervention as a user message to the tool result buffer
+                        # This will be included in the next request to help break the loop
+                        agent_context.tool_result_buffer.append(
+                            {
+                                "type": "text",
+                                "text": intervention_msg,
+                            }
+                        )
 
                     # Note: Plan task hints are now handled via ephemeral plan state
                     # injection in _inline_latest_file_mentions, avoiding context accumulation
