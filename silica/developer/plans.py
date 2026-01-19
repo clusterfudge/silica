@@ -115,6 +115,9 @@ class PlanTask:
     Tasks have two states:
     - completed: Code/implementation is done
     - verified: Tests pass and changes are validated
+
+    Tasks can have dependencies (other task IDs that must complete first)
+    and can be subtasks of a parent task (via parent_task_id).
     """
 
     id: str
@@ -126,9 +129,13 @@ class PlanTask:
     completed: bool = False
     verified: bool = False
     verification_notes: str = ""
+    # Subtask support: if set, this task is a child of the specified parent task
+    parent_task_id: Optional[str] = None
+    # Dependency satisfaction level: if True, deps must be verified (not just completed)
+    require_verified_deps: bool = False
 
     def to_dict(self) -> dict:
-        return {
+        result = {
             "id": self.id,
             "description": self.description,
             "details": self.details,
@@ -139,6 +146,12 @@ class PlanTask:
             "verified": self.verified,
             "verification_notes": self.verification_notes,
         }
+        # Only include optional fields if they have non-default values
+        if self.parent_task_id:
+            result["parent_task_id"] = self.parent_task_id
+        if self.require_verified_deps:
+            result["require_verified_deps"] = self.require_verified_deps
+        return result
 
     @classmethod
     def from_dict(cls, data: dict) -> "PlanTask":
@@ -152,6 +165,46 @@ class PlanTask:
             completed=data.get("completed", False),
             verified=data.get("verified", False),
             verification_notes=data.get("verification_notes", ""),
+            parent_task_id=data.get("parent_task_id"),
+            require_verified_deps=data.get("require_verified_deps", False),
+        )
+
+
+@dataclass
+class Milestone:
+    """A milestone groups related tasks within a plan.
+
+    Milestones provide checkpoints for complex plans, encouraging completion
+    of related tasks before moving on. Tasks not assigned to any milestone
+    are in an implicit "Uncategorized" group.
+    """
+
+    id: str
+    title: str
+    description: str = ""
+    task_ids: list[str] = field(default_factory=list)  # Task IDs in this milestone
+    completed: bool = False
+    order: int = 0  # Display/execution order (lower = earlier)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "title": self.title,
+            "description": self.description,
+            "task_ids": self.task_ids,
+            "completed": self.completed,
+            "order": self.order,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Milestone":
+        return cls(
+            id=data.get("id", str(uuid.uuid4())[:8]),
+            title=data.get("title", "Untitled Milestone"),
+            description=data.get("description", ""),
+            task_ids=data.get("task_ids", []),
+            completed=data.get("completed", False),
+            order=data.get("order", 0),
         )
 
 
@@ -470,6 +523,9 @@ class Plan:
     context: str = ""
     approach: str = ""
     tasks: list[PlanTask] = field(default_factory=list)
+    milestones: list[Milestone] = field(
+        default_factory=list
+    )  # Optional milestone groupings
     questions: list[ClarificationQuestion] = field(default_factory=list)
     considerations: dict[str, str] = field(default_factory=dict)
     progress_log: list[ProgressEntry] = field(default_factory=list)
@@ -514,6 +570,7 @@ class Plan:
             "context": self.context,
             "approach": self.approach,
             "tasks": [t.to_dict() for t in self.tasks],
+            "milestones": [m.to_dict() for m in self.milestones],
             "questions": [q.to_dict() for q in self.questions],
             "considerations": self.considerations,
             "progress_log": [p.to_dict() for p in self.progress_log],
@@ -567,6 +624,7 @@ class Plan:
             context=data.get("context", ""),
             approach=data.get("approach", ""),
             tasks=[PlanTask.from_dict(t) for t in data.get("tasks", [])],
+            milestones=[Milestone.from_dict(m) for m in data.get("milestones", [])],
             questions=[
                 ClarificationQuestion.from_dict(q) for q in data.get("questions", [])
             ],
@@ -633,7 +691,9 @@ class Plan:
         lines.append("## Tasks")
         lines.append("")
         if self.tasks:
-            for task in self.tasks:
+            # Helper to render a single task
+            def render_task(task: PlanTask, indent: str = "") -> list[str]:
+                task_lines = []
                 # Show status: ⬜ pending, ✅ completed, ✓✓ verified
                 if task.verified:
                     status = "✓✓"
@@ -641,18 +701,99 @@ class Plan:
                     status = "✅"
                 else:
                     status = "⬜"
-                lines.append(f"- {status} **{task.description}** (id: {task.id})")
+
+                # Add readiness indicator for incomplete tasks
+                readiness = ""
+                if not task.completed and not task.parent_task_id:
+                    if self.is_task_ready(task.id):
+                        readiness = " [READY]"
+                    elif task.dependencies:
+                        blocking = self.get_blocking_tasks(task.id)
+                        if blocking:
+                            blocking_ids = ", ".join(t.id for t in blocking[:3])
+                            if len(blocking) > 3:
+                                blocking_ids += f" +{len(blocking)-3} more"
+                            readiness = f" [BLOCKED by {blocking_ids}]"
+
+                task_lines.append(
+                    f"{indent}- {status} **{task.description}** (id: {task.id}){readiness}"
+                )
                 if task.details:
-                    lines.append(f"  - Details: {task.details}")
+                    task_lines.append(f"{indent}  - Details: {task.details}")
                 if task.files:
-                    lines.append(f"  - Files: {', '.join(task.files)}")
+                    task_lines.append(f"{indent}  - Files: {', '.join(task.files)}")
                 if task.tests:
-                    lines.append(f"  - Tests: {task.tests}")
+                    task_lines.append(f"{indent}  - Tests: {task.tests}")
                 if task.dependencies:
-                    lines.append(f"  - Dependencies: {', '.join(task.dependencies)}")
+                    task_lines.append(
+                        f"{indent}  - Dependencies: {', '.join(task.dependencies)}"
+                    )
                 if task.verification_notes:
-                    lines.append(f"  - Verification: {task.verification_notes}")
-                lines.append("")
+                    task_lines.append(
+                        f"{indent}  - Verification: {task.verification_notes}"
+                    )
+
+                # Render subtasks
+                subtasks = self.get_subtasks(task.id)
+                if subtasks:
+                    for subtask in subtasks:
+                        task_lines.extend(render_task(subtask, indent + "  "))
+
+                task_lines.append("")
+                return task_lines
+
+            # Group tasks by milestone
+            if self.milestones:
+                # Track which tasks are assigned to milestones
+                assigned_task_ids: set[str] = set()
+                for milestone in sorted(self.milestones, key=lambda m: m.order):
+                    assigned_task_ids.update(milestone.task_ids)
+
+                # Render each milestone
+                for milestone in sorted(self.milestones, key=lambda m: m.order):
+                    milestone_tasks = [
+                        t
+                        for t in self.tasks
+                        if t.id in milestone.task_ids and not t.parent_task_id
+                    ]
+                    completed = sum(1 for t in milestone_tasks if t.completed)
+                    verified = sum(1 for t in milestone_tasks if t.verified)
+                    total = len(milestone_tasks)
+
+                    # Milestone status
+                    if milestone.completed or (total > 0 and verified == total):
+                        m_status = "✓"
+                    elif total > 0 and completed == total:
+                        m_status = "⏳"  # All completed, awaiting verification
+                    else:
+                        m_status = ""
+
+                    lines.append(
+                        f"### {m_status} {milestone.title} ({verified}✓/{total})"
+                    )
+                    if milestone.description:
+                        lines.append(f"_{milestone.description}_")
+                    lines.append("")
+
+                    for task in milestone_tasks:
+                        lines.extend(render_task(task))
+
+                # Render uncategorized tasks
+                uncategorized = [
+                    t
+                    for t in self.tasks
+                    if t.id not in assigned_task_ids and not t.parent_task_id
+                ]
+                if uncategorized:
+                    lines.append("### Uncategorized Tasks")
+                    lines.append("")
+                    for task in uncategorized:
+                        lines.extend(render_task(task))
+            else:
+                # No milestones - render all top-level tasks
+                for task in self.tasks:
+                    if not task.parent_task_id:
+                        lines.extend(render_task(task))
         else:
             lines.append("_No tasks defined yet._")
             lines.append("")
@@ -941,6 +1082,428 @@ class Plan:
     def get_unanswered_questions(self) -> list[ClarificationQuestion]:
         """Get all unanswered questions."""
         return [q for q in self.questions if q.answer is None]
+
+    def get_task_by_id(self, task_id: str) -> Optional[PlanTask]:
+        """Get a task by its ID."""
+        for task in self.tasks:
+            if task.id == task_id:
+                return task
+        return None
+
+    # Subtask helper methods
+
+    def get_subtasks(self, task_id: str) -> list[PlanTask]:
+        """Get all subtasks of a given task.
+
+        Args:
+            task_id: The parent task ID
+
+        Returns:
+            List of subtasks (tasks with parent_task_id == task_id)
+        """
+        return [t for t in self.tasks if t.parent_task_id == task_id]
+
+    def get_parent_task(self, task_id: str) -> Optional[PlanTask]:
+        """Get the parent task of a subtask.
+
+        Args:
+            task_id: The subtask ID
+
+        Returns:
+            The parent task, or None if this is a top-level task
+        """
+        task = self.get_task_by_id(task_id)
+        if task is None or task.parent_task_id is None:
+            return None
+        return self.get_task_by_id(task.parent_task_id)
+
+    def is_container_task(self, task_id: str) -> bool:
+        """Check if a task is a container (has subtasks).
+
+        Args:
+            task_id: The task ID to check
+
+        Returns:
+            True if the task has subtasks, False otherwise
+        """
+        return len(self.get_subtasks(task_id)) > 0
+
+    def is_subtask(self, task_id: str) -> bool:
+        """Check if a task is a subtask (has a parent).
+
+        Args:
+            task_id: The task ID to check
+
+        Returns:
+            True if the task has a parent, False otherwise
+        """
+        task = self.get_task_by_id(task_id)
+        return task is not None and task.parent_task_id is not None
+
+    def get_top_level_tasks(self) -> list[PlanTask]:
+        """Get all top-level tasks (not subtasks).
+
+        Returns:
+            List of tasks that don't have a parent
+        """
+        return [t for t in self.tasks if t.parent_task_id is None]
+
+    def are_all_subtasks_complete(self, task_id: str) -> bool:
+        """Check if all subtasks of a task are complete.
+
+        Args:
+            task_id: The parent task ID
+
+        Returns:
+            True if all subtasks are completed, False otherwise.
+            Returns True if the task has no subtasks.
+        """
+        subtasks = self.get_subtasks(task_id)
+        if not subtasks:
+            return True
+        return all(t.completed for t in subtasks)
+
+    def are_all_subtasks_verified(self, task_id: str) -> bool:
+        """Check if all subtasks of a task are verified.
+
+        Args:
+            task_id: The parent task ID
+
+        Returns:
+            True if all subtasks are verified, False otherwise.
+            Returns True if the task has no subtasks.
+        """
+        subtasks = self.get_subtasks(task_id)
+        if not subtasks:
+            return True
+        return all(t.verified for t in subtasks)
+
+    def is_dependency_satisfied(
+        self, dep_task_id: str, require_verified: bool = False
+    ) -> bool:
+        """Check if a dependency task is satisfied.
+
+        Args:
+            dep_task_id: The task ID of the dependency
+            require_verified: If True, dependency must be verified; if False, just completed
+
+        Returns:
+            True if the dependency is satisfied, False otherwise
+        """
+        dep_task = self.get_task_by_id(dep_task_id)
+        if dep_task is None:
+            # Dependency task doesn't exist - treat as satisfied (may have been removed)
+            return True
+        if require_verified:
+            return dep_task.verified
+        return dep_task.completed
+
+    # Circular dependency detection
+
+    def _detect_cycle_from(
+        self, task_id: str, visited: set[str], rec_stack: set[str]
+    ) -> list[str] | None:
+        """DFS helper to detect cycles starting from a task.
+
+        Args:
+            task_id: Current task being visited
+            visited: Set of all visited tasks
+            rec_stack: Set of tasks in current recursion stack
+
+        Returns:
+            List of task IDs forming a cycle, or None if no cycle found
+        """
+        visited.add(task_id)
+        rec_stack.add(task_id)
+
+        task = self.get_task_by_id(task_id)
+        if task:
+            for dep_id in task.dependencies:
+                if dep_id not in visited:
+                    cycle = self._detect_cycle_from(dep_id, visited, rec_stack)
+                    if cycle is not None:
+                        return cycle
+                elif dep_id in rec_stack:
+                    # Found a cycle - build the cycle path
+                    return [dep_id, task_id]
+
+        rec_stack.remove(task_id)
+        return None
+
+    def find_dependency_cycle(self) -> list[str] | None:
+        """Find a dependency cycle if one exists.
+
+        Uses DFS to detect cycles in the dependency graph.
+
+        Returns:
+            List of task IDs forming a cycle (in order), or None if no cycle exists.
+            The first and last elements may be the same to show the cycle point.
+        """
+        visited: set[str] = set()
+        rec_stack: set[str] = set()
+
+        for task in self.tasks:
+            if task.id not in visited:
+                cycle = self._detect_cycle_from(task.id, visited, rec_stack)
+                if cycle is not None:
+                    return cycle
+
+        return None
+
+    def has_dependency_cycle(self) -> bool:
+        """Check if there's a circular dependency in the plan.
+
+        Returns:
+            True if a cycle exists, False otherwise
+        """
+        return self.find_dependency_cycle() is not None
+
+    def validate_dependencies(self) -> list[str]:
+        """Validate all dependencies in the plan.
+
+        Checks for:
+        - Circular dependencies
+        - References to non-existent tasks
+        - Self-dependencies
+
+        Returns:
+            List of error messages. Empty list if all dependencies are valid.
+        """
+        errors = []
+
+        # Check for circular dependencies
+        cycle = self.find_dependency_cycle()
+        if cycle:
+            cycle_str = " -> ".join(cycle)
+            errors.append(f"Circular dependency detected: {cycle_str}")
+
+        # Check each task's dependencies
+        task_ids = {t.id for t in self.tasks}
+        for task in self.tasks:
+            for dep_id in task.dependencies:
+                # Check for self-dependency
+                if dep_id == task.id:
+                    errors.append(f"Task '{task.id}' has self-dependency")
+                # Check for non-existent dependency
+                elif dep_id not in task_ids:
+                    errors.append(
+                        f"Task '{task.id}' depends on non-existent task '{dep_id}'"
+                    )
+
+        return errors
+
+    def would_create_cycle(self, task_id: str, new_dep_id: str) -> bool:
+        """Check if adding a dependency would create a cycle.
+
+        Args:
+            task_id: The task that would get the new dependency
+            new_dep_id: The task ID that would become a dependency
+
+        Returns:
+            True if adding this dependency would create a cycle
+        """
+        if task_id == new_dep_id:
+            return True  # Self-dependency is a cycle
+
+        # Check if new_dep_id already depends (transitively) on task_id
+        # If so, adding task_id -> new_dep_id would create a cycle
+        visited: set[str] = set()
+        to_visit = [new_dep_id]
+
+        while to_visit:
+            current = to_visit.pop()
+            if current == task_id:
+                return True  # Found path from new_dep back to task
+            if current in visited:
+                continue
+            visited.add(current)
+
+            current_task = self.get_task_by_id(current)
+            if current_task:
+                to_visit.extend(current_task.dependencies)
+
+        return False
+
+    def is_task_ready(self, task_id: str) -> bool:
+        """Check if a task is ready to be worked on.
+
+        A task is ready if:
+        - It's not already completed
+        - All its dependencies are satisfied (completed or verified based on task setting)
+
+        Args:
+            task_id: The task ID to check
+
+        Returns:
+            True if the task is ready, False otherwise
+        """
+        task = self.get_task_by_id(task_id)
+        if task is None:
+            return False
+        if task.completed:
+            return False  # Already done
+
+        # Check all dependencies
+        for dep_id in task.dependencies:
+            if not self.is_dependency_satisfied(dep_id, task.require_verified_deps):
+                return False
+        return True
+
+    def get_blocking_tasks(self, task_id: str) -> list[PlanTask]:
+        """Get tasks that are blocking the given task.
+
+        Returns the list of dependency tasks that are not yet satisfied.
+
+        Args:
+            task_id: The task ID to check
+
+        Returns:
+            List of tasks that are blocking this task
+        """
+        task = self.get_task_by_id(task_id)
+        if task is None:
+            return []
+
+        blocking = []
+        for dep_id in task.dependencies:
+            if not self.is_dependency_satisfied(dep_id, task.require_verified_deps):
+                dep_task = self.get_task_by_id(dep_id)
+                if dep_task:
+                    blocking.append(dep_task)
+        return blocking
+
+    def get_ready_tasks(self) -> list[PlanTask]:
+        """Get all tasks that are ready to be worked on.
+
+        Returns tasks that are:
+        - Not completed
+        - Have all dependencies satisfied
+        - Are not subtasks (top-level only, subtasks accessed via parent)
+
+        Returns:
+            List of ready tasks in order
+        """
+        ready = []
+        for task in self.tasks:
+            if task.parent_task_id:
+                continue  # Skip subtasks, they're accessed via parent
+            if self.is_task_ready(task.id):
+                ready.append(task)
+        return ready
+
+    def get_blocked_tasks(self) -> list[PlanTask]:
+        """Get all tasks that are blocked by dependencies.
+
+        Returns tasks that are:
+        - Not completed
+        - Have at least one unsatisfied dependency
+        - Are not subtasks
+
+        Returns:
+            List of blocked tasks with their blocking dependencies
+        """
+        blocked = []
+        for task in self.tasks:
+            if task.parent_task_id:
+                continue  # Skip subtasks
+            if task.completed:
+                continue  # Already done
+            if task.dependencies and not self.is_task_ready(task.id):
+                blocked.append(task)
+        return blocked
+
+    def can_run_parallel(self, task_id_a: str, task_id_b: str) -> bool:
+        """Check if two tasks can run in parallel.
+
+        Two tasks can run in parallel if:
+        - Neither depends on the other (directly or transitively)
+        - They don't share any files (no file overlap)
+
+        Args:
+            task_id_a: First task ID
+            task_id_b: Second task ID
+
+        Returns:
+            True if tasks can run in parallel, False otherwise
+        """
+        task_a = self.get_task_by_id(task_id_a)
+        task_b = self.get_task_by_id(task_id_b)
+
+        if task_a is None or task_b is None:
+            return False
+
+        # Check for direct dependencies
+        if task_id_b in task_a.dependencies or task_id_a in task_b.dependencies:
+            return False
+
+        # Check for file overlap
+        files_a = set(task_a.files)
+        files_b = set(task_b.files)
+        if files_a & files_b:  # Intersection is non-empty
+            return False
+
+        return True
+
+    def get_parallel_ready_tasks(self) -> list[list[PlanTask]]:
+        """Get groups of tasks that can run in parallel.
+
+        Returns ready tasks grouped by parallelizability. Tasks within each
+        group can run concurrently with each other. The first group contains
+        the maximum set of parallelizable tasks.
+
+        This uses a greedy algorithm:
+        1. Start with all ready tasks
+        2. Build groups where no two tasks in a group share files
+        3. Return all groups (some tasks may appear in multiple potential groupings)
+
+        Returns:
+            List of task groups. Each group is a list of tasks that can run together.
+            Returns [[task]] for each task if no parallelism is possible.
+        """
+        ready = self.get_ready_tasks()
+        if len(ready) <= 1:
+            return [[t] for t in ready]
+
+        # Build a parallelizable group greedily
+        # Start with the first task, add others that don't conflict
+        parallel_group = []
+        remaining = list(ready)
+
+        while remaining:
+            # Start a new group with the first remaining task
+            current_group = [remaining.pop(0)]
+            still_remaining = []
+
+            for task in remaining:
+                # Check if this task can run with all tasks in current group
+                can_add = True
+                for group_task in current_group:
+                    if not self.can_run_parallel(task.id, group_task.id):
+                        can_add = False
+                        break
+                if can_add:
+                    current_group.append(task)
+                else:
+                    still_remaining.append(task)
+
+            parallel_group.append(current_group)
+            remaining = still_remaining
+
+        return parallel_group
+
+    def get_max_parallel_tasks(self) -> list[PlanTask]:
+        """Get the largest group of tasks that can all run in parallel.
+
+        Convenience method that returns the first (largest) parallel group.
+
+        Returns:
+            List of tasks that can run concurrently
+        """
+        groups = self.get_parallel_ready_tasks()
+        if groups:
+            # Return the largest group
+            return max(groups, key=len)
+        return []
 
     def get_incomplete_tasks(self) -> list[PlanTask]:
         """Get all incomplete tasks (not completed)."""

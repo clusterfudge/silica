@@ -80,6 +80,22 @@ dev = [
     "ruff>=0.13.0",
     "moto[s3]>=5.0.0",
 ]
+voice = [
+    # Audio capture and processing
+    "PyAudio>=0.2.14",
+    # Voice Activity Detection (WebRTC)
+    "webrtcvad>=2.0.10",
+    # Speech recognition utilities
+    "SpeechRecognition>=3.14.0",
+    # Audio playback
+    "simpleaudio>=1.0.4",
+    # Text-to-speech (free Microsoft Edge TTS)
+    "edge-tts>=7.0.0",
+    # WebSocket client for voice client
+    "websockets>=12.0",
+    # Audio format conversion (MP3 support)
+    "pydub>=0.25.1",
+]
 
 [tool.setuptools_scm]
 write_to = "silica/_version.py"

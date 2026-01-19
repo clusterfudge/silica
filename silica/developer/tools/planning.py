@@ -72,12 +72,28 @@ def get_active_plan_status(context: "AgentContext") -> dict | None:
     unverified = len(plan.get_unverified_tasks())
     verified = len([t for t in plan.tasks if t.verified])
     total = len(plan.tasks)
+    ready_tasks = plan.get_ready_tasks()
+    blocked_tasks = plan.get_blocked_tasks()
+    parallel_tasks = plan.get_max_parallel_tasks()
+
+    # Get current milestone
+    current_milestone = None
+    if plan.milestones:
+        for m in sorted(plan.milestones, key=lambda x: x.order):
+            m_tasks = [t for t in plan.tasks if t.id in m.task_ids]
+            if m_tasks and not all(t.verified for t in m_tasks):
+                current_milestone = {"id": m.id, "title": m.title}
+                break
 
     return {
         "id": plan.id,
         "title": plan.title,
         "slug": plan.get_slug(),
         "status": status,
+        "current_milestone": current_milestone,
+        "ready_tasks": len(ready_tasks),
+        "blocked_tasks": len(blocked_tasks),
+        "parallel_tasks": len(parallel_tasks),
         "incomplete_tasks": incomplete,
         "unverified_tasks": unverified,
         "verified_tasks": verified,
@@ -163,6 +179,9 @@ def get_ephemeral_plan_state(context: "AgentContext") -> str | None:
 
     incomplete_tasks = plan.get_incomplete_tasks()
     unverified_tasks = plan.get_unverified_tasks()
+    ready_tasks = plan.get_ready_tasks()
+    blocked_tasks = plan.get_blocked_tasks()
+    parallel_tasks = plan.get_max_parallel_tasks()
 
     # Build the state block
     lines = [
@@ -172,30 +191,48 @@ def get_ephemeral_plan_state(context: "AgentContext") -> str | None:
         "",
     ]
 
-    # Show current/next task
-    if incomplete_tasks:
-        next_task = incomplete_tasks[0]
-        lines.append(f"**Current Task:** `{next_task.id}` - {next_task.description}")
-        if next_task.files:
-            lines.append(f"  Files: {', '.join(next_task.files)}")
-        if next_task.tests:
-            lines.append(f"  Tests: {next_task.tests}")
+    # Show current milestone if any
+    if plan.milestones:
+        current_milestone = None
+        for m in sorted(plan.milestones, key=lambda x: x.order):
+            milestone_tasks = [t for t in plan.tasks if t.id in m.task_ids]
+            if milestone_tasks and not all(t.verified for t in milestone_tasks):
+                current_milestone = m
+                break
+        if current_milestone:
+            m_tasks = [t for t in plan.tasks if t.id in current_milestone.task_ids]
+            m_done = sum(1 for t in m_tasks if t.verified)
+            lines.append(
+                f"**Current Milestone:** {current_milestone.title} ({m_done}/{len(m_tasks)})"
+            )
+            lines.append("")
+
+    # Show ready tasks (can start now)
+    if ready_tasks:
+        lines.append(f"**Ready Tasks ({len(ready_tasks)}):**")
+        for task in ready_tasks[:4]:
+            lines.append(f"- `{task.id}`: {task.description}")
+        if len(ready_tasks) > 4:
+            lines.append(f"- ... and {len(ready_tasks) - 4} more")
         lines.append("")
 
-    # Show task summary
-    if plan.tasks:
-        lines.append("**Tasks:**")
-        for task in plan.tasks[:8]:  # Limit to first 8 tasks
-            if task.verified:
-                status = "✓✓"
-            elif task.completed:
-                status = "✅"
-            else:
-                status = "⬜"
-            lines.append(f"- {status} `{task.id}`: {task.description}")
+    # Show parallel opportunity
+    if len(parallel_tasks) > 1:
+        task_ids = ", ".join(f"`{t.id}`" for t in parallel_tasks[:4])
+        lines.append(
+            f"**Parallel Opportunity:** {len(parallel_tasks)} tasks can run concurrently: {task_ids}"
+        )
+        lines.append("")
 
-        if len(plan.tasks) > 8:
-            lines.append(f"- ... and {len(plan.tasks) - 8} more tasks")
+    # Show blocked tasks
+    if blocked_tasks:
+        lines.append(f"**Blocked Tasks ({len(blocked_tasks)}):**")
+        for task in blocked_tasks[:3]:
+            blockers = plan.get_blocking_tasks(task.id)
+            blocker_ids = ", ".join(b.id for b in blockers[:2])
+            lines.append(
+                f"- `{task.id}`: {task.description} [waiting on {blocker_ids}]"
+            )
         lines.append("")
 
     # Show workflow reminder based on state
@@ -1054,6 +1091,216 @@ def add_plan_tasks(
 
 
 @tool(group="Planning")
+def add_milestone(
+    context: "AgentContext",
+    plan_id: str,
+    title: str,
+    description: str = "",
+    task_ids: str = "",
+) -> str:
+    """Add a milestone to group related tasks.
+
+    Args:
+        plan_id: ID of the plan
+        title: Milestone title
+        description: Optional description
+        task_ids: Optional comma-separated task IDs to assign
+
+    Returns:
+        Confirmation with milestone ID
+    """
+    from silica.developer.plans import Milestone
+
+    plan_manager = _get_plan_manager(context)
+    plan = plan_manager.get_plan(plan_id)
+    if plan is None:
+        return f"Error: Plan {plan_id} not found"
+
+    # Create milestone
+    import uuid
+
+    milestone = Milestone(
+        id=str(uuid.uuid4())[:8],
+        title=title,
+        description=description,
+        task_ids=[t.strip() for t in task_ids.split(",") if t.strip()]
+        if task_ids
+        else [],
+        order=len(plan.milestones),
+    )
+    plan.milestones.append(milestone)
+    plan.add_progress(f"Added milestone: {title}")
+    plan_manager.update_plan(plan)
+
+    return f"✅ Added milestone `{milestone.id}`: {title}"
+
+
+@tool(group="Planning")
+def move_tasks_to_milestone(
+    context: "AgentContext",
+    plan_id: str,
+    milestone_id: str,
+    task_ids: str,
+) -> str:
+    """Assign tasks to a milestone.
+
+    Args:
+        plan_id: ID of the plan
+        milestone_id: ID of the milestone
+        task_ids: Comma-separated task IDs to assign
+
+    Returns:
+        Confirmation message
+    """
+    plan_manager = _get_plan_manager(context)
+    plan = plan_manager.get_plan(plan_id)
+    if plan is None:
+        return f"Error: Plan {plan_id} not found"
+
+    milestone = next((m for m in plan.milestones if m.id == milestone_id), None)
+    if milestone is None:
+        return f"Error: Milestone {milestone_id} not found"
+
+    ids = [t.strip() for t in task_ids.split(",") if t.strip()]
+    added = []
+    for tid in ids:
+        if tid not in milestone.task_ids:
+            milestone.task_ids.append(tid)
+            added.append(tid)
+
+    plan_manager.update_plan(plan)
+    return f"✅ Added {len(added)} tasks to milestone '{milestone.title}'"
+
+
+@tool(group="Planning")
+def add_task_dependency(
+    context: "AgentContext",
+    plan_id: str,
+    task_id: str,
+    depends_on: str,
+    require_verified: bool = False,
+) -> str:
+    """Add a dependency to a task.
+
+    Args:
+        plan_id: ID of the plan
+        task_id: Task that will have the dependency
+        depends_on: Task ID that must complete first
+        require_verified: If True, dependency must be verified (not just completed)
+
+    Returns:
+        Confirmation or error if cycle detected
+    """
+    plan_manager = _get_plan_manager(context)
+    plan = plan_manager.get_plan(plan_id)
+    if plan is None:
+        return f"Error: Plan {plan_id} not found"
+
+    task = plan.get_task_by_id(task_id)
+    if task is None:
+        return f"Error: Task {task_id} not found"
+
+    if plan.would_create_cycle(task_id, depends_on):
+        return "Error: Adding dependency would create a cycle"
+
+    if depends_on not in task.dependencies:
+        task.dependencies.append(depends_on)
+        task.require_verified_deps = require_verified
+        plan_manager.update_plan(plan)
+
+    return f"✅ Task `{task_id}` now depends on `{depends_on}`"
+
+
+@tool(group="Planning")
+def get_ready_tasks(
+    context: "AgentContext",
+    plan_id: str,
+) -> str:
+    """Get tasks ready to work on (dependencies satisfied).
+
+    Args:
+        plan_id: ID of the plan
+
+    Returns:
+        List of ready tasks and parallel opportunities
+    """
+    plan_manager = _get_plan_manager(context)
+    plan = plan_manager.get_plan(plan_id)
+    if plan is None:
+        return f"Error: Plan {plan_id} not found"
+
+    ready = plan.get_ready_tasks()
+    blocked = plan.get_blocked_tasks()
+    parallel = plan.get_max_parallel_tasks()
+
+    result = f"## Ready Tasks ({len(ready)})\n\n"
+    for t in ready:
+        result += f"- `{t.id}`: {t.description}\n"
+
+    if len(parallel) > 1:
+        result += (
+            f"\n**Parallel Opportunity:** {len(parallel)} tasks can run concurrently:\n"
+        )
+        for t in parallel:
+            result += f"- `{t.id}`: {t.description}\n"
+
+    if blocked:
+        result += f"\n## Blocked Tasks ({len(blocked)})\n"
+        for t in blocked:
+            blockers = plan.get_blocking_tasks(t.id)
+            blocker_ids = ", ".join(b.id for b in blockers[:3])
+            result += f"- `{t.id}`: {t.description} [blocked by {blocker_ids}]\n"
+
+    return result
+
+
+@tool(group="Planning")
+def expand_task(
+    context: "AgentContext",
+    plan_id: str,
+    task_id: str,
+    subtasks: str,
+) -> str:
+    """Break a task into subtasks.
+
+    Args:
+        plan_id: ID of the plan
+        task_id: Parent task ID to expand
+        subtasks: JSON array of subtask descriptions
+
+    Returns:
+        Confirmation with subtask IDs
+    """
+    plan_manager = _get_plan_manager(context)
+    plan = plan_manager.get_plan(plan_id)
+    if plan is None:
+        return f"Error: Plan {plan_id} not found"
+
+    parent = plan.get_task_by_id(task_id)
+    if parent is None:
+        return f"Error: Task {task_id} not found"
+
+    try:
+        subtask_list = json.loads(subtasks)
+    except json.JSONDecodeError as e:
+        return f"Error: Invalid JSON: {e}"
+
+    added = []
+    for item in subtask_list:
+        desc = item if isinstance(item, str) else item.get("description", "")
+        if desc:
+            task = plan.add_task(description=desc)
+            task.parent_task_id = task_id
+            added.append(task)
+
+    plan_manager.update_plan(plan)
+    result = f"✅ Added {len(added)} subtasks to `{task_id}`:\n"
+    for t in added:
+        result += f"- `{t.id}`: {t.description}\n"
+    return result
+
+
+@tool(group="Planning")
 def add_plan_metrics(
     context: "AgentContext",
     plan_id: str,
@@ -1608,14 +1855,36 @@ def complete_plan_task(
         return f"Error: Plan {plan_id} not found"
 
     # Find the task to get its test info
-    task = None
-    for t in plan.tasks:
-        if t.id == task_id:
-            task = t
-            break
+    task = plan.get_task_by_id(task_id)
+    if task is None:
+        return f"Error: Task {task_id} not found in plan {plan_id}"
+
+    # Warn if dependencies not satisfied (but allow completion)
+    dep_warning = ""
+    if task.dependencies:
+        blocking = plan.get_blocking_tasks(task_id)
+        if blocking:
+            blocker_ids = ", ".join(f"`{b.id}`" for b in blocking)
+            dep_warning = (
+                f"\n⚠️ **Warning:** Dependencies not satisfied: {blocker_ids}\n"
+            )
 
     if not plan.complete_task(task_id):
-        return f"Error: Task {task_id} not found in plan {plan_id}"
+        return f"Error: Could not complete task {task_id}"
+
+    # Auto-complete parent task if all subtasks are complete
+    auto_complete_msg = ""
+    if task.parent_task_id:
+        parent = plan.get_task_by_id(task.parent_task_id)
+        if (
+            parent
+            and not parent.completed
+            and plan.are_all_subtasks_complete(parent.id)
+        ):
+            plan.complete_task(parent.id)
+            auto_complete_msg = (
+                f"\n✨ Parent task `{parent.id}` auto-completed (all subtasks done)\n"
+            )
 
     if notes:
         plan.add_progress(f"Completed task {task_id}: {notes}")
@@ -1642,7 +1911,7 @@ Run tests to confirm the implementation is correct, then call:
     remaining = plan.get_incomplete_tasks()
     unverified = plan.get_unverified_tasks()
 
-    status = f"✅ Task `{task_id}` marked as **completed** (implementation done).\n{verify_hint}"
+    status = f"✅ Task `{task_id}` marked as **completed** (implementation done).{dep_warning}{auto_complete_msg}\n{verify_hint}"
 
     if remaining:
         remaining_list = "\n".join(
