@@ -203,7 +203,7 @@ class Sandbox:
         if not os.path.exists(target_dir):
             return []
 
-        for root, dirs, files in os.walk(target_dir):
+        for root, dirs, files in os.walk(target_dir, followlinks=True):
             # Remove ignored directories to prevent further traversal
             dirs[:] = [
                 d

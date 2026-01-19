@@ -123,3 +123,53 @@ def test_get_directory_listing(temp_dir):
 
     listing = sandbox.get_directory_listing("nonexistent")
     assert listing == []
+
+
+def test_get_directory_listing_follows_symlinks(temp_dir):
+    """Test that directory listing follows symbolic links to directories."""
+    sandbox = Sandbox(temp_dir, SandboxMode.ALLOW_ALL)
+
+    # Create a separate directory outside the temp_dir structure
+    # (but still within temp filesystem for test isolation)
+    external_dir = tempfile.mkdtemp()
+    try:
+        # Create files in the external directory
+        os.makedirs(os.path.join(external_dir, "subdir"))
+        with open(os.path.join(external_dir, "external_file.py"), "w") as f:
+            f.write("# external file")
+        with open(os.path.join(external_dir, "subdir/nested_file.py"), "w") as f:
+            f.write("# nested external file")
+
+        # Create a symlink inside the sandbox pointing to the external directory
+        symlink_path = os.path.join(temp_dir, "linked_project")
+        os.symlink(external_dir, symlink_path)
+
+        # Also create a regular directory for comparison
+        os.makedirs(os.path.join(temp_dir, "regular_dir"))
+        with open(os.path.join(temp_dir, "regular_dir/regular_file.py"), "w") as f:
+            f.write("# regular file")
+
+        # Verify the symlink exists and is a directory
+        assert os.path.islink(symlink_path)
+        assert os.path.isdir(symlink_path)
+
+        # Get directory listing - should follow symlinks
+        listing = sandbox.get_directory_listing()
+
+        # Should include files from regular directory
+        assert "regular_dir/regular_file.py" in listing
+
+        # Should also include files from symlinked directory
+        assert "linked_project/external_file.py" in listing
+        assert "linked_project/subdir/nested_file.py" in listing
+
+        # Test listing within the symlinked directory specifically
+        linked_listing = sandbox.get_directory_listing("linked_project")
+        assert "external_file.py" in linked_listing
+        assert "subdir/nested_file.py" in linked_listing
+
+    finally:
+        # Clean up external directory
+        import shutil
+
+        shutil.rmtree(external_dir)
