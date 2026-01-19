@@ -36,6 +36,11 @@ from silica.serve.protocol import (
     ProtocolError,
 )
 from silica.serve.ws_interface import WebSocketUserInterface
+from silica.serve.server import (
+    SilicaWebSocketServer,
+    create_server,
+    run_server,
+)
 
 __all__ = [
     # Protocol
@@ -64,4 +69,8 @@ __all__ = [
     "ProtocolError",
     # Interface
     "WebSocketUserInterface",
+    # Server
+    "SilicaWebSocketServer",
+    "create_server",
+    "run_server",
 ]

@@ -12,6 +12,7 @@ from silica.developer.cli.memory_sync import memory_sync_app
 from silica.developer.cli.history_sync import history_sync_app
 from silica.cron.app import entrypoint as cron_serve
 from silica.cron.cli import cron as cron_commands
+from silica.serve.cli import serve_app
 
 app = App(version=__version__)
 app.command(remote_app, name="remote")
@@ -20,6 +21,7 @@ app.command(cron_commands, name="cron")
 app.command(memory_sync_app, name="memory-sync")
 app.command(history_sync_app, name="history-sync")
 app.command(view_session, name="view")
+app.command(serve_app, name="serve")
 attach_tools(app)
 app.default(developer_app)
 
