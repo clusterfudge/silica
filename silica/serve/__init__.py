@@ -16,6 +16,7 @@ from silica.serve.protocol import (
     ToolResponseMessage,
     InterruptMessage,
     PermissionResponseMessage,
+    PingMessage,
     # Server -> Client messages
     AssistantMessageChunk,
     AssistantMessageComplete,
@@ -27,12 +28,17 @@ from silica.serve.protocol import (
     StatusMessage,
     ThinkingMessage,
     ErrorMessage,
+    PongMessage,
+    SessionInfoMessage,
     # Utilities
     parse_client_message,
     serialize_server_message,
+    ProtocolError,
 )
+from silica.serve.ws_interface import WebSocketUserInterface
 
 __all__ = [
+    # Protocol
     "PROTOCOL_VERSION",
     "ClientMessage",
     "ServerMessage",
@@ -40,6 +46,7 @@ __all__ = [
     "ToolResponseMessage",
     "InterruptMessage",
     "PermissionResponseMessage",
+    "PingMessage",
     "AssistantMessageChunk",
     "AssistantMessageComplete",
     "SystemMessage",
@@ -50,6 +57,11 @@ __all__ = [
     "StatusMessage",
     "ThinkingMessage",
     "ErrorMessage",
+    "PongMessage",
+    "SessionInfoMessage",
     "parse_client_message",
     "serialize_server_message",
+    "ProtocolError",
+    # Interface
+    "WebSocketUserInterface",
 ]
