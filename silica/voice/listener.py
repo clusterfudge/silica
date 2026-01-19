@@ -418,3 +418,6 @@ def find_microphone(names: List[str]) -> Optional[int]:
             return devices[name]
 
     return None
+
+
+# Add metrics to listen_for_phrase method

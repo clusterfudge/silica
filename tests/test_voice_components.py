@@ -214,3 +214,65 @@ class TestTextPreprocessing:
         text = _prepare_text_for_tts("This is *emphasized* text")
         # Should strip the asterisks
         assert "*" not in text or "emphasized" in text
+
+
+class TestMetrics:
+    """Test metrics module."""
+
+    def test_metrics_config_defaults(self):
+        from silica.voice.metrics import MetricsConfig
+
+        config = MetricsConfig()
+        assert config.host == "localhost"
+        assert config.port == 8125
+        assert config.prefix == "silica.voice"
+        assert config.enabled is True
+
+    def test_null_metrics_client(self):
+        from silica.voice.metrics import NullMetricsClient
+
+        client = NullMetricsClient()
+        # Should not raise
+        client.incr("test")
+        client.decr("test")
+        client.gauge("test", 42)
+        client.timing("test", 100)
+        client.histogram("test", 50)
+        with client.timer("test"):
+            pass
+        client.close()
+
+    def test_statsd_client_format(self):
+        from silica.voice.metrics import StatsdClient, MetricsConfig
+
+        config = MetricsConfig(prefix="test", enabled=False)
+        client = StatsdClient(config)
+        # Test name formatting
+        assert client._format_name("counter") == "test.counter"
+
+    def test_configure_metrics(self):
+        from silica.voice.metrics import configure_metrics, NullMetricsClient
+
+        client = configure_metrics(enabled=False)
+        assert isinstance(client, NullMetricsClient)
+
+    def test_global_metrics_functions(self):
+        from silica.voice.metrics import (
+            configure_metrics,
+            incr,
+            decr,
+            gauge,
+            timing,
+            histogram,
+            timer,
+        )
+
+        configure_metrics(enabled=False)
+        # Should not raise
+        incr("test")
+        decr("test")
+        gauge("test", 42)
+        timing("test", 100)
+        histogram("test", 50)
+        with timer("test"):
+            pass
