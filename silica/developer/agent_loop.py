@@ -268,8 +268,19 @@ def _process_file_mentions(
         # Add the file content as a new text block
         message_to_update["content"].append({"type": "text", "text": file_block})
 
-    # HACK: we just happen to be seeing messages go past, so we'll handle cache_control here.
-    # Add cache_control to the last text block in a user message, ensuring all content is list-type
+    # Handle cache_control: API allows max 4 blocks with cache_control.
+    # We need to:
+    # 1. Strip old cache_control from all messages except the last few
+    # 2. Add cache_control to the last user message
+
+    # First, strip all existing cache_control from messages
+    for msg in results:
+        if isinstance(msg.get("content"), list):
+            for block in msg["content"]:
+                if isinstance(block, dict) and "cache_control" in block:
+                    del block["cache_control"]
+
+    # Now add cache_control to the last user message only
     if results and results[-1]["role"] == "user":
         last_message = results[-1]
         # Ensure content is in the proper list format
@@ -1120,6 +1131,8 @@ async def run(
                         markdown=False,
                     )
                     # Add plan reminder as a user message and continue the loop
+                    # Note: Don't add cache_control here - _process_file_mentions will add it
+                    # to the last text block, and we must stay under the 4 block limit
                     agent_context.chat_history.append(
                         {
                             "role": "user",
@@ -1127,7 +1140,6 @@ async def run(
                                 {
                                     "type": "text",
                                     "text": plan_state,
-                                    "cache_control": {"type": "ephemeral"},
                                 }
                             ],
                         }
