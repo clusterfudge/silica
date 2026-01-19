@@ -427,7 +427,8 @@ class TestEphemeralPlanStateInjection:
         assert "Active Plan" in state
         assert plan.id in state
         assert "Task 1" in state
-        assert "file1.py" in state
+        # New format shows Ready Tasks section instead of files inline
+        assert "Ready Tasks" in state
         assert "Workflow:" in state  # Shows workflow hint
 
     def test_ephemeral_state_shows_verification_progress(
@@ -442,7 +443,7 @@ class TestEphemeralPlanStateInjection:
         )
         task1 = plan.add_task("Task 1")
         task2 = plan.add_task("Task 2")
-        plan.add_task("Task 3")
+        task3 = plan.add_task("Task 3")
 
         # Complete and verify task 1
         plan.complete_task(task1.id)
@@ -460,9 +461,10 @@ class TestEphemeralPlanStateInjection:
 
         assert "1✓/3 verified" in state  # 1 verified
         assert "2/3 completed" in state  # 2 completed
-        assert "✓✓" in state  # Verified marker
-        assert "✅" in state  # Completed marker
-        assert "⬜" in state  # Pending marker
+        # New format shows Ready Tasks section with incomplete tasks
+        assert "Ready Tasks" in state
+        assert "Task 3" in state  # The one incomplete task should be shown
+        assert task3.id in state  # Task ID should be present
 
     def test_ephemeral_state_all_verified_ready(self, temp_persona_dir, mock_context):
         """State shows ready message when all tasks verified."""
