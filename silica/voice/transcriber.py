@@ -85,11 +85,15 @@ class RemoteWhisperTranscriber(Transcriber):
 
     Expects a server that accepts audio files via multipart form upload
     and returns JSON with a "text" field.
+
+    Supports Host header override for piku-style routing where multiple
+    apps share the same IP/port and are differentiated by Host header.
     """
 
     def __init__(
         self,
         url: str = "http://localhost:8000/transcribe",
+        host_header: Optional[str] = None,
         timeout: float = 30.0,
     ):
         """
@@ -97,9 +101,11 @@ class RemoteWhisperTranscriber(Transcriber):
 
         Args:
             url: URL of the Whisper transcription endpoint
+            host_header: Optional Host header for piku-style routing
             timeout: Request timeout in seconds
         """
         self.url = url
+        self.host_header = host_header
         self.timeout = timeout
 
     async def transcribe(
@@ -111,6 +117,10 @@ class RemoteWhisperTranscriber(Transcriber):
         """Transcribe audio using remote Whisper server."""
         wav_data = _audio_to_wav(audio_data, sample_rate)
 
+        headers = {}
+        if self.host_header:
+            headers["Host"] = self.host_header
+
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             files = {"file": ("audio.wav", wav_data, "audio/wav")}
             data = {}
@@ -118,7 +128,9 @@ class RemoteWhisperTranscriber(Transcriber):
                 data["language"] = language
 
             try:
-                response = await client.post(self.url, files=files, data=data)
+                response = await client.post(
+                    self.url, files=files, data=data, headers=headers
+                )
                 response.raise_for_status()
                 result = response.json()
 

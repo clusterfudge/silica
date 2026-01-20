@@ -29,15 +29,24 @@ def voice(
     stt_url: Annotated[
         str, cyclopts.Parameter(help="Remote Whisper URL (for remote_whisper backend)")
     ] = "http://localhost:8000/transcribe",
+    stt_host: Annotated[
+        Optional[str],
+        cyclopts.Parameter(help="Host header for STT (for piku-style routing)"),
+    ] = None,
     # TTS settings
     tts_backend: Annotated[
-        str, cyclopts.Parameter(help="TTS backend (edge, remote)")
+        str, cyclopts.Parameter(help="TTS backend (edge, remote, glados)")
     ] = "edge",
     tts_voice: Annotated[
-        str, cyclopts.Parameter(help="TTS voice name")
+        str, cyclopts.Parameter(help="TTS voice name (for edge backend)")
     ] = "en-US-GuyNeural",
     tts_url: Annotated[
-        Optional[str], cyclopts.Parameter(help="Remote TTS URL (for remote backend)")
+        Optional[str],
+        cyclopts.Parameter(help="Remote TTS URL (for remote/glados backend)"),
+    ] = None,
+    tts_host: Annotated[
+        Optional[str],
+        cyclopts.Parameter(help="Host header for TTS (for piku-style routing)"),
     ] = None,
     # Audio settings
     device_index: Annotated[
@@ -103,6 +112,8 @@ def voice(
     transcriber_kwargs = {}
     if stt_backend == "remote_whisper":
         transcriber_kwargs["url"] = stt_url
+        if stt_host:
+            transcriber_kwargs["host_header"] = stt_host
     elif stt_backend == "openai":
         # Uses OPENAI_API_KEY from env
         pass
@@ -114,8 +125,16 @@ def voice(
     speaker_kwargs = {}
     if tts_backend == "edge":
         speaker_kwargs["voice"] = tts_voice
-    elif tts_backend == "remote" and tts_url:
-        speaker_kwargs["url"] = tts_url
+    elif tts_backend == "remote":
+        if tts_url:
+            speaker_kwargs["url"] = tts_url
+        if tts_host:
+            speaker_kwargs["host_header"] = tts_host
+    elif tts_backend == "glados":
+        if tts_url:
+            speaker_kwargs["url"] = tts_url
+        if tts_host:
+            speaker_kwargs["host_header"] = tts_host
 
     # Build settings kwargs
     settings_kwargs = {

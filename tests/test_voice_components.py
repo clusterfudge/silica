@@ -52,6 +52,20 @@ class TestTranscriberAPI:
         t = create_transcriber("remote_whisper", url="http://localhost:8000/transcribe")
         assert t is not None
 
+    def test_create_transcriber_with_host_header(self):
+        from silica.voice.transcriber import (
+            create_transcriber,
+            RemoteWhisperTranscriber,
+        )
+
+        t = create_transcriber(
+            "remote_whisper",
+            url="http://piku.local/transcribe",
+            host_header="whisper-stt.piku.local",
+        )
+        assert isinstance(t, RemoteWhisperTranscriber)
+        assert t.host_header == "whisper-stt.piku.local"
+
     def test_create_transcriber_invalid_backend(self):
         from silica.voice.transcriber import create_transcriber
 
@@ -82,6 +96,37 @@ class TestSpeakerAPI:
 
         s = create_speaker("remote", url="http://localhost:8000/synth")
         assert s is not None
+
+    def test_create_speaker_glados(self):
+        from silica.voice.speaker import create_speaker
+
+        s = create_speaker("glados", url="http://localhost:8124/synthesize")
+        assert s is not None
+
+    def test_create_speaker_with_host_header(self):
+        from silica.voice.speaker import (
+            create_speaker,
+            RemoteTTSSpeaker,
+            GladosTTSSpeaker,
+        )
+
+        # Remote with host header
+        s = create_speaker(
+            "remote",
+            url="http://piku.local/synth",
+            host_header="my-tts-app.piku.local",
+        )
+        assert isinstance(s, RemoteTTSSpeaker)
+        assert s.host_header == "my-tts-app.piku.local"
+
+        # GLaDOS with host header
+        s = create_speaker(
+            "glados",
+            url="http://piku.local/synthesize",
+            host_header="glados-tts.piku.local",
+        )
+        assert isinstance(s, GladosTTSSpeaker)
+        assert s.host_header == "glados-tts.piku.local"
 
     def test_create_speaker_invalid_backend(self):
         from silica.voice.speaker import create_speaker

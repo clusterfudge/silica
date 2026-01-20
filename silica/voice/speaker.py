@@ -173,6 +173,7 @@ class RemoteTTSSpeaker(Speaker):
     Speaker using a remote TTS server.
 
     Expects a server that accepts text and returns audio.
+    Supports Host header override for piku-style routing.
     """
 
     def __init__(
@@ -180,18 +181,24 @@ class RemoteTTSSpeaker(Speaker):
         url: str,
         host_header: Optional[str] = None,
         timeout: float = 30.0,
+        sample_rate: int = 22050,
+        audio_format: str = "wav",
     ):
         """
         Initialize the remote TTS speaker.
 
         Args:
             url: URL of the TTS endpoint
-            host_header: Optional Host header value
+            host_header: Optional Host header for piku-style routing
             timeout: Request timeout in seconds
+            sample_rate: Sample rate of returned audio
+            audio_format: Format of returned audio ("wav", "mp3", etc.)
         """
         self.url = url
         self.host_header = host_header
         self.timeout = timeout
+        self.sample_rate = sample_rate
+        self.audio_format = audio_format
 
     async def synthesize(self, text: str) -> TTSResult:
         """Synthesize speech using remote TTS server."""
@@ -214,8 +221,60 @@ class RemoteTTSSpeaker(Speaker):
 
             return TTSResult(
                 audio_data=response.content,
+                format=self.audio_format,
+                sample_rate=self.sample_rate,
+            )
+
+
+class GladosTTSSpeaker(Speaker):
+    """
+    Speaker using a GLaDOS TTS server.
+
+    GLaDOS TTS provides the iconic voice from Portal.
+    Expects a POST to /synthesize with plain text body, returns audio/wav.
+    Supports piku-style Host header routing.
+    """
+
+    def __init__(
+        self,
+        url: str = "http://localhost:8124/synthesize",
+        host_header: Optional[str] = None,
+        timeout: float = 30.0,
+    ):
+        """
+        Initialize the GLaDOS TTS speaker.
+
+        Args:
+            url: URL of the GLaDOS TTS endpoint (default port 8124, endpoint /synthesize)
+            host_header: Optional Host header for piku-style routing
+            timeout: Request timeout in seconds
+        """
+        self.url = url
+        self.host_header = host_header
+        self.timeout = timeout
+
+    async def synthesize(self, text: str) -> TTSResult:
+        """Synthesize speech using GLaDOS TTS server."""
+        import httpx
+
+        text = _prepare_text_for_tts(text)
+
+        headers = {"Content-Type": "text/plain; charset=utf-8"}
+        if self.host_header:
+            headers["Host"] = self.host_header
+
+        async with httpx.AsyncClient(timeout=self.timeout, verify=False) as client:
+            response = await client.post(
+                self.url,
+                headers=headers,
+                content=text,
+            )
+            response.raise_for_status()
+
+            return TTSResult(
+                audio_data=response.content,
                 format="wav",
-                sample_rate=22050,  # Common for many TTS servers
+                sample_rate=22050,
             )
 
 
@@ -351,7 +410,7 @@ def create_speaker(
     Create a speaker with the specified backend.
 
     Args:
-        backend: Backend type ("edge", "remote")
+        backend: Backend type ("edge", "remote", "glados")
         **kwargs: Additional arguments passed to the speaker
 
     Returns:
@@ -360,6 +419,7 @@ def create_speaker(
     backends = {
         "edge": EdgeTTSSpeaker,
         "remote": RemoteTTSSpeaker,
+        "glados": GladosTTSSpeaker,
     }
 
     if backend not in backends:
