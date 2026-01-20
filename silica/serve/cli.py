@@ -45,7 +45,7 @@ def serve(
         cyclopts.Parameter(
             help="Sandbox mode (request_every_time, remember_per_resource, remember_all, allow_all, dwr)"
         ),
-    ] = "remember_all",
+    ] = "allow_all",
     persona: Annotated[Optional[str], cyclopts.Parameter(help="Persona to use")] = None,
 ):
     """
