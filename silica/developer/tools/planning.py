@@ -1828,6 +1828,468 @@ def link_plan_pr(
 
 
 @tool(group="Planning")
+def cancel_plan_task(
+    context: "AgentContext",
+    plan_id: str,
+    task_id: str,
+    reason: str = "",
+) -> str:
+    """Cancel a task when feedback changes the plan direction.
+
+    Cancelled tasks are preserved in the plan for audit trail but are
+    excluded from progress calculations and dependency checks. Use this
+    when:
+    - User feedback indicates a task is no longer needed
+    - Requirements have changed and a task is obsolete
+    - A different approach makes the task unnecessary
+
+    Cancelled tasks can be restored with `uncancel_plan_task`.
+
+    Args:
+        plan_id: ID of the plan
+        task_id: ID of the task to cancel
+        reason: Reason for cancellation (recommended for audit trail)
+
+    Returns:
+        Confirmation message with remaining tasks
+    """
+    plan_manager = _get_plan_manager(context)
+    plan = plan_manager.get_plan(plan_id)
+
+    if plan is None:
+        return f"Error: Plan {plan_id} not found"
+
+    task = plan.get_task_by_id(task_id)
+    if task is None:
+        return f"Error: Task {task_id} not found in plan {plan_id}"
+
+    if task.cancelled:
+        return f"Task {task_id} is already cancelled."
+
+    if not plan.cancel_task(task_id, reason):
+        return f"Error: Could not cancel task {task_id}"
+
+    # Log the cancellation
+    if reason:
+        plan.add_progress(f"Cancelled task {task_id}: {reason}")
+    else:
+        plan.add_progress(f"Cancelled task {task_id}")
+
+    plan_manager.update_plan(plan)
+
+    # Build response with remaining work
+    active_tasks = plan.get_active_tasks()
+    incomplete = plan.get_incomplete_tasks()
+    cancelled = plan.get_cancelled_tasks()
+
+    result = f"""🚫 Task `{task_id}` cancelled.
+{f"**Reason:** {reason}" if reason else ""}
+
+**Active tasks:** {len(active_tasks)} ({len(incomplete)} incomplete)
+**Cancelled tasks:** {len(cancelled)}
+"""
+
+    if incomplete:
+        result += "\n**Next incomplete tasks:**\n"
+        for t in incomplete[:3]:
+            result += f"- `{t.id}`: {t.description}\n"
+
+    return result
+
+
+@tool(group="Planning")
+def uncancel_plan_task(
+    context: "AgentContext",
+    plan_id: str,
+    task_id: str,
+) -> str:
+    """Restore a previously cancelled task.
+
+    Use this when a cancelled task becomes relevant again due to
+    changed requirements or feedback.
+
+    Args:
+        plan_id: ID of the plan
+        task_id: ID of the task to restore
+
+    Returns:
+        Confirmation message
+    """
+    plan_manager = _get_plan_manager(context)
+    plan = plan_manager.get_plan(plan_id)
+
+    if plan is None:
+        return f"Error: Plan {plan_id} not found"
+
+    task = plan.get_task_by_id(task_id)
+    if task is None:
+        return f"Error: Task {task_id} not found in plan {plan_id}"
+
+    if not task.cancelled:
+        return f"Task {task_id} is not cancelled."
+
+    if not plan.uncancel_task(task_id):
+        return f"Error: Could not restore task {task_id}"
+
+    plan.add_progress(f"Restored cancelled task {task_id}")
+    plan_manager.update_plan(plan)
+
+    return f"""✅ Task `{task_id}` restored.
+
+**Task:** {task.description}
+**Status:** {"Completed" if task.completed else "Incomplete"}
+"""
+
+
+@tool(group="Planning")
+def remove_plan_task(
+    context: "AgentContext",
+    plan_id: str,
+    task_id: str,
+) -> str:
+    """Permanently remove a task from the plan.
+
+    Unlike cancellation, removal completely deletes the task with no
+    audit trail. This also:
+    - Removes the task from any milestones
+    - Removes the task from other tasks' dependencies
+    - Removes any subtasks of this task
+
+    Use `cancel_plan_task` instead if you want to preserve the task
+    for audit trail.
+
+    Args:
+        plan_id: ID of the plan
+        task_id: ID of the task to remove
+
+    Returns:
+        Confirmation message
+    """
+    plan_manager = _get_plan_manager(context)
+    plan = plan_manager.get_plan(plan_id)
+
+    if plan is None:
+        return f"Error: Plan {plan_id} not found"
+
+    task = plan.get_task_by_id(task_id)
+    if task is None:
+        return f"Error: Task {task_id} not found in plan {plan_id}"
+
+    # Check for subtasks
+    subtasks = plan.get_subtasks(task_id)
+    subtask_warning = ""
+    if subtasks:
+        subtask_warning = f"\n⚠️ Also removed {len(subtasks)} subtask(s)."
+
+    removed = plan.remove_task(task_id)
+    if removed is None:
+        return f"Error: Could not remove task {task_id}"
+
+    plan.add_progress(f"Removed task {task_id}: {removed.description}")
+    plan_manager.update_plan(plan)
+
+    return f"""🗑️ Task `{task_id}` removed from plan.
+
+**Removed:** {removed.description}{subtask_warning}
+**Remaining tasks:** {len(plan.tasks)}
+"""
+
+
+@tool(group="Planning")
+def update_plan_task(
+    context: "AgentContext",
+    plan_id: str,
+    task_id: str,
+    description: str = "",
+    details: str = "",
+    files: str = "",
+    tests: str = "",
+) -> str:
+    """Update an existing task's fields.
+
+    Use this to modify a task when feedback refines requirements without
+    needing to remove and recreate the task.
+
+    Args:
+        plan_id: ID of the plan
+        task_id: ID of the task to update
+        description: New description (empty to keep current)
+        details: New implementation details (empty to keep current)
+        files: New comma-separated list of files (empty to keep current)
+        tests: New testing approach (empty to keep current)
+
+    Returns:
+        Confirmation message with updated task
+    """
+    plan_manager = _get_plan_manager(context)
+    plan = plan_manager.get_plan(plan_id)
+
+    if plan is None:
+        return f"Error: Plan {plan_id} not found"
+
+    task = plan.get_task_by_id(task_id)
+    if task is None:
+        return f"Error: Task {task_id} not found in plan {plan_id}"
+
+    # Build updates
+    updates = {}
+    changes = []
+    if description:
+        updates["description"] = description
+        changes.append("description")
+    if details:
+        updates["details"] = details
+        changes.append("details")
+    if files:
+        updates["files"] = [f.strip() for f in files.split(",") if f.strip()]
+        changes.append("files")
+    if tests:
+        updates["tests"] = tests
+        changes.append("tests")
+
+    if not updates:
+        return "No updates provided. Specify at least one field to update."
+
+    if not plan.update_task(task_id, **updates):
+        return f"Error: Could not update task {task_id}"
+
+    plan.add_progress(f"Updated task {task_id}: {', '.join(changes)}")
+    plan_manager.update_plan(plan)
+
+    # Refresh task
+    task = plan.get_task_by_id(task_id)
+
+    result = f"""✅ Task `{task_id}` updated.
+
+**Description:** {task.description}
+"""
+    if task.details:
+        result += f"**Details:** {task.details}\n"
+    if task.files:
+        result += f"**Files:** {', '.join(task.files)}\n"
+    if task.tests:
+        result += f"**Tests:** {task.tests}\n"
+
+    return result
+
+
+@tool(group="Planning")
+def bulk_cancel_tasks(
+    context: "AgentContext",
+    plan_id: str,
+    task_ids: str,
+    reason: str = "",
+) -> str:
+    """Cancel multiple tasks at once.
+
+    Use this when feedback substantially changes the plan direction
+    and multiple tasks are no longer needed.
+
+    Args:
+        plan_id: ID of the plan
+        task_ids: Comma-separated list of task IDs to cancel
+        reason: Shared reason for cancellation (applied to all)
+
+    Returns:
+        Summary of cancelled tasks
+    """
+    plan_manager = _get_plan_manager(context)
+    plan = plan_manager.get_plan(plan_id)
+
+    if plan is None:
+        return f"Error: Plan {plan_id} not found"
+
+    ids = [t.strip() for t in task_ids.split(",") if t.strip()]
+    if not ids:
+        return "Error: No task IDs provided"
+
+    cancelled = []
+    not_found = []
+    already_cancelled = []
+
+    for task_id in ids:
+        task = plan.get_task_by_id(task_id)
+        if task is None:
+            not_found.append(task_id)
+        elif task.cancelled:
+            already_cancelled.append(task_id)
+        else:
+            plan.cancel_task(task_id, reason)
+            cancelled.append(task_id)
+
+    if cancelled:
+        if reason:
+            plan.add_progress(f"Bulk cancelled {len(cancelled)} tasks: {reason}")
+        else:
+            plan.add_progress(f"Bulk cancelled {len(cancelled)} tasks")
+        plan_manager.update_plan(plan)
+
+    result = "🚫 **Bulk Cancel Summary**\n\n"
+    if cancelled:
+        result += f"**Cancelled ({len(cancelled)}):** {', '.join(f'`{t}`' for t in cancelled)}\n"
+    if already_cancelled:
+        result += f"**Already cancelled ({len(already_cancelled)}):** {', '.join(f'`{t}`' for t in already_cancelled)}\n"
+    if not_found:
+        result += f"**Not found ({len(not_found)}):** {', '.join(f'`{t}`' for t in not_found)}\n"
+
+    if reason:
+        result += f"\n**Reason:** {reason}"
+
+    # Show remaining work
+    active = plan.get_active_tasks()
+    incomplete = plan.get_incomplete_tasks()
+    result += (
+        f"\n\n**Remaining:** {len(active)} active tasks ({len(incomplete)} incomplete)"
+    )
+
+    return result
+
+
+@tool(group="Planning")
+def replace_plan_tasks(
+    context: "AgentContext",
+    plan_id: str,
+    new_tasks: str,
+    reason: str = "",
+    archive_old: bool = True,
+) -> str:
+    """Replace all plan tasks with new ones.
+
+    Use this for major plan pivots when feedback substantially changes
+    the direction and most/all existing tasks are obsolete.
+
+    By default, old tasks are cancelled (archived) for audit trail.
+    Set archive_old=False to permanently remove them.
+
+    Args:
+        plan_id: ID of the plan
+        new_tasks: JSON array of new task objects (same format as add_plan_tasks)
+        reason: Reason for the plan pivot
+        archive_old: If True (default), cancel old tasks; if False, remove them
+
+    Returns:
+        Summary of changes
+
+    Example:
+        new_tasks = '[
+            {"description": "New approach step 1", "files": ["new.py"]},
+            {"description": "New approach step 2", "dependencies": ["task-1"]}
+        ]'
+    """
+    plan_manager = _get_plan_manager(context)
+    plan = plan_manager.get_plan(plan_id)
+
+    if plan is None:
+        return f"Error: Plan {plan_id} not found"
+
+    try:
+        tasks_list = json.loads(new_tasks)
+        if not isinstance(tasks_list, list):
+            return "Error: new_tasks must be a JSON array"
+    except json.JSONDecodeError as e:
+        return f"Error: Invalid JSON: {e}"
+
+    # Archive or remove old tasks
+    old_tasks = list(plan.tasks)  # Copy list
+    old_active_count = len([t for t in old_tasks if not t.cancelled])
+
+    if archive_old:
+        # Cancel all existing non-cancelled tasks
+        for task in old_tasks:
+            if not task.cancelled:
+                plan.cancel_task(
+                    task.id, f"Replaced: {reason}" if reason else "Plan replaced"
+                )
+    else:
+        # Remove all tasks
+        plan.tasks = []
+        # Clear milestones task_ids since tasks are gone
+        for milestone in plan.milestones:
+            milestone.task_ids = []
+
+    # Add new tasks
+    added_tasks = []
+    for task_data in tasks_list:
+        if not isinstance(task_data, dict):
+            continue
+        if "description" not in task_data:
+            continue
+
+        task = plan.add_task(
+            description=task_data["description"],
+            details=task_data.get("details", ""),
+            files=task_data.get("files", []),
+            tests=task_data.get("tests", ""),
+            dependencies=task_data.get("dependencies", []),
+        )
+        added_tasks.append(task)
+
+    if reason:
+        plan.add_progress(
+            f"Plan pivot: {reason} - replaced {old_active_count} tasks with {len(added_tasks)} new tasks"
+        )
+    else:
+        plan.add_progress(
+            f"Replaced {old_active_count} tasks with {len(added_tasks)} new tasks"
+        )
+
+    plan_manager.update_plan(plan)
+
+    result = f"""🔄 **Plan Tasks Replaced**
+
+**Reason:** {reason if reason else "Plan direction changed"}
+
+**Previous tasks:** {old_active_count} {"cancelled" if archive_old else "removed"}
+**New tasks:** {len(added_tasks)}
+
+**New task list:**
+"""
+    for task in added_tasks:
+        result += f"- `{task.id}`: {task.description}\n"
+
+    return result
+
+
+@tool(group="Planning")
+def list_cancelled_tasks(
+    context: "AgentContext",
+    plan_id: str,
+) -> str:
+    """List all cancelled tasks in a plan.
+
+    Use this to review cancelled tasks and optionally restore them.
+
+    Args:
+        plan_id: ID of the plan
+
+    Returns:
+        List of cancelled tasks with reasons
+    """
+    plan_manager = _get_plan_manager(context)
+    plan = plan_manager.get_plan(plan_id)
+
+    if plan is None:
+        return f"Error: Plan {plan_id} not found"
+
+    cancelled = plan.get_cancelled_tasks()
+
+    if not cancelled:
+        return f"No cancelled tasks in plan {plan_id}."
+
+    result = f"**Cancelled Tasks ({len(cancelled)})**\n\n"
+    for task in cancelled:
+        result += f"- `{task.id}`: ~~{task.description}~~\n"
+        if task.cancelled_reason:
+            result += f"  Reason: {task.cancelled_reason}\n"
+        if task.completed:
+            result += "  Note: Was completed before cancellation\n"
+
+    result += f'\nTo restore a task: `uncancel_plan_task("{plan_id}", "<task_id>")`'
+
+    return result
+
+
+@tool(group="Planning")
 def complete_plan_task(
     context: "AgentContext",
     plan_id: str,
