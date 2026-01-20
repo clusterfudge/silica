@@ -10,7 +10,11 @@ Install with: pip install silica[voice]
 from silica.voice.relevance import (
     RelevanceFilter,
     RelevanceResult,
+    VoiceCommand,
     create_relevance_filter,
+    detect_voice_command,
+    is_mute_command,
+    is_unmute_command,
 )
 
 # Check if voice dependencies are available
@@ -37,5 +41,9 @@ __all__ = [
     "check_voice_available",
     "RelevanceFilter",
     "RelevanceResult",
+    "VoiceCommand",
     "create_relevance_filter",
+    "detect_voice_command",
+    "is_mute_command",
+    "is_unmute_command",
 ]

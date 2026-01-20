@@ -261,16 +261,123 @@ class TestTextPreprocessing:
         assert "*" not in text or "emphasized" in text
 
 
+class TestVoiceCommands:
+    """Test voice command detection."""
+
+    def test_voice_command_enum(self):
+        from silica.voice.relevance import VoiceCommand
+
+        assert hasattr(VoiceCommand, "NONE")
+        assert hasattr(VoiceCommand, "MUTE")
+        assert hasattr(VoiceCommand, "UNMUTE")
+        assert hasattr(VoiceCommand, "STOP")
+        assert hasattr(VoiceCommand, "CANCEL")
+
+    def test_detect_mute_commands(self):
+        from silica.voice.relevance import detect_voice_command, VoiceCommand
+
+        mute_phrases = [
+            "mute",
+            "go to sleep",
+            "sleep mode",
+            "stop listening",
+            "be quiet",
+            "shut up",
+            "silica mute",
+            "hey silica go to sleep",
+        ]
+        for phrase in mute_phrases:
+            result = detect_voice_command(phrase)
+            assert result == VoiceCommand.MUTE, f"Expected MUTE for '{phrase}'"
+
+    def test_detect_unmute_commands(self):
+        from silica.voice.relevance import detect_voice_command, VoiceCommand
+
+        unmute_phrases = [
+            "unmute",
+            "wake up",
+            "start listening",
+            "I'm back",
+            "resume",
+            "silica wake up",
+            "hey silica unmute",
+        ]
+        for phrase in unmute_phrases:
+            result = detect_voice_command(phrase)
+            assert result == VoiceCommand.UNMUTE, f"Expected UNMUTE for '{phrase}'"
+
+    def test_detect_stop_commands(self):
+        from silica.voice.relevance import detect_voice_command, VoiceCommand
+
+        stop_phrases = [
+            "stop",
+            "enough",
+            "that's enough",
+            "ok stop",
+            "silica stop",
+        ]
+        for phrase in stop_phrases:
+            result = detect_voice_command(phrase)
+            assert result == VoiceCommand.STOP, f"Expected STOP for '{phrase}'"
+
+    def test_detect_cancel_commands(self):
+        from silica.voice.relevance import detect_voice_command, VoiceCommand
+
+        cancel_phrases = [
+            "cancel",
+            "never mind",
+            "nevermind",
+            "forget it",
+            "abort",
+        ]
+        for phrase in cancel_phrases:
+            result = detect_voice_command(phrase)
+            assert result == VoiceCommand.CANCEL, f"Expected CANCEL for '{phrase}'"
+
+    def test_detect_no_command(self):
+        from silica.voice.relevance import detect_voice_command, VoiceCommand
+
+        regular_phrases = [
+            "what's the weather?",
+            "tell me a joke",
+            "hello there",
+            "I need help with something",
+        ]
+        for phrase in regular_phrases:
+            result = detect_voice_command(phrase)
+            assert result == VoiceCommand.NONE, f"Expected NONE for '{phrase}'"
+
+    def test_helper_functions(self):
+        from silica.voice.relevance import is_mute_command, is_unmute_command
+
+        assert is_mute_command("mute") is True
+        assert is_mute_command("unmute") is False
+        assert is_unmute_command("wake up") is True
+        assert is_unmute_command("go to sleep") is False
+
+
 class TestRelevanceFilter:
     """Test relevance filter module."""
 
     def test_relevance_result(self):
-        from silica.voice.relevance import RelevanceResult
+        from silica.voice.relevance import RelevanceResult, VoiceCommand
 
         result = RelevanceResult(is_relevant=True)
         assert result.is_relevant is True
         assert result.confidence is None
         assert result.reason is None
+        assert result.voice_command == VoiceCommand.NONE
+
+    def test_relevance_result_with_command(self):
+        from silica.voice.relevance import RelevanceResult, VoiceCommand
+
+        result = RelevanceResult(
+            is_relevant=True,
+            reason="Voice command: MUTE",
+            voice_command=VoiceCommand.MUTE,
+        )
+        assert result.is_relevant is True
+        assert result.voice_command == VoiceCommand.MUTE
 
     def test_relevance_result_with_reason(self):
         from silica.voice.relevance import RelevanceResult
@@ -292,12 +399,21 @@ class TestRelevanceFilter:
         result = rf.check_relevance("any text")
         assert result.is_relevant is True
 
+    def test_relevance_filter_detects_commands(self):
+        from silica.voice.relevance import RelevanceFilter, VoiceCommand
+
+        # Even with filtering disabled, commands should be detected
+        rf = RelevanceFilter(enabled=False)
+        result = rf.check_relevance("mute")
+        assert result.is_relevant is True
+        assert result.voice_command == VoiceCommand.MUTE
+
     def test_relevance_filter_empty_text(self):
         from silica.voice.relevance import RelevanceFilter
 
         rf = RelevanceFilter(enabled=True, api_key="fake-key")
-        # Empty text should be not relevant
-        result = rf.check_relevance("")
+        # Empty text should be not relevant (no command to detect either)
+        result = rf.check_relevance("", detect_commands=False)
         assert result.is_relevant is False
 
     def test_relevance_filter_short_text(self):
@@ -305,7 +421,7 @@ class TestRelevanceFilter:
 
         rf = RelevanceFilter(enabled=True, api_key="fake-key")
         # Very short text should be not relevant
-        result = rf.check_relevance("um")
+        result = rf.check_relevance("um", detect_commands=False)
         assert result.is_relevant is False
 
 

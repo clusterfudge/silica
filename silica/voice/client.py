@@ -10,7 +10,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, Tuple, TYPE_CHECKING
 
 from silica.serve.protocol import (
     PROTOCOL_VERSION,
@@ -19,7 +19,7 @@ from silica.serve.protocol import (
 )
 from silica.voice.coordinator import VoiceCoordinator, VoiceState, KeyboardMuteManager
 from silica.voice.listener import Listener
-from silica.voice.relevance import RelevanceFilter
+from silica.voice.relevance import RelevanceFilter, VoiceCommand, detect_voice_command
 from silica.voice.speaker import AudioPlayer, Speaker
 from silica.voice.transcriber import Transcriber
 
@@ -163,11 +163,39 @@ class VoiceClient:
 
     def _on_mute_toggle(self) -> None:
         """Handle mute toggle from keyboard or GPIO."""
-        self.coordinator.muted
         is_muted = self.coordinator.toggle_mute()
         status = "MUTED" if is_muted else "LISTENING"
         logger.info(f"Mute toggled: {status}")
         print(f"\n[{status}]")
+
+    async def _handle_voice_command(self, command: VoiceCommand, text: str) -> None:
+        """Handle a detected voice command."""
+        logger.info(f"Handling voice command: {command.name}")
+
+        if command == VoiceCommand.MUTE:
+            if not self.coordinator.muted:
+                self.coordinator.mute()
+                print("\n[MUTED by voice command]")
+                # Speak confirmation before going to sleep
+                await self._speak_response("Going to sleep.")
+
+        elif command == VoiceCommand.UNMUTE:
+            if self.coordinator.muted:
+                self.coordinator.unmute()
+                print("\n[LISTENING - woken by voice command]")
+                await self._speak_response("I'm listening.")
+
+        elif command == VoiceCommand.STOP:
+            # Interrupt current speech
+            self.coordinator.interrupt()
+            await self._send_interrupt("Voice command: stop")
+            print("\n[STOPPED]")
+
+        elif command == VoiceCommand.CANCEL:
+            # Interrupt and send cancel to server
+            self.coordinator.interrupt()
+            await self._send_interrupt("Voice command: cancel")
+            print("\n[CANCELLED]")
 
     def _add_context(self, role: str, text: str) -> None:
         """Add a turn to recent context for relevance filtering."""
@@ -194,25 +222,38 @@ class VoiceClient:
         text_lower = text.lower()
         return any(wake.lower() in text_lower for wake in self.settings.wake_words)
 
-    async def _check_relevance(self, text: str) -> bool:
-        """Check if transcribed text is relevant to the assistant."""
-        # First check wake words if configured
+    async def _check_relevance(self, text: str) -> Tuple[bool, VoiceCommand]:
+        """
+        Check if transcribed text is relevant to the assistant.
+
+        Returns:
+            Tuple of (is_relevant, voice_command)
+        """
+        # First check for voice commands (always processed, even bypassing wake words)
+        command = detect_voice_command(text)
+        if command != VoiceCommand.NONE:
+            self._incr(f"command.{command.name.lower()}")
+            return True, command
+
+        # Check wake words if configured
         if self.settings.wake_words:
             if self._check_wake_word(text):
                 self._incr("relevance.wake_word_match")
-                return True
+                return True, VoiceCommand.NONE
             else:
                 self._incr("relevance.no_wake_word")
-                return False
+                return False, VoiceCommand.NONE
 
         # If relevance filtering is disabled, everything is relevant
         if not self.relevance_filter or not self.settings.relevance_filtering:
-            return True
+            return True, VoiceCommand.NONE
 
-        # Use relevance filter
+        # Use relevance filter (commands already checked above)
         self._incr("relevance.check")
         context = self._get_context_string()
-        result = await self.relevance_filter.check_relevance_async(text, context)
+        result = await self.relevance_filter.check_relevance_async(
+            text, context, detect_commands=False
+        )
 
         if result.is_relevant:
             self._incr("relevance.relevant")
@@ -220,7 +261,7 @@ class VoiceClient:
             self._incr("relevance.not_relevant")
             logger.info(f"Filtered out: '{text[:50]}...' ({result.reason})")
 
-        return result.is_relevant
+        return result.is_relevant, VoiceCommand.NONE
 
     async def connect(self) -> bool:
         """
@@ -348,12 +389,16 @@ class VoiceClient:
     async def _listen_loop(self) -> None:
         """Listen for speech and send to server."""
         while self._running and self._connected:
-            # Skip listening if muted or speaking
-            if self.coordinator.muted or self.coordinator.state == VoiceState.SPEAKING:
+            # Skip listening only if speaking (still listen when muted for unmute commands)
+            if self.coordinator.state == VoiceState.SPEAKING:
                 await asyncio.sleep(0.1)
                 continue
 
-            self.coordinator.start_listening()
+            # When muted, still listen but only for unmute commands
+            is_muted = self.coordinator.muted
+
+            if not is_muted:
+                self.coordinator.start_listening()
             self._incr("listen.start")
 
             # Listen for a phrase
@@ -400,8 +445,22 @@ class VoiceClient:
 
             self._gauge("transcribe.text_length", len(text))
 
-            # Check relevance (wake word or Haiku filter)
-            if not await self._check_relevance(text):
+            # Check relevance and voice commands
+            is_relevant, command = await self._check_relevance(text)
+
+            # Handle voice commands (always processed, even when muted)
+            if command != VoiceCommand.NONE:
+                await self._handle_voice_command(command, text)
+                self.coordinator.processing_complete()
+                continue
+
+            # When muted, only voice commands are processed
+            if is_muted:
+                logger.debug(f"Muted, ignoring non-command: '{text[:50]}...'")
+                self.coordinator.processing_complete()
+                continue
+
+            if not is_relevant:
                 logger.info(f"Skipping irrelevant: '{text[:50]}...'")
                 self.coordinator.processing_complete()
                 continue

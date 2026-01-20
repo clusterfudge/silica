@@ -4,13 +4,59 @@ Relevance filtering for voice input.
 This module provides a fast, lightweight relevance check using Claude Haiku
 to determine if ambient speech is directed at the assistant (without requiring
 a wake word).
+
+Also provides voice command detection for mute/unmute control on headless devices.
 """
 
 import logging
+import re
 from dataclasses import dataclass
+from enum import Enum, auto
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+
+class VoiceCommand(Enum):
+    """Voice commands that can be detected."""
+
+    NONE = auto()
+    MUTE = auto()
+    UNMUTE = auto()
+    STOP = auto()  # Stop speaking / interrupt
+    CANCEL = auto()  # Cancel current operation
+
+
+# Patterns for voice command detection (checked before relevance filter)
+# These are checked case-insensitively
+# Note: UNMUTE patterns are checked before MUTE to handle "unmute" containing "mute"
+VOICE_COMMAND_PATTERNS = {
+    # UNMUTE must come before MUTE in iteration order
+    VoiceCommand.UNMUTE: [
+        r"\bunmute\b",
+        r"\b(wake up|start listening|i'm back|resume)\b",
+        r"\b(silica|assistant|hey).*(unmute|wake up|start listening)\b",
+    ],
+    VoiceCommand.MUTE: [
+        r"(?<![un])mute\b",  # "mute" but not "unmute"
+        r"\b(go to sleep|sleep mode|stop listening|be quiet|shut up)\b",
+        r"\b(silica|assistant|hey).*(go to sleep|sleep|be quiet)\b",
+    ],
+    VoiceCommand.STOP: [
+        r"\b(stop|enough|that's enough|ok stop|okay stop)\b",
+        r"\b(silica|assistant).*(stop|enough)\b",
+    ],
+    VoiceCommand.CANCEL: [
+        r"\b(cancel|never\s*mind|nevermind|forget it|abort)\b",
+    ],
+}
+
+# Compile patterns for efficiency
+_COMPILED_PATTERNS = {
+    cmd: [re.compile(p, re.IGNORECASE) for p in patterns]
+    for cmd, patterns in VOICE_COMMAND_PATTERNS.items()
+}
+
 
 RELEVANCE_SYSTEM_PROMPT = """You are a relevance filter for a voice assistant. Your job is to determine whether a transcribed utterance is directed at the assistant or is just ambient speech/conversation not meant for the assistant.
 
@@ -38,6 +84,45 @@ class RelevanceResult:
     is_relevant: bool
     confidence: Optional[float] = None
     reason: Optional[str] = None
+    voice_command: VoiceCommand = VoiceCommand.NONE
+
+
+def detect_voice_command(text: str) -> VoiceCommand:
+    """
+    Detect voice commands in transcribed text.
+
+    Checks for mute, unmute, stop, and cancel commands using
+    pattern matching. This is fast and doesn't require an API call.
+
+    Args:
+        text: Transcribed text to check
+
+    Returns:
+        Detected VoiceCommand or VoiceCommand.NONE
+    """
+    if not text:
+        return VoiceCommand.NONE
+
+    text = text.strip()
+
+    # Check each command type
+    for command, patterns in _COMPILED_PATTERNS.items():
+        for pattern in patterns:
+            if pattern.search(text):
+                logger.info(f"Detected voice command: {command.name} in '{text}'")
+                return command
+
+    return VoiceCommand.NONE
+
+
+def is_mute_command(text: str) -> bool:
+    """Check if text contains a mute command."""
+    return detect_voice_command(text) == VoiceCommand.MUTE
+
+
+def is_unmute_command(text: str) -> bool:
+    """Check if text contains an unmute command."""
+    return detect_voice_command(text) == VoiceCommand.UNMUTE
 
 
 class RelevanceFilter:
@@ -91,18 +176,36 @@ class RelevanceFilter:
         return self._client
 
     def check_relevance(
-        self, text: str, context: Optional[str] = None
+        self,
+        text: str,
+        context: Optional[str] = None,
+        detect_commands: bool = True,
     ) -> RelevanceResult:
         """
         Check if transcribed text is relevant to the assistant.
 
+        Also detects voice commands (mute, unmute, stop, cancel) which
+        are always considered relevant for processing.
+
         Args:
             text: Transcribed text to check
             context: Optional recent conversation context
+            detect_commands: Whether to detect voice commands (default True)
 
         Returns:
-            RelevanceResult indicating if the text is relevant
+            RelevanceResult indicating if the text is relevant and any detected command
         """
+        # First check for voice commands (always processed, even when muted)
+        command = VoiceCommand.NONE
+        if detect_commands:
+            command = detect_voice_command(text)
+            if command != VoiceCommand.NONE:
+                return RelevanceResult(
+                    is_relevant=True,
+                    reason=f"Voice command: {command.name}",
+                    voice_command=command,
+                )
+
         if not self.enabled:
             return RelevanceResult(is_relevant=True, reason="Filtering disabled")
 
@@ -151,7 +254,10 @@ class RelevanceFilter:
             )
 
     async def check_relevance_async(
-        self, text: str, context: Optional[str] = None
+        self,
+        text: str,
+        context: Optional[str] = None,
+        detect_commands: bool = True,
     ) -> RelevanceResult:
         """
         Async version of check_relevance.
@@ -159,6 +265,7 @@ class RelevanceFilter:
         Args:
             text: Transcribed text to check
             context: Optional recent conversation context
+            detect_commands: Whether to detect voice commands (default True)
 
         Returns:
             RelevanceResult indicating if the text is relevant
@@ -167,7 +274,7 @@ class RelevanceFilter:
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
-            None, lambda: self.check_relevance(text, context)
+            None, lambda: self.check_relevance(text, context, detect_commands)
         )
 
 
