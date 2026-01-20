@@ -58,7 +58,21 @@ def voice(
     vad_aggressiveness: Annotated[
         int, cyclopts.Parameter(help="VAD aggressiveness (0-3)")
     ] = 3,
+    # Relevance filtering
+    relevance_filter: Annotated[
+        bool,
+        cyclopts.Parameter(
+            help="Enable Haiku-based relevance filtering (for ambient mode)"
+        ),
+    ] = False,
+    wake_words: Annotated[
+        Optional[str],
+        cyclopts.Parameter(
+            help="Comma-separated wake words (e.g., 'hey silica,silica')"
+        ),
+    ] = None,
     # Other settings
+    mute_key: Annotated[str, cyclopts.Parameter(help="Key to toggle mute")] = "m",
     verbose: Annotated[bool, cyclopts.Parameter(help="Enable verbose logging")] = False,
     list_devices: Annotated[
         bool, cyclopts.Parameter(help="List available audio devices and exit")
@@ -136,6 +150,11 @@ def voice(
         if tts_host:
             speaker_kwargs["host_header"] = tts_host
 
+    # Parse wake words
+    wake_word_list = None
+    if wake_words:
+        wake_word_list = [w.strip() for w in wake_words.split(",") if w.strip()]
+
     # Build settings kwargs
     settings_kwargs = {
         "session_id": session_id,
@@ -143,6 +162,9 @@ def voice(
         "device_name": device_name,
         "vad_aggressiveness": vad_aggressiveness,
         "tts_voice": tts_voice,
+        "relevance_filtering": relevance_filter,
+        "wake_words": wake_word_list,
+        "mute_key": mute_key,
     }
     # Remove None values
     settings_kwargs = {k: v for k, v in settings_kwargs.items() if v is not None}
@@ -150,13 +172,21 @@ def voice(
     print("Starting Silica voice interface...")
     print(f"  Server: {server_url}")
     print(f"  STT: {stt_backend}")
-    print(f"  TTS: {tts_backend} ({tts_voice})")
+    print(
+        f"  TTS: {tts_backend}" + (f" ({tts_voice})" if tts_backend == "edge" else "")
+    )
     if device_name:
         print(f"  Device: {device_name}")
     elif device_index is not None:
         print(f"  Device index: {device_index}")
+    if wake_word_list:
+        print(f"  Wake words: {', '.join(wake_word_list)}")
+    elif relevance_filter:
+        print("  Mode: Ambient (Haiku relevance filtering)")
+    else:
+        print("  Mode: Always listening (no filtering)")
     print()
-    print("Press 'm' to toggle mute, Ctrl+C to exit")
+    print(f"Press '{mute_key}' to toggle mute, Ctrl+C to exit")
     print()
 
     # Run the voice client

@@ -17,8 +17,9 @@ from silica.serve.protocol import (
     InterruptMessage,
     UserInputMessage,
 )
-from silica.voice.coordinator import VoiceCoordinator, VoiceState
+from silica.voice.coordinator import VoiceCoordinator, VoiceState, KeyboardMuteManager
 from silica.voice.listener import Listener
+from silica.voice.relevance import RelevanceFilter
 from silica.voice.speaker import AudioPlayer, Speaker
 from silica.voice.transcriber import Transcriber
 
@@ -62,6 +63,15 @@ class VoiceClientSettings:
     # TTS settings
     tts_voice: str = "en-US-GuyNeural"
 
+    # Relevance filtering (for ambient mode without wake word)
+    relevance_filtering: bool = False
+    wake_words: Optional[list] = (
+        None  # If set, require wake word instead of relevance filter
+    )
+
+    # Mute toggle
+    mute_key: str = "m"  # Key to toggle mute (keyboard mode)
+
     # Metrics
     metrics_enabled: bool = True
 
@@ -83,6 +93,7 @@ class VoiceClient:
         transcriber: Transcriber,
         speaker: Speaker,
         settings: Optional[VoiceClientSettings] = None,
+        relevance_filter: Optional[RelevanceFilter] = None,
     ):
         """
         Initialize the voice client.
@@ -91,6 +102,7 @@ class VoiceClient:
             transcriber: Transcriber instance for STT
             speaker: Speaker instance for TTS
             settings: Client settings (uses defaults if not provided)
+            relevance_filter: Optional relevance filter for ambient mode
         """
         _check_websockets_available()
 
@@ -102,6 +114,12 @@ class VoiceClient:
         self.listener: Optional[Listener] = None
         self.player = AudioPlayer()
         self.coordinator = VoiceCoordinator()
+        self._mute_manager: Optional[KeyboardMuteManager] = None
+
+        # Relevance filter for ambient mode
+        self.relevance_filter = relevance_filter
+        if self.relevance_filter is None and self.settings.relevance_filtering:
+            self.relevance_filter = RelevanceFilter(enabled=True)
 
         # WebSocket connection
         self._ws = None
@@ -112,6 +130,10 @@ class VoiceClient:
         # Message handling
         self._response_buffer = ""
         self._pending_response = False
+
+        # Recent context for relevance filtering
+        self._recent_context: list = []
+        self._max_context_turns = 5
 
         # Metrics
         self._metrics = None
@@ -138,6 +160,67 @@ class VoiceClient:
         """Set a gauge metric."""
         if self._metrics:
             self._metrics.gauge(name, value)
+
+    def _on_mute_toggle(self) -> None:
+        """Handle mute toggle from keyboard or GPIO."""
+        self.coordinator.muted
+        is_muted = self.coordinator.toggle_mute()
+        status = "MUTED" if is_muted else "LISTENING"
+        logger.info(f"Mute toggled: {status}")
+        print(f"\n[{status}]")
+
+    def _add_context(self, role: str, text: str) -> None:
+        """Add a turn to recent context for relevance filtering."""
+        self._recent_context.append({"role": role, "text": text})
+        # Keep only recent turns
+        if len(self._recent_context) > self._max_context_turns:
+            self._recent_context = self._recent_context[-self._max_context_turns :]
+
+    def _get_context_string(self) -> str:
+        """Get recent context as a string for relevance filtering."""
+        if not self._recent_context:
+            return ""
+        lines = []
+        for turn in self._recent_context:
+            role = turn["role"].capitalize()
+            text = turn["text"][:100]  # Truncate for efficiency
+            lines.append(f"{role}: {text}")
+        return "\n".join(lines)
+
+    def _check_wake_word(self, text: str) -> bool:
+        """Check if text contains a wake word."""
+        if not self.settings.wake_words:
+            return True  # No wake words configured, always pass
+        text_lower = text.lower()
+        return any(wake.lower() in text_lower for wake in self.settings.wake_words)
+
+    async def _check_relevance(self, text: str) -> bool:
+        """Check if transcribed text is relevant to the assistant."""
+        # First check wake words if configured
+        if self.settings.wake_words:
+            if self._check_wake_word(text):
+                self._incr("relevance.wake_word_match")
+                return True
+            else:
+                self._incr("relevance.no_wake_word")
+                return False
+
+        # If relevance filtering is disabled, everything is relevant
+        if not self.relevance_filter or not self.settings.relevance_filtering:
+            return True
+
+        # Use relevance filter
+        self._incr("relevance.check")
+        context = self._get_context_string()
+        result = await self.relevance_filter.check_relevance_async(text, context)
+
+        if result.is_relevant:
+            self._incr("relevance.relevant")
+        else:
+            self._incr("relevance.not_relevant")
+            logger.info(f"Filtered out: '{text[:50]}...' ({result.reason})")
+
+        return result.is_relevant
 
     async def connect(self) -> bool:
         """
@@ -219,6 +302,14 @@ class VoiceClient:
             phrase_end_ms=self.settings.phrase_end_ms,
         )
         self.coordinator._listener = self.listener
+
+        # Set up keyboard mute toggle
+        self._mute_manager = KeyboardMuteManager(
+            key=self.settings.mute_key,
+            callback=self._on_mute_toggle,
+        )
+        self._mute_manager.start()
+        logger.info(f"Press '{self.settings.mute_key}' to toggle mute")
 
         # Connect to server
         reconnect_attempts = 0
@@ -309,6 +400,15 @@ class VoiceClient:
 
             self._gauge("transcribe.text_length", len(text))
 
+            # Check relevance (wake word or Haiku filter)
+            if not await self._check_relevance(text):
+                logger.info(f"Skipping irrelevant: '{text[:50]}...'")
+                self.coordinator.processing_complete()
+                continue
+
+            # Add to context for future relevance checks
+            self._add_context("user", text)
+
             # Send to server
             await self._send_user_input(text)
 
@@ -349,6 +449,8 @@ class VoiceClient:
             # Speak the complete response
             text = msg.get("content", "")
             if text:
+                # Add to context for relevance filtering
+                self._add_context("assistant", text)
                 await self._speak_response(text)
             self._response_buffer = ""
             self._pending_response = False

@@ -261,6 +261,74 @@ class TestTextPreprocessing:
         assert "*" not in text or "emphasized" in text
 
 
+class TestRelevanceFilter:
+    """Test relevance filter module."""
+
+    def test_relevance_result(self):
+        from silica.voice.relevance import RelevanceResult
+
+        result = RelevanceResult(is_relevant=True)
+        assert result.is_relevant is True
+        assert result.confidence is None
+        assert result.reason is None
+
+    def test_relevance_result_with_reason(self):
+        from silica.voice.relevance import RelevanceResult
+
+        result = RelevanceResult(
+            is_relevant=False, confidence=0.9, reason="NOT_RELEVANT"
+        )
+        assert result.is_relevant is False
+        assert result.confidence == 0.9
+        assert result.reason == "NOT_RELEVANT"
+
+    def test_create_relevance_filter_disabled(self):
+        from silica.voice.relevance import create_relevance_filter
+
+        rf = create_relevance_filter(enabled=False)
+        assert rf.enabled is False
+
+        # Disabled filter should always return relevant
+        result = rf.check_relevance("any text")
+        assert result.is_relevant is True
+
+    def test_relevance_filter_empty_text(self):
+        from silica.voice.relevance import RelevanceFilter
+
+        rf = RelevanceFilter(enabled=True, api_key="fake-key")
+        # Empty text should be not relevant
+        result = rf.check_relevance("")
+        assert result.is_relevant is False
+
+    def test_relevance_filter_short_text(self):
+        from silica.voice.relevance import RelevanceFilter
+
+        rf = RelevanceFilter(enabled=True, api_key="fake-key")
+        # Very short text should be not relevant
+        result = rf.check_relevance("um")
+        assert result.is_relevant is False
+
+
+class TestVoiceClientSettingsExtended:
+    """Test extended voice client settings."""
+
+    def test_settings_with_relevance(self):
+        from silica.voice.client import VoiceClientSettings
+
+        settings = VoiceClientSettings(
+            relevance_filtering=True,
+            wake_words=["hey silica", "silica"],
+        )
+        assert settings.relevance_filtering is True
+        assert settings.wake_words == ["hey silica", "silica"]
+
+    def test_settings_mute_key(self):
+        from silica.voice.client import VoiceClientSettings
+
+        settings = VoiceClientSettings(mute_key="space")
+        assert settings.mute_key == "space"
+
+
 class TestMetrics:
     """Test metrics module."""
 

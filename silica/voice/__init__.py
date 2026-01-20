@@ -7,6 +7,12 @@ speech-to-text and text-to-speech interaction with the agent.
 Install with: pip install silica[voice]
 """
 
+from silica.voice.relevance import (
+    RelevanceFilter,
+    RelevanceResult,
+    create_relevance_filter,
+)
+
 # Check if voice dependencies are available
 try:
     pass
@@ -24,3 +30,12 @@ def check_voice_available():
             "Install with: pip install silica[voice]"
         )
     return True
+
+
+__all__ = [
+    "VOICE_AVAILABLE",
+    "check_voice_available",
+    "RelevanceFilter",
+    "RelevanceResult",
+    "create_relevance_filter",
+]
