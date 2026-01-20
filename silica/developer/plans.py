@@ -118,6 +118,9 @@ class PlanTask:
 
     Tasks can have dependencies (other task IDs that must complete first)
     and can be subtasks of a parent task (via parent_task_id).
+
+    Tasks can also be cancelled when feedback changes the plan direction.
+    Cancelled tasks are preserved for audit trail but excluded from progress.
     """
 
     id: str
@@ -133,6 +136,9 @@ class PlanTask:
     parent_task_id: Optional[str] = None
     # Dependency satisfaction level: if True, deps must be verified (not just completed)
     require_verified_deps: bool = False
+    # Cancelled tasks are preserved but excluded from progress tracking
+    cancelled: bool = False
+    cancelled_reason: str = ""
 
     def to_dict(self) -> dict:
         result = {
@@ -151,6 +157,10 @@ class PlanTask:
             result["parent_task_id"] = self.parent_task_id
         if self.require_verified_deps:
             result["require_verified_deps"] = self.require_verified_deps
+        if self.cancelled:
+            result["cancelled"] = self.cancelled
+        if self.cancelled_reason:
+            result["cancelled_reason"] = self.cancelled_reason
         return result
 
     @classmethod
@@ -167,6 +177,8 @@ class PlanTask:
             verification_notes=data.get("verification_notes", ""),
             parent_task_id=data.get("parent_task_id"),
             require_verified_deps=data.get("require_verified_deps", False),
+            cancelled=data.get("cancelled", False),
+            cancelled_reason=data.get("cancelled_reason", ""),
         )
 
 
@@ -694,8 +706,10 @@ class Plan:
             # Helper to render a single task
             def render_task(task: PlanTask, indent: str = "") -> list[str]:
                 task_lines = []
-                # Show status: ⬜ pending, ✅ completed, ✓✓ verified
-                if task.verified:
+                # Show status: ⬜ pending, ✅ completed, ✓✓ verified, ~~cancelled~~
+                if task.cancelled:
+                    status = "🚫"
+                elif task.verified:
                     status = "✓✓"
                 elif task.completed:
                     status = "✅"
@@ -704,7 +718,11 @@ class Plan:
 
                 # Add readiness indicator for incomplete tasks
                 readiness = ""
-                if not task.completed and not task.parent_task_id:
+                if task.cancelled:
+                    readiness = " [CANCELLED]"
+                    if task.cancelled_reason:
+                        readiness = f" [CANCELLED: {task.cancelled_reason}]"
+                elif not task.completed and not task.parent_task_id:
                     if self.is_task_ready(task.id):
                         readiness = " [READY]"
                     elif task.dependencies:
@@ -712,11 +730,17 @@ class Plan:
                         if blocking:
                             blocking_ids = ", ".join(t.id for t in blocking[:3])
                             if len(blocking) > 3:
-                                blocking_ids += f" +{len(blocking)-3} more"
+                                blocking_ids += f" +{len(blocking) - 3} more"
                             readiness = f" [BLOCKED by {blocking_ids}]"
 
+                # Use strikethrough for cancelled tasks
+                desc = (
+                    f"~~{task.description}~~"
+                    if task.cancelled
+                    else f"**{task.description}**"
+                )
                 task_lines.append(
-                    f"{indent}- {status} **{task.description}** (id: {task.id}){readiness}"
+                    f"{indent}- {status} {desc} (id: {task.id}){readiness}"
                 )
                 if task.details:
                     task_lines.append(f"{indent}  - Details: {task.details}")
@@ -1329,6 +1353,7 @@ class Plan:
 
         A task is ready if:
         - It's not already completed
+        - It's not cancelled
         - All its dependencies are satisfied (completed or verified based on task setting)
 
         Args:
@@ -1342,9 +1367,14 @@ class Plan:
             return False
         if task.completed:
             return False  # Already done
+        if task.cancelled:
+            return False  # Cancelled tasks are not ready
 
-        # Check all dependencies
+        # Check all dependencies (cancelled deps are considered satisfied)
         for dep_id in task.dependencies:
+            dep_task = self.get_task_by_id(dep_id)
+            if dep_task and dep_task.cancelled:
+                continue  # Cancelled deps don't block
             if not self.is_dependency_satisfied(dep_id, task.require_verified_deps):
                 return False
         return True
@@ -1377,6 +1407,7 @@ class Plan:
 
         Returns tasks that are:
         - Not completed
+        - Not cancelled
         - Have all dependencies satisfied
         - Are not subtasks (top-level only, subtasks accessed via parent)
 
@@ -1387,6 +1418,8 @@ class Plan:
         for task in self.tasks:
             if task.parent_task_id:
                 continue  # Skip subtasks, they're accessed via parent
+            if task.cancelled:
+                continue  # Skip cancelled tasks
             if self.is_task_ready(task.id):
                 ready.append(task)
         return ready
@@ -1396,6 +1429,7 @@ class Plan:
 
         Returns tasks that are:
         - Not completed
+        - Not cancelled
         - Have at least one unsatisfied dependency
         - Are not subtasks
 
@@ -1408,6 +1442,8 @@ class Plan:
                 continue  # Skip subtasks
             if task.completed:
                 continue  # Already done
+            if task.cancelled:
+                continue  # Skip cancelled tasks
             if task.dependencies and not self.is_task_ready(task.id):
                 blocked.append(task)
         return blocked
@@ -1506,20 +1542,134 @@ class Plan:
         return []
 
     def get_incomplete_tasks(self) -> list[PlanTask]:
-        """Get all incomplete tasks (not completed)."""
-        return [t for t in self.tasks if not t.completed]
+        """Get all incomplete tasks (not completed, not cancelled)."""
+        return [t for t in self.tasks if not t.completed and not t.cancelled]
 
     def get_unverified_tasks(self) -> list[PlanTask]:
-        """Get all unverified tasks (completed but not verified)."""
-        return [t for t in self.tasks if t.completed and not t.verified]
+        """Get all unverified tasks (completed but not verified, not cancelled)."""
+        return [
+            t for t in self.tasks if t.completed and not t.verified and not t.cancelled
+        ]
 
     def get_completed_unverified_tasks(self) -> list[PlanTask]:
-        """Get tasks that are completed but not yet verified."""
-        return [t for t in self.tasks if t.completed and not t.verified]
+        """Get tasks that are completed but not yet verified (not cancelled)."""
+        return [
+            t for t in self.tasks if t.completed and not t.verified and not t.cancelled
+        ]
+
+    def get_cancelled_tasks(self) -> list[PlanTask]:
+        """Get all cancelled tasks."""
+        return [t for t in self.tasks if t.cancelled]
+
+    def get_active_tasks(self) -> list[PlanTask]:
+        """Get all non-cancelled tasks."""
+        return [t for t in self.tasks if not t.cancelled]
 
     def all_tasks_verified(self) -> bool:
-        """Check if all tasks are verified."""
-        return all(t.verified for t in self.tasks) if self.tasks else True
+        """Check if all non-cancelled tasks are verified."""
+        active_tasks = self.get_active_tasks()
+        return all(t.verified for t in active_tasks) if active_tasks else True
+
+    def cancel_task(self, task_id: str, reason: str = "") -> bool:
+        """Cancel a task, preserving it for audit trail.
+
+        Cancelled tasks are excluded from progress calculations but remain
+        visible in the plan for traceability.
+
+        Args:
+            task_id: ID of the task to cancel
+            reason: Optional reason for cancellation
+
+        Returns:
+            True if task was cancelled, False if not found
+        """
+        task = self.get_task_by_id(task_id)
+        if task is None:
+            return False
+        task.cancelled = True
+        task.cancelled_reason = reason
+        self.updated_at = datetime.now(timezone.utc)
+        return True
+
+    def uncancel_task(self, task_id: str) -> bool:
+        """Restore a cancelled task.
+
+        Args:
+            task_id: ID of the task to restore
+
+        Returns:
+            True if task was restored, False if not found
+        """
+        task = self.get_task_by_id(task_id)
+        if task is None:
+            return False
+        task.cancelled = False
+        task.cancelled_reason = ""
+        self.updated_at = datetime.now(timezone.utc)
+        return True
+
+    def remove_task(self, task_id: str) -> Optional[PlanTask]:
+        """Remove a task from the plan completely.
+
+        This also removes the task from any milestone task_ids and
+        cleans up dependencies referencing this task.
+
+        Args:
+            task_id: ID of the task to remove
+
+        Returns:
+            The removed task, or None if not found
+        """
+        task = self.get_task_by_id(task_id)
+        if task is None:
+            return None
+
+        # Remove from tasks list
+        self.tasks = [t for t in self.tasks if t.id != task_id]
+
+        # Remove from milestone task_ids
+        for milestone in self.milestones:
+            if task_id in milestone.task_ids:
+                milestone.task_ids = [
+                    tid for tid in milestone.task_ids if tid != task_id
+                ]
+
+        # Remove from other tasks' dependencies
+        for other_task in self.tasks:
+            if task_id in other_task.dependencies:
+                other_task.dependencies = [
+                    d for d in other_task.dependencies if d != task_id
+                ]
+
+        # Also remove subtasks of this task
+        subtasks = self.get_subtasks(task_id)
+        for subtask in subtasks:
+            self.remove_task(subtask.id)
+
+        self.updated_at = datetime.now(timezone.utc)
+        return task
+
+    def update_task(self, task_id: str, **kwargs) -> bool:
+        """Update a task's fields.
+
+        Args:
+            task_id: ID of the task to update
+            **kwargs: Fields to update (description, details, files, tests, dependencies)
+
+        Returns:
+            True if task was updated, False if not found
+        """
+        task = self.get_task_by_id(task_id)
+        if task is None:
+            return False
+
+        allowed_fields = {"description", "details", "files", "tests", "dependencies"}
+        for key, value in kwargs.items():
+            if key in allowed_fields:
+                setattr(task, key, value)
+
+        self.updated_at = datetime.now(timezone.utc)
+        return True
 
 
 class PlanManager:
