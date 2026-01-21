@@ -157,23 +157,177 @@ class HybridUserInterface(UserInterface):
     ) -> PermissionResult:
         """Permission callback - presents in both interfaces if hybrid mode.
 
-        Uses asyncio to run the async race in a sync context.
+        Uses threading to run both CLI and Island permission requests concurrently.
         """
-        # Use existing event loop if running, otherwise create one
-        try:
-            asyncio.get_running_loop()
-            # We're in an async context - tricky to run sync code properly
-            # For now, fall back to CLI only in this case
+
+        # Try to connect if not already
+        if self._island_available is None:
+            # Lazy check - try connecting in current context
+            try:
+                loop = asyncio.get_running_loop()
+                # Schedule connection check
+                future = asyncio.run_coroutine_threadsafe(
+                    self.connect_to_island(), loop
+                )
+                try:
+                    future.result(timeout=2.0)  # Brief timeout
+                except Exception:
+                    pass
+            except RuntimeError:
+                # No running loop
+                try:
+                    asyncio.get_event_loop().run_until_complete(
+                        self.connect_to_island()
+                    )
+                except Exception:
+                    pass
+
+        # If not in hybrid mode, use CLI only
+        if not self.hybrid_mode:
             return self.cli.permission_callback(
                 action, resource, sandbox_mode, action_arguments, group
             )
-        except RuntimeError:
-            # No running loop - create one
-            return asyncio.get_event_loop().run_until_complete(
-                self._permission_callback_async(
+
+        # Hybrid mode: use threading to race
+        return self._permission_callback_threaded(
+            action, resource, sandbox_mode, action_arguments, group
+        )
+
+    def _permission_callback_threaded(
+        self,
+        action: str,
+        resource: str,
+        sandbox_mode: SandboxMode,
+        action_arguments: Dict | None,
+        group: Optional[str] = None,
+    ) -> PermissionResult:
+        """Threaded implementation of permission callback race."""
+        import threading
+
+        dialog_id = str(uuid4())
+        result_holder = {"value": None, "source": None}
+        done_event = threading.Event()
+
+        # Parse shell commands for Island
+        shell_parsed = None
+        if action == "shell":
+            try:
+                from .tools.shell_parser import parse_shell_command
+
+                parsed = parse_shell_command(resource)
+                shell_parsed = {
+                    "commands": parsed.commands,
+                    "is_simple": parsed.is_simple,
+                    "parse_error": parsed.parse_error,
+                }
+            except Exception:
+                pass
+
+        def cli_worker():
+            """CLI thread."""
+            try:
+                result = self.cli.permission_callback(
                     action, resource, sandbox_mode, action_arguments, group
                 )
+                if not done_event.is_set():
+                    result_holder["value"] = result
+                    result_holder["source"] = "cli"
+                    done_event.set()
+            except DoSomethingElseError:
+                if not done_event.is_set():
+                    result_holder["value"] = "do_something_else"
+                    result_holder["source"] = "cli"
+                    done_event.set()
+            except Exception:
+                if not done_event.is_set():
+                    result_holder["value"] = False
+                    result_holder["source"] = "cli"
+                    done_event.set()
+
+        def island_worker():
+            """Island thread - creates its own client and runs async code.
+
+            TODO: This approach has issues with the async IslandClient in a separate
+            thread/event loop. The permission_request call seems to hang or fail silently.
+            Need to investigate:
+            1. Maybe use a synchronous/blocking client for the race
+            2. Or restructure to keep Island comms on the main thread
+            3. Or use process-based concurrency instead of threading
+            """
+            try:
+                # Import the client
+                from agent_island import IslandClient
+
+                # Create new event loop for this thread
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
+                async def do_island_request():
+                    # Create a fresh client for this thread
+                    client = IslandClient(socket_path=str(self.socket_path))
+                    if not await client.connect():
+                        return None
+                    try:
+                        response = await client.permission_request(
+                            action=action,
+                            resource=resource,
+                            dialog_id=dialog_id,
+                            group=group,
+                            details=action_arguments,
+                            shell_parsed=shell_parsed,
+                            hint="(or respond in terminal)",
+                        )
+                        return response
+                    finally:
+                        await client.disconnect()
+
+                try:
+                    response = loop.run_until_complete(do_island_request())
+                    if response and not done_event.is_set():
+                        result_holder["value"] = response.to_silica_result()
+                        result_holder["source"] = "island"
+                        done_event.set()
+                finally:
+                    loop.close()
+            except Exception:
+                # Island failed, let CLI win
+                pass
+
+        # Start both threads
+        cli_thread = threading.Thread(target=cli_worker, daemon=True)
+        island_thread = threading.Thread(target=island_worker, daemon=True)
+
+        cli_thread.start()
+        island_thread.start()
+
+        # Wait for first response
+        done_event.wait()
+
+        # Clean up
+        if result_holder["source"] == "cli":
+            # Cancel Island dialog if it's still pending
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(self._island.cancel_dialog(dialog_id))
+                finally:
+                    loop.close()
+            except Exception:
+                pass
+            self.cli.handle_system_message(
+                "[dim]✓ Responded in terminal[/dim]", markdown=False
             )
+        else:
+            self.cli.handle_system_message(
+                "[dim]✓ Responded in Agent Island[/dim]", markdown=False
+            )
+
+        # Handle do_something_else
+        if result_holder["value"] == "do_something_else":
+            raise DoSomethingElseError()
+
+        return result_holder["value"]
 
     async def _permission_callback_async(
         self,
@@ -264,6 +418,12 @@ class HybridUserInterface(UserInterface):
             except Exception:
                 # Island failed, let CLI win
                 pass
+
+        # Show that hybrid race is starting
+        self.cli.handle_system_message(
+            "[dim]Starting hybrid permission race (CLI + Island)...[/dim]",
+            markdown=False,
+        )
 
         cli_task = asyncio.create_task(cli_race())
         island_task = asyncio.create_task(island_race())
