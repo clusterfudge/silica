@@ -37,6 +37,7 @@ from silica.developer.tools.sessions import (
 )
 from silica.developer.user_interface import UserInterface
 from silica.developer.toolbox import Toolbox
+from silica.developer.hybrid_interface import HybridUserInterface
 from prompt_toolkit.completion import Completer, WordCompleter, Completion
 
 
@@ -1735,8 +1736,16 @@ def cyclopts_main(
     if not session_id and "SILICA_DEVELOPER_SESSION_ID" in os.environ:
         session_id = os.environ.get("SILICA_DEVELOPER_SESSION_ID")
 
-    # Initialize user interface
-    user_interface = CLIUserInterface(console, parsed_sandbox_mode)
+    # Initialize user interface with hybrid support
+    cli_interface = CLIUserInterface(console, parsed_sandbox_mode)
+    user_interface = HybridUserInterface(cli_interface)
+
+    # Try to connect to Agent Island (non-blocking, will fall back to CLI if unavailable)
+    asyncio.get_event_loop().run_until_complete(user_interface.connect_to_island())
+    if user_interface.hybrid_mode:
+        console.print(
+            "[dim]Connected to Agent Island - dialogs will appear in both terminal and app[/dim]"
+        )
 
     # Handle --resume or --resume-all flag: show interactive session picker
     if (resume or resume_all) and not session_id:
@@ -1856,6 +1865,17 @@ def cyclopts_main(
 
     # Set dwr_mode on context for permissions system bypass
     context.dwr_mode = dwr
+
+    # Register session with Agent Island if connected
+    if user_interface.hybrid_mode:
+        asyncio.get_event_loop().run_until_complete(
+            user_interface.register_session(
+                session_id=context.session_id,
+                working_directory=os.getcwd(),
+                model=model,
+                persona=persona_name,
+            )
+        )
 
     # If resuming a session, show the last few messages for context
     if session_id and context.chat_history:

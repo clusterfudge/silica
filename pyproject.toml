@@ -48,6 +48,7 @@ dependencies = [
     "httpx>=0.27.0",
     "opencv-python>=4.8.0",
     "bashlex>=0.18",
+    "agent-island-client",
 ]
 
 [project.scripts]
@@ -101,3 +102,6 @@ markers = [
     "safe: marks tests as safe to run without side effects",
 ]
 asyncio_mode = "auto"
+
+[tool.uv.sources]
+agent-island-client = { path = "../agent-island/silica-client" }
