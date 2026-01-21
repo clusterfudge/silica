@@ -245,15 +245,7 @@ class HybridUserInterface(UserInterface):
                     done_event.set()
 
         def island_worker():
-            """Island thread - creates its own client and runs async code.
-
-            TODO: This approach has issues with the async IslandClient in a separate
-            thread/event loop. The permission_request call seems to hang or fail silently.
-            Need to investigate:
-            1. Maybe use a synchronous/blocking client for the race
-            2. Or restructure to keep Island comms on the main thread
-            3. Or use process-based concurrency instead of threading
-            """
+            """Island thread - creates its own client and runs async code."""
             try:
                 # Import the client
                 from agent_island import IslandClient
