@@ -104,4 +104,4 @@ markers = [
 asyncio_mode = "auto"
 
 [tool.uv.sources]
-agent-island-client = { git = "https://github.com/clusterfudge/agent-island.git", branch = "silica-island/main", subdirectory = "silica-client" }
+agent-island-client = { git = "https://github.com/clusterfudge/agent-island.git", rev = "e2702a91ce013c7a694687397ba445157ad0098e", subdirectory = "silica-client" }

@@ -9,7 +9,7 @@ resolution-markers = [
 [[package]]
 name = "agent-island-client"
 version = "1.0.0"
-source = { git = "https://github.com/clusterfudge/agent-island.git?subdirectory=silica-client&branch=silica-island%2Fmain#e2702a91ce013c7a694687397ba445157ad0098e" }
+source = { git = "https://github.com/clusterfudge/agent-island.git?subdirectory=silica-client&rev=e2702a91ce013c7a694687397ba445157ad0098e#e2702a91ce013c7a694687397ba445157ad0098e" }
 
 [[package]]
 name = "aiofiles"
@@ -1501,7 +1501,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agent-island-client", git = "https://github.com/clusterfudge/agent-island.git?subdirectory=silica-client&branch=silica-island%2Fmain" },
+    { name = "agent-island-client", git = "https://github.com/clusterfudge/agent-island.git?subdirectory=silica-client&rev=e2702a91ce013c7a694687397ba445157ad0098e" },
     { name = "aiofiles", specifier = ">=24.1.0" },
     { name = "anthropic", specifier = ">=0.62.0" },
     { name = "bashlex", specifier = ">=0.18" },
