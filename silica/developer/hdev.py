@@ -1401,6 +1401,7 @@ def _run_agent_loop(
     single_response: bool,
     enable_compaction: bool,
     log_file_path: str | None,
+    hybrid_interface: Optional["HybridUserInterface"] = None,
 ) -> None:
     """Run the agent loop with graceful shutdown handling.
 
@@ -1408,8 +1409,24 @@ def _run_agent_loop(
     when interrupted by Ctrl+C, preventing the "Task was destroyed but it is pending!"
     warning message.
     """
+    # Disconnect from Agent Island BEFORE creating new loop
+    # (the Island client was connected on the previous/default loop)
+    if hybrid_interface is not None:
+        try:
+            old_loop = asyncio.get_event_loop()
+            old_loop.run_until_complete(hybrid_interface.disconnect_from_island())
+        except Exception:
+            pass
+
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
+
+    # Reconnect to Agent Island on the new loop
+    if hybrid_interface is not None:
+        try:
+            loop.run_until_complete(hybrid_interface.connect_to_island())
+        except Exception:
+            pass
 
     try:
         loop.run_until_complete(
@@ -1426,6 +1443,13 @@ def _run_agent_loop(
         # Gracefully handle Ctrl+C by cancelling pending tasks
         pass
     finally:
+        # Disconnect from Agent Island before cancelling tasks
+        if hybrid_interface is not None:
+            try:
+                loop.run_until_complete(hybrid_interface.disconnect_from_island())
+            except Exception:
+                pass
+
         # Cancel all pending tasks
         pending = asyncio.all_tasks(loop)
         for task in pending:
@@ -1893,4 +1917,5 @@ def cyclopts_main(
         single_response=bool(initial_prompt),
         enable_compaction=not disable_compaction,
         log_file_path=log_requests,
+        hybrid_interface=user_interface,
     )

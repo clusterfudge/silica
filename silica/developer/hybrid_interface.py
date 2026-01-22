@@ -103,6 +103,7 @@ class HybridUserInterface(UserInterface):
             except Exception:
                 pass
             self._island = None
+            self._island_available = None  # Reset so it can reconnect if needed
 
     async def register_session(
         self,
