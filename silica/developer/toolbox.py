@@ -352,10 +352,10 @@ class Toolbox:
         )
 
         if result.success:
-            # Try to parse JSON output for better formatting
+            # Try to parse JSON output and check for image data
             try:
                 parsed = json.loads(result.output)
-                content = json.dumps(parsed, indent=2)
+                content = self._process_user_tool_result(parsed)
             except (json.JSONDecodeError, TypeError):
                 content = (
                     result.output.strip()
@@ -377,6 +377,126 @@ class Toolbox:
             "tool_use_id": tool_use_id,
             "content": content,
         }
+
+    def _process_user_tool_result(self, parsed: dict) -> list | str:
+        """Process a parsed JSON result from a user tool.
+
+        Detects image data in the response and converts it to proper
+        Anthropic API image content blocks. This prevents base64 image
+        data from being tokenized as text (which would explode context).
+
+        Supported patterns:
+        1. {"base64": "...", "media_type": "image/png"} - explicit media type
+        2. {"base64": "..."} - auto-detect media type from data
+        3. {"image": {"base64": "...", "media_type": "..."}} - nested image object
+
+        Args:
+            parsed: The parsed JSON response from the tool
+
+        Returns:
+            Either a list of content blocks (if images found) or a JSON string
+        """
+        # Check for image data in the response
+        image_data = None
+        media_type = None
+        text_content = {}
+
+        # Pattern 1 & 2: Top-level base64 field
+        if "base64" in parsed and isinstance(parsed["base64"], str):
+            image_data = parsed["base64"]
+            media_type = parsed.get("media_type")
+
+            # Build text content from other fields
+            for key, value in parsed.items():
+                if key not in ("base64", "media_type"):
+                    text_content[key] = value
+
+        # Pattern 3: Nested image object
+        elif "image" in parsed and isinstance(parsed["image"], dict):
+            img_obj = parsed["image"]
+            if "base64" in img_obj:
+                image_data = img_obj["base64"]
+                media_type = img_obj.get("media_type")
+
+            # Build text content from other fields
+            for key, value in parsed.items():
+                if key != "image":
+                    text_content[key] = value
+
+        # If no image data found, return formatted JSON string
+        if not image_data:
+            return json.dumps(parsed, indent=2)
+
+        # Auto-detect media type if not provided
+        if not media_type:
+            media_type = self._detect_image_media_type(image_data)
+
+        # Build the content blocks
+        content_blocks = []
+
+        # Add text content if there are other fields
+        if text_content:
+            content_blocks.append(
+                {
+                    "type": "text",
+                    "text": json.dumps(text_content, indent=2),
+                }
+            )
+
+        # Add the image content block
+        content_blocks.append(
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": media_type,
+                    "data": image_data,
+                },
+            }
+        )
+
+        return content_blocks
+
+    def _detect_image_media_type(self, base64_data: str) -> str:
+        """Detect the media type of a base64-encoded image.
+
+        Examines the first few bytes of the decoded data to identify
+        the image format based on magic bytes.
+
+        Args:
+            base64_data: Base64-encoded image data
+
+        Returns:
+            Media type string (defaults to "image/png" if unknown)
+        """
+        import base64
+
+        try:
+            # Decode just enough to check magic bytes
+            # Most image formats can be identified from first 12 bytes
+            decoded = base64.b64decode(base64_data[:24])
+
+            # PNG: 89 50 4E 47 0D 0A 1A 0A
+            if decoded.startswith(b"\x89PNG\r\n\x1a\n"):
+                return "image/png"
+
+            # JPEG: FF D8 FF
+            if decoded.startswith(b"\xff\xd8\xff"):
+                return "image/jpeg"
+
+            # GIF: 47 49 46 38 (GIF8)
+            if decoded.startswith(b"GIF8"):
+                return "image/gif"
+
+            # WebP: 52 49 46 46 ... 57 45 42 50 (RIFF...WEBP)
+            if decoded.startswith(b"RIFF") and b"WEBP" in decoded[:12]:
+                return "image/webp"
+
+        except Exception:
+            pass
+
+        # Default to PNG if we can't detect
+        return "image/png"
 
     async def invoke_agent_tools(self, tool_uses):
         """Invoke multiple agent tools, potentially in parallel."""
