@@ -48,6 +48,18 @@ dependencies = [
     "httpx>=0.27.0",
     "opencv-python>=4.8.0",
     "bashlex>=0.18",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pre-commit>=4.2.0",
+    "pytest>=8.3.5",
+    "pytest-asyncio>=1.1.0",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.13.0",
+    "moto[s3]>=5.0.0",
+]
+agent-island = [
     "agent-island-client",
 ]
 
@@ -71,16 +83,6 @@ exclude = ["data*", "config*"]
 "silica.utils" = ["templates/*"]
 "silica.agents" = ["*.yaml"]  
 "silica.cron" = ["templates/*", "static/*"]
-
-[project.optional-dependencies]
-dev = [
-    "pre-commit>=4.2.0",
-    "pytest>=8.3.5",
-    "pytest-asyncio>=1.1.0",
-    "pytest-cov>=6.0.0",
-    "ruff>=0.13.0",
-    "moto[s3]>=5.0.0",
-]
 
 [tool.setuptools_scm]
 write_to = "silica/_version.py"
