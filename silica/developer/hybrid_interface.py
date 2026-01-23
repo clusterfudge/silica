@@ -73,7 +73,7 @@ class HybridUserInterface(UserInterface):
 
         try:
             # Import here to avoid circular dependency and allow running without client installed
-            from agent_island import IslandClient
+            from silica.developer.island_client import IslandClient
 
             self._island = IslandClient(socket_path=str(self.socket_path))
             connected = await self._island.connect()
@@ -249,7 +249,7 @@ class HybridUserInterface(UserInterface):
             """Island thread - creates its own client and runs async code."""
             try:
                 # Import the client
-                from agent_island import IslandClient
+                from silica.developer.island_client import IslandClient
 
                 # Create new event loop for this thread
                 loop = asyncio.new_event_loop()

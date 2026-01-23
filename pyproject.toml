@@ -59,9 +59,6 @@ dev = [
     "ruff>=0.13.0",
     "moto[s3]>=5.0.0",
 ]
-agent-island = [
-    "agent-island-client",
-]
 
 [project.scripts]
 silica = "silica.cli:main"
@@ -105,5 +102,4 @@ markers = [
 ]
 asyncio_mode = "auto"
 
-[tool.uv.sources]
-agent-island-client = { git = "https://github.com/clusterfudge/agent-island.git", rev = "e2702a91ce013c7a694687397ba445157ad0098e", subdirectory = "silica-client" }
+

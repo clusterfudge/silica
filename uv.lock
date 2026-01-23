@@ -7,11 +7,6 @@ resolution-markers = [
 ]
 
 [[package]]
-name = "agent-island-client"
-version = "1.0.0"
-source = { git = "https://github.com/clusterfudge/agent-island.git?subdirectory=silica-client&rev=e2702a91ce013c7a694687397ba445157ad0098e#e2702a91ce013c7a694687397ba445157ad0098e" }
-
-[[package]]
 name = "aiofiles"
 version = "24.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1479,9 +1474,6 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-agent-island = [
-    { name = "agent-island-client" },
-]
 dev = [
     { name = "moto", extra = ["s3"] },
     { name = "pre-commit" },
@@ -1503,7 +1495,6 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agent-island-client", marker = "extra == 'agent-island'", git = "https://github.com/clusterfudge/agent-island.git?subdirectory=silica-client&rev=e2702a91ce013c7a694687397ba445157ad0098e" },
     { name = "aiofiles", specifier = ">=24.1.0" },
     { name = "anthropic", specifier = ">=0.62.0" },
     { name = "bashlex", specifier = ">=0.18" },
@@ -1546,7 +1537,7 @@ requires-dist = [
     { name = "structlog", specifier = ">=24.0.0" },
     { name = "uvicorn", specifier = ">=0.35.0" },
 ]
-provides-extras = ["dev", "agent-island"]
+provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
 dev = [
