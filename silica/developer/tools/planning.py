@@ -3017,7 +3017,7 @@ async def request_plan_approval(
     while True:
         # Show plan summary
         if hasattr(context, "user_interface") and context.user_interface:
-            context.user_interface.display(display_text)
+            context.user_interface.handle_system_message(display_text)
 
         # Get user choice
         from silica.developer.tools.user_choice import user_choice
@@ -3029,14 +3029,14 @@ async def request_plan_approval(
         if "View full plan" in choice_result:
             # Display full plan and loop back
             if hasattr(context, "user_interface") and context.user_interface:
-                context.user_interface.display(plan.to_markdown())
+                context.user_interface.handle_system_message(plan.to_markdown())
             continue
 
         elif "Ask a question" in choice_result:
             # Get the question from user
             if hasattr(context, "user_interface") and context.user_interface:
-                question = await context.user_interface.get_input(
-                    "What would you like to know about this plan?"
+                question = await context.user_interface.get_user_input(
+                    "What would you like to know about this plan? "
                 )
             else:
                 question = "User question"
@@ -3071,8 +3071,8 @@ async def request_plan_approval(
             # Get workspace name
             default_ws = f"plan-{plan.get_slug()}"
             if hasattr(context, "user_interface") and context.user_interface:
-                workspace = await context.user_interface.get_input(
-                    f"Workspace name (leave blank for '{default_ws}'):"
+                workspace = await context.user_interface.get_user_input(
+                    f"Workspace name (leave blank for '{default_ws}'): "
                 )
             else:
                 workspace = ""
@@ -3096,8 +3096,8 @@ async def request_plan_approval(
         elif "Request changes" in choice_result:
             # Get feedback
             if hasattr(context, "user_interface") and context.user_interface:
-                feedback = await context.user_interface.get_input(
-                    "What changes would you like?"
+                feedback = await context.user_interface.get_user_input(
+                    "What changes would you like? "
                 )
             else:
                 feedback = "Changes requested"
@@ -3108,8 +3108,8 @@ async def request_plan_approval(
         elif "Reject" in choice_result:
             # Get reason
             if hasattr(context, "user_interface") and context.user_interface:
-                reason = await context.user_interface.get_input(
-                    "Reason for rejection (optional):"
+                reason = await context.user_interface.get_user_input(
+                    "Reason for rejection (optional): "
                 )
             else:
                 reason = ""
