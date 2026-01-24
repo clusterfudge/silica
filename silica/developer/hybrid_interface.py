@@ -17,6 +17,11 @@ from .user_interface import UserInterface, PermissionResult
 from .sandbox import SandboxMode, DoSomethingElseError
 
 
+def _generate_message_id() -> str:
+    """Generate a unique message ID."""
+    return str(uuid4())
+
+
 # Default socket path for Agent Island
 DEFAULT_SOCKET_PATH = Path("~/.agent-island/agent.sock").expanduser()
 
@@ -111,6 +116,7 @@ class HybridUserInterface(UserInterface):
         working_directory: str,
         model: Optional[str] = None,
         persona: Optional[str] = None,
+        history: Optional[List[Dict[str, Any]]] = None,
     ) -> bool:
         """Register session with Agent Island.
 
@@ -119,6 +125,7 @@ class HybridUserInterface(UserInterface):
             working_directory: Current working directory
             model: Optional model name
             persona: Optional persona name
+            history: Optional list of chat history messages to bulk load
 
         Returns:
             True if registered (or Island not available)
@@ -132,6 +139,7 @@ class HybridUserInterface(UserInterface):
                 working_directory=working_directory,
                 model=model,
                 persona=persona,
+                history=history,
             )
         except Exception:
             return True  # Don't fail if registration fails
@@ -614,9 +622,12 @@ class HybridUserInterface(UserInterface):
         self.cli.handle_assistant_message(message)
 
         if self.hybrid_mode:
+            message_id = _generate_message_id()
             asyncio.create_task(
                 self._island.notify_assistant_message(
-                    content=message, format="markdown"
+                    content=message,
+                    format="markdown",
+                    message_id=message_id,
                 )
             )
 
@@ -652,8 +663,19 @@ class HybridUserInterface(UserInterface):
             )
 
     def handle_user_input(self, user_input: str) -> str:
-        """Pass through to CLI."""
-        return self.cli.handle_user_input(user_input)
+        """Display user input in both interfaces."""
+        result = self.cli.handle_user_input(user_input)
+
+        if self.hybrid_mode:
+            message_id = _generate_message_id()
+            asyncio.create_task(
+                self._island.notify_user_message(
+                    content=user_input,
+                    message_id=message_id,
+                )
+            )
+
+        return result
 
     def handle_thinking_content(
         self, content: str, tokens: int, cost: float, collapsed: bool = True
@@ -662,8 +684,14 @@ class HybridUserInterface(UserInterface):
         self.cli.handle_thinking_content(content, tokens, cost, collapsed)
 
         if self.hybrid_mode:
+            message_id = _generate_message_id()
             asyncio.create_task(
-                self._island.notify_thinking(content=content, tokens=tokens, cost=cost)
+                self._island.notify_thinking(
+                    content=content,
+                    tokens=tokens,
+                    cost=cost,
+                    message_id=message_id,
+                )
             )
 
     def update_thinking_status(self, tokens: int, budget: int, cost: float) -> None:

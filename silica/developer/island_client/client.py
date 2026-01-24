@@ -324,6 +324,7 @@ class IslandClient:
         working_directory: str,
         model: Optional[str] = None,
         persona: Optional[str] = None,
+        history: Optional[List[Dict[str, Any]]] = None,
     ) -> bool:
         """Register a session with Agent Island.
 
@@ -332,6 +333,7 @@ class IslandClient:
             working_directory: Current working directory
             model: Optional model name
             persona: Optional persona name
+            history: Optional list of chat history messages to bulk load
 
         Returns:
             True if registered successfully
@@ -344,8 +346,12 @@ class IslandClient:
             persona=persona,
         )
 
+        params_dict = params.to_dict()
+        if history:
+            params_dict["history"] = history
+
         try:
-            result = await self._send_request("session.register", params.to_dict())
+            result = await self._send_request("session.register", params_dict)
             return result.get("registered", False)
         except IslandError:
             return False
@@ -612,19 +618,44 @@ class IslandClient:
 
     # ========== Event Notifications ==========
 
+    async def notify_user_message(
+        self,
+        content: str,
+        message_id: Optional[str] = None,
+    ) -> None:
+        """Notify about a user message.
+
+        Args:
+            content: The user's message text
+            message_id: Optional unique message ID for deduplication
+        """
+        params = {
+            "content": content,
+        }
+        if message_id:
+            params["message_id"] = message_id
+        await self._send_notification("event.user_message", params)
+
     async def notify_assistant_message(
         self,
         content: str,
         format: str = "markdown",
+        message_id: Optional[str] = None,
     ) -> None:
-        """Notify about an assistant message."""
-        await self._send_notification(
-            "event.assistant_message",
-            {
-                "content": content,
-                "format": format,
-            },
-        )
+        """Notify about an assistant message.
+
+        Args:
+            content: The assistant's message content
+            format: Content format ("markdown" or "text")
+            message_id: Optional unique message ID for deduplication
+        """
+        params = {
+            "content": content,
+            "format": format,
+        }
+        if message_id:
+            params["message_id"] = message_id
+        await self._send_notification("event.assistant_message", params)
 
     async def notify_tool_use(
         self,
@@ -661,16 +692,24 @@ class IslandClient:
         content: str,
         tokens: int,
         cost: float,
+        message_id: Optional[str] = None,
     ) -> None:
-        """Notify about thinking content."""
-        await self._send_notification(
-            "event.thinking",
-            {
-                "content": content,
-                "tokens": tokens,
-                "cost": cost,
-            },
-        )
+        """Notify about thinking content.
+
+        Args:
+            content: The thinking/reasoning content
+            tokens: Number of tokens in thinking
+            cost: Cost of thinking tokens
+            message_id: Optional unique message ID for deduplication
+        """
+        params = {
+            "content": content,
+            "tokens": tokens,
+            "cost": cost,
+        }
+        if message_id:
+            params["message_id"] = message_id
+        await self._send_notification("event.thinking", params)
 
     async def notify_token_usage(
         self,
