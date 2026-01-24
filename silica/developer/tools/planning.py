@@ -2558,16 +2558,20 @@ def list_cancelled_tasks(
 
 
 @tool(group="Planning")
-def complete_plan_task(
+async def complete_plan_task(
     context: "AgentContext",
     plan_id: str,
     task_id: str,
     notes: str = "",
+    skip_validation: bool = False,
 ) -> str:
     """Mark a task in a plan as completed (implementation done).
 
-    This marks the task as complete, but it still needs to be verified.
-    After completing a task, run tests and use `verify_plan_task` to confirm
+    For tasks with validation criteria, validation is run automatically.
+    If validation fails, completion is REJECTED and the task remains incomplete.
+    Use skip_validation=True to bypass validation (with a warning).
+
+    After completing a task, use `verify_plan_task` to re-verify and confirm
     the implementation is correct.
 
     For implementation tasks, the plan must be approved (APPROVED or IN_PROGRESS
@@ -2575,15 +2579,16 @@ def complete_plan_task(
     plan will be auto-promoted.
 
     Exploration tasks can be completed at any plan status without requiring
-    approval.
+    approval and do not require validation.
 
     Args:
         plan_id: ID of the plan
         task_id: ID of the task to complete
         notes: Optional notes about completion
+        skip_validation: If True, bypass validation (not recommended)
 
     Returns:
-        Confirmation with reminder to verify
+        Confirmation with reminder to verify, or error if validation fails
     """
     plan_manager = _get_plan_manager(context)
     plan = plan_manager.get_plan(plan_id)
@@ -2612,6 +2617,39 @@ def complete_plan_task(
             dep_warning = (
                 f"\n⚠️ **Warning:** Dependencies not satisfied: {blocker_ids}\n"
             )
+
+    # Run validation if task has validation criteria (unless skip_validation or exploration)
+    validation_msg = ""
+    if task.has_validation() and not task.is_exploration():
+        if skip_validation:
+            validation_msg = "\n⚠️ **Warning:** Validation skipped by request.\n"
+            task.validation_result = "Validation skipped by request"
+            task.validation_passed = False
+        else:
+            # Run validation via sub-agent
+            validation_result = await _run_task_validation(context, task)
+
+            if not validation_result["passed"]:
+                # REJECT completion - validation failed
+                plan_manager.update_plan(plan)  # Save validation state
+                return f"""❌ **Completion REJECTED** - Validation failed for task `{task_id}`
+
+**Validation Criteria:** {task.validation_criteria}
+{f"**Hint:** {task.validation_hint}" if task.validation_hint else ""}
+
+**Validation Result:**
+{validation_result["reasoning"]}
+
+**Output:**
+```
+{validation_result["output"][:1500]}
+```
+
+The task cannot be marked complete until validation passes.
+Fix the issues and try again, or use `skip_validation=True` to bypass (not recommended).
+"""
+            else:
+                validation_msg = f"\n✅ **Validation passed:** {validation_result['reasoning'][:200]}\n"
 
     if not plan.complete_task(task_id):
         return f"Error: Could not complete task {task_id}"
@@ -2657,7 +2695,7 @@ Run tests to confirm the implementation is correct, then call:
 
     # Build base status message
     category_note = " (exploration)" if task.is_exploration() else ""
-    status = f"✅ Task `{task_id}` marked as **completed**{category_note}.{dep_warning}{auto_complete_msg}"
+    status = f"✅ Task `{task_id}` marked as **completed**{category_note}.{dep_warning}{validation_msg}{auto_complete_msg}"
 
     # Add auto-promotion message if applicable
     if promotion_msg:
