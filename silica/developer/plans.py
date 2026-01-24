@@ -161,6 +161,16 @@ class PlanTask:
     cancelled_reason: str = ""
     # Task category: "exploration" (planning phase) or "implementation" (execution phase)
     category: str = CATEGORY_IMPLEMENTATION
+    # Validation specification - describes what success looks like
+    validation_criteria: str = ""  # Required for implementation tasks: what to verify
+    validation_hint: str = (
+        ""  # Optional: suggested command/approach (sub-agent can adapt)
+    )
+    validation_timeout: int = 120  # Timeout in seconds for validation
+    # Validation state - results from last validation run
+    validation_result: str = ""  # Output/reasoning from validation
+    validation_passed: bool = False  # Whether last validation passed
+    validation_run_at: Optional[datetime] = None  # When validation was last run
 
     def to_dict(self) -> dict:
         result = {
@@ -186,10 +196,34 @@ class PlanTask:
         # Include category if not default
         if self.category != CATEGORY_IMPLEMENTATION:
             result["category"] = self.category
+        # Validation specification
+        if self.validation_criteria:
+            result["validation_criteria"] = self.validation_criteria
+        if self.validation_hint:
+            result["validation_hint"] = self.validation_hint
+        if self.validation_timeout != 120:  # Only if non-default
+            result["validation_timeout"] = self.validation_timeout
+        # Validation state
+        if self.validation_result:
+            result["validation_result"] = self.validation_result
+        if self.validation_passed:
+            result["validation_passed"] = self.validation_passed
+        if self.validation_run_at:
+            result["validation_run_at"] = self.validation_run_at.isoformat()
         return result
 
     @classmethod
     def from_dict(cls, data: dict) -> "PlanTask":
+        # Parse validation_run_at datetime if present
+        validation_run_at = None
+        if data.get("validation_run_at"):
+            try:
+                validation_run_at = datetime.fromisoformat(
+                    data["validation_run_at"].replace("Z", "+00:00")
+                )
+            except (ValueError, AttributeError):
+                pass
+
         return cls(
             id=data.get("id", str(uuid.uuid4())[:8]),
             description=data.get("description", ""),
@@ -205,6 +239,13 @@ class PlanTask:
             cancelled=data.get("cancelled", False),
             cancelled_reason=data.get("cancelled_reason", ""),
             category=data.get("category", CATEGORY_IMPLEMENTATION),
+            # Validation fields
+            validation_criteria=data.get("validation_criteria", ""),
+            validation_hint=data.get("validation_hint", ""),
+            validation_timeout=data.get("validation_timeout", 120),
+            validation_result=data.get("validation_result", ""),
+            validation_passed=data.get("validation_passed", False),
+            validation_run_at=validation_run_at,
         )
 
     def is_exploration(self) -> bool:
@@ -214,6 +255,18 @@ class PlanTask:
     def is_implementation(self) -> bool:
         """Check if this is an implementation task."""
         return self.category == CATEGORY_IMPLEMENTATION
+
+    def has_validation(self) -> bool:
+        """Check if this task has validation criteria configured."""
+        return bool(self.validation_criteria)
+
+    def requires_validation(self) -> bool:
+        """Check if this task requires validation to be completed.
+
+        Implementation tasks require validation criteria.
+        Exploration tasks do not require validation.
+        """
+        return self.is_implementation() and not self.is_exploration()
 
 
 @dataclass
@@ -805,6 +858,31 @@ class Plan:
                     task_lines.append(
                         f"{indent}  - Dependencies: {', '.join(task.dependencies)}"
                     )
+                # Validation specification
+                if task.validation_criteria:
+                    task_lines.append(
+                        f"{indent}  - Validation: {task.validation_criteria}"
+                    )
+                    if task.validation_hint:
+                        task_lines.append(
+                            f"{indent}    - Hint: `{task.validation_hint}`"
+                        )
+                    if task.validation_timeout != 120:
+                        task_lines.append(
+                            f"{indent}    - Timeout: {task.validation_timeout}s"
+                        )
+                # Validation results (if run)
+                if task.validation_run_at:
+                    status_icon = "✅" if task.validation_passed else "❌"
+                    task_lines.append(
+                        f"{indent}  - Last validation: {status_icon} {task.validation_run_at.strftime('%Y-%m-%d %H:%M')}"
+                    )
+                    if task.validation_result:
+                        # Truncate long results
+                        result_preview = task.validation_result[:100]
+                        if len(task.validation_result) > 100:
+                            result_preview += "..."
+                        task_lines.append(f"{indent}    - Result: {result_preview}")
                 if task.verification_notes:
                     task_lines.append(
                         f"{indent}  - Verification: {task.verification_notes}"

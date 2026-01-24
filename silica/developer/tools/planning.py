@@ -817,6 +817,134 @@ def _get_root_dir(context: "AgentContext") -> str:
     return os.getcwd()
 
 
+async def _run_task_validation(
+    context: "AgentContext",
+    task: "PlanTask",
+) -> dict:
+    """Run validation for a task using a sub-agent.
+
+    Spawns a sub-agent with limited tools (shell_execute, read_file) to
+    verify the task's validation criteria is met. The sub-agent uses
+    judgment to adapt the validation approach if needed.
+
+    Args:
+        context: The agent context
+        task: The task with validation_criteria and optional validation_hint
+
+    Returns:
+        Dict with:
+        - passed: bool - whether validation passed
+        - reasoning: str - explanation of what was checked
+        - output: str - relevant command output
+    """
+    from datetime import datetime, timezone
+    from silica.developer.tools.subagent import run_agent
+
+    if not task.validation_criteria:
+        return {
+            "passed": True,
+            "reasoning": "No validation criteria specified",
+            "output": "",
+        }
+
+    # Build the validation prompt
+    hint_section = ""
+    if task.validation_hint:
+        hint_section = f"""
+SUGGESTED APPROACH: {task.validation_hint}
+Note: You can adapt this approach if it doesn't work (e.g., adjust paths, arguments).
+"""
+    else:
+        hint_section = """
+SUGGESTED APPROACH: Use your judgment to verify the criteria.
+"""
+
+    prompt = f"""You are a validation agent. Your ONLY job is to verify this criteria is met:
+
+CRITERIA: {task.validation_criteria}
+{hint_section}
+You have access to shell_execute and read_file tools. Verify the criteria is met.
+
+Rules:
+1. You MUST actually run commands to verify - do not assume or trust
+2. If the suggested approach doesn't work, try alternatives
+3. Adjust command arguments if needed (e.g., different test paths, flags)
+4. Report PASS only if you have concrete evidence the criteria is met
+5. Report FAIL with specific output showing why it failed
+
+After running your verification, respond with EXACTLY this format:
+VALIDATION_PASSED: [yes/no]
+REASONING: [brief explanation of what you checked and found]
+OUTPUT: [relevant command output, truncated if very long]"""
+
+    try:
+        # Run the validation sub-agent with limited tools
+        result = await run_agent(
+            context,
+            prompt=prompt,
+            tool_names=["shell_execute", "read_file"],
+            model="light",  # Use faster model for validation
+        )
+
+        # Parse the result
+        passed = False
+        reasoning = ""
+        output = ""
+
+        lines = result.strip().split("\n")
+        current_section = None
+
+        for line in lines:
+            line_lower = line.lower()
+            if line_lower.startswith("validation_passed:"):
+                value = line.split(":", 1)[1].strip().lower()
+                passed = value in ("yes", "true", "passed", "pass")
+                current_section = None
+            elif line_lower.startswith("reasoning:"):
+                reasoning = line.split(":", 1)[1].strip()
+                current_section = "reasoning"
+            elif line_lower.startswith("output:"):
+                output = line.split(":", 1)[1].strip()
+                current_section = "output"
+            elif current_section == "reasoning":
+                reasoning += " " + line.strip()
+            elif current_section == "output":
+                output += "\n" + line
+
+        # If parsing failed, try to infer from the full response
+        if not reasoning:
+            reasoning = result[:500] if len(result) > 500 else result
+            # Look for pass/fail indicators
+            result_lower = result.lower()
+            if "pass" in result_lower and "fail" not in result_lower:
+                passed = True
+            elif "fail" in result_lower or "error" in result_lower:
+                passed = False
+
+        # Update task validation state
+        task.validation_passed = passed
+        task.validation_result = f"Reasoning: {reasoning}\nOutput: {output[:1000]}"
+        task.validation_run_at = datetime.now(timezone.utc)
+
+        return {
+            "passed": passed,
+            "reasoning": reasoning,
+            "output": output.strip()[:2000],  # Truncate long output
+        }
+
+    except Exception as e:
+        # Validation failed due to error
+        task.validation_passed = False
+        task.validation_result = f"Validation error: {str(e)}"
+        task.validation_run_at = datetime.now(timezone.utc)
+
+        return {
+            "passed": False,
+            "reasoning": f"Validation failed with error: {str(e)}",
+            "output": "",
+        }
+
+
 def _check_and_maybe_auto_promote(
     plan: Plan,
     plan_manager: PlanManager,
@@ -1133,6 +1261,10 @@ def add_plan_tasks(
             - category: "exploration" or "implementation" (default: "implementation")
                 - exploration: Research/spike tasks during planning phase
                 - implementation: Actual deliverables for execution phase
+            - validation: Validation specification object (optional but recommended for implementation tasks):
+                - criteria: Description of what success looks like (required within validation)
+                - hint: Suggested command/approach, sub-agent can adapt (optional)
+                - timeout: Timeout in seconds (optional, default: 120)
 
     Returns:
         Confirmation with task IDs
@@ -1140,9 +1272,13 @@ def add_plan_tasks(
     Example:
         tasks = '[
             {"description": "Investigate current auth flow", "category": "exploration"},
-            {"description": "Create database schema", "files": ["schema.sql"]},
-            {"description": "Implement API endpoints", "files": ["api.py"], "tests": "Unit tests"},
-            {"description": "Add frontend components", "dependencies": ["task-1", "task-2"]}
+            {"description": "Create database schema", "files": ["schema.sql"],
+             "validation": {"criteria": "Schema file exists and is valid SQL"}},
+            {"description": "Implement API endpoints", "files": ["api.py"],
+             "validation": {"criteria": "All tests in tests/test_api.py pass",
+                           "hint": "pytest tests/test_api.py -v"}},
+            {"description": "Add frontend components", "dependencies": ["task-1", "task-2"],
+             "validation": {"criteria": "npm run build succeeds with no errors"}}
         ]'
     """
     plan_manager = _get_plan_manager(context)
@@ -1160,6 +1296,7 @@ def add_plan_tasks(
 
     added_tasks = []
     exploration_count = 0
+    missing_validation_count = 0
     for task_data in tasks_list:
         if not isinstance(task_data, dict):
             continue
@@ -1171,6 +1308,21 @@ def add_plan_tasks(
         if category not in (CATEGORY_EXPLORATION, CATEGORY_IMPLEMENTATION):
             category = CATEGORY_IMPLEMENTATION
 
+        # Parse validation specification
+        validation_criteria = ""
+        validation_hint = ""
+        validation_timeout = 120
+        validation_spec = task_data.get("validation")
+        if isinstance(validation_spec, dict):
+            validation_criteria = validation_spec.get("criteria", "")
+            validation_hint = validation_spec.get("hint", "")
+            validation_timeout = validation_spec.get("timeout", 120)
+
+        # Track implementation tasks without validation
+        is_implementation = category == CATEGORY_IMPLEMENTATION
+        if is_implementation and not validation_criteria:
+            missing_validation_count += 1
+
         task = plan.add_task(
             description=task_data["description"],
             details=task_data.get("details", ""),
@@ -1178,6 +1330,9 @@ def add_plan_tasks(
             tests=task_data.get("tests", ""),
             dependencies=task_data.get("dependencies", []),
             category=category,
+            validation_criteria=validation_criteria,
+            validation_hint=validation_hint,
+            validation_timeout=validation_timeout,
         )
         added_tasks.append(task)
         if category == CATEGORY_EXPLORATION:
@@ -1189,10 +1344,16 @@ def add_plan_tasks(
     result = f"✅ Added {len(added_tasks)} tasks to plan {plan_id}:\n\n"
     for task in added_tasks:
         category_indicator = " 🔍" if task.category == CATEGORY_EXPLORATION else ""
-        result += f"- `{task.id}`: {task.description}{category_indicator}\n"
+        validation_indicator = " ✓" if task.validation_criteria else ""
+        result += f"- `{task.id}`: {task.description}{category_indicator}{validation_indicator}\n"
 
     if exploration_count > 0:
         result += f"\n🔍 = exploration task ({exploration_count} total)"
+
+    if missing_validation_count > 0:
+        result += f"\n\n⚠️ **Warning:** {missing_validation_count} implementation task(s) without validation criteria."
+        result += "\nConsider adding validation to ensure task completion can be verified mechanically."
+        result += "\nUse `update_plan_task` to add validation, or mark tasks as `exploration` if validation isn't applicable."
 
     return result
 
