@@ -2720,17 +2720,18 @@ Run tests to confirm the implementation is correct, then call:
 
 
 @tool(group="Planning")
-def verify_plan_task(
+async def verify_plan_task(
     context: "AgentContext",
     plan_id: str,
     task_id: str,
     test_results: str,
+    skip_validation: bool = False,
 ) -> str:
-    """Verify a completed task by confirming tests pass.
+    """Verify a completed task by re-running validation.
 
     A task must be marked as completed before it can be verified.
-    Verification confirms that:
-    - Tests pass
+    For tasks with validation criteria, validation is re-run to confirm:
+    - Tests still pass (catches regressions from other changes)
     - The implementation meets requirements
     - No regressions were introduced
 
@@ -2741,10 +2742,11 @@ def verify_plan_task(
     Args:
         plan_id: ID of the plan
         task_id: ID of the task to verify
-        test_results: Evidence of verification (test output, manual testing notes, etc.)
+        test_results: Evidence of verification (test output, manual verification notes, etc.)
+        skip_validation: If True, bypass automated validation (not recommended)
 
     Returns:
-        Confirmation and remaining unverified tasks
+        Confirmation and remaining unverified tasks, or error if validation fails
     """
     plan_manager = _get_plan_manager(context)
     plan = plan_manager.get_plan(plan_id)
@@ -2773,6 +2775,40 @@ def verify_plan_task(
     if not should_proceed:
         return promotion_msg
 
+    # Re-run validation if task has validation criteria (unless skip_validation or exploration)
+    validation_msg = ""
+    if task.has_validation() and not task.is_exploration():
+        if skip_validation:
+            validation_msg = "\n⚠️ **Warning:** Validation skipped by request.\n"
+            task.validation_result = "Validation skipped during verification"
+            task.validation_passed = False
+        else:
+            # Re-run validation via sub-agent to catch regressions
+            validation_result = await _run_task_validation(context, task)
+
+            if not validation_result["passed"]:
+                # REJECT verification - validation failed
+                plan_manager.update_plan(plan)  # Save validation state
+                return f"""❌ **Verification REJECTED** - Validation failed for task `{task_id}`
+
+This task was previously completed, but validation now fails (possible regression).
+
+**Validation Criteria:** {task.validation_criteria}
+{f"**Hint:** {task.validation_hint}" if task.validation_hint else ""}
+
+**Validation Result:**
+{validation_result["reasoning"]}
+
+**Output:**
+```
+{validation_result["output"][:1500]}
+```
+
+Fix the issues and try again, or use `skip_validation=True` to bypass (not recommended).
+"""
+            else:
+                validation_msg = f"\n✅ **Validation re-confirmed:** {validation_result['reasoning'][:200]}\n"
+
     if not plan.verify_task(task_id, test_results):
         return f"Error: Could not verify task {task_id}"
 
@@ -2792,7 +2828,7 @@ def verify_plan_task(
 
     # Build status message
     category_note = " (exploration)" if task.is_exploration() else ""
-    status = f"✓✓ Task `{task_id}` **verified**{category_note}!\n"
+    status = f"✓✓ Task `{task_id}` **verified**{category_note}!{validation_msg}\n"
 
     # Add auto-promotion message if applicable
     if promotion_msg:

@@ -538,7 +538,8 @@ class TestCompletePlanTask:
 class TestVerifyPlanTask:
     """Tests for verify_plan_task tool."""
 
-    def test_verify_completed_task(self, mock_context, temp_persona_dir):
+    @pytest.mark.asyncio
+    async def test_verify_completed_task(self, mock_context, temp_persona_dir):
         """Test verifying a completed task on an approved plan."""
         from silica.developer.tools.planning import verify_plan_task
 
@@ -555,7 +556,7 @@ class TestVerifyPlanTask:
         plan_manager.approve_plan(plan.id)
         plan_manager.start_execution(plan.id)
 
-        result = verify_plan_task(
+        result = await verify_plan_task(
             mock_context, plan.id, task.id, "All tests pass: 10/10"
         )
 
@@ -565,7 +566,8 @@ class TestVerifyPlanTask:
         assert updated.tasks[0].verified is True
         assert "10/10" in updated.tasks[0].verification_notes
 
-    def test_verify_incomplete_task_fails(self, mock_context, temp_persona_dir):
+    @pytest.mark.asyncio
+    async def test_verify_incomplete_task_fails(self, mock_context, temp_persona_dir):
         from silica.developer.tools.planning import verify_plan_task
 
         plan_manager = PlanManager(temp_persona_dir)
@@ -575,12 +577,13 @@ class TestVerifyPlanTask:
         task = plan.add_task("Test task")
         plan_manager.update_plan(plan)
 
-        result = verify_plan_task(mock_context, plan.id, task.id, "Tests pass")
+        result = await verify_plan_task(mock_context, plan.id, task.id, "Tests pass")
 
         assert "Error" in result
         assert "completed" in result.lower()
 
-    def test_verify_requires_test_results(self, mock_context, temp_persona_dir):
+    @pytest.mark.asyncio
+    async def test_verify_requires_test_results(self, mock_context, temp_persona_dir):
         """Test that verification requires test results."""
         from silica.developer.tools.planning import verify_plan_task
 
@@ -597,12 +600,13 @@ class TestVerifyPlanTask:
         plan_manager.approve_plan(plan.id)
         plan_manager.start_execution(plan.id)
 
-        result = verify_plan_task(mock_context, plan.id, task.id, "")
+        result = await verify_plan_task(mock_context, plan.id, task.id, "")
 
         assert "Error" in result
         assert "required" in result.lower()
 
-    def test_verify_nonexistent_task(self, mock_context, temp_persona_dir):
+    @pytest.mark.asyncio
+    async def test_verify_nonexistent_task(self, mock_context, temp_persona_dir):
         from silica.developer.tools.planning import verify_plan_task
 
         plan_manager = PlanManager(temp_persona_dir)
@@ -610,12 +614,15 @@ class TestVerifyPlanTask:
             "Test Plan", "session123", root_dir=str(temp_persona_dir)
         )
 
-        result = verify_plan_task(mock_context, plan.id, "nonexistent", "Tests pass")
+        result = await verify_plan_task(
+            mock_context, plan.id, "nonexistent", "Tests pass"
+        )
 
         assert "Error" in result
         assert "not found" in result
 
-    def test_verify_exploration_task_no_approval_needed(
+    @pytest.mark.asyncio
+    async def test_verify_exploration_task_no_approval_needed(
         self, mock_context, temp_persona_dir
     ):
         """Test that exploration tasks can be verified without approval."""
@@ -630,7 +637,9 @@ class TestVerifyPlanTask:
         plan.complete_task(task.id)
         plan_manager.update_plan(plan)
 
-        result = verify_plan_task(mock_context, plan.id, task.id, "Research complete")
+        result = await verify_plan_task(
+            mock_context, plan.id, task.id, "Research complete"
+        )
 
         # Should verify without requiring approval
         assert "verified" in result.lower()

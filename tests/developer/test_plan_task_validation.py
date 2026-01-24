@@ -744,3 +744,196 @@ class TestCompletePlanTaskValidation:
 
         assert "completed" in result.lower()
         mock_run_agent.assert_not_called()
+
+
+class TestVerifyPlanTaskValidation:
+    """Tests for verify_plan_task with validation re-running."""
+
+    @pytest.fixture
+    def temp_persona_dir(self, tmp_path):
+        """Create a temporary persona directory."""
+        persona_dir = tmp_path / "personas" / "test"
+        persona_dir.mkdir(parents=True)
+        return persona_dir
+
+    @pytest.fixture
+    def mock_context(self, temp_persona_dir):
+        """Create a mock AgentContext."""
+        context = MagicMock()
+        context.session_id = "test-session-123"
+        context.history_base_dir = temp_persona_dir
+        context.sandbox = MagicMock()
+        context.sandbox.root_directory = temp_persona_dir
+        context.user_interface = MagicMock()
+        context.user_interface.status = MagicMock(
+            return_value=MagicMock(__enter__=MagicMock(), __exit__=MagicMock())
+        )
+        context.with_user_interface = MagicMock(return_value=context)
+        context.flush = MagicMock()
+        context.usage_summary = MagicMock(
+            return_value={
+                "total_input_tokens": 1000,
+                "total_output_tokens": 500,
+                "total_thinking_tokens": 100,
+                "cached_tokens": 200,
+                "total_cost": 0.05,
+            }
+        )
+        return context
+
+    @pytest.fixture
+    def completed_plan_with_validation(self, mock_context, temp_persona_dir):
+        """Create a plan with a completed task that has validation criteria."""
+        from silica.developer.plans import PlanManager, PlanStatus
+
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
+
+        # Add task with validation
+        task = plan.add_task(
+            description="Implement feature",
+            validation_criteria="All tests pass",
+            validation_hint="pytest tests/",
+        )
+
+        # Mark task as completed
+        plan.complete_task(task.id)
+
+        # Set plan to IN_PROGRESS so verification is allowed
+        plan.status = PlanStatus.IN_PROGRESS
+        plan_manager.update_plan(plan)
+
+        return plan, plan_manager
+
+    @pytest.mark.asyncio
+    async def test_verify_reruns_validation_on_success(
+        self, mock_context, completed_plan_with_validation, mocker
+    ):
+        """Verification should re-run validation and succeed if it passes."""
+        from silica.developer.tools.planning import verify_plan_task
+
+        plan, plan_manager = completed_plan_with_validation
+        task = plan.tasks[0]
+
+        # Mock validation to pass
+        mocker.patch(
+            "silica.developer.tools.subagent.run_agent",
+            new_callable=AsyncMock,
+            return_value="VALIDATION_PASSED: yes\nREASONING: All tests still pass\nOUTPUT: 10 passed",
+        )
+
+        result = await verify_plan_task(
+            mock_context, plan.id, task.id, "Test results confirm passing"
+        )
+
+        assert "verified" in result.lower()
+        assert "REJECTED" not in result
+        assert "re-confirmed" in result or "Validation" in result
+
+        # Task should be verified
+        updated_plan = plan_manager.get_plan(plan.id)
+        updated_task = updated_plan.get_task_by_id(task.id)
+        assert updated_task.verified is True
+
+    @pytest.mark.asyncio
+    async def test_verify_rejects_when_validation_fails(
+        self, mock_context, completed_plan_with_validation, mocker
+    ):
+        """Verification should be REJECTED if validation now fails (regression)."""
+        from silica.developer.tools.planning import verify_plan_task
+
+        plan, plan_manager = completed_plan_with_validation
+        task = plan.tasks[0]
+
+        # Mock validation to fail (simulating a regression)
+        mocker.patch(
+            "silica.developer.tools.subagent.run_agent",
+            new_callable=AsyncMock,
+            return_value="VALIDATION_PASSED: no\nREASONING: 3 tests now fail\nOUTPUT: FAILED test_a, test_b, test_c",
+        )
+
+        result = await verify_plan_task(
+            mock_context, plan.id, task.id, "Test results from earlier"
+        )
+
+        assert "REJECTED" in result
+        assert "regression" in result.lower()
+        assert "3 tests now fail" in result
+
+        # Task should NOT be verified
+        updated_plan = plan_manager.get_plan(plan.id)
+        updated_task = updated_plan.get_task_by_id(task.id)
+        assert updated_task.verified is False
+
+    @pytest.mark.asyncio
+    async def test_verify_with_skip_validation(
+        self, mock_context, completed_plan_with_validation, mocker
+    ):
+        """skip_validation=True should bypass validation during verification."""
+        from silica.developer.tools.planning import verify_plan_task
+
+        plan, plan_manager = completed_plan_with_validation
+        task = plan.tasks[0]
+
+        # Mock should NOT be called when skipping
+        mock_run_agent = mocker.patch(
+            "silica.developer.tools.subagent.run_agent",
+            new_callable=AsyncMock,
+        )
+
+        result = await verify_plan_task(
+            mock_context, plan.id, task.id, "Manual verification", skip_validation=True
+        )
+
+        assert "verified" in result.lower()
+        assert "Warning" in result
+        assert "skipped" in result.lower()
+
+        # Validation should not have been called
+        mock_run_agent.assert_not_called()
+
+        # Task should be verified despite skipped validation
+        updated_plan = plan_manager.get_plan(plan.id)
+        updated_task = updated_plan.get_task_by_id(task.id)
+        assert updated_task.verified is True
+
+    @pytest.mark.asyncio
+    async def test_verify_exploration_task_skips_validation(
+        self, mock_context, temp_persona_dir, mocker
+    ):
+        """Exploration tasks should not re-run validation during verification."""
+        from silica.developer.plans import (
+            PlanManager,
+            PlanStatus,
+            CATEGORY_EXPLORATION,
+        )
+        from silica.developer.tools.planning import verify_plan_task
+
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
+
+        # Add exploration task (no validation needed)
+        task = plan.add_task(
+            description="Research options",
+            category=CATEGORY_EXPLORATION,
+        )
+        plan.complete_task(task.id)
+        plan.status = PlanStatus.IN_PROGRESS
+        plan_manager.update_plan(plan)
+
+        # Mock should NOT be called for exploration
+        mock_run_agent = mocker.patch(
+            "silica.developer.tools.subagent.run_agent",
+            new_callable=AsyncMock,
+        )
+
+        result = await verify_plan_task(
+            mock_context, plan.id, task.id, "Research complete"
+        )
+
+        assert "verified" in result.lower()
+        mock_run_agent.assert_not_called()
