@@ -3,11 +3,15 @@ Voice Client for Silica.
 
 This module provides a WebSocket client that bridges voice I/O
 (listener, transcriber, speaker) with the silica serve WebSocket protocol.
+
+Features streaming TTS that synthesizes and plays sentences as they arrive,
+pipelining synthesis of sentence N+1 while sentence N plays.
 """
 
 import asyncio
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Optional, Tuple, TYPE_CHECKING
@@ -20,13 +24,17 @@ from silica.serve.protocol import (
 from silica.voice.coordinator import VoiceCoordinator, VoiceState, KeyboardMuteManager
 from silica.voice.listener import Listener
 from silica.voice.relevance import RelevanceFilter, VoiceCommand, detect_voice_command
-from silica.voice.speaker import AudioPlayer, Speaker
+from silica.voice.speaker import AudioPlayer, Speaker, TTSResult
 from silica.voice.transcriber import Transcriber
 
 if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger(__name__)
+
+# Sentence boundary pattern - matches end of sentence punctuation
+# Uses the same pattern as speaker.py for consistency
+SENTENCE_END_PATTERN = re.compile(r"[.!?]+(?:\s|$)")
 
 
 def _check_websockets_available():
@@ -62,6 +70,7 @@ class VoiceClientSettings:
 
     # TTS settings
     tts_voice: str = "en-US-GuyNeural"
+    streaming_tts: bool = True  # Enable streaming TTS (sentence-by-sentence)
 
     # Relevance filtering (for ambient mode without wake word)
     relevance_filtering: bool = False
@@ -84,7 +93,7 @@ class VoiceClient:
     - Audio capture and VAD phrase detection
     - Speech-to-text transcription
     - WebSocket communication with silica serve
-    - Text-to-speech synthesis and playback
+    - Text-to-speech synthesis and playback (with streaming support)
     - Mute and interruption handling
     """
 
@@ -127,9 +136,19 @@ class VoiceClient:
         self._connected = False
         self._running = False
 
-        # Message handling
+        # Message handling (legacy non-streaming)
         self._response_buffer = ""
         self._pending_response = False
+
+        # Streaming TTS infrastructure
+        # Queue 1: Text chunks from WebSocket -> Synthesis task
+        self._chunk_queue: asyncio.Queue[str | None] = asyncio.Queue()
+        # Queue 2: Synthesized audio -> Playback task
+        self._audio_queue: asyncio.Queue[TTSResult | None] = asyncio.Queue()
+        # Background tasks for pipelined synthesis/playback
+        self._synthesis_task: Optional[asyncio.Task] = None
+        self._playback_task: Optional[asyncio.Task] = None
+        self._streaming_in_progress: bool = False
 
         # Recent context for relevance filtering
         self._recent_context: list = []
@@ -187,13 +206,13 @@ class VoiceClient:
 
         elif command == VoiceCommand.STOP:
             # Interrupt current speech
-            self.coordinator.interrupt()
+            await self._interrupt_streaming()
             await self._send_interrupt("Voice command: stop")
             print("\n[STOPPED]")
 
         elif command == VoiceCommand.CANCEL:
             # Interrupt and send cancel to server
-            self.coordinator.interrupt()
+            await self._interrupt_streaming()
             await self._send_interrupt("Voice command: cancel")
             print("\n[CANCELLED]")
 
@@ -313,6 +332,7 @@ class VoiceClient:
     async def disconnect(self) -> None:
         """Disconnect from the server."""
         self._connected = False
+        await self._interrupt_streaming()
         if self._ws:
             await self._ws.close()
             self._ws = None
@@ -500,19 +520,31 @@ class VoiceClient:
         self._incr(f"message.type.{msg_type}")
 
         if msg_type == "assistant_chunk":
-            # Buffer streaming content
-            self._response_buffer += msg.get("content", "")
-            self._pending_response = True
+            content = msg.get("content", "")
+            if not content:
+                return
+
+            # Use streaming TTS if enabled
+            if self.settings.streaming_tts:
+                await self._handle_streaming_chunk(content)
+            else:
+                # Legacy: just buffer
+                self._response_buffer += content
+                self._pending_response = True
 
         elif msg_type == "assistant_complete":
-            # Speak the complete response
             text = msg.get("content", "")
-            if text:
-                # Add to context for relevance filtering
-                self._add_context("assistant", text)
-                await self._speak_response(text)
-            self._response_buffer = ""
-            self._pending_response = False
+
+            if self.settings.streaming_tts:
+                # Signal end of stream and wait for completion
+                await self._finish_streaming(text)
+            else:
+                # Legacy: speak the complete response
+                if text:
+                    self._add_context("assistant", text)
+                    await self._speak_response(text)
+                self._response_buffer = ""
+                self._pending_response = False
 
         elif msg_type == "system_message":
             # Log system messages
@@ -566,6 +598,308 @@ class VoiceClient:
         else:
             logger.debug(f"Unhandled message type: {msg_type}")
 
+    # -------------------------------------------------------------------------
+    # Streaming TTS Implementation
+    # -------------------------------------------------------------------------
+
+    async def _handle_streaming_chunk(self, content: str) -> None:
+        """
+        Handle an incoming text chunk for streaming TTS.
+
+        On first chunk: starts synthesis and playback tasks.
+        Subsequent chunks: queued for the synthesis task.
+        """
+        if not self._streaming_in_progress:
+            # First chunk - start the streaming pipeline
+            await self._start_streaming()
+
+        # Queue the chunk for synthesis
+        await self._chunk_queue.put(content)
+        self._incr("streaming.chunk_queued")
+
+    async def _start_streaming(self) -> None:
+        """Start the streaming TTS pipeline (synthesis + playback tasks)."""
+        if self._streaming_in_progress:
+            return
+
+        self._streaming_in_progress = True
+        self._incr("streaming.start")
+
+        # Clear any leftover items in queues
+        while not self._chunk_queue.empty():
+            try:
+                self._chunk_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        while not self._audio_queue.empty():
+            try:
+                self._audio_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+
+        # Start coordinator in speaking state
+        self.coordinator.speech_started("")
+
+        # Start both tasks concurrently
+        # Synthesis task: chunks -> sentences -> audio
+        self._synthesis_task = asyncio.create_task(
+            self._synthesis_loop(), name="synthesis_loop"
+        )
+        # Playback task: audio -> speakers
+        self._playback_task = asyncio.create_task(
+            self._playback_loop(), name="playback_loop"
+        )
+
+        logger.debug("Streaming TTS pipeline started")
+
+    async def _finish_streaming(self, full_text: str) -> None:
+        """
+        Finish the streaming TTS pipeline.
+
+        Sends sentinel to signal end, waits for tasks to complete.
+        """
+        if not self._streaming_in_progress:
+            # No streaming was started (empty response?)
+            return
+
+        # Add full text to context for relevance filtering
+        if full_text:
+            self._add_context("assistant", full_text)
+
+        # Signal end of chunks
+        await self._chunk_queue.put(None)
+        self._incr("streaming.finish_signaled")
+
+        # Wait for both tasks to complete
+        if self._synthesis_task:
+            try:
+                await self._synthesis_task
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                logger.error(f"Synthesis task error: {e}")
+            self._synthesis_task = None
+
+        if self._playback_task:
+            try:
+                await self._playback_task
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                logger.error(f"Playback task error: {e}")
+            self._playback_task = None
+
+        self._streaming_in_progress = False
+        self.coordinator.speech_complete()
+        self._incr("streaming.complete")
+        logger.debug("Streaming TTS pipeline finished")
+
+    async def _interrupt_streaming(self) -> None:
+        """
+        Interrupt the streaming TTS pipeline.
+
+        Cancels both tasks and clears queues.
+        """
+        if not self._streaming_in_progress:
+            self.coordinator.interrupt()
+            return
+
+        self._incr("streaming.interrupted")
+        logger.debug("Interrupting streaming TTS")
+
+        # Cancel synthesis task
+        if self._synthesis_task and not self._synthesis_task.done():
+            self._synthesis_task.cancel()
+            try:
+                await self._synthesis_task
+            except asyncio.CancelledError:
+                pass
+            self._synthesis_task = None
+
+        # Cancel playback task
+        if self._playback_task and not self._playback_task.done():
+            self._playback_task.cancel()
+            try:
+                await self._playback_task
+            except asyncio.CancelledError:
+                pass
+            self._playback_task = None
+
+        # Stop audio playback
+        self.player.stop()
+
+        # Clear queues
+        while not self._chunk_queue.empty():
+            try:
+                self._chunk_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        while not self._audio_queue.empty():
+            try:
+                self._audio_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+
+        self._streaming_in_progress = False
+        self.coordinator.interrupt()
+        self.coordinator.speech_complete()
+
+    async def _synthesis_loop(self) -> None:
+        """
+        Synthesis task: consume chunks, detect sentences, synthesize audio.
+
+        Runs concurrently with _playback_loop. Synthesizes sentences as soon
+        as they're detected, allowing playback of sentence N while synthesizing
+        sentence N+1.
+        """
+        buffer = ""
+        sentence_count = 0
+
+        try:
+            while True:
+                # Check for interrupt
+                if self.coordinator.is_interrupted():
+                    logger.debug("Synthesis loop interrupted")
+                    break
+
+                # Get next chunk (with timeout to check for interrupts)
+                try:
+                    chunk = await asyncio.wait_for(self._chunk_queue.get(), timeout=0.1)
+                except asyncio.TimeoutError:
+                    continue
+
+                # None signals end of stream
+                if chunk is None:
+                    logger.debug("Synthesis received end signal")
+                    break
+
+                buffer += chunk
+
+                # Try to extract complete sentences
+                # We use a heuristic: wait for 2+ potential sentences to ensure
+                # the first one is truly complete (like HEARE does)
+                while True:
+                    match = SENTENCE_END_PATTERN.search(buffer)
+                    if not match:
+                        break
+
+                    # Check if there's more content after this sentence
+                    # (indicates we have a complete sentence)
+                    end_pos = match.end()
+                    remaining = buffer[end_pos:].strip()
+
+                    # Heuristic: only emit if we have more content OR buffer is long
+                    # This prevents cutting off mid-sentence on abbreviations like "Mr."
+                    if remaining or len(buffer) > 200:
+                        sentence = buffer[:end_pos].strip()
+                        buffer = buffer[end_pos:].lstrip()
+
+                        if sentence:
+                            await self._synthesize_sentence(sentence, sentence_count)
+                            sentence_count += 1
+                    else:
+                        # Wait for more content
+                        break
+
+            # Flush remaining buffer
+            buffer = buffer.strip()
+            if buffer:
+                await self._synthesize_sentence(buffer, sentence_count)
+                sentence_count += 1
+
+        except asyncio.CancelledError:
+            logger.debug("Synthesis loop cancelled")
+            raise
+        except Exception as e:
+            logger.error(f"Synthesis loop error: {e}")
+        finally:
+            # Signal playback loop that synthesis is done
+            await self._audio_queue.put(None)
+            self._gauge("streaming.sentences_synthesized", sentence_count)
+
+    async def _synthesize_sentence(self, text: str, index: int) -> None:
+        """Synthesize a single sentence and queue the audio."""
+        if self.coordinator.is_interrupted():
+            return
+
+        self._incr("streaming.sentence_synth_start")
+        synth_start = time.time()
+
+        try:
+            result = await self.speaker.synthesize(text)
+            synth_duration = (time.time() - synth_start) * 1000
+            self._timing("streaming.sentence_synth_duration", synth_duration)
+            self._incr("streaming.sentence_synth_success")
+
+            # Queue for playback
+            await self._audio_queue.put(result)
+            logger.debug(
+                f"Sentence {index} synthesized ({len(text)} chars, {synth_duration:.0f}ms)"
+            )
+
+        except Exception as e:
+            logger.error(f"Synthesis error for sentence {index}: {e}")
+            self._incr("streaming.sentence_synth_error")
+
+    async def _playback_loop(self) -> None:
+        """
+        Playback task: consume audio from queue and play sequentially.
+
+        Runs concurrently with _synthesis_loop. Blocks on each audio segment
+        (within this task), but doesn't block the synthesis task.
+        """
+        segment_count = 0
+
+        try:
+            while True:
+                # Check for interrupt
+                if self.coordinator.is_interrupted():
+                    logger.debug("Playback loop interrupted")
+                    break
+
+                # Get next audio segment
+                try:
+                    result = await asyncio.wait_for(
+                        self._audio_queue.get(), timeout=0.1
+                    )
+                except asyncio.TimeoutError:
+                    continue
+
+                # None signals end of stream
+                if result is None:
+                    logger.debug("Playback received end signal")
+                    break
+
+                # Play the audio (blocks until complete)
+                self._incr("streaming.segment_play_start")
+                play_start = time.time()
+
+                try:
+                    await self.player.play(result, block=True)
+                    play_duration = (time.time() - play_start) * 1000
+                    self._timing("streaming.segment_play_duration", play_duration)
+                    self._incr("streaming.segment_play_success")
+                    segment_count += 1
+                    logger.debug(
+                        f"Segment {segment_count} played ({play_duration:.0f}ms)"
+                    )
+
+                except Exception as e:
+                    logger.error(f"Playback error for segment {segment_count}: {e}")
+                    self._incr("streaming.segment_play_error")
+
+        except asyncio.CancelledError:
+            logger.debug("Playback loop cancelled")
+            raise
+        except Exception as e:
+            logger.error(f"Playback loop error: {e}")
+        finally:
+            self._gauge("streaming.segments_played", segment_count)
+
+    # -------------------------------------------------------------------------
+    # Legacy non-streaming TTS (fallback)
+    # -------------------------------------------------------------------------
+
     async def _send_user_input(self, text: str) -> None:
         """Send user input to the server."""
         if not self._ws:
@@ -608,7 +942,11 @@ class VoiceClient:
             self._incr("permission.granted")
 
     async def _speak_response(self, text: str) -> None:
-        """Synthesize and speak a response."""
+        """
+        Synthesize and speak a response (non-streaming fallback).
+
+        Used when streaming_tts is disabled or for voice command confirmations.
+        """
         if self.coordinator.muted:
             return
 
@@ -653,7 +991,13 @@ class VoiceClient:
     def stop(self) -> None:
         """Stop the voice client."""
         self._running = False
-        self.coordinator.interrupt()
+        # Schedule interrupt on the event loop if running
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._interrupt_streaming())
+        except RuntimeError:
+            # No running loop, just set flags
+            self.coordinator.interrupt()
 
 
 async def run_voice_client(
@@ -663,6 +1007,7 @@ async def run_voice_client(
     speaker_backend: str = "edge",
     speaker_kwargs: Optional[dict] = None,
     metrics_enabled: bool = True,
+    streaming_tts: bool = True,
     **settings_kwargs,
 ) -> None:
     """
@@ -675,6 +1020,7 @@ async def run_voice_client(
         speaker_backend: Speaker backend name
         speaker_kwargs: Additional speaker arguments
         metrics_enabled: Whether to enable metrics collection
+        streaming_tts: Whether to enable streaming TTS (default: True)
         **settings_kwargs: Additional VoiceClientSettings arguments
     """
     from silica.voice.transcriber import create_transcriber
@@ -692,6 +1038,7 @@ async def run_voice_client(
     settings = VoiceClientSettings(
         server_url=server_url,
         metrics_enabled=metrics_enabled,
+        streaming_tts=streaming_tts,
         **settings_kwargs,
     )
 
