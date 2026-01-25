@@ -20,6 +20,14 @@ from silica.developer.rate_limiter import RateLimiter
 from silica.developer.toolbox import Toolbox
 from silica.developer.sandbox import DoSomethingElseError
 
+# MCP imports - optional, only used if MCP servers are configured
+try:
+    from silica.developer.mcp import MCPToolManager, load_mcp_config
+
+    MCP_AVAILABLE = True
+except ImportError:
+    MCP_AVAILABLE = False
+
 
 def get_thinking_config(thinking_mode: str, model_spec: ModelSpec) -> dict | None:
     """Get the thinking configuration for the API call based on the current mode.
@@ -316,6 +324,101 @@ def _continuation_message(final_message: MessageParam) -> MessageParam | None:
     return final_message
 
 
+async def _initialize_mcp(
+    agent_context: "AgentContext",
+    user_interface,
+) -> tuple["MCPToolManager | None", bool]:
+    """Initialize MCP servers if configured.
+
+    Loads MCP configuration from global, persona, and project paths,
+    connects to enabled servers, and returns the manager.
+
+    Args:
+        agent_context: Agent context with persona/project info
+        user_interface: UI for status messages
+
+    Returns:
+        Tuple of (MCPToolManager or None, whether we own cleanup)
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    try:
+        # Determine config paths based on context
+        global_path = Path.home() / ".silica" / "mcp_servers.json"
+        persona_path = None
+        project_path = None
+
+        if agent_context.history_base_dir:
+            persona_path = agent_context.history_base_dir / "mcp_servers.json"
+
+        # Check for project-level config in working directory
+        cwd = Path.cwd()
+        project_config = cwd / ".silica" / "mcp_servers.json"
+        if project_config.exists():
+            project_path = project_config
+
+        # Load merged config
+        config = load_mcp_config(
+            global_path=global_path if global_path.exists() else None,
+            persona_path=persona_path
+            if persona_path and persona_path.exists()
+            else None,
+            project_path=project_path,
+        )
+
+        if not config or not config.servers:
+            logger.debug("No MCP servers configured")
+            return None, False
+
+        enabled_servers = config.get_enabled_servers()
+        if not enabled_servers:
+            logger.debug("No MCP servers enabled")
+            return None, False
+
+        # Create and connect manager
+        manager = MCPToolManager()
+        user_interface.handle_system_message(
+            f"[dim]Connecting to {len(enabled_servers)} MCP server(s)...[/dim]",
+            markdown=False,
+        )
+
+        results = await manager.connect_servers(config)
+
+        # Report connection results
+        connected = [name for name, err in results.items() if err is None]
+        failed = [(name, err) for name, err in results.items() if err is not None]
+
+        if connected:
+            total_tools = sum(
+                len(manager._clients[name].tools)
+                for name in connected
+                if name in manager._clients
+            )
+            user_interface.handle_system_message(
+                f"[dim]MCP: Connected to {len(connected)} server(s) with {total_tools} tool(s)[/dim]",
+                markdown=False,
+            )
+
+        if failed:
+            for name, err in failed:
+                user_interface.handle_system_message(
+                    f"[yellow]MCP: Failed to connect to '{name}': {err}[/yellow]",
+                    markdown=False,
+                )
+
+        return manager, True
+
+    except Exception as e:
+        logger.warning(f"Failed to initialize MCP: {e}")
+        user_interface.handle_system_message(
+            f"[yellow]MCP initialization failed: {e}[/yellow]",
+            markdown=False,
+        )
+        return None, False
+
+
 async def run(
     agent_context: AgentContext,
     initial_prompt: str = None,
@@ -325,14 +428,25 @@ async def run(
     system_prompt: dict[str, Any] | None = None,
     enable_compaction: bool = True,
     log_file_path: str | None = None,
+    mcp_manager: "MCPToolManager | None" = None,
 ) -> list[MessageParam]:
     load_dotenv()
     user_interface, model = (
         agent_context.user_interface,
         agent_context.model_spec,
     )
+
+    # Initialize MCP if available and not provided
+    mcp_manager_owned = False  # Track if we need to clean up the manager
+    if mcp_manager is None and MCP_AVAILABLE:
+        mcp_manager, mcp_manager_owned = await _initialize_mcp(
+            agent_context, user_interface
+        )
+
     # Create toolbox with either tools or tool_names (tools takes precedence)
-    toolbox = Toolbox(agent_context, tool_names=tool_names, tools=tools)
+    toolbox = Toolbox(
+        agent_context, tool_names=tool_names, tools=tools, mcp_manager=mcp_manager
+    )
     if hasattr(user_interface, "set_toolbox"):
         user_interface.set_toolbox(toolbox)
 
@@ -1185,4 +1299,18 @@ async def run(
         finally:
             # Flush without compaction - compaction is handled explicitly in the main loop
             agent_context.flush(agent_context.chat_history, compact=False)
+
+    # Clean up MCP connections if we own the manager
+    if mcp_manager_owned and mcp_manager is not None:
+        try:
+            await mcp_manager.disconnect_all()
+            user_interface.handle_system_message(
+                "[dim]MCP: Disconnected from all servers[/dim]",
+                markdown=False,
+            )
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).warning(f"Error disconnecting MCP servers: {e}")
+
     return agent_context.chat_history
