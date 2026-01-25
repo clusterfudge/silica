@@ -38,6 +38,12 @@ from silica.developer.mcp.credentials import (
     APIKeyCredentials,
     Credentials,
 )
+from silica.developer.mcp.auth import (
+    MCPAuthHandler,
+    AuthRequiredError,
+    AuthFlowCancelled,
+    detect_auth_requirement_from_error,
+)
 
 __all__ = [
     # Client
@@ -66,4 +72,9 @@ __all__ = [
     "OAuthCredentials",
     "APIKeyCredentials",
     "Credentials",
+    # Auth
+    "MCPAuthHandler",
+    "AuthRequiredError",
+    "AuthFlowCancelled",
+    "detect_auth_requirement_from_error",
 ]
