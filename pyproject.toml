@@ -48,6 +48,8 @@ dependencies = [
     "httpx>=0.27.0",
     "opencv-python>=4.8.0",
     "bashlex>=0.18",
+    "mcp>=1.0.0",
+    "keyring>=24.0.0",
 ]
 
 [project.scripts]
