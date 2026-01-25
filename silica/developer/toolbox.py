@@ -214,6 +214,13 @@ class Toolbox:
             "Enter plan mode or manage plans",
         )
 
+        # Register MCP management CLI tool
+        self.register_cli_tool(
+            "mcp",
+            self._mcp,
+            "Manage MCP server connections and tools",
+        )
+
         # Note: agent_schema is now a property that dynamically re-discovers user tools
         # This ensures newly created user tools are immediately available
 
@@ -3396,6 +3403,227 @@ Let's collaborate on creating a solid plan before implementation."""
             # Return (content, auto_add=True) to automatically add to conversation
             # and trigger agent response
             return (planning_prompt, True)
+
+    async def _mcp(self, user_interface, sandbox, user_input, *args, **kwargs):
+        """Manage MCP server connections and tools.
+
+        Usage:
+            /mcp                      - Show MCP server status
+            /mcp status               - Same as /mcp
+            /mcp connect [server]     - Connect to server(s)
+            /mcp disconnect [server]  - Disconnect from server(s)
+            /mcp reconnect [server]   - Reconnect to server(s)
+            /mcp refresh [server]     - Force refresh tool schemas
+            /mcp cache <server> <on|off>  - Toggle caching for a server
+            /mcp tools [server]       - List tools from server(s)
+
+        Examples:
+            /mcp                      - Show all servers with status
+            /mcp connect sqlite       - Connect to sqlite server
+            /mcp tools                - List all MCP tools
+            /mcp cache myserver off   - Disable caching for development
+        """
+
+        def _print(msg, markdown=True):
+            """Print directly to user without adding to conversation."""
+            user_interface.handle_system_message(msg, markdown=markdown)
+
+        # Check if MCP is available
+        if self.mcp_manager is None:
+            _print("[yellow]MCP is not configured. No MCP servers found in:[/yellow]")
+            _print("  - ~/.silica/mcp_servers.json (global)")
+            _print("  - ~/.silica/personas/<persona>/mcp_servers.json (per-persona)")
+            _print("  - .silica/mcp_servers.json (per-project)")
+            return ("", False)
+
+        args_list = user_input.strip().split() if user_input.strip() else []
+        command = args_list[0].lower() if args_list else "status"
+
+        if command == "status" or not args_list:
+            # Show status of all servers
+            return self._mcp_status(_print)
+
+        elif command == "connect":
+            server_name = args_list[1] if len(args_list) > 1 else None
+            return await self._mcp_connect(_print, server_name)
+
+        elif command == "disconnect":
+            server_name = args_list[1] if len(args_list) > 1 else None
+            return await self._mcp_disconnect(_print, server_name)
+
+        elif command == "reconnect":
+            server_name = args_list[1] if len(args_list) > 1 else None
+            return await self._mcp_reconnect(_print, server_name)
+
+        elif command == "refresh":
+            server_name = args_list[1] if len(args_list) > 1 else None
+            return await self._mcp_refresh(_print, server_name)
+
+        elif command == "cache":
+            if len(args_list) < 3:
+                _print("[red]Usage: /mcp cache <server> <on|off>[/red]")
+                return ("", False)
+            server_name = args_list[1]
+            enabled = args_list[2].lower() in ("on", "true", "1", "yes")
+            return self._mcp_set_cache(_print, server_name, enabled)
+
+        elif command == "tools":
+            server_name = args_list[1] if len(args_list) > 1 else None
+            return self._mcp_tools(_print, server_name)
+
+        else:
+            _print(f"[red]Unknown MCP command: {command}[/red]")
+            _print("Use /help mcp for usage information.")
+            return ("", False)
+
+    def _mcp_status(self, _print):
+        """Show status of all MCP servers."""
+        statuses = self.mcp_manager.get_server_status()
+
+        if not statuses:
+            _print("[yellow]No MCP servers configured.[/yellow]")
+            return ("", False)
+
+        _print("[bold]MCP Servers:[/bold]")
+        for status in statuses:
+            # Build status line
+            conn_icon = "✓" if status.connected else "✗"
+            conn_color = "green" if status.connected else "red"
+            conn_text = "connected" if status.connected else "disconnected"
+
+            tool_text = f"{status.tool_count:2d} tools" if status.connected else ""
+            cache_text = f"cache: {'on' if status.cache_enabled else 'off'}"
+
+            # Auth status if applicable
+            auth_text = ""
+            if status.auth_status:
+                if status.auth_status == "authenticated":
+                    auth_text = "  auth: ✓ authenticated"
+                elif status.auth_status == "expired":
+                    auth_text = "  auth: ✗ expired"
+                elif status.auth_status == "required":
+                    auth_text = "  auth: ⚠ required"
+
+            _print(
+                f"  {status.name:16} [{conn_color}]{conn_icon} {conn_text:12}[/{conn_color}]"
+                f"  {tool_text:10}  {cache_text}{auth_text}"
+            )
+
+        return ("", False)
+
+    async def _mcp_connect(self, _print, server_name):
+        """Connect to MCP server(s)."""
+        if server_name:
+            try:
+                await self.mcp_manager.connect_server(server_name)
+                client = self.mcp_manager._clients.get(server_name)
+                tool_count = len(client.tools) if client else 0
+                _print(
+                    f"[green]Connected to '{server_name}' with {tool_count} tools[/green]"
+                )
+            except ValueError as e:
+                _print(f"[red]{e}[/red]")
+            except Exception as e:
+                _print(f"[red]Failed to connect to '{server_name}': {e}[/red]")
+        else:
+            # Connect all enabled servers
+            if not self.mcp_manager._config:
+                _print("[red]No MCP configuration loaded[/red]")
+                return ("", False)
+
+            results = await self.mcp_manager.connect_servers(self.mcp_manager._config)
+            connected = [n for n, e in results.items() if e is None]
+            failed = [(n, e) for n, e in results.items() if e is not None]
+
+            if connected:
+                _print(f"[green]Connected to {len(connected)} server(s)[/green]")
+            for name, err in failed:
+                _print(f"[red]Failed to connect to '{name}': {err}[/red]")
+
+        return ("", False)
+
+    async def _mcp_disconnect(self, _print, server_name):
+        """Disconnect from MCP server(s)."""
+        if server_name:
+            await self.mcp_manager.disconnect_server(server_name)
+            _print(f"[yellow]Disconnected from '{server_name}'[/yellow]")
+        else:
+            # Disconnect all
+            server_names = list(self.mcp_manager._clients.keys())
+            await self.mcp_manager.disconnect_all()
+            _print(f"[yellow]Disconnected from {len(server_names)} server(s)[/yellow]")
+
+        return ("", False)
+
+    async def _mcp_reconnect(self, _print, server_name):
+        """Reconnect to MCP server(s)."""
+        if server_name:
+            await self.mcp_manager.disconnect_server(server_name)
+            await self._mcp_connect(_print, server_name)
+        else:
+            # Reconnect all
+            server_names = list(self.mcp_manager._clients.keys())
+            await self.mcp_manager.disconnect_all()
+            if self.mcp_manager._config:
+                await self.mcp_manager.connect_servers(self.mcp_manager._config)
+            _print(f"[green]Reconnected to {len(server_names)} server(s)[/green]")
+
+        return ("", False)
+
+    async def _mcp_refresh(self, _print, server_name):
+        """Force refresh tool schemas."""
+        try:
+            await self.mcp_manager.refresh_schemas(server_name)
+            if server_name:
+                _print(f"[green]Refreshed schemas from '{server_name}'[/green]")
+            else:
+                _print("[green]Refreshed schemas from all servers[/green]")
+        except Exception as e:
+            _print(f"[red]Failed to refresh schemas: {e}[/red]")
+
+        return ("", False)
+
+    def _mcp_set_cache(self, _print, server_name, enabled):
+        """Toggle caching for an MCP server."""
+        try:
+            self.mcp_manager.set_cache_enabled(server_name, enabled)
+            status = "on" if enabled else "off"
+            _print(f"[green]Set cache={status} for '{server_name}'[/green]")
+        except ValueError as e:
+            _print(f"[red]{e}[/red]")
+
+        return ("", False)
+
+    def _mcp_tools(self, _print, server_name):
+        """List tools from MCP server(s)."""
+        tools = self.mcp_manager.get_all_tools()
+
+        if server_name:
+            tools = [t for t in tools if t.server_name == server_name]
+
+        if not tools:
+            if server_name:
+                _print(f"[yellow]No tools from server '{server_name}'[/yellow]")
+            else:
+                _print("[yellow]No MCP tools available[/yellow]")
+            return ("", False)
+
+        # Group tools by server
+        by_server: dict[str, list] = {}
+        for tool in tools:
+            by_server.setdefault(tool.server_name, []).append(tool)
+
+        for srv_name, srv_tools in sorted(by_server.items()):
+            _print(f"\n[bold]{srv_name}[/bold] ({len(srv_tools)} tools)")
+            for tool in sorted(srv_tools, key=lambda t: t.name):
+                desc = (
+                    tool.description[:60] + "..."
+                    if len(tool.description) > 60
+                    else tool.description
+                )
+                _print(f"  {tool.name}: {desc}")
+
+        return ("", False)
 
     def _discover_user_tools(self):
         """Discover user-created tools from ~/.silica/tools/."""
