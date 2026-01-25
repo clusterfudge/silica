@@ -19,7 +19,6 @@ from silica.developer.mcp.client import (
     MCPToolInfo,
 )
 from silica.developer.mcp.config import (
-    MCPAuthConfig,
     MCPConfig,
     MCPServerConfig,
     load_mcp_config,
@@ -31,18 +30,6 @@ from silica.developer.mcp.schema import (
     prefix_tool_name,
     unprefix_tool_name,
     validate_tool_schema,
-)
-from silica.developer.mcp.credentials import (
-    MCPCredentialStore,
-    OAuthCredentials,
-    APIKeyCredentials,
-    Credentials,
-)
-from silica.developer.mcp.auth import (
-    MCPAuthHandler,
-    AuthRequiredError,
-    AuthFlowCancelled,
-    detect_auth_requirement_from_error,
 )
 
 __all__ = [
@@ -56,7 +43,6 @@ __all__ = [
     # Config
     "MCPConfig",
     "MCPServerConfig",
-    "MCPAuthConfig",
     "load_mcp_config",
     # Manager
     "MCPToolManager",
@@ -67,14 +53,4 @@ __all__ = [
     "prefix_tool_name",
     "unprefix_tool_name",
     "validate_tool_schema",
-    # Credentials
-    "MCPCredentialStore",
-    "OAuthCredentials",
-    "APIKeyCredentials",
-    "Credentials",
-    # Auth
-    "MCPAuthHandler",
-    "AuthRequiredError",
-    "AuthFlowCancelled",
-    "detect_auth_requirement_from_error",
 ]

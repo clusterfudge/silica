@@ -4,7 +4,6 @@ import json
 
 
 from silica.developer.mcp.config import (
-    MCPAuthConfig,
     MCPConfig,
     MCPServerConfig,
     expand_env_vars,
@@ -77,37 +76,6 @@ class TestExpandEnvVarsRecursive:
         assert result == ["value", "static"]
 
 
-class TestMCPAuthConfig:
-    """Tests for MCPAuthConfig dataclass."""
-
-    def test_from_dict_oauth(self):
-        """Test creating OAuth auth config from dict."""
-        data = {
-            "type": "oauth",
-            "scopes": ["read", "write"],
-            "client_id": "myid",
-            "client_secret": "mysecret",
-        }
-        auth = MCPAuthConfig.from_dict(data)
-        assert auth.type == "oauth"
-        assert auth.scopes == ["read", "write"]
-        assert auth.client_id == "myid"
-        assert auth.client_secret == "mysecret"
-
-    def test_from_dict_api_key(self):
-        """Test creating API key auth config from dict."""
-        data = {"type": "api_key"}
-        auth = MCPAuthConfig.from_dict(data)
-        assert auth.type == "api_key"
-        assert auth.scopes == []
-
-    def test_from_dict_extra_fields(self):
-        """Test extra fields are captured."""
-        data = {"type": "custom", "custom_field": "value"}
-        auth = MCPAuthConfig.from_dict(data)
-        assert auth.extra == {"custom_field": "value"}
-
-
 class TestMCPServerConfig:
     """Tests for MCPServerConfig dataclass."""
 
@@ -120,7 +88,6 @@ class TestMCPServerConfig:
         assert cfg.args == ["server.py"]
         assert cfg.enabled is True
         assert cfg.cache is True
-        assert cfg.auth is None
 
     def test_from_dict_full(self):
         """Test creating server config with all fields."""
@@ -130,7 +97,9 @@ class TestMCPServerConfig:
             "env": {"DB_PATH": "/tmp/db.sqlite"},
             "enabled": False,
             "cache": False,
-            "auth": {"type": "api_key"},
+            "setup_command": "uvx",
+            "setup_args": ["mcp-server-sqlite", "--auth"],
+            "credentials_path": "${HOME}/.config/mcp/creds.json",
         }
         cfg = MCPServerConfig.from_dict("sqlite", data)
         assert cfg.name == "sqlite"
@@ -138,8 +107,38 @@ class TestMCPServerConfig:
         assert cfg.env == {"DB_PATH": "/tmp/db.sqlite"}
         assert cfg.enabled is False
         assert cfg.cache is False
-        assert cfg.auth is not None
-        assert cfg.auth.type == "api_key"
+        assert cfg.setup_command == "uvx"
+        assert cfg.setup_args == ["mcp-server-sqlite", "--auth"]
+        assert cfg.credentials_path == "${HOME}/.config/mcp/creds.json"
+
+    def test_needs_setup_no_path(self):
+        """Test needs_setup returns False when no credentials_path."""
+        cfg = MCPServerConfig(name="test", command="cmd")
+        assert cfg.needs_setup() is False
+
+    def test_needs_setup_path_exists(self, tmp_path):
+        """Test needs_setup returns False when credentials exist."""
+        creds_file = tmp_path / "creds.json"
+        creds_file.write_text("{}")
+        cfg = MCPServerConfig(
+            name="test", command="cmd", credentials_path=str(creds_file)
+        )
+        assert cfg.needs_setup() is False
+
+    def test_needs_setup_path_missing(self, tmp_path):
+        """Test needs_setup returns True when credentials don't exist."""
+        cfg = MCPServerConfig(
+            name="test", command="cmd", credentials_path=str(tmp_path / "missing.json")
+        )
+        assert cfg.needs_setup() is True
+
+    def test_has_setup_command(self):
+        """Test has_setup_command returns correct value."""
+        cfg = MCPServerConfig(name="test", command="cmd")
+        assert cfg.has_setup_command() is False
+
+        cfg = MCPServerConfig(name="test", command="cmd", setup_command="setup")
+        assert cfg.has_setup_command() is True
 
 
 class TestMCPConfig:

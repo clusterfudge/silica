@@ -11,9 +11,6 @@ from silica.developer.tools.mcp_tools import (
     mcp_set_cache,
     mcp_refresh,
     mcp_list_tools,
-    mcp_auth,
-    mcp_auth_revoke,
-    mcp_auth_status,
 )
 
 
@@ -76,6 +73,26 @@ class TestMcpListServers:
         assert "connected" in result
         assert "github" in result
         assert "disconnected" in result
+
+    @pytest.mark.asyncio
+    async def test_list_servers_needs_setup(self, mock_context):
+        """Test listing servers that need setup."""
+        from silica.developer.mcp import ServerStatus
+
+        statuses = [
+            ServerStatus(
+                name="gdrive",
+                connected=False,
+                tool_count=0,
+                cache_enabled=True,
+                needs_setup=True,
+            ),
+        ]
+        mock_context.toolbox.mcp_manager.get_server_status.return_value = statuses
+        result = await mcp_list_servers(mock_context)
+
+        assert "gdrive" in result
+        assert "needs setup" in result
 
 
 class TestMcpConnect:
@@ -286,108 +303,3 @@ class TestMcpListTools:
 
         assert "sqlite" in result
         assert "github" not in result
-
-
-class TestMcpAuth:
-    """Tests for mcp_auth tool."""
-
-    @pytest.mark.asyncio
-    async def test_no_mcp_configured(self, mock_context_no_mcp):
-        """Test when MCP is not configured."""
-        result = await mcp_auth(mock_context_no_mcp, "test")
-        assert "not configured" in result.lower()
-
-    @pytest.mark.asyncio
-    async def test_no_config(self, mock_context):
-        """Test when no config loaded."""
-        mock_context.toolbox.mcp_manager._config = None
-
-        result = await mcp_auth(mock_context, "test")
-        assert "No MCP configuration" in result
-
-    @pytest.mark.asyncio
-    async def test_server_not_found(self, mock_context):
-        """Test when server not found."""
-        mock_context.toolbox.mcp_manager._config = MagicMock()
-        mock_context.toolbox.mcp_manager._config.servers = {}
-
-        result = await mcp_auth(mock_context, "unknown")
-        assert "not found" in result
-
-    @pytest.mark.asyncio
-    async def test_server_no_auth_required(self, mock_context):
-        """Test when server doesn't require auth."""
-        mock_context.toolbox.mcp_manager._config = MagicMock()
-        mock_server = MagicMock()
-        mock_server.auth = None
-        mock_context.toolbox.mcp_manager._config.servers = {"sqlite": mock_server}
-
-        result = await mcp_auth(mock_context, "sqlite")
-        assert "does not require authentication" in result
-
-
-class TestMcpAuthRevoke:
-    """Tests for mcp_auth_revoke tool."""
-
-    @pytest.mark.asyncio
-    async def test_no_mcp_configured(self, mock_context_no_mcp):
-        """Test when MCP is not configured."""
-        result = await mcp_auth_revoke(mock_context_no_mcp, "test")
-        assert "not configured" in result.lower()
-
-    @pytest.mark.asyncio
-    async def test_no_config(self, mock_context):
-        """Test when no config loaded."""
-        mock_context.toolbox.mcp_manager._config = None
-
-        result = await mcp_auth_revoke(mock_context, "test")
-        assert "No MCP configuration" in result
-
-    @pytest.mark.asyncio
-    async def test_server_not_found(self, mock_context):
-        """Test when server not found."""
-        mock_context.toolbox.mcp_manager._config = MagicMock()
-        mock_context.toolbox.mcp_manager._config.servers = {}
-
-        result = await mcp_auth_revoke(mock_context, "unknown")
-        assert "not found" in result
-
-    @pytest.mark.asyncio
-    async def test_server_no_auth_config(self, mock_context):
-        """Test when server doesn't have auth configured."""
-        mock_context.toolbox.mcp_manager._config = MagicMock()
-        mock_server = MagicMock()
-        mock_server.auth = None
-        mock_context.toolbox.mcp_manager._config.servers = {"sqlite": mock_server}
-
-        result = await mcp_auth_revoke(mock_context, "sqlite")
-        assert "does not have authentication configured" in result
-
-
-class TestMcpAuthStatus:
-    """Tests for mcp_auth_status tool."""
-
-    @pytest.mark.asyncio
-    async def test_no_mcp_configured(self, mock_context_no_mcp):
-        """Test when MCP is not configured."""
-        result = await mcp_auth_status(mock_context_no_mcp)
-        assert "not configured" in result.lower()
-
-    @pytest.mark.asyncio
-    async def test_no_config(self, mock_context):
-        """Test when no config loaded."""
-        mock_context.toolbox.mcp_manager._config = None
-
-        result = await mcp_auth_status(mock_context)
-        assert "No MCP configuration" in result
-
-    @pytest.mark.asyncio
-    async def test_no_servers_with_auth(self, mock_context):
-        """Test when no servers have auth config."""
-        mock_context.toolbox.mcp_manager._config = MagicMock()
-        mock_server = MagicMock()
-        mock_server.auth = None
-        mock_context.toolbox.mcp_manager._config.servers = {"sqlite": mock_server}
-
-        result = await mcp_auth_status(mock_context)
-        assert "No MCP servers with authentication" in result

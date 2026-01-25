@@ -3416,15 +3416,14 @@ Let's collaborate on creating a solid plan before implementation."""
             /mcp refresh [server]     - Force refresh tool schemas
             /mcp cache <server> <on|off>  - Toggle caching for a server
             /mcp tools [server]       - List tools from server(s)
-            /mcp auth <server>        - Authenticate with an MCP server
-            /mcp auth revoke <server> - Revoke credentials for a server
+            /mcp setup <server>       - Run server's setup/auth flow
 
         Examples:
             /mcp                      - Show all servers with status
             /mcp connect sqlite       - Connect to sqlite server
             /mcp tools                - List all MCP tools
             /mcp cache myserver off   - Disable caching for development
-            /mcp auth gmail           - Authenticate with gmail server
+            /mcp setup gdrive         - Run gdrive server's auth setup
         """
 
         def _print(msg, markdown=True):
@@ -3474,17 +3473,12 @@ Let's collaborate on creating a solid plan before implementation."""
             server_name = args_list[1] if len(args_list) > 1 else None
             return self._mcp_tools(_print, server_name)
 
-        elif command == "auth":
-            # /mcp auth <server> or /mcp auth revoke <server>
+        elif command == "setup":
+            # /mcp setup <server> - run server's setup/auth flow
             if len(args_list) < 2:
-                return self._mcp_auth_status(_print, None)
-            elif args_list[1].lower() == "revoke":
-                if len(args_list) < 3:
-                    _print("[red]Usage: /mcp auth revoke <server>[/red]")
-                    return ("", False)
-                return await self._mcp_auth_revoke(_print, args_list[2])
-            else:
-                return await self._mcp_auth(_print, args_list[1])
+                _print("[red]Usage: /mcp setup <server>[/red]")
+                return ("", False)
+            return await self._mcp_setup(_print, args_list[1])
 
         else:
             _print(f"[red]Unknown MCP command: {command}[/red]")
@@ -3509,19 +3503,14 @@ Let's collaborate on creating a solid plan before implementation."""
             tool_text = f"{status.tool_count:2d} tools" if status.connected else ""
             cache_text = f"cache: {'on' if status.cache_enabled else 'off'}"
 
-            # Auth status if applicable
-            auth_text = ""
-            if status.auth_status:
-                if status.auth_status == "authenticated":
-                    auth_text = "  auth: ✓ authenticated"
-                elif status.auth_status == "expired":
-                    auth_text = "  auth: ✗ expired"
-                elif status.auth_status == "required":
-                    auth_text = "  auth: ⚠ required"
+            # Setup status if applicable
+            setup_text = ""
+            if status.needs_setup:
+                setup_text = "  [yellow]⚠ needs setup[/yellow]"
 
             _print(
                 f"  {status.name:16} [{conn_color}]{conn_icon} {conn_text:12}[/{conn_color}]"
-                f"  {tool_text:10}  {cache_text}{auth_text}"
+                f"  {tool_text:10}  {cache_text}{setup_text}"
             )
 
         return ("", False)
@@ -3640,8 +3629,14 @@ Let's collaborate on creating a solid plan before implementation."""
 
         return ("", False)
 
-    async def _mcp_auth(self, _print, server_name):
-        """Authenticate with an MCP server."""
+    async def _mcp_setup(self, _print, server_name):
+        """Run setup/auth flow for an MCP server.
+
+        This runs the server's configured setup_command, which typically
+        triggers the server's own authentication flow (e.g., OAuth browser flow).
+        """
+        import subprocess
+
         if not self.mcp_manager._config:
             _print("[red]No MCP configuration loaded[/red]")
             return ("", False)
@@ -3651,168 +3646,83 @@ Let's collaborate on creating a solid plan before implementation."""
             _print(f"[red]Server '{server_name}' not found[/red]")
             return ("", False)
 
-        if not server_config.auth:
+        if not server_config.has_setup_command():
+            # No setup command configured - try running the server directly
+            # Many MCP servers trigger auth on first run
             _print(
-                f"[yellow]Server '{server_name}' does not require authentication[/yellow]"
+                f"[yellow]Server '{server_name}' has no setup_command configured.[/yellow]"
             )
-            return ("", False)
+            _print("Attempting to run the server directly (this may trigger auth)...")
+            _print("")
 
-        # Create auth handler
-        from silica.developer.mcp.auth import MCPAuthHandler, AuthFlowCancelled
-        from silica.developer.mcp.credentials import MCPCredentialStore
+            # Build command from server config
+            cmd = [server_config.command] + server_config.args
+            setup_command = server_config.command
+            setup_args = server_config.args
+        else:
+            setup_command = server_config.setup_command
+            setup_args = server_config.setup_args
+            cmd = [setup_command] + setup_args
 
-        store = MCPCredentialStore()
-
-        # Check current status
-        handler = MCPAuthHandler(credential_store=store)
-        status = handler.get_auth_status(server_config)
-        if status == "authenticated":
-            _print(f"[yellow]Server '{server_name}' is already authenticated.[/yellow]")
-            _print("Use [bold]/mcp auth revoke[/bold] to revoke credentials first.")
-            return ("", False)
-
-        # Create handler with interactive prompt
-        async def async_prompt(msg: str) -> str:
-            return await self.context.user_interface.get_user_input(msg)
-
-        # Run auth flow
-        auth_type = server_config.auth.type
-        _print(f"Starting {auth_type} authentication for '{server_name}'...")
+        _print(f"Running: {' '.join(cmd)}")
+        _print("")
 
         try:
-            # Create handler with prompt callback
-            # Note: The auth handler uses sync callbacks, so we need to handle this
-            pass
-
-            def sync_prompt(msg: str) -> str:
-                """Synchronous prompt wrapper."""
-                # For CLI context, use simple input
-                return input(msg)
-
-            handler = MCPAuthHandler(
-                credential_store=store,
-                open_browser=True,
-                prompt_callback=sync_prompt,
+            # Run interactively so user can complete auth flow
+            result = subprocess.run(
+                cmd,
+                env={**dict(__import__("os").environ), **server_config.env},
+                timeout=300,  # 5 minute timeout for interactive auth
             )
 
-            await handler.authenticate(server_config)
+            if result.returncode == 0:
+                _print("")
+                _print(f"[green]✓ Setup completed for '{server_name}'[/green]")
 
-            _print(f"[green]✓ Successfully authenticated '{server_name}'[/green]")
+                # Check if setup created credentials
+                if server_config.credentials_path:
+                    from pathlib import Path
+                    from silica.developer.mcp.config import expand_env_vars
 
-            # Try to reconnect the server with new credentials
-            if server_name in self.mcp_manager._clients:
-                _print("Reconnecting with new credentials...")
-                await self.mcp_manager.disconnect_server(server_name)
-                await self.mcp_manager.connect_server(server_name)
-                _print(f"[green]✓ Server '{server_name}' reconnected[/green]")
+                    creds_path = Path(expand_env_vars(server_config.credentials_path))
+                    if creds_path.exists():
+                        _print(f"[green]✓ Credentials found at {creds_path}[/green]")
+                    else:
+                        _print(
+                            f"[yellow]⚠ Credentials not found at {creds_path}[/yellow]"
+                        )
+
+                # Try to connect the server
+                _print("Attempting to connect...")
+                try:
+                    await self.mcp_manager.connect_server(server_name)
+                    client = self.mcp_manager._clients.get(server_name)
+                    tool_count = len(client.tools) if client else 0
+                    _print(
+                        f"[green]✓ Connected to '{server_name}' with {tool_count} tools[/green]"
+                    )
+                except Exception as e:
+                    _print(f"[yellow]Could not connect: {e}[/yellow]")
+                    _print(
+                        "You may need to run setup again or check the configuration."
+                    )
+
+            else:
+                _print("")
+                _print(f"[red]✗ Setup failed with exit code {result.returncode}[/red]")
 
             return ("", False)
 
-        except AuthFlowCancelled:
-            _print(f"[yellow]Authentication cancelled for '{server_name}'[/yellow]")
+        except subprocess.TimeoutExpired:
+            _print("[red]✗ Setup timed out after 5 minutes[/red]")
+            return ("", False)
+        except FileNotFoundError:
+            _print(f"[red]✗ Command not found: {setup_command}[/red]")
+            _print("Make sure the server package is installed.")
             return ("", False)
         except Exception as e:
-            _print(f"[red]Authentication failed: {e}[/red]")
+            _print(f"[red]✗ Setup failed: {e}[/red]")
             return ("", False)
-
-    async def _mcp_auth_revoke(self, _print, server_name):
-        """Revoke credentials for an MCP server."""
-        if not self.mcp_manager._config:
-            _print("[red]No MCP configuration loaded[/red]")
-            return ("", False)
-
-        server_config = self.mcp_manager._config.servers.get(server_name)
-        if not server_config:
-            _print(f"[red]Server '{server_name}' not found[/red]")
-            return ("", False)
-
-        if not server_config.auth:
-            _print(
-                f"[yellow]Server '{server_name}' does not have authentication configured[/yellow]"
-            )
-            return ("", False)
-
-        from silica.developer.mcp.credentials import MCPCredentialStore
-
-        store = MCPCredentialStore()
-
-        if not store.has_credentials(server_name):
-            _print(f"[yellow]No credentials stored for '{server_name}'[/yellow]")
-            return ("", False)
-
-        store.delete_credentials(server_name)
-        _print(f"[green]✓ Credentials revoked for '{server_name}'[/green]")
-        _print("Re-authentication will be required to use this server.")
-
-        return ("", False)
-
-    def _mcp_auth_status(self, _print, server_name):
-        """Show authentication status for MCP server(s)."""
-        if not self.mcp_manager._config:
-            _print("[red]No MCP configuration loaded[/red]")
-            return ("", False)
-
-        from silica.developer.mcp.auth import MCPAuthHandler
-        from silica.developer.mcp.credentials import MCPCredentialStore
-
-        store = MCPCredentialStore()
-        handler = MCPAuthHandler(credential_store=store)
-
-        # Collect servers with auth config
-        if server_name:
-            server_config = self.mcp_manager._config.servers.get(server_name)
-            if not server_config:
-                _print(f"[red]Server '{server_name}' not found[/red]")
-                return ("", False)
-            servers_to_check = [(server_name, server_config)]
-        else:
-            servers_to_check = [
-                (name, config)
-                for name, config in self.mcp_manager._config.servers.items()
-                if config.auth
-            ]
-
-        if not servers_to_check:
-            _print("[yellow]No MCP servers with authentication configuration[/yellow]")
-            return ("", False)
-
-        _print("[bold]MCP Authentication Status:[/bold]")
-        for name, config in servers_to_check:
-            auth_type = config.auth.type if config.auth else "none"
-            status = handler.get_auth_status(config)
-
-            # Format status
-            if status == "authenticated":
-                status_text = "[green]✓ authenticated[/green]"
-            elif status == "expired":
-                status_text = "[yellow]⚠ expired[/yellow]"
-            elif status == "not_configured":
-                status_text = "[red]✗ not configured[/red]"
-            else:
-                status_text = "[dim]- not required[/dim]"
-
-            _print(f"  {name}: {auth_type} - {status_text}")
-
-            # Show expiry for OAuth tokens
-            if status == "authenticated" and auth_type == "oauth":
-                creds = store.get_credentials(name)
-                if creds and hasattr(creds, "expires_at") and creds.expires_at:
-                    from datetime import datetime, timezone
-
-                    now = datetime.now(timezone.utc)
-                    if creds.expires_at > now:
-                        remaining = creds.expires_at - now
-                        hours = remaining.total_seconds() / 3600
-                        if hours < 1:
-                            _print(
-                                f"           [dim]expires in {int(hours * 60)} minutes[/dim]"
-                            )
-                        else:
-                            _print(
-                                f"           [dim]expires in {hours:.1f} hours[/dim]"
-                            )
-
-        return ("", False)
 
     def _discover_user_tools(self):
         """Discover user-created tools from ~/.silica/tools/."""

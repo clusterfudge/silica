@@ -37,7 +37,7 @@ class ServerStatus:
     connected: bool
     tool_count: int
     cache_enabled: bool
-    auth_status: str | None = None  # None, "authenticated", "expired", "required"
+    needs_setup: bool = False  # True if credentials_path is set but doesn't exist
     error: str | None = None
 
 
@@ -427,19 +427,13 @@ class MCPToolManager:
             connected = client is not None and client.is_connected
             tool_count = len(client.tools) if client else 0
 
-            # Determine auth status
-            auth_status = None
-            if server_config.auth:
-                # TODO: Check actual auth status from credential store
-                auth_status = "required"
-
             statuses.append(
                 ServerStatus(
                     name=name,
                     connected=connected,
                     tool_count=tool_count,
                     cache_enabled=server_config.cache,
-                    auth_status=auth_status,
+                    needs_setup=server_config.needs_setup(),
                     error=None,
                 )
             )

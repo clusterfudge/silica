@@ -9,6 +9,7 @@ Configurations are merged with project > persona > global precedence.
 """
 
 import json
+import logging
 import os
 import re
 from dataclasses import dataclass, field
@@ -18,7 +19,6 @@ from typing import Any
 __all__ = [
     "MCPConfig",
     "MCPServerConfig",
-    "MCPAuthConfig",
     "load_mcp_config",
     "expand_env_vars",
 ]
@@ -72,49 +72,31 @@ def expand_env_vars_recursive(obj: Any) -> Any:
 
 
 @dataclass
-class MCPAuthConfig:
-    """Authentication configuration for an MCP server."""
-
-    type: str  # "oauth", "api_key", "custom"
-    scopes: list[str] = field(default_factory=list)
-    credentials_file: str | None = None
-    client_id: str | None = None
-    client_secret: str | None = None
-    # Additional auth-specific fields can be added via extra
-    extra: dict[str, Any] = field(default_factory=dict)
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "MCPAuthConfig":
-        """Create MCPAuthConfig from a dictionary."""
-        known_fields = {
-            "type",
-            "scopes",
-            "credentials_file",
-            "client_id",
-            "client_secret",
-        }
-        extra = {k: v for k, v in data.items() if k not in known_fields}
-        return cls(
-            type=data.get("type", "api_key"),
-            scopes=data.get("scopes", []),
-            credentials_file=data.get("credentials_file"),
-            client_id=data.get("client_id"),
-            client_secret=data.get("client_secret"),
-            extra=extra,
-        )
-
-
-@dataclass
 class MCPServerConfig:
-    """Configuration for a single MCP server."""
+    """Configuration for a single MCP server.
+
+    Attributes:
+        name: Server identifier.
+        command: Command to run the server.
+        args: Arguments to pass to the command.
+        env: Environment variables for the server process.
+        enabled: Whether to auto-connect at startup.
+        cache: Whether to cache tool schemas.
+        setup_command: Optional command to run server's auth/setup flow.
+        credentials_path: Optional path where server stores credentials.
+    """
 
     name: str
     command: str
     args: list[str] = field(default_factory=list)
     env: dict[str, str] = field(default_factory=dict)
     enabled: bool = True
-    cache: bool = True  # Whether to cache tool schemas
-    auth: MCPAuthConfig | None = None
+    cache: bool = True
+    # Optional: command to run for interactive setup (e.g., auth flow)
+    setup_command: str | None = None
+    setup_args: list[str] = field(default_factory=list)
+    # Optional: path to check if credentials exist
+    credentials_path: str | None = None
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> "MCPServerConfig":
@@ -127,9 +109,6 @@ class MCPServerConfig:
         Returns:
             MCPServerConfig instance.
         """
-        auth_data = data.get("auth")
-        auth = MCPAuthConfig.from_dict(auth_data) if auth_data else None
-
         return cls(
             name=name,
             command=data.get("command", ""),
@@ -137,8 +116,26 @@ class MCPServerConfig:
             env=data.get("env", {}),
             enabled=data.get("enabled", True),
             cache=data.get("cache", True),
-            auth=auth,
+            setup_command=data.get("setup_command"),
+            setup_args=data.get("setup_args", []),
+            credentials_path=data.get("credentials_path"),
         )
+
+    def needs_setup(self) -> bool:
+        """Check if this server needs setup (credentials don't exist).
+
+        Returns:
+            True if credentials_path is specified but doesn't exist.
+            False if no credentials_path or if credentials exist.
+        """
+        if not self.credentials_path:
+            return False
+        path = Path(expand_env_vars(self.credentials_path))
+        return not path.exists()
+
+    def has_setup_command(self) -> bool:
+        """Check if this server has a setup command configured."""
+        return bool(self.setup_command)
 
 
 @dataclass
@@ -242,9 +239,6 @@ def load_mcp_config(
         try:
             config = config.merge_with(MCPConfig.from_file(global_path))
         except (json.JSONDecodeError, KeyError) as e:
-            # Log warning but continue - don't fail on bad config
-            import logging
-
             logging.warning(f"Failed to load global MCP config from {global_path}: {e}")
 
     # 2. Load persona config (medium precedence)
@@ -254,8 +248,6 @@ def load_mcp_config(
             try:
                 config = config.merge_with(MCPConfig.from_file(persona_path))
             except (json.JSONDecodeError, KeyError) as e:
-                import logging
-
                 logging.warning(
                     f"Failed to load persona MCP config from {persona_path}: {e}"
                 )
@@ -267,8 +259,6 @@ def load_mcp_config(
             try:
                 config = config.merge_with(MCPConfig.from_file(project_path))
             except (json.JSONDecodeError, KeyError) as e:
-                import logging
-
                 logging.warning(
                     f"Failed to load project MCP config from {project_path}: {e}"
                 )

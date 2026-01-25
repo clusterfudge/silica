@@ -176,37 +176,19 @@ sqlite (5 tools):
   ...
 ```
 
-### `/mcp auth <server>`
-Authenticate with an MCP server that requires credentials:
+### `/mcp setup <server>`
+Run a server's setup/authentication flow:
 
 ```
-/mcp auth gmail
-Starting oauth authentication for 'gmail'...
+/mcp setup gdrive
+Running: npx -y @anthropic-ai/mcp-gdrive
 Opening browser for authorization...
-Enter the authorization code: <paste code>
-✓ Successfully authenticated 'gmail'
+✓ Setup completed for 'gdrive'
+✓ Connected to 'gdrive' with 4 tools
 ```
 
-### `/mcp auth revoke <server>`
-Revoke stored credentials for a server:
-
-```
-/mcp auth revoke gmail
-✓ Credentials revoked for 'gmail'
-Re-authentication will be required to use this server.
-```
-
-### `/mcp auth` (no server)
-Show authentication status for all servers with auth configuration:
-
-```
-/mcp auth
-
-MCP Authentication Status:
-  gmail: oauth - ✓ authenticated
-           expires in 4.2 hours
-  openai: api_key - ✗ not configured
-```
+This runs the server's configured `setup_command` or tries running the server
+directly (many MCP servers trigger auth on first run).
 
 ## Development Mode
 
@@ -477,79 +459,63 @@ Silica manages MCP servers as subprocesses, communicating via STDIO (stdin/stdou
 3. Returns results via STDIO
 4. Is terminated when Silica disconnects
 
-## Authentication
+## Server Setup and Authentication
 
-MCP servers can require authentication, which Silica handles through stored credentials.
+MCP servers that require authentication (like Google Drive, GitHub, etc.) handle 
+their own auth flows. The pattern is:
 
-### Configuration
+1. Server stores credentials in a configured location
+2. On first run, server triggers interactive auth (e.g., OAuth browser flow)
+3. Subsequent runs use stored credentials
 
-Add an `auth` section to your server configuration:
+### Configuration for Servers Needing Setup
 
 ```json
 {
   "servers": {
-    "gmail": {
-      "command": "uvx",
-      "args": ["mcp-server-gmail"],
-      "auth": {
-        "type": "oauth",
-        "client_id": "${GOOGLE_CLIENT_ID}",
-        "scopes": ["gmail.send", "gmail.readonly"]
-      }
-    },
-    "openai": {
+    "gdrive": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-openai"],
-      "auth": {
-        "type": "api_key"
-      }
+      "args": ["-y", "@anthropic-ai/mcp-gdrive"],
+      "env": {
+        "GDRIVE_CREDS_DIR": "${HOME}/.config/mcp-gdrive"
+      },
+      "credentials_path": "${HOME}/.config/mcp-gdrive/credentials.json",
+      "setup_command": "npx",
+      "setup_args": ["-y", "@anthropic-ai/mcp-gdrive"]
     }
   }
 }
 ```
 
-### Auth Types
-
-| Type | Description |
-|------|-------------|
-| `oauth` | OAuth 2.0 flow with browser authorization |
-| `api_key` | Simple API key credential |
-
-### OAuth Configuration Options
+### Configuration Options
 
 | Option | Description |
 |--------|-------------|
-| `client_id` | OAuth client ID |
-| `client_secret` | OAuth client secret (optional for public clients) |
-| `scopes` | List of OAuth scopes to request |
-| `auth_url` | Authorization URL (in `extra` dict) |
-| `token_url` | Token URL (in `extra` dict) |
-| `redirect_uri` | Redirect URI (in `extra` dict, default: `http://localhost:8085/callback`) |
+| `credentials_path` | Path to check if credentials exist (for status display) |
+| `setup_command` | Command to run for interactive setup |
+| `setup_args` | Arguments for setup command |
 
-### Managing Credentials
+### Running Setup
 
-**Authenticate**: Use `/mcp auth <server>` to initiate authentication
+Use `/mcp setup <server>` to run the server's authentication flow:
 
-**Check Status**: Use `/mcp auth` or `/mcp status` to see auth status
+```
+/mcp setup gdrive
+Running: npx -y @anthropic-ai/mcp-gdrive
+[Server prompts for auth in browser]
+✓ Setup completed for 'gdrive'
+✓ Connected to 'gdrive' with 4 tools
+```
 
-**Revoke**: Use `/mcp auth revoke <server>` to clear stored credentials
+### Status Display
 
-### Credential Storage
+Servers that need setup are marked in `/mcp status`:
 
-Credentials are stored securely:
-
-1. **Keyring** (preferred): Uses the system keychain (macOS Keychain, Linux Secret Service)
-2. **File fallback**: Encrypted file at `~/.silica/mcp_credentials.json`
-
-OAuth tokens are automatically refreshed when they expire.
-
-### Agent Auth Tools
-
-The agent can also manage authentication:
-
-- `mcp_auth(server)` - Initiate authentication
-- `mcp_auth_revoke(server)` - Revoke credentials  
-- `mcp_auth_status(server)` - Check auth status
+```
+MCP Servers:
+  sqlite         ✓ connected     6 tools   cache: on
+  gdrive         ✗ disconnected            cache: on  ⚠ needs setup
+```
 
 ## Future Enhancements
 
