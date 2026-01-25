@@ -296,6 +296,131 @@ If you've modified your MCP server:
 - **Schema fetching**: Enable caching (`"cache": true`) for production use
 - **Tool invocation**: Some servers have slow tools. Consider timeouts.
 
+## Subagent MCP Integration
+
+Subagents can have their own isolated MCP server connections, separate from the parent agent. This enables task-specific tool access without exposing all MCP tools to every subagent.
+
+### Use Cases
+
+- **Database Queries**: Give a subagent access to a specific database for data analysis
+- **File Operations**: Limit a subagent to a specific directory via filesystem server
+- **API Access**: Provide a subagent with GitHub or other API access for specific tasks
+- **Isolation**: Keep sensitive MCP tools (e.g., write access) isolated to specific subagents
+
+### Parameter Format
+
+The `agent()` tool accepts an `mcp_servers` parameter in two formats:
+
+#### 1. Named Server References
+
+Reference servers from your MCP configuration by name (comma-separated):
+
+```python
+agent(
+    prompt="Query the database for sales data from last month",
+    mcp_servers="sqlite"
+)
+
+# Multiple servers
+agent(
+    prompt="Check the repo and query related data",
+    mcp_servers="github,sqlite"
+)
+```
+
+Named servers are loaded from the same 3-tier configuration (project, persona, global).
+
+#### 2. Inline JSON Configuration
+
+Define servers inline for one-off or dynamic configurations:
+
+```python
+agent(
+    prompt="Analyze the data in this database",
+    mcp_servers='{"analytics": {"command": "uvx", "args": ["mcp-server-sqlite", "--db-path", "/data/analytics.db"]}}'
+)
+```
+
+### Isolation Guarantees
+
+Subagent MCP connections are **fully isolated** from the parent:
+
+1. **Own Manager**: Each subagent gets its own `MCPToolManager` instance
+2. **No Inheritance**: Parent's MCP tools are NOT visible to the subagent
+3. **No Sharing**: Connections are not shared between parent and subagent
+4. **Clean Cleanup**: All MCP connections are closed when the subagent completes
+
+This means:
+- A subagent with `mcp_servers="sqlite"` can ONLY use sqlite tools
+- The parent's connected MCP servers remain unaffected
+- Multiple subagents can connect to the same server independently
+
+### Examples
+
+#### Database Analysis Subagent
+
+```python
+# Parent agent delegates database work to a specialized subagent
+result = await agent(
+    prompt="""
+    Analyze the sales data and provide insights:
+    1. Total sales by region
+    2. Top 10 products
+    3. Month-over-month growth
+    """,
+    tool_names="mcp_sqlite_query,mcp_sqlite_read_table",
+    mcp_servers="analytics_db"
+)
+```
+
+#### File Processing with Limited Access
+
+```python
+# Subagent can only access the /tmp/workspace directory
+await agent(
+    prompt="Process all CSV files and generate a summary report",
+    mcp_servers='{"workspace": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp/workspace"]}}'
+)
+```
+
+#### Parallel Subagents with Different Servers
+
+```python
+# Multiple subagents can run concurrently with different MCP access
+await asyncio.gather(
+    agent(prompt="Get GitHub issues", mcp_servers="github"),
+    agent(prompt="Query user data", mcp_servers="users_db"),
+    agent(prompt="Search for solutions", mcp_servers="brave_search")
+)
+```
+
+### Error Handling
+
+If MCP server connection fails for a subagent:
+
+1. **Graceful Degradation**: The subagent continues without MCP tools
+2. **Logged Warning**: Connection failure is logged but doesn't crash the subagent
+3. **No Parent Impact**: Parent's MCP connections remain unaffected
+
+Example with error handling:
+
+```python
+# Even if the server fails, the subagent can still use other tools
+result = await agent(
+    prompt="Try to query the database, but use web search as fallback",
+    tool_names="web_search",  # Fallback tool always available
+    mcp_servers="maybe_offline_db"
+)
+```
+
+### Best Practices
+
+1. **Minimal Access**: Only provide servers the subagent actually needs
+2. **Named References**: Use named servers from config for consistency
+3. **Inline for Dynamic**: Use inline JSON for dynamic paths or one-off tasks
+4. **Combine with tool_names**: Use `tool_names` to further limit available tools
+5. **Error Handling**: Design subagent prompts to handle missing MCP tools gracefully
+
 ## Architecture
 
 ```
