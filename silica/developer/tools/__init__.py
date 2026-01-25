@@ -94,6 +94,14 @@ from .planning import (
     reopen_plan,
     complete_plan,
 )
+from .mcp_tools import (
+    mcp_list_servers,
+    mcp_connect,
+    mcp_disconnect,
+    mcp_set_cache,
+    mcp_refresh,
+    mcp_list_tools,
+)
 
 ALL_TOOLS = (
     [
@@ -177,6 +185,13 @@ ALL_TOOLS = (
         verify_plan_task,
         reopen_plan,
         complete_plan,
+        # MCP management tools
+        mcp_list_servers,
+        mcp_connect,
+        mcp_disconnect,
+        mcp_set_cache,
+        mcp_refresh,
+        mcp_list_tools,
     ]
     + GITHUB_TOOLS
     + GITHUB_COMMENT_TOOLS
