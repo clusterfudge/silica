@@ -4,6 +4,7 @@ Provides a simplified interface for connecting to MCP servers,
 listing tools, and invoking tool calls.
 """
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Any
@@ -15,9 +16,21 @@ from mcp.types import CallToolResult, TextContent
 from silica.developer.mcp.config import MCPServerConfig
 from silica.developer.mcp.schema import mcp_to_anthropic_schema
 
-__all__ = ["MCPClient", "MCPToolInfo", "MCPConnectionError", "MCPToolError"]
+__all__ = [
+    "MCPClient",
+    "MCPToolInfo",
+    "MCPConnectionError",
+    "MCPToolError",
+    "MCPTimeoutError",
+    "MCPServerCrashedError",
+]
 
 logger = logging.getLogger(__name__)
+
+# Default timeouts (in seconds)
+DEFAULT_CONNECT_TIMEOUT = 30.0
+DEFAULT_TOOL_TIMEOUT = 60.0
+DEFAULT_LIST_TOOLS_TIMEOUT = 15.0
 
 
 class MCPConnectionError(Exception):
@@ -26,6 +39,19 @@ class MCPConnectionError(Exception):
 
 class MCPToolError(Exception):
     """Raised when MCP tool invocation fails."""
+
+    def __init__(self, message: str, is_error: bool = True, tool_name: str = None):
+        super().__init__(message)
+        self.is_error = is_error
+        self.tool_name = tool_name
+
+
+class MCPTimeoutError(MCPToolError):
+    """Raised when an MCP operation times out."""
+
+
+class MCPServerCrashedError(MCPConnectionError):
+    """Raised when the MCP server process has terminated unexpectedly."""
 
 
 @dataclass
@@ -72,11 +98,15 @@ class MCPClient:
     _write_stream: Any = field(default=None, init=False)
     _context_manager: Any = field(default=None, init=False)
 
-    async def connect(self) -> None:
+    async def connect(self, timeout: float = DEFAULT_CONNECT_TIMEOUT) -> None:
         """Connect to the MCP server and perform capability negotiation.
+
+        Args:
+            timeout: Maximum time to wait for connection (in seconds).
 
         Raises:
             MCPConnectionError: If connection fails.
+            MCPTimeoutError: If connection times out.
         """
         if self._connected:
             return
@@ -89,20 +119,36 @@ class MCPClient:
                 env=self.config.env if self.config.env else None,
             )
 
-            # Create stdio transport
+            # Create stdio transport with timeout
             # stdio_client returns an async context manager
             self._context_manager = stdio_client(server_params)
-            (
-                self._read_stream,
-                self._write_stream,
-            ) = await self._context_manager.__aenter__()
+
+            try:
+                (
+                    self._read_stream,
+                    self._write_stream,
+                ) = await asyncio.wait_for(
+                    self._context_manager.__aenter__(), timeout=timeout
+                )
+            except asyncio.TimeoutError:
+                raise MCPTimeoutError(
+                    f"Timeout connecting to MCP server '{self.config.name}' "
+                    f"after {timeout}s"
+                )
 
             # Create and initialize session
             self._session = ClientSession(self._read_stream, self._write_stream)
 
-            # Initialize the session (runs the protocol handshake)
-            # This needs to run inside a task to avoid blocking
-            init_result = await self._session.initialize()
+            # Initialize the session (runs the protocol handshake) with timeout
+            try:
+                init_result = await asyncio.wait_for(
+                    self._session.initialize(), timeout=timeout
+                )
+            except asyncio.TimeoutError:
+                raise MCPTimeoutError(
+                    f"Timeout during MCP handshake with '{self.config.name}' "
+                    f"after {timeout}s"
+                )
 
             logger.info(
                 f"Connected to MCP server '{self.config.name}': "
@@ -116,6 +162,9 @@ class MCPClient:
             if self.config.cache:
                 await self.list_tools()
 
+        except MCPTimeoutError:
+            await self._cleanup()
+            raise
         except Exception as e:
             # Clean up on failure
             await self._cleanup()
@@ -145,11 +194,14 @@ class MCPClient:
         await self._cleanup()
         self._tools = []
 
-    async def list_tools(self, force_refresh: bool = False) -> list[MCPToolInfo]:
+    async def list_tools(
+        self, force_refresh: bool = False, timeout: float = DEFAULT_LIST_TOOLS_TIMEOUT
+    ) -> list[MCPToolInfo]:
         """List tools available from this server.
 
         Args:
             force_refresh: If True, fetch fresh tool list even if cached.
+            timeout: Maximum time to wait for response (in seconds).
 
         Returns:
             List of available tools.
@@ -157,6 +209,7 @@ class MCPClient:
         Raises:
             MCPConnectionError: If not connected.
             MCPToolError: If listing tools fails.
+            MCPTimeoutError: If request times out.
         """
         if not self._connected or not self._session:
             raise MCPConnectionError(
@@ -168,7 +221,14 @@ class MCPClient:
             return self._tools
 
         try:
-            result = await self._session.list_tools()
+            try:
+                result = await asyncio.wait_for(
+                    self._session.list_tools(), timeout=timeout
+                )
+            except asyncio.TimeoutError:
+                raise MCPTimeoutError(
+                    f"Timeout listing tools from '{self.config.name}' after {timeout}s"
+                )
 
             # Convert MCP tools to our format
             tools = []
@@ -198,17 +258,50 @@ class MCPClient:
             )
             return tools
 
+        except MCPTimeoutError:
+            raise
         except Exception as e:
+            # Check if server crashed
+            if self._check_server_crashed():
+                raise MCPServerCrashedError(
+                    f"MCP server '{self.config.name}' has crashed"
+                ) from e
             raise MCPToolError(
                 f"Failed to list tools from MCP server '{self.config.name}': {e}"
             ) from e
 
-    async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> Any:
+    def _check_server_crashed(self) -> bool:
+        """Check if the server process has crashed.
+
+        Returns:
+            True if server appears to have crashed.
+        """
+        # Check if streams are closed
+        if self._read_stream is None or self._write_stream is None:
+            return True
+
+        # Check stream state if available
+        try:
+            # The read stream might have an at_eof() method
+            if hasattr(self._read_stream, "at_eof") and self._read_stream.at_eof():
+                return True
+        except Exception:
+            pass
+
+        return False
+
+    async def call_tool(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        timeout: float = DEFAULT_TOOL_TIMEOUT,
+    ) -> Any:
         """Invoke a tool on this server.
 
         Args:
             tool_name: Name of the tool to call (original name, not prefixed).
             arguments: Arguments to pass to the tool.
+            timeout: Maximum time to wait for tool execution (in seconds).
 
         Returns:
             Tool execution result.
@@ -216,6 +309,7 @@ class MCPClient:
         Raises:
             MCPConnectionError: If not connected.
             MCPToolError: If tool invocation fails.
+            MCPTimeoutError: If tool execution times out.
         """
         if not self._connected or not self._session:
             raise MCPConnectionError(
@@ -223,14 +317,40 @@ class MCPClient:
             )
 
         try:
-            result = await self._session.call_tool(tool_name, arguments)
+            try:
+                result = await asyncio.wait_for(
+                    self._session.call_tool(tool_name, arguments), timeout=timeout
+                )
+            except asyncio.TimeoutError:
+                raise MCPTimeoutError(
+                    f"Timeout calling tool '{tool_name}' on '{self.config.name}' "
+                    f"after {timeout}s",
+                    tool_name=tool_name,
+                )
+
+            # Check if the result indicates an error
+            if result.isError:
+                error_content = self._extract_result_content(result)
+                raise MCPToolError(
+                    f"Tool '{tool_name}' returned error: {error_content}",
+                    is_error=True,
+                    tool_name=tool_name,
+                )
 
             # Extract content from result
             return self._extract_result_content(result)
 
+        except (MCPTimeoutError, MCPToolError):
+            raise
         except Exception as e:
+            # Check if server crashed
+            if self._check_server_crashed():
+                raise MCPServerCrashedError(
+                    f"MCP server '{self.config.name}' has crashed during tool call"
+                ) from e
             raise MCPToolError(
-                f"Failed to call tool '{tool_name}' on server '{self.config.name}': {e}"
+                f"Failed to call tool '{tool_name}' on server '{self.config.name}': {e}",
+                tool_name=tool_name,
             ) from e
 
     def _extract_result_content(self, result: CallToolResult) -> Any:
@@ -267,6 +387,18 @@ class MCPClient:
                     else str(content)
                 )
         return results
+
+    async def reconnect(self, timeout: float = DEFAULT_CONNECT_TIMEOUT) -> None:
+        """Reconnect to the server.
+
+        Disconnects if connected, then connects again.
+
+        Args:
+            timeout: Maximum time to wait for connection (in seconds).
+        """
+        if self._connected:
+            await self.disconnect()
+        await self.connect(timeout=timeout)
 
     @property
     def is_connected(self) -> bool:

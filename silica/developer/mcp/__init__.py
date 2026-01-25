@@ -13,6 +13,8 @@ Key components:
 from silica.developer.mcp.client import (
     MCPClient,
     MCPConnectionError,
+    MCPServerCrashedError,
+    MCPTimeoutError,
     MCPToolError,
     MCPToolInfo,
 )
@@ -35,6 +37,8 @@ __all__ = [
     # Client
     "MCPClient",
     "MCPConnectionError",
+    "MCPServerCrashedError",
+    "MCPTimeoutError",
     "MCPToolError",
     "MCPToolInfo",
     # Config

@@ -12,6 +12,8 @@ from typing import Any
 from silica.developer.mcp.client import (
     MCPClient,
     MCPConnectionError,
+    MCPServerCrashedError,
+    MCPTimeoutError,
     MCPToolError,
     MCPToolInfo,
 )
@@ -20,6 +22,11 @@ from silica.developer.mcp.config import MCPConfig, MCPServerConfig
 __all__ = ["MCPToolManager", "ServerStatus"]
 
 logger = logging.getLogger(__name__)
+
+# Retry configuration
+DEFAULT_MAX_RETRIES = 3
+DEFAULT_RETRY_DELAY = 1.0  # seconds
+DEFAULT_RETRY_BACKOFF = 2.0  # multiplier
 
 
 @dataclass
@@ -113,15 +120,22 @@ class MCPToolManager:
 
         return results
 
-    async def connect_server(self, server_name: str) -> None:
-        """Connect to a specific server.
+    async def connect_server(
+        self,
+        server_name: str,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        retry_delay: float = DEFAULT_RETRY_DELAY,
+    ) -> None:
+        """Connect to a specific server with retry logic.
 
         Args:
             server_name: Name of the server to connect to.
+            max_retries: Maximum number of connection attempts.
+            retry_delay: Initial delay between retries (doubles each attempt).
 
         Raises:
             ValueError: If server is not in configuration.
-            MCPConnectionError: If connection fails.
+            MCPConnectionError: If all connection attempts fail.
         """
         if not self._config:
             raise ValueError("No configuration loaded. Call connect_servers() first.")
@@ -135,17 +149,48 @@ class MCPToolManager:
         if server_name in self._clients:
             await self.disconnect_server(server_name)
 
-        client = MCPClient(config=server_config)
-        await client.connect()
-        self._clients[server_name] = client
+        last_error: Exception | None = None
+        delay = retry_delay
 
-        # Update tool-to-server mapping
-        for tool in client.tools:
-            self._tool_to_server[tool.name] = server_name
+        for attempt in range(max_retries):
+            try:
+                client = MCPClient(config=server_config)
+                await client.connect()
+                self._clients[server_name] = client
 
-        logger.info(
-            f"Connected to MCP server '{server_name}' with {len(client.tools)} tools"
-        )
+                # Update tool-to-server mapping
+                for tool in client.tools:
+                    self._tool_to_server[tool.name] = server_name
+
+                logger.info(
+                    f"Connected to MCP server '{server_name}' with {len(client.tools)} tools"
+                )
+                return
+
+            except MCPTimeoutError as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    logger.warning(
+                        f"Timeout connecting to '{server_name}' "
+                        f"(attempt {attempt + 1}/{max_retries}), retrying in {delay}s..."
+                    )
+                    await asyncio.sleep(delay)
+                    delay *= DEFAULT_RETRY_BACKOFF
+
+            except MCPConnectionError as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    logger.warning(
+                        f"Failed to connect to '{server_name}' "
+                        f"(attempt {attempt + 1}/{max_retries}): {e}, retrying in {delay}s..."
+                    )
+                    await asyncio.sleep(delay)
+                    delay *= DEFAULT_RETRY_BACKOFF
+
+        # All retries exhausted
+        raise MCPConnectionError(
+            f"Failed to connect to MCP server '{server_name}' after {max_retries} attempts: {last_error}"
+        ) from last_error
 
     async def disconnect_server(self, server_name: str) -> None:
         """Disconnect from a specific server.
@@ -213,13 +258,17 @@ class MCPToolManager:
         return schemas
 
     async def call_tool(
-        self, prefixed_tool_name: str, arguments: dict[str, Any]
+        self,
+        prefixed_tool_name: str,
+        arguments: dict[str, Any],
+        auto_reconnect: bool = True,
     ) -> Any:
         """Invoke a tool by its prefixed name.
 
         Args:
             prefixed_tool_name: Tool name with server prefix (e.g., "mcp_sqlite_query").
             arguments: Arguments to pass to the tool.
+            auto_reconnect: If True, attempt to reconnect if server has crashed.
 
         Returns:
             Tool execution result.
@@ -243,7 +292,24 @@ class MCPToolManager:
                 f"Tool '{prefixed_tool_name}' not found on server '{server_name}'"
             )
 
-        return await client.call_tool(tool.original_name, arguments)
+        try:
+            return await client.call_tool(tool.original_name, arguments)
+        except MCPServerCrashedError as e:
+            if auto_reconnect:
+                logger.warning(
+                    f"Server '{server_name}' crashed, attempting reconnect..."
+                )
+                try:
+                    await self.connect_server(server_name)
+                    # Retry the tool call after reconnect
+                    client = self._clients.get(server_name)
+                    if client:
+                        return await client.call_tool(tool.original_name, arguments)
+                except MCPConnectionError as reconnect_error:
+                    raise MCPToolError(
+                        f"Server '{server_name}' crashed and reconnection failed: {reconnect_error}"
+                    ) from e
+            raise
 
     async def call_tool_on_server(
         self, server_name: str, tool_name: str, arguments: dict[str, Any]
@@ -398,6 +464,58 @@ class MCPToolManager:
         for client in self._clients.values():
             tools.extend(client.tools)
         return tools
+
+    def format_error_as_tool_result(self, error: Exception, tool_name: str) -> str:
+        """Format an MCP error as a tool result message.
+
+        Translates MCP errors to user-friendly messages suitable for
+        returning as tool results to the agent.
+
+        Args:
+            error: The exception that occurred.
+            tool_name: Name of the tool that was being called.
+
+        Returns:
+            Formatted error message.
+        """
+        if isinstance(error, MCPTimeoutError):
+            return (
+                f"Error: Tool '{tool_name}' timed out. "
+                "The operation took too long to complete. "
+                "Consider retrying or breaking down the request."
+            )
+        elif isinstance(error, MCPServerCrashedError):
+            return (
+                f"Error: The MCP server handling '{tool_name}' has crashed. "
+                "The server will be automatically restarted on the next request."
+            )
+        elif isinstance(error, MCPConnectionError):
+            return (
+                f"Error: Cannot connect to the server for '{tool_name}'. "
+                "The server may be unavailable or misconfigured."
+            )
+        elif isinstance(error, MCPToolError):
+            return f"Error: {error}"
+        else:
+            return f"Error calling '{tool_name}': {error}"
+
+    async def health_check(self) -> dict[str, bool]:
+        """Check health of all connected servers.
+
+        Attempts to list tools from each server to verify connectivity.
+
+        Returns:
+            Dictionary mapping server names to health status (True = healthy).
+        """
+        results = {}
+        for name, client in self._clients.items():
+            try:
+                await client.list_tools(force_refresh=True)
+                results[name] = True
+            except Exception as e:
+                logger.warning(f"Health check failed for '{name}': {e}")
+                results[name] = False
+        return results
 
     async def __aenter__(self) -> "MCPToolManager":
         """Async context manager entry."""
