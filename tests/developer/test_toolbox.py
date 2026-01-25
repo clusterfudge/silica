@@ -136,3 +136,72 @@ def test_schemas_match_tools(persona_base_dir):
     assert (
         all_tool_names == schema_names
     ), "Schema names should match tool names (built-in + user)"
+
+
+class TestToolboxMCPIntegration:
+    """Tests for MCP tool integration in Toolbox."""
+
+    def test_toolbox_accepts_mcp_manager(self, persona_base_dir):
+        """Test that Toolbox can be created with an MCP manager."""
+        from unittest.mock import MagicMock
+
+        context = AgentContext.create(
+            model_spec={},
+            sandbox_mode=SandboxMode.ALLOW_ALL,
+            sandbox_contents=[],
+            user_interface=MockUserInterface(),
+            persona_base_directory=persona_base_dir,
+        )
+
+        mock_manager = MagicMock()
+        mock_manager.get_all_tools.return_value = []
+        mock_manager.is_mcp_tool.return_value = False
+
+        toolbox = Toolbox(context, mcp_manager=mock_manager)
+        assert toolbox.mcp_manager is mock_manager
+
+    def test_toolbox_without_mcp_manager(self, persona_base_dir):
+        """Test that Toolbox works without MCP manager."""
+        context = AgentContext.create(
+            model_spec={},
+            sandbox_mode=SandboxMode.ALLOW_ALL,
+            sandbox_contents=[],
+            user_interface=MockUserInterface(),
+            persona_base_directory=persona_base_dir,
+        )
+
+        toolbox = Toolbox(context)
+        assert toolbox.mcp_manager is None
+
+    def test_schemas_include_mcp_tools(self, persona_base_dir):
+        """Test that MCP tools are included in schemas."""
+        from unittest.mock import MagicMock
+
+        from silica.developer.mcp.client import MCPToolInfo
+
+        context = AgentContext.create(
+            model_spec={},
+            sandbox_mode=SandboxMode.ALLOW_ALL,
+            sandbox_contents=[],
+            user_interface=MockUserInterface(),
+            persona_base_directory=persona_base_dir,
+        )
+
+        mock_tool = MCPToolInfo(
+            name="mcp_test_query",
+            description="Test MCP tool",
+            input_schema={"type": "object", "properties": {}},
+            server_name="test",
+            original_name="query",
+        )
+
+        mock_manager = MagicMock()
+        mock_manager.get_all_tools.return_value = [mock_tool]
+        mock_manager.is_mcp_tool.return_value = False
+
+        toolbox = Toolbox(context, mcp_manager=mock_manager)
+        schemas = toolbox.schemas(enable_caching=False)
+
+        # Check that MCP tool is in schemas
+        mcp_tool_names = [s["name"] for s in schemas if s["name"].startswith("mcp_")]
+        assert "mcp_test_query" in mcp_tool_names

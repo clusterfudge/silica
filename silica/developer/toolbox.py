@@ -1,7 +1,7 @@
 import json
 import os
 from datetime import datetime, timezone
-from typing import Callable, List, Dict
+from typing import TYPE_CHECKING, Callable, List, Dict
 
 from anthropic.types import MessageParam
 
@@ -25,6 +25,9 @@ from .tools.user_tools import (
     DiscoveredTool,
 )
 
+if TYPE_CHECKING:
+    from .mcp.manager import MCPToolManager
+
 
 try:
     from heare.developer.tools.google_auth_cli import GOOGLE_AUTH_CLI_TOOLS
@@ -40,9 +43,11 @@ class Toolbox:
         tools: List[str] | None = None,
         skip_user_tool_auth: bool = False,
         show_warnings: bool = True,
+        mcp_manager: "MCPToolManager | None" = None,
     ):
         self.context = context
         self.local = {}  # CLI tools
+        self.mcp_manager: "MCPToolManager | None" = mcp_manager
 
         if tool_names is not None:
             self.agent_tools = [
@@ -310,6 +315,10 @@ class Toolbox:
             tool_name = tool_use.name
             tool_use_id = getattr(tool_use, "id", "unknown_id")
 
+            # Check if this is an MCP tool (prefixed with mcp_)
+            if self.mcp_manager and self.mcp_manager.is_mcp_tool(tool_name):
+                return await self._invoke_mcp_tool(tool_use)
+
             # Check if this is a user-created tool (cached)
             if tool_name in self.user_tools:
                 return await self._invoke_user_tool(tool_use)
@@ -377,6 +386,49 @@ class Toolbox:
             "tool_use_id": tool_use_id,
             "content": content,
         }
+
+    async def _invoke_mcp_tool(self, tool_use) -> dict:
+        """Invoke an MCP server tool.
+
+        Routes the tool call to the appropriate MCP server based on
+        the tool name prefix.
+        """
+        tool_name = tool_use.name
+        tool_use_id = getattr(tool_use, "id", "unknown_id")
+        args = tool_use.input or {}
+
+        if not self.mcp_manager:
+            return {
+                "type": "tool_result",
+                "tool_use_id": tool_use_id,
+                "content": "MCP manager not available",
+            }
+
+        try:
+            result = await self.mcp_manager.call_tool(tool_name, args)
+
+            # Format the result as a string if it isn't already
+            if isinstance(result, str):
+                content = result
+            elif isinstance(result, list):
+                content = "\n".join(str(item) for item in result)
+            elif result is None:
+                content = "Tool completed successfully (no output)"
+            else:
+                content = json.dumps(result, indent=2, default=str)
+
+            return {
+                "type": "tool_result",
+                "tool_use_id": tool_use_id,
+                "content": content,
+            }
+
+        except Exception as e:
+            return {
+                "type": "tool_result",
+                "tool_use_id": tool_use_id,
+                "content": f"MCP tool error: {e}",
+            }
 
     def _process_user_tool_result(self, parsed: dict) -> list | str:
         """Process a parsed JSON result from a user tool.
@@ -3446,6 +3498,23 @@ Let's collaborate on creating a solid plan before implementation."""
             if tool.spec and tool.schema_valid:
                 schemas.append(tool.spec)
             # Silently skip invalid tools - they will be shown in /tools with errors
+
+        # MCP server tools (if manager is configured)
+        if self.mcp_manager:
+            try:
+                # Get MCP tool schemas synchronously from cache
+                # Note: For servers with cache=False, this will use cached tools
+                # The actual refresh happens at connection time or via refresh_mcp_tools()
+                mcp_tools = self.mcp_manager.get_all_tools()
+                for tool in mcp_tools:
+                    schemas.append(tool.to_anthropic_schema())
+            except Exception as e:
+                # Log but don't fail if MCP tools unavailable
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    f"Failed to get MCP tool schemas: {e}"
+                )
 
         if schemas and enable_caching:
             schemas[-1]["cache_control"] = {"type": "ephemeral"}
