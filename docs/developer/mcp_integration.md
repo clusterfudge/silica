@@ -1,0 +1,328 @@
+# MCP Integration
+
+Silica can act as an MCP (Model Context Protocol) host, allowing you to connect to external MCP servers and expose their tools to the AI agent.
+
+## Overview
+
+MCP is an open standard created by Anthropic for connecting AI applications to external systems. It provides a standardized way to expose tools, resources, and prompts from external servers.
+
+### Key Benefits
+
+- **Ecosystem Access**: Use existing MCP servers from the ecosystem (filesystem, database, web APIs)
+- **Standardized Integration**: No need to write custom user tools for common functionality
+- **Dynamic Tool Discovery**: Tools are discovered at runtime from external processes
+- **Interoperability**: Share server configurations with other MCP hosts (Claude Desktop, Cursor, etc.)
+
+## Configuration
+
+MCP servers are configured via JSON files. Silica supports three configuration levels, merged with the following precedence (highest first):
+
+1. **Per-Project**: `.silica/mcp_servers.json` in your project root
+2. **Per-Persona**: `~/.silica/personas/{persona}/mcp_servers.json`
+3. **Global**: `~/.silica/mcp_servers.json`
+
+### Basic Configuration Format
+
+```json
+{
+  "servers": {
+    "sqlite": {
+      "command": "uvx",
+      "args": ["mcp-server-sqlite", "--db-path", "/path/to/db.sqlite"],
+      "enabled": true,
+      "cache": true
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"],
+      "enabled": true
+    }
+  }
+}
+```
+
+### Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `command` | string | required | The command to run (e.g., `uvx`, `npx`, `python`) |
+| `args` | array | `[]` | Arguments to pass to the command |
+| `env` | object | `{}` | Environment variables for the server process |
+| `enabled` | boolean | `true` | Whether to auto-connect at startup |
+| `cache` | boolean | `true` | Whether to cache tool schemas (disable for development) |
+
+### Environment Variable Expansion
+
+Configuration values support environment variable expansion using `${VAR}` syntax:
+
+```json
+{
+  "servers": {
+    "myserver": {
+      "command": "uvx",
+      "args": ["mcp-server-sqlite", "--db-path", "${HOME}/data/db.sqlite"],
+      "env": {
+        "API_KEY": "${MY_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+You can also provide default values with `${VAR:-default}`:
+
+```json
+{
+  "args": ["--port", "${MCP_PORT:-8080}"]
+}
+```
+
+## Tool Naming
+
+To avoid collisions between servers that expose tools with the same name, MCP tools are prefixed with the server name:
+
+- Server `sqlite` with tool `query` becomes `mcp_sqlite_query`
+- Server `filesystem` with tool `read_file` becomes `mcp_filesystem_read_file`
+
+This ensures all tools have unique names in the agent's toolbox.
+
+## Using MCP Tools
+
+### From the Agent
+
+MCP tools are automatically available to the agent once servers are connected. The agent can use them just like any other tool:
+
+```
+I'll query the database for you using the MCP sqlite server.
+
+<tool_use name="mcp_sqlite_query">
+<input>{"sql": "SELECT * FROM users LIMIT 10"}</input>
+</tool_use>
+```
+
+### Managing Servers
+
+The agent can manage MCP servers dynamically using the built-in MCP tools:
+
+- `mcp_list_servers` - List all configured servers with status
+- `mcp_connect` - Connect to a server
+- `mcp_disconnect` - Disconnect from a server
+- `mcp_set_cache` - Toggle schema caching
+- `mcp_refresh` - Force refresh tool schemas
+- `mcp_list_tools` - List available tools
+
+## CLI Commands
+
+For interactive use, Silica provides `/mcp` CLI commands:
+
+### `/mcp` or `/mcp status`
+Show all servers with connection status, tool count, and cache settings:
+
+```
+MCP Servers:
+  sqlite      ✓ connected   12 tools   cache: on
+  filesystem  ✓ connected    5 tools   cache: on
+  my-dev      ✗ disconnected           cache: off
+```
+
+### `/mcp connect [server]`
+Connect to a specific server or all enabled servers:
+
+```
+/mcp connect sqlite
+/mcp connect          # Connect all enabled servers
+```
+
+### `/mcp disconnect [server]`
+Disconnect from a specific server or all servers:
+
+```
+/mcp disconnect sqlite
+/mcp disconnect       # Disconnect all
+```
+
+### `/mcp reconnect [server]`
+Reconnect to a server (useful after server restart):
+
+```
+/mcp reconnect sqlite
+```
+
+### `/mcp refresh [server]`
+Force refresh tool schemas (useful after server changes):
+
+```
+/mcp refresh sqlite
+/mcp refresh          # Refresh all
+```
+
+### `/mcp cache <server> <on|off>`
+Toggle schema caching for a server:
+
+```
+/mcp cache my-dev off   # Disable caching for development
+/mcp cache sqlite on
+```
+
+### `/mcp tools [server]`
+List tools available from servers:
+
+```
+/mcp tools sqlite
+
+sqlite (5 tools):
+  mcp_sqlite_query: Execute a SQL query
+  mcp_sqlite_insert: Insert data into a table
+  ...
+```
+
+## Development Mode
+
+When developing an MCP server, disable caching to see changes immediately:
+
+```json
+{
+  "servers": {
+    "my-dev-server": {
+      "command": "python",
+      "args": ["my_server.py"],
+      "cache": false
+    }
+  }
+}
+```
+
+With `cache: false`, Silica fetches fresh tool schemas before each API call. You can also toggle caching at runtime:
+
+```
+/mcp cache my-dev-server off
+```
+
+Or use the agent tool:
+```
+mcp_set_cache(server="my-dev-server", enabled=False)
+```
+
+## Popular MCP Servers
+
+### SQLite Database
+
+```json
+{
+  "servers": {
+    "sqlite": {
+      "command": "uvx",
+      "args": ["mcp-server-sqlite", "--db-path", "${HOME}/data/mydb.sqlite"]
+    }
+  }
+}
+```
+
+Install: `uvx mcp-server-sqlite --help`
+
+### Filesystem Access
+
+```json
+{
+  "servers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/directory"]
+    }
+  }
+}
+```
+
+Note: The server restricts access to the specified directory and its subdirectories.
+
+### GitHub
+
+```json
+{
+  "servers": {
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+### Brave Search
+
+```json
+{
+  "servers": {
+    "brave-search": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "env": {
+        "BRAVE_API_KEY": "${BRAVE_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+## Troubleshooting
+
+### Server Won't Connect
+
+1. **Check the command exists**: Run the command manually in your terminal
+2. **Check arguments**: Some servers require specific arguments
+3. **Check environment variables**: Ensure required env vars are set
+4. **Check logs**: MCP connection errors are logged at startup
+
+### Tools Not Appearing
+
+1. **Check server status**: `/mcp status`
+2. **Refresh schemas**: `/mcp refresh <server>`
+3. **Check tool prefixes**: Tools are prefixed with `mcp_<server>_`
+
+### Changes Not Reflected
+
+If you've modified your MCP server:
+
+1. Disable caching: `/mcp cache <server> off`
+2. Or reconnect: `/mcp reconnect <server>`
+3. Or refresh schemas: `/mcp refresh <server>`
+
+### Performance Issues
+
+- **Startup**: Many servers can slow startup. Disable unused servers with `"enabled": false`
+- **Schema fetching**: Enable caching (`"cache": true`) for production use
+- **Tool invocation**: Some servers have slow tools. Consider timeouts.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────┐
+│           Silica (MCP HOST)             │
+│  ┌──────────┐  ┌──────────┐  ┌────────┐ │
+│  │  Client  │  │  Client  │  │ Client │ │
+│  └────┬─────┘  └────┬─────┘  └───┬────┘ │
+└───────┼─────────────┼────────────┼──────┘
+        │ STDIO       │ STDIO      │ STDIO
+        ▼             ▼            ▼
+   ┌─────────┐   ┌─────────┐  ┌─────────┐
+   │ Server  │   │ Server  │  │ Server  │
+   │(sqlite) │   │(github) │  │(custom) │
+   └─────────┘   └─────────┘  └─────────┘
+```
+
+Silica manages MCP servers as subprocesses, communicating via STDIO (stdin/stdout). Each server:
+
+1. Is started when Silica connects
+2. Receives tool invocations via JSON-RPC over STDIO
+3. Returns results via STDIO
+4. Is terminated when Silica disconnects
+
+## Future Enhancements
+
+- HTTP transport support for remote MCP servers
+- MCP resource integration for context
+- OAuth and API key authentication flows
+- Server discovery and auto-configuration
