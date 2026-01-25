@@ -56,11 +56,13 @@ class IslandClient:
     def __init__(
         self,
         socket_path: str = DEFAULT_SOCKET_PATH,
-        agent_name: str = "silica",
+        app_name: str = "silica",
+        app_icon: str = "brain",
         agent_version: str = "1.0.0",
     ):
         self.socket_path = Path(socket_path).expanduser()
-        self.agent_name = agent_name
+        self.app_name = app_name
+        self.app_icon = app_icon
         self.agent_version = agent_version
 
         self._reader: Optional[asyncio.StreamReader] = None
@@ -293,7 +295,7 @@ class IslandClient:
         """
         try:
             params = HandshakeParams(
-                agent=self.agent_name,
+                agent=self.app_name,
                 agent_version=self.agent_version,
                 protocol_version=PROTOCOL_VERSION,
                 pid=os.getpid(),
@@ -340,7 +342,8 @@ class IslandClient:
         """
         params = SessionRegisterParams(
             session_id=session_id,
-            agent_type=self.agent_name,
+            app_name=self.app_name,
+            app_icon=self.app_icon,
             working_directory=working_directory,
             model=model,
             persona=persona,

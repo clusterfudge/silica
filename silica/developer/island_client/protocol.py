@@ -128,15 +128,17 @@ class SessionRegisterParams:
     """Parameters for session.register request."""
 
     session_id: str
-    agent_type: str
+    app_name: str
     working_directory: str
+    app_icon: str = "brain"
     model: Optional[str] = None
     persona: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         result = {
             "session_id": self.session_id,
-            "agent_type": self.agent_type,
+            "app_name": self.app_name,
+            "app_icon": self.app_icon,
             "working_directory": self.working_directory,
         }
         if self.model:
