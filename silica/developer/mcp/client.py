@@ -96,7 +96,8 @@ class MCPClient:
     _session: ClientSession | None = field(default=None, init=False)
     _read_stream: Any = field(default=None, init=False)
     _write_stream: Any = field(default=None, init=False)
-    _context_manager: Any = field(default=None, init=False)
+    _stdio_context: Any = field(default=None, init=False)
+    _session_context: Any = field(default=None, init=False)
 
     async def connect(self, timeout: float = DEFAULT_CONNECT_TIMEOUT) -> None:
         """Connect to the MCP server and perform capability negotiation.
@@ -119,16 +120,15 @@ class MCPClient:
                 env=self.config.env if self.config.env else None,
             )
 
-            # Create stdio transport with timeout
-            # stdio_client returns an async context manager
-            self._context_manager = stdio_client(server_params)
+            # Create stdio transport - use context manager properly
+            self._stdio_context = stdio_client(server_params)
 
             try:
                 (
                     self._read_stream,
                     self._write_stream,
                 ) = await asyncio.wait_for(
-                    self._context_manager.__aenter__(), timeout=timeout
+                    self._stdio_context.__aenter__(), timeout=timeout
                 )
             except asyncio.TimeoutError:
                 raise MCPTimeoutError(
@@ -136,8 +136,18 @@ class MCPClient:
                     f"after {timeout}s"
                 )
 
-            # Create and initialize session
-            self._session = ClientSession(self._read_stream, self._write_stream)
+            # Create session and use it as a context manager
+            # The MCP SDK requires ClientSession to be used with async with
+            self._session_context = ClientSession(self._read_stream, self._write_stream)
+            try:
+                self._session = await asyncio.wait_for(
+                    self._session_context.__aenter__(), timeout=timeout
+                )
+            except asyncio.TimeoutError:
+                raise MCPTimeoutError(
+                    f"Timeout creating session with '{self.config.name}' "
+                    f"after {timeout}s"
+                )
 
             # Initialize the session (runs the protocol handshake) with timeout
             try:
@@ -174,13 +184,24 @@ class MCPClient:
 
     async def _cleanup(self) -> None:
         """Clean up connection resources."""
-        self._session = None
-        if self._context_manager:
+        # Exit session context first
+        if self._session_context:
             try:
-                await self._context_manager.__aexit__(None, None, None)
+                await self._session_context.__aexit__(None, None, None)
             except Exception:
                 pass
-            self._context_manager = None
+            self._session_context = None
+
+        self._session = None
+
+        # Then exit stdio context
+        if self._stdio_context:
+            try:
+                await self._stdio_context.__aexit__(None, None, None)
+            except Exception:
+                pass
+            self._stdio_context = None
+
         self._read_stream = None
         self._write_stream = None
         self._connected = False
