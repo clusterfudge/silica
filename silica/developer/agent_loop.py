@@ -441,6 +441,8 @@ async def run(
     toolbox = Toolbox(
         agent_context, tool_names=tool_names, tools=tools, mcp_manager=mcp_manager
     )
+    # Store toolbox reference on context so tools can access it
+    agent_context.toolbox = toolbox
     if hasattr(user_interface, "set_toolbox"):
         user_interface.set_toolbox(toolbox)
 

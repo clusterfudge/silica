@@ -41,6 +41,7 @@ class AgentContext:
         None  # Base directory for history (defaults to ~/.silica/personas/default)
     )
     active_plan_id: str | None = None  # Currently active plan for this session
+    toolbox: Any = None  # Toolbox instance, set after context creation
     _chat_history: list[MessageParam] = None
     _tool_result_buffer: list[dict] = None
 
