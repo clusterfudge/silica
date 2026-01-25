@@ -43,6 +43,10 @@ class ToolPermissions:
         deny_groups: Set of group names that are explicitly denied
         shell_allowed_commands: Set of shell commands that are explicitly allowed
         shell_denied_commands: Set of shell commands that are explicitly denied
+        mcp_allowed_servers: Set of MCP server names that are allowed
+        mcp_denied_servers: Set of MCP server names that are denied
+        mcp_allowed_tools: Set of MCP tools in "server:tool" format that are allowed
+        mcp_denied_tools: Set of MCP tools in "server:tool" format that are denied
     """
 
     version: int = SCHEMA_VERSION
@@ -53,6 +57,11 @@ class ToolPermissions:
     deny_groups: Set[str] = field(default_factory=set)
     shell_allowed_commands: Set[str] = field(default_factory=set)
     shell_denied_commands: Set[str] = field(default_factory=set)
+    # MCP permissions
+    mcp_allowed_servers: Set[str] = field(default_factory=set)
+    mcp_denied_servers: Set[str] = field(default_factory=set)
+    mcp_allowed_tools: Set[str] = field(default_factory=set)  # "server:tool" format
+    mcp_denied_tools: Set[str] = field(default_factory=set)  # "server:tool" format
 
     @classmethod
     def load(cls, persona_dir: Path) -> Optional["ToolPermissions"]:
@@ -78,6 +87,7 @@ class ToolPermissions:
             allow_section = data.get("allow", {})
             deny_section = data.get("deny", {})
             shell_section = data.get("shell_permissions", {})
+            mcp_section = data.get("mcp_permissions", {})
 
             return cls(
                 version=data.get("version", SCHEMA_VERSION),
@@ -88,6 +98,10 @@ class ToolPermissions:
                 deny_groups=set(deny_section.get("groups", [])),
                 shell_allowed_commands=set(shell_section.get("allowed_commands", [])),
                 shell_denied_commands=set(shell_section.get("denied_commands", [])),
+                mcp_allowed_servers=set(mcp_section.get("allowed_servers", [])),
+                mcp_denied_servers=set(mcp_section.get("denied_servers", [])),
+                mcp_allowed_tools=set(mcp_section.get("allowed_tools", [])),
+                mcp_denied_tools=set(mcp_section.get("denied_tools", [])),
             )
         except (json.JSONDecodeError, KeyError, TypeError):
             # Invalid JSON or structure - treat as no config
@@ -118,6 +132,12 @@ class ToolPermissions:
             "shell_permissions": {
                 "allowed_commands": sorted(list(self.shell_allowed_commands)),
                 "denied_commands": sorted(list(self.shell_denied_commands)),
+            },
+            "mcp_permissions": {
+                "allowed_servers": sorted(list(self.mcp_allowed_servers)),
+                "denied_servers": sorted(list(self.mcp_denied_servers)),
+                "allowed_tools": sorted(list(self.mcp_allowed_tools)),
+                "denied_tools": sorted(list(self.mcp_denied_tools)),
             },
         }
 
@@ -167,6 +187,81 @@ class ToolPermissions:
             )
 
             return not is_denied
+
+    def is_mcp_tool_allowed(self, server_name: str, tool_name: str) -> bool:
+        """Check if an MCP tool is allowed based on current permissions.
+
+        Args:
+            server_name: Name of the MCP server
+            tool_name: Name of the tool on that server (original name, not prefixed)
+
+        Returns:
+            True if the MCP tool is allowed, False otherwise.
+
+        Resolution logic:
+            Allowlist mode:
+                1. Server must be in mcp_allowed_servers OR tool in mcp_allowed_tools
+                2. Then check deny lists
+
+            Denylist mode:
+                1. Tool is allowed unless server in mcp_denied_servers OR tool in mcp_denied_tools
+
+        The mcp_allowed_tools and mcp_denied_tools use "server:tool" format for
+        granular per-tool control.
+        """
+        tool_key = f"{server_name}:{tool_name}"
+
+        if self.mode == "allowlist":
+            # Must be explicitly allowed first
+            is_allowed = (
+                server_name in self.mcp_allowed_servers
+                or tool_key in self.mcp_allowed_tools
+            )
+
+            if not is_allowed:
+                return False
+
+            # Then check deny list for exceptions
+            is_denied = (
+                server_name in self.mcp_denied_servers
+                or tool_key in self.mcp_denied_tools
+            )
+
+            return not is_denied
+
+        else:  # denylist mode
+            # Allowed unless explicitly denied
+            is_denied = (
+                server_name in self.mcp_denied_servers
+                or tool_key in self.mcp_denied_tools
+            )
+
+            return not is_denied
+
+    def is_mcp_server_allowed(self, server_name: str) -> bool:
+        """Check if an MCP server is allowed (can connect at all).
+
+        Args:
+            server_name: Name of the MCP server
+
+        Returns:
+            True if the server is allowed to connect.
+
+        Note: Even if a server is allowed, individual tools may still be denied.
+        """
+        if self.mode == "allowlist":
+            # Server must be in allowed list or have any tools in allowed_tools
+            is_allowed = server_name in self.mcp_allowed_servers or any(
+                t.startswith(f"{server_name}:") for t in self.mcp_allowed_tools
+            )
+            if not is_allowed:
+                return False
+
+            # Check if server is in deny list
+            return server_name not in self.mcp_denied_servers
+
+        else:  # denylist mode
+            return server_name not in self.mcp_denied_servers
 
 
 class PermissionsManager:
@@ -369,6 +464,130 @@ class PermissionsManager:
             self.permissions.shell_allowed_commands.discard(command)
         else:
             self.permissions.shell_denied_commands.discard(command)
+
+    def filter_mcp_tools(self, tools: List[dict], server_name: str) -> List[dict]:
+        """Filter MCP tools from a server based on permissions.
+
+        Args:
+            tools: List of Anthropic-format tool schemas from an MCP server
+            server_name: Name of the MCP server these tools come from
+
+        Returns:
+            Filtered list of tool schemas that are allowed.
+            If dwr_mode is True, returns all tools.
+            If no permissions file exists, returns empty list.
+        """
+        if self.dwr_mode:
+            return tools
+
+        if self.permissions is None:
+            return []
+
+        from silica.developer.mcp.schema import unprefix_tool_name
+
+        filtered = []
+        for tool in tools:
+            tool_name = tool.get("name", "")
+            # Get original tool name by stripping the mcp_ prefix
+            unprefixed = unprefix_tool_name(tool_name)
+            if unprefixed is None:
+                # Not a prefixed MCP tool name, skip
+                continue
+            parsed_server, original_name = unprefixed
+            # Verify server name matches
+            if parsed_server != server_name:
+                continue
+            if self.permissions.is_mcp_tool_allowed(server_name, original_name):
+                filtered.append(tool)
+
+        return filtered
+
+    def is_mcp_server_allowed(self, server_name: str) -> bool:
+        """Check if an MCP server is allowed to connect.
+
+        Args:
+            server_name: Name of the MCP server
+
+        Returns:
+            True if the server is allowed.
+            If dwr_mode is True, always returns True.
+            If no permissions file exists, returns False.
+        """
+        if self.dwr_mode:
+            return True
+
+        if self.permissions is None:
+            return False
+
+        return self.permissions.is_mcp_server_allowed(server_name)
+
+    def add_mcp_server(self, server_name: str, allow: bool = True) -> None:
+        """Add an MCP server to the allow or deny list.
+
+        Args:
+            server_name: Name of the MCP server
+            allow: If True, add to allow list; if False, add to deny list
+        """
+        if self.permissions is None:
+            self.permissions = ToolPermissions()
+
+        if allow:
+            self.permissions.mcp_allowed_servers.add(server_name)
+        else:
+            self.permissions.mcp_denied_servers.add(server_name)
+
+    def remove_mcp_server(self, server_name: str, from_allow: bool = True) -> None:
+        """Remove an MCP server from the allow or deny list.
+
+        Args:
+            server_name: Name of the MCP server
+            from_allow: If True, remove from allow list; if False, remove from deny list
+        """
+        if self.permissions is None:
+            return
+
+        if from_allow:
+            self.permissions.mcp_allowed_servers.discard(server_name)
+        else:
+            self.permissions.mcp_denied_servers.discard(server_name)
+
+    def add_mcp_tool(
+        self, server_name: str, tool_name: str, allow: bool = True
+    ) -> None:
+        """Add a specific MCP tool to the allow or deny list.
+
+        Args:
+            server_name: Name of the MCP server
+            tool_name: Name of the tool (original name, not prefixed)
+            allow: If True, add to allow list; if False, add to deny list
+        """
+        if self.permissions is None:
+            self.permissions = ToolPermissions()
+
+        tool_key = f"{server_name}:{tool_name}"
+        if allow:
+            self.permissions.mcp_allowed_tools.add(tool_key)
+        else:
+            self.permissions.mcp_denied_tools.add(tool_key)
+
+    def remove_mcp_tool(
+        self, server_name: str, tool_name: str, from_allow: bool = True
+    ) -> None:
+        """Remove a specific MCP tool from the allow or deny list.
+
+        Args:
+            server_name: Name of the MCP server
+            tool_name: Name of the tool (original name, not prefixed)
+            from_allow: If True, remove from allow list; if False, remove from deny list
+        """
+        if self.permissions is None:
+            return
+
+        tool_key = f"{server_name}:{tool_name}"
+        if from_allow:
+            self.permissions.mcp_allowed_tools.discard(tool_key)
+        else:
+            self.permissions.mcp_denied_tools.discard(tool_key)
 
     def save(self) -> None:
         """Save the current permissions to disk."""
