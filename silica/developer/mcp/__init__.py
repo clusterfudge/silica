@@ -32,6 +32,12 @@ from silica.developer.mcp.schema import (
     unprefix_tool_name,
     validate_tool_schema,
 )
+from silica.developer.mcp.credentials import (
+    MCPCredentialStore,
+    OAuthCredentials,
+    APIKeyCredentials,
+    Credentials,
+)
 
 __all__ = [
     # Client
@@ -55,4 +61,9 @@ __all__ = [
     "prefix_tool_name",
     "unprefix_tool_name",
     "validate_tool_schema",
+    # Credentials
+    "MCPCredentialStore",
+    "OAuthCredentials",
+    "APIKeyCredentials",
+    "Credentials",
 ]
