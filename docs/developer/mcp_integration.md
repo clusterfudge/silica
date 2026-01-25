@@ -176,6 +176,38 @@ sqlite (5 tools):
   ...
 ```
 
+### `/mcp auth <server>`
+Authenticate with an MCP server that requires credentials:
+
+```
+/mcp auth gmail
+Starting oauth authentication for 'gmail'...
+Opening browser for authorization...
+Enter the authorization code: <paste code>
+✓ Successfully authenticated 'gmail'
+```
+
+### `/mcp auth revoke <server>`
+Revoke stored credentials for a server:
+
+```
+/mcp auth revoke gmail
+✓ Credentials revoked for 'gmail'
+Re-authentication will be required to use this server.
+```
+
+### `/mcp auth` (no server)
+Show authentication status for all servers with auth configuration:
+
+```
+/mcp auth
+
+MCP Authentication Status:
+  gmail: oauth - ✓ authenticated
+           expires in 4.2 hours
+  openai: api_key - ✗ not configured
+```
+
 ## Development Mode
 
 When developing an MCP server, disable caching to see changes immediately:
@@ -445,9 +477,82 @@ Silica manages MCP servers as subprocesses, communicating via STDIO (stdin/stdou
 3. Returns results via STDIO
 4. Is terminated when Silica disconnects
 
+## Authentication
+
+MCP servers can require authentication, which Silica handles through stored credentials.
+
+### Configuration
+
+Add an `auth` section to your server configuration:
+
+```json
+{
+  "servers": {
+    "gmail": {
+      "command": "uvx",
+      "args": ["mcp-server-gmail"],
+      "auth": {
+        "type": "oauth",
+        "client_id": "${GOOGLE_CLIENT_ID}",
+        "scopes": ["gmail.send", "gmail.readonly"]
+      }
+    },
+    "openai": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-openai"],
+      "auth": {
+        "type": "api_key"
+      }
+    }
+  }
+}
+```
+
+### Auth Types
+
+| Type | Description |
+|------|-------------|
+| `oauth` | OAuth 2.0 flow with browser authorization |
+| `api_key` | Simple API key credential |
+
+### OAuth Configuration Options
+
+| Option | Description |
+|--------|-------------|
+| `client_id` | OAuth client ID |
+| `client_secret` | OAuth client secret (optional for public clients) |
+| `scopes` | List of OAuth scopes to request |
+| `auth_url` | Authorization URL (in `extra` dict) |
+| `token_url` | Token URL (in `extra` dict) |
+| `redirect_uri` | Redirect URI (in `extra` dict, default: `http://localhost:8085/callback`) |
+
+### Managing Credentials
+
+**Authenticate**: Use `/mcp auth <server>` to initiate authentication
+
+**Check Status**: Use `/mcp auth` or `/mcp status` to see auth status
+
+**Revoke**: Use `/mcp auth revoke <server>` to clear stored credentials
+
+### Credential Storage
+
+Credentials are stored securely:
+
+1. **Keyring** (preferred): Uses the system keychain (macOS Keychain, Linux Secret Service)
+2. **File fallback**: Encrypted file at `~/.silica/mcp_credentials.json`
+
+OAuth tokens are automatically refreshed when they expire.
+
+### Agent Auth Tools
+
+The agent can also manage authentication:
+
+- `mcp_auth(server)` - Initiate authentication
+- `mcp_auth_revoke(server)` - Revoke credentials  
+- `mcp_auth_status(server)` - Check auth status
+
 ## Future Enhancements
 
 - HTTP transport support for remote MCP servers
 - MCP resource integration for context
-- OAuth and API key authentication flows
 - Server discovery and auto-configuration
