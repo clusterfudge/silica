@@ -345,27 +345,21 @@ async def _initialize_mcp(
     logger = logging.getLogger(__name__)
 
     try:
-        # Determine config paths based on context
-        global_path = Path.home() / ".silica" / "mcp_servers.json"
-        persona_path = None
-        project_path = None
-
+        # Determine persona name from history_base_dir
+        persona_name = None
         if agent_context.history_base_dir:
-            persona_path = agent_context.history_base_dir / "mcp_servers.json"
+            # Extract persona name from path like ~/.silica/personas/{persona_name}
+            history_path = Path(agent_context.history_base_dir)
+            if history_path.parent.name == "personas":
+                persona_name = history_path.name
 
-        # Check for project-level config in working directory
-        cwd = Path.cwd()
-        project_config = cwd / ".silica" / "mcp_servers.json"
-        if project_config.exists():
-            project_path = project_config
+        # Get project root from working directory
+        project_root = Path.cwd()
 
-        # Load merged config
+        # Load merged config (function handles path construction internally)
         config = load_mcp_config(
-            global_path=global_path if global_path.exists() else None,
-            persona_path=persona_path
-            if persona_path and persona_path.exists()
-            else None,
-            project_path=project_path,
+            project_root=project_root,
+            persona=persona_name,
         )
 
         if not config or not config.servers:
