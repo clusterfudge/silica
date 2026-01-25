@@ -1,0 +1,48 @@
+{
+  "servers": {
+    "sqlite": {
+      "command": "uvx",
+      "args": [
+        "mcp-server-sqlite",
+        "--db-path",
+        "${DATABASE_PATH:-${HOME}/data/default.sqlite}"
+      ],
+      "enabled": true,
+      "cache": true
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "${PROJECT_ROOT:-${HOME}/projects}"
+      ],
+      "enabled": true,
+      "cache": true
+    },
+    "github": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-github"
+      ],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+      },
+      "enabled": true,
+      "cache": true
+    },
+    "my-dev-server": {
+      "command": "python",
+      "args": [
+        "${HOME}/projects/my-mcp-server/server.py"
+      ],
+      "env": {
+        "DEBUG": "1",
+        "API_KEY": "${MY_DEV_API_KEY}"
+      },
+      "enabled": false,
+      "cache": false
+    }
+  }
+}
