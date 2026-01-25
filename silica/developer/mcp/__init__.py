@@ -10,16 +10,45 @@ Key components:
 - Schema utilities: Convert between MCP and Anthropic tool schemas
 """
 
-from silica.developer.mcp.config import MCPConfig, MCPServerConfig
-from silica.developer.mcp.client import MCPClient
-from silica.developer.mcp.manager import MCPToolManager
-from silica.developer.mcp.schema import mcp_to_anthropic_schema, anthropic_to_mcp_schema
+from silica.developer.mcp.client import (
+    MCPClient,
+    MCPConnectionError,
+    MCPToolError,
+    MCPToolInfo,
+)
+from silica.developer.mcp.config import (
+    MCPAuthConfig,
+    MCPConfig,
+    MCPServerConfig,
+    load_mcp_config,
+)
+from silica.developer.mcp.manager import MCPToolManager, ServerStatus
+from silica.developer.mcp.schema import (
+    anthropic_to_mcp_schema,
+    mcp_to_anthropic_schema,
+    prefix_tool_name,
+    unprefix_tool_name,
+    validate_tool_schema,
+)
 
 __all__ = [
+    # Client
+    "MCPClient",
+    "MCPConnectionError",
+    "MCPToolError",
+    "MCPToolInfo",
+    # Config
     "MCPConfig",
     "MCPServerConfig",
-    "MCPClient",
+    "MCPAuthConfig",
+    "load_mcp_config",
+    # Manager
     "MCPToolManager",
+    "ServerStatus",
+    # Schema
     "mcp_to_anthropic_schema",
     "anthropic_to_mcp_schema",
+    "prefix_tool_name",
+    "unprefix_tool_name",
+    "validate_tool_schema",
 ]
