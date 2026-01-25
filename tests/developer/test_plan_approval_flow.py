@@ -217,7 +217,8 @@ class TestApprovalPolicy:
 class TestAutoPromotionLogic:
     """Tests for auto-promotion logic in complete_plan_task and verify_plan_task."""
 
-    def test_exploration_task_completes_without_approval(
+    @pytest.mark.asyncio
+    async def test_exploration_task_completes_without_approval(
         self, mock_context, temp_persona_dir
     ):
         """Exploration tasks can be completed without plan approval."""
@@ -230,7 +231,7 @@ class TestAutoPromotionLogic:
         task = plan.add_task("Research", category=CATEGORY_EXPLORATION)
         plan_manager.update_plan(plan)
 
-        result = complete_plan_task(mock_context, plan.id, task.id)
+        result = await complete_plan_task(mock_context, plan.id, task.id)
 
         assert "completed" in result.lower()
         assert "exploration" in result.lower()
@@ -239,7 +240,8 @@ class TestAutoPromotionLogic:
         assert updated.tasks[0].completed
         assert updated.status == PlanStatus.DRAFT  # Not promoted
 
-    def test_implementation_task_blocked_interactive(
+    @pytest.mark.asyncio
+    async def test_implementation_task_blocked_interactive(
         self, mock_context, temp_persona_dir
     ):
         """Implementation tasks are blocked on unapproved interactive plans."""
@@ -253,7 +255,7 @@ class TestAutoPromotionLogic:
         task = plan.add_task("Implement feature")
         plan_manager.update_plan(plan)
 
-        result = complete_plan_task(mock_context, plan.id, task.id)
+        result = await complete_plan_task(mock_context, plan.id, task.id)
 
         assert "not approved" in result.lower()
         assert "request_plan_approval" in result
@@ -262,7 +264,8 @@ class TestAutoPromotionLogic:
         assert not updated.tasks[0].completed
         assert updated.status == PlanStatus.DRAFT
 
-    def test_implementation_task_auto_promotes_autonomous(
+    @pytest.mark.asyncio
+    async def test_implementation_task_auto_promotes_autonomous(
         self, mock_context, temp_persona_dir
     ):
         """Implementation tasks auto-promote autonomous plans."""
@@ -276,7 +279,7 @@ class TestAutoPromotionLogic:
         task = plan.add_task("Implement feature")
         plan_manager.update_plan(plan)
 
-        result = complete_plan_task(mock_context, plan.id, task.id)
+        result = await complete_plan_task(mock_context, plan.id, task.id)
 
         assert "completed" in result.lower()
         assert "auto-promoted" in result.lower()
@@ -286,7 +289,8 @@ class TestAutoPromotionLogic:
         assert updated.status == PlanStatus.IN_PROGRESS
         assert updated.approval_mode == APPROVAL_MODE_AGENT
 
-    def test_implementation_task_allowed_on_approved_plan(
+    @pytest.mark.asyncio
+    async def test_implementation_task_allowed_on_approved_plan(
         self, mock_context, temp_persona_dir
     ):
         """Implementation tasks work normally on approved plans."""
@@ -304,12 +308,13 @@ class TestAutoPromotionLogic:
         plan_manager.approve_plan(plan.id)
         plan_manager.start_execution(plan.id)
 
-        result = complete_plan_task(mock_context, plan.id, task.id)
+        result = await complete_plan_task(mock_context, plan.id, task.id)
 
         assert "completed" in result.lower()
         assert "auto-promoted" not in result.lower()
 
-    def test_verify_exploration_task_without_approval(
+    @pytest.mark.asyncio
+    async def test_verify_exploration_task_without_approval(
         self, mock_context, temp_persona_dir
     ):
         """Exploration tasks can be verified without plan approval."""
@@ -323,7 +328,9 @@ class TestAutoPromotionLogic:
         plan.complete_task(task.id)
         plan_manager.update_plan(plan)
 
-        result = verify_plan_task(mock_context, plan.id, task.id, "Research complete")
+        result = await verify_plan_task(
+            mock_context, plan.id, task.id, "Research complete"
+        )
 
         assert "verified" in result.lower()
 
