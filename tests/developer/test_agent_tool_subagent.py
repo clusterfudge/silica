@@ -6,7 +6,7 @@ from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 from silica.developer.context import AgentContext
-from silica.developer.tools.subagent import agent
+from silica.developer.tools.subagent import agent, _parse_mcp_servers
 from silica.developer.memory import MemoryManager
 
 
@@ -185,3 +185,51 @@ async def test_agent_tool_nested_context_save(
             assert saved_data["session_id"] == captured_agent_context.session_id
             assert saved_data["parent_session_id"] == parent_context.session_id
             assert saved_data["messages"] == chat_history
+
+
+class TestParseMcpServers:
+    """Tests for _parse_mcp_servers function."""
+
+    def test_parse_none(self):
+        """Test parsing None."""
+        assert _parse_mcp_servers(None) is None
+
+    def test_parse_empty_string(self):
+        """Test parsing empty string."""
+        assert _parse_mcp_servers("") is None
+        assert _parse_mcp_servers("   ") is None
+
+    def test_parse_single_server_name(self):
+        """Test parsing single server name."""
+        result = _parse_mcp_servers("sqlite")
+        assert result == ["sqlite"]
+
+    def test_parse_multiple_server_names(self):
+        """Test parsing comma-separated server names."""
+        result = _parse_mcp_servers("sqlite,github,filesystem")
+        assert result == ["sqlite", "github", "filesystem"]
+
+    def test_parse_server_names_with_spaces(self):
+        """Test parsing server names with spaces."""
+        result = _parse_mcp_servers("sqlite, github , filesystem")
+        assert result == ["sqlite", "github", "filesystem"]
+
+    def test_parse_json_config(self):
+        """Test parsing inline JSON config."""
+        config = '{"sqlite": {"command": "uvx", "args": ["mcp-server-sqlite"]}}'
+        result = _parse_mcp_servers(config)
+        assert isinstance(result, dict)
+        assert "sqlite" in result
+        assert result["sqlite"]["command"] == "uvx"
+
+    def test_parse_invalid_json(self):
+        """Test parsing invalid JSON raises ValueError."""
+        with pytest.raises(ValueError, match="Invalid MCP server JSON"):
+            _parse_mcp_servers("{invalid json}")
+
+    def test_parse_json_with_whitespace(self):
+        """Test parsing JSON with leading whitespace."""
+        config = '  {"test": {"command": "python"}}'
+        result = _parse_mcp_servers(config)
+        assert isinstance(result, dict)
+        assert "test" in result

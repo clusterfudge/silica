@@ -1,4 +1,5 @@
 import contextlib
+import json
 import re
 from typing import Any, List
 
@@ -10,6 +11,12 @@ from .framework import tool
 from silica.developer.user_interface import UserInterface
 from ..utils import wrap_text_as_content_block
 
+# Type hint imports
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from silica.developer.mcp import MCPToolManager, MCPConfig
+
 
 @tool(group="Agent")
 async def agent(
@@ -17,6 +24,7 @@ async def agent(
     prompt: str,
     tool_names: str = None,
     model: str = None,
+    mcp_servers: str = None,
     tool_use_id: str = None,
 ):
     """Run a prompt through a sub-agent with a limited set of tools.
@@ -44,6 +52,10 @@ async def agent(
             - "advances": Use Claude 4 Opus - most advanced tasks requiring deeper reasoning, use sparingly.
 
               If not provided or invalid, uses the parent context's model.
+        mcp_servers: optional MCP servers for the sub-agent. Can be:
+            - Comma-separated server names referencing configured servers (e.g., "sqlite,github")
+            - JSON object with inline server definitions (e.g., '{"sqlite": {"command": "uvx", "args": ["mcp-server-sqlite"]}}')
+            The sub-agent gets its own isolated MCP connections (not shared with parent).
         tool_use_id: Internal parameter provided by the framework, used as the session ID for the sub-agent.
     """
 
@@ -53,14 +65,48 @@ async def agent(
         else []
     )
 
+    # Parse mcp_servers parameter
+    mcp_config = _parse_mcp_servers(mcp_servers)
+
     return await run_agent(
         context,
         prompt,
         tool_names_list,
         system=None,
         model=model,
+        mcp_servers=mcp_config,
         tool_use_id=tool_use_id,
     )
+
+
+def _parse_mcp_servers(mcp_servers: str | None) -> dict | list[str] | None:
+    """Parse the mcp_servers parameter.
+
+    Args:
+        mcp_servers: Either comma-separated server names or JSON config
+
+    Returns:
+        - None if no servers specified
+        - List of server names for named references
+        - Dict of server configs for inline definitions
+    """
+    if not mcp_servers:
+        return None
+
+    mcp_servers = mcp_servers.strip()
+    if not mcp_servers:
+        return None
+
+    # Try parsing as JSON first
+    if mcp_servers.startswith("{"):
+        try:
+            return json.loads(mcp_servers)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid MCP server JSON: {e}")
+
+    # Otherwise, treat as comma-separated server names
+    names = [name.strip() for name in mcp_servers.split(",") if name.strip()]
+    return names if names else None
 
 
 async def run_agent(
@@ -69,6 +115,7 @@ async def run_agent(
     tool_names: List[str],
     system: str | None = None,
     model: str = None,
+    mcp_servers: dict | list[str] | None = None,
     tool_use_id: str = None,
 ):
     from silica.developer.agent_loop import run
@@ -105,6 +152,9 @@ async def run_agent(
                     # Update the sub_agent_context with the model spec from MODEL_MAP
                     sub_agent_context.model_spec = MODEL_MAP[model_key]
 
+        # Set up MCP manager for subagent if configured
+        mcp_manager = await _setup_subagent_mcp(mcp_servers, context, ui)
+
         try:
             system_block = wrap_text_as_content_block(system) if system else None
             # Run the agent with single response mode
@@ -114,6 +164,7 @@ async def run_agent(
                 system_prompt=system_block,
                 single_response=True,
                 tool_names=tool_names,
+                mcp_manager=mcp_manager,
             )
 
             # Make sure the chat history is flushed in case run() didn't do it
@@ -142,6 +193,125 @@ async def run_agent(
                 sub_agent_context.flush(chat_history)
             # Re-raise the exception
             raise
+        finally:
+            # Clean up MCP connections if we created them
+            if mcp_manager is not None:
+                await mcp_manager.disconnect_all()
+
+
+async def _setup_subagent_mcp(
+    mcp_servers: dict | list[str] | None,
+    context: "AgentContext",
+    ui: "UserInterface",
+) -> "MCPToolManager | None":
+    """Set up MCP manager for a subagent.
+
+    Args:
+        mcp_servers: Either server names or inline config
+        context: Parent agent context (for loading named servers)
+        ui: User interface for status messages
+
+    Returns:
+        MCPToolManager or None if no servers configured
+    """
+    if not mcp_servers:
+        return None
+
+    try:
+        from silica.developer.mcp import MCPToolManager
+
+        manager = MCPToolManager()
+
+        if isinstance(mcp_servers, list):
+            # Named server references - load from parent's config
+            config = _load_named_servers(mcp_servers, context)
+            if config:
+                await manager.connect_servers(config)
+        elif isinstance(mcp_servers, dict):
+            # Inline server definitions
+            config = _parse_inline_config(mcp_servers)
+            if config:
+                await manager.connect_servers(config)
+
+        return manager if manager._clients else None
+
+    except ImportError:
+        # MCP not available
+        return None
+    except Exception as e:
+        # Log error but don't fail the subagent
+        import logging
+
+        logging.getLogger(__name__).warning(f"Failed to set up MCP for subagent: {e}")
+        return None
+
+
+def _load_named_servers(
+    server_names: list[str], context: "AgentContext"
+) -> "MCPConfig | None":
+    """Load named MCP servers from the parent's config."""
+    from pathlib import Path
+
+    try:
+        from silica.developer.mcp import load_mcp_config
+
+        # Determine config paths based on context
+        global_path = Path.home() / ".silica" / "mcp_servers.json"
+        persona_path = None
+        project_path = None
+
+        if context.history_base_dir:
+            persona_path = context.history_base_dir / "mcp_servers.json"
+
+        # Check for project-level config in working directory
+        cwd = Path.cwd()
+        project_config = cwd / ".silica" / "mcp_servers.json"
+        if project_config.exists():
+            project_path = project_config
+
+        # Load merged config
+        full_config = load_mcp_config(
+            global_path=global_path if global_path.exists() else None,
+            persona_path=persona_path
+            if persona_path and persona_path.exists()
+            else None,
+            project_path=project_path,
+        )
+
+        if not full_config:
+            return None
+
+        # Filter to only the requested servers
+        from silica.developer.mcp import MCPConfig
+
+        filtered_servers = {
+            name: cfg
+            for name, cfg in full_config.servers.items()
+            if name in server_names
+        }
+
+        if not filtered_servers:
+            return None
+
+        return MCPConfig(servers=filtered_servers)
+
+    except Exception:
+        return None
+
+
+def _parse_inline_config(config_dict: dict) -> "MCPConfig | None":
+    """Parse inline MCP server configuration."""
+    try:
+        from silica.developer.mcp import MCPConfig, MCPServerConfig
+
+        servers = {}
+        for name, cfg in config_dict.items():
+            servers[name] = MCPServerConfig.from_dict(name, cfg)
+
+        return MCPConfig(servers=servers) if servers else None
+
+    except Exception:
+        return None
 
 
 class CaptureInterface(UserInterface):
