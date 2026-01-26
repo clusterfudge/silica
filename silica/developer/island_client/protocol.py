@@ -244,3 +244,28 @@ class ErrorCode:
     DIALOG_NOT_FOUND = -32000
     SESSION_NOT_FOUND = -32001
     PROTOCOL_MISMATCH = -32002
+
+
+# ========== Server-Initiated Notifications ==========
+# These are sent FROM the Island server TO the client
+
+
+@dataclass
+class InputReceivedParams:
+    """Parameters for input.received notification (server -> client).
+
+    Sent when a user types a message in the Island UI chat interface.
+    The client should process this as user input to the agent.
+    """
+
+    session_id: str
+    content: str
+    message_id: str
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "InputReceivedParams":
+        return cls(
+            session_id=data.get("session_id", ""),
+            content=data.get("content", ""),
+            message_id=data.get("message_id", ""),
+        )

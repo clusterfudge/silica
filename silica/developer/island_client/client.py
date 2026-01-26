@@ -36,6 +36,9 @@ DEFAULT_SOCKET_PATH = "~/.agent-island/agent.sock"
 PROTOCOL_VERSION = "1.0"
 
 
+InputCallback = Any  # Callable[[str, str, str], Awaitable[None]] - (session_id, content, message_id)
+
+
 class IslandClient:
     """Async client for Agent Island IPC communication.
 
@@ -51,6 +54,12 @@ class IslandClient:
             result = await client.permission_request(...)
         finally:
             await client.disconnect()
+
+    For bidirectional chat, register an input callback:
+        async def handle_input(session_id: str, content: str, message_id: str):
+            print(f"User said: {content}")
+
+        client.on_input_received = handle_input
     """
 
     def __init__(
@@ -73,6 +82,10 @@ class IslandClient:
         self._connected = False
         self._island_version: Optional[str] = None
         self._supported_methods: List[str] = []
+
+        # Callback for user input from Island UI (bidirectional chat)
+        # Signature: async def callback(session_id: str, content: str, message_id: str)
+        self.on_input_received: Optional[InputCallback] = None
 
     @property
     def connected(self) -> bool:
@@ -185,7 +198,9 @@ class IslandClient:
                         if not future.done():
                             future.set_result(response)
 
-                    # Could also handle server-initiated notifications here
+                    # Handle server-initiated notifications (no id field)
+                    elif "method" in data and "id" not in data:
+                        await self._handle_notification(data)
 
                 except json.JSONDecodeError:
                     continue
@@ -195,6 +210,27 @@ class IslandClient:
         except Exception:
             # Connection lost
             self._connected = False
+
+    async def _handle_notification(self, data: Dict[str, Any]) -> None:
+        """Handle a server-initiated notification."""
+        method = data.get("method", "")
+        params = data.get("params", {})
+
+        if method == "input.received":
+            # User sent input from Island UI
+            session_id = params.get("session_id", "")
+            content = params.get("content", "")
+            message_id = params.get("message_id", "")
+
+            if self.on_input_received:
+                try:
+                    # Call the callback (may be sync or async)
+                    result = self.on_input_received(session_id, content, message_id)
+                    if asyncio.iscoroutine(result):
+                        await result
+                except Exception:
+                    # Don't let callback errors break the reader loop
+                    pass
 
     def _next_id(self) -> int:
         """Get the next request ID."""
