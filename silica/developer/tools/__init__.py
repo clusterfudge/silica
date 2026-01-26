@@ -95,6 +95,8 @@ from .planning import (
     complete_plan,
 )
 from .mcp_tools import (
+    mcp_add_server,
+    mcp_remove_server,
     mcp_list_servers,
     mcp_connect,
     mcp_disconnect,
@@ -186,6 +188,8 @@ ALL_TOOLS = (
         reopen_plan,
         complete_plan,
         # MCP management tools
+        mcp_add_server,
+        mcp_remove_server,
         mcp_list_servers,
         mcp_connect,
         mcp_disconnect,
