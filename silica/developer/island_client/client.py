@@ -877,6 +877,32 @@ class IslandClient:
         except IslandError:
             return False
 
+    # ========== Session Phase API ==========
+
+    async def update_phase(
+        self,
+        phase: str,
+        session_id: Optional[str] = None,
+    ) -> bool:
+        """Update the session phase.
+
+        Args:
+            phase: Phase name ("idle", "processing", "waiting_for_input", "ended")
+            session_id: Optional session ID (uses connected session if not specified)
+
+        Returns:
+            True if updated successfully
+        """
+        params: Dict[str, Any] = {"phase": phase}
+        if session_id is not None:
+            params["session_id"] = session_id
+
+        try:
+            result = await self._send_request("session.update_phase", params)
+            return result.get("updated", False)
+        except IslandError:
+            return False
+
     # ========== Progress Bar API ==========
 
     async def progress_create(
