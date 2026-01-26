@@ -1421,10 +1421,22 @@ def _run_agent_loop(
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-    # Reconnect to Agent Island on the new loop
+    # Reconnect to Agent Island on the new loop and re-register session
     if hybrid_interface is not None:
         try:
             loop.run_until_complete(hybrid_interface.connect_to_island())
+            # Re-register the session on the new connection
+            if hybrid_interface.hybrid_mode:
+                loop.run_until_complete(
+                    hybrid_interface.register_session(
+                        session_id=context.session_id,
+                        working_directory=os.getcwd(),
+                        model=context.model_spec.get("title")
+                        if context.model_spec
+                        else None,
+                        persona=None,  # Persona info not easily available here
+                    )
+                )
         except Exception:
             pass
 
