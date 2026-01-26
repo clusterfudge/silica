@@ -702,6 +702,7 @@ class IslandClient:
         content: str,
         format: str = "markdown",
         message_id: Optional[str] = None,
+        notification: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Notify about an assistant message.
 
@@ -709,13 +710,16 @@ class IslandClient:
             content: The assistant's message content
             format: Content format ("markdown" or "text")
             message_id: Optional unique message ID for deduplication
+            notification: Optional notification style override {"style": "none|indicator|sound|expand|bounce", "sound": "optional_sound_name"}
         """
-        params = {
+        params: Dict[str, Any] = {
             "content": content,
             "format": format,
         }
         if message_id:
             params["message_id"] = message_id
+        if notification:
+            params["notification"] = notification
         await self._send_notification("event.assistant_message", params)
 
     async def notify_tool_use(
@@ -806,29 +810,76 @@ class IslandClient:
         self,
         message: str,
         spinner: bool = False,
+        notification: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Notify about a status update."""
-        await self._send_notification(
-            "event.status",
-            {
-                "message": message,
-                "spinner": spinner,
-            },
-        )
+        """Notify about a status update.
+
+        Args:
+            message: Status message
+            spinner: Whether to show a spinner
+            notification: Optional notification style override
+        """
+        params: Dict[str, Any] = {
+            "message": message,
+            "spinner": spinner,
+        }
+        if notification:
+            params["notification"] = notification
+        await self._send_notification("event.status", params)
 
     async def notify_system_message(
         self,
         message: str,
         style: str = "info",
+        notification: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Notify about a system message."""
+        """Notify about a system message.
+
+        Args:
+            message: System message content
+            style: Message style (info, warning, error)
+            notification: Optional notification style override
+        """
+        params: Dict[str, Any] = {
+            "message": message,
+            "style": style,
+        }
+        if notification:
+            params["notification"] = notification
+        await self._send_notification("event.system_message", params)
+
+    async def notify_ready_for_input(
+        self,
+        message: str = "Ready for input",
+    ) -> None:
+        """Notify that the agent is ready for user input.
+
+        This triggers a notification sound by default.
+        """
         await self._send_notification(
-            "event.system_message",
+            "event.ready_for_input",
             {
                 "message": message,
-                "style": style,
+                "notification": {"style": "sound"},
             },
         )
+
+    async def notify_error(
+        self,
+        message: str,
+        details: Optional[str] = None,
+    ) -> None:
+        """Notify about an error.
+
+        This triggers a notification sound by default.
+        """
+        params: Dict[str, Any] = {
+            "message": message,
+            "notification": {"style": "sound"},
+        }
+        if details:
+            params["details"] = details
+        await self._send_notification("event.error", params)
 
     # ========== Panel Control (Testing/Debugging) ==========
 

@@ -330,3 +330,30 @@ class ProgressActionClickedParams:
             action_id=data.get("action_id", ""),
             url_scheme=data.get("url_scheme"),
         )
+
+
+# ========== Notification Style ==========
+
+
+class NotificationStyle(str, Enum):
+    """Style of notification to display with an event."""
+
+    NONE = "none"  # No notification
+    INDICATOR = "indicator"  # Update indicator only (default for most events)
+    SOUND = "sound"  # Play notification sound
+    EXPAND = "expand"  # Auto-expand the panel
+    BOUNCE = "bounce"  # Bounce animation + sound
+
+
+@dataclass
+class NotificationParams:
+    """Notification parameters that can be included with any event."""
+
+    style: NotificationStyle = NotificationStyle.INDICATOR
+    sound: Optional[str] = None  # Custom sound name override
+
+    def to_dict(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {"style": self.style.value}
+        if self.sound:
+            result["sound"] = self.sound
+        return result
