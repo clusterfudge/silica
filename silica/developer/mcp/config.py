@@ -20,6 +20,9 @@ __all__ = [
     "MCPConfig",
     "MCPServerConfig",
     "load_mcp_config",
+    "save_mcp_config",
+    "add_mcp_server",
+    "remove_mcp_server",
     "expand_env_vars",
 ]
 
@@ -264,3 +267,200 @@ def load_mcp_config(
                 )
 
     return config
+
+
+def save_mcp_config(
+    config: MCPConfig,
+    location: str = "global",
+    project_root: Path | None = None,
+    persona: str | None = None,
+    silica_dir: Path | None = None,
+) -> Path:
+    """Save MCP configuration to a JSON file.
+
+    Args:
+        config: MCPConfig to save.
+        location: Where to save - "global", "persona", or "project".
+        project_root: Required if location is "project".
+        persona: Required if location is "persona".
+        silica_dir: Override for ~/.silica directory (for testing).
+
+    Returns:
+        Path where config was saved.
+
+    Raises:
+        ValueError: If required arguments are missing for the location.
+    """
+    if silica_dir is None:
+        silica_dir = get_default_silica_dir()
+
+    if location == "global":
+        path = silica_dir / "mcp_servers.json"
+    elif location == "persona":
+        if not persona:
+            raise ValueError("persona required for persona location")
+        path = silica_dir / "personas" / persona / "mcp_servers.json"
+    elif location == "project":
+        if not project_root:
+            raise ValueError("project_root required for project location")
+        path = project_root / ".silica" / "mcp_servers.json"
+    else:
+        raise ValueError(f"Unknown location: {location}")
+
+    # Ensure parent directory exists
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Convert config to dict for JSON serialization
+    data = {
+        "servers": {
+            name: {
+                "command": srv.command,
+                "args": srv.args,
+                **({"env": srv.env} if srv.env else {}),
+                **({"enabled": srv.enabled} if not srv.enabled else {}),
+                **({"cache": srv.cache} if not srv.cache else {}),
+                **({"setup_command": srv.setup_command} if srv.setup_command else {}),
+                **({"setup_args": srv.setup_args} if srv.setup_args else {}),
+                **(
+                    {"credentials_path": srv.credentials_path}
+                    if srv.credentials_path
+                    else {}
+                ),
+            }
+            for name, srv in config.servers.items()
+        }
+    }
+
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+
+    return path
+
+
+def add_mcp_server(
+    name: str,
+    command: str,
+    args: list[str] | None = None,
+    env: dict[str, str] | None = None,
+    enabled: bool = True,
+    location: str = "global",
+    project_root: Path | None = None,
+    persona: str | None = None,
+    silica_dir: Path | None = None,
+) -> Path:
+    """Add or update an MCP server in the configuration.
+
+    Args:
+        name: Server name/identifier.
+        command: Command to run the server.
+        args: Arguments for the command.
+        env: Environment variables.
+        enabled: Whether to auto-connect.
+        location: Where to save - "global", "persona", or "project".
+        project_root: Required if location is "project".
+        persona: Required if location is "persona".
+        silica_dir: Override for ~/.silica directory.
+
+    Returns:
+        Path where config was saved.
+    """
+    if silica_dir is None:
+        silica_dir = get_default_silica_dir()
+
+    # Load existing config for this specific location only
+    if location == "global":
+        path = silica_dir / "mcp_servers.json"
+    elif location == "persona":
+        if not persona:
+            raise ValueError("persona required for persona location")
+        path = silica_dir / "personas" / persona / "mcp_servers.json"
+    elif location == "project":
+        if not project_root:
+            raise ValueError("project_root required for project location")
+        path = project_root / ".silica" / "mcp_servers.json"
+    else:
+        raise ValueError(f"Unknown location: {location}")
+
+    # Load existing or create empty
+    if path.exists():
+        try:
+            config = MCPConfig.from_file(path)
+        except (json.JSONDecodeError, KeyError):
+            config = MCPConfig()
+    else:
+        config = MCPConfig()
+
+    # Add/update server
+    config.servers[name] = MCPServerConfig(
+        name=name,
+        command=command,
+        args=args or [],
+        env=env or {},
+        enabled=enabled,
+    )
+
+    return save_mcp_config(
+        config,
+        location=location,
+        project_root=project_root,
+        persona=persona,
+        silica_dir=silica_dir,
+    )
+
+
+def remove_mcp_server(
+    name: str,
+    location: str = "global",
+    project_root: Path | None = None,
+    persona: str | None = None,
+    silica_dir: Path | None = None,
+) -> bool:
+    """Remove an MCP server from the configuration.
+
+    Args:
+        name: Server name to remove.
+        location: Where to remove from - "global", "persona", or "project".
+        project_root: Required if location is "project".
+        persona: Required if location is "persona".
+        silica_dir: Override for ~/.silica directory.
+
+    Returns:
+        True if server was removed, False if it wasn't found.
+    """
+    if silica_dir is None:
+        silica_dir = get_default_silica_dir()
+
+    # Determine path
+    if location == "global":
+        path = silica_dir / "mcp_servers.json"
+    elif location == "persona":
+        if not persona:
+            raise ValueError("persona required for persona location")
+        path = silica_dir / "personas" / persona / "mcp_servers.json"
+    elif location == "project":
+        if not project_root:
+            raise ValueError("project_root required for project location")
+        path = project_root / ".silica" / "mcp_servers.json"
+    else:
+        raise ValueError(f"Unknown location: {location}")
+
+    if not path.exists():
+        return False
+
+    try:
+        config = MCPConfig.from_file(path)
+    except (json.JSONDecodeError, KeyError):
+        return False
+
+    if name not in config.servers:
+        return False
+
+    del config.servers[name]
+    save_mcp_config(
+        config,
+        location=location,
+        project_root=project_root,
+        persona=persona,
+        silica_dir=silica_dir,
+    )
+    return True

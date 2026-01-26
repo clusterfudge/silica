@@ -182,3 +182,123 @@ async def mcp_list_tools(context: AgentContext, server: str | None = None) -> st
             lines.append(f"  {t.name}: {desc}")
 
     return "\n".join(lines)
+
+
+@tool(group="MCP")
+async def mcp_add_server(
+    context: AgentContext,
+    name: str,
+    command: str,
+    args: str | None = None,
+    env: str | None = None,
+    location: str = "global",
+) -> str:
+    """Add an MCP server to the configuration.
+
+    The server will be saved to the config file and can be connected on next
+    session start or manually with mcp_connect.
+
+    Args:
+        name: Server name/identifier (e.g., "sqlite", "github")
+        command: Command to run the server (e.g., "npx", "uvx")
+        args: JSON array of arguments (e.g., '["-y", "@modelcontextprotocol/server-sqlite"]')
+        env: JSON object of environment variables (e.g., '{"GITHUB_TOKEN": "xxx"}')
+        location: Where to save - "global" (default), "persona", or "project"
+    """
+    import json
+    from pathlib import Path
+
+    from silica.developer.mcp.config import add_mcp_server
+
+    # Parse args if provided
+    parsed_args = []
+    if args:
+        try:
+            parsed_args = json.loads(args)
+            if not isinstance(parsed_args, list):
+                return "Error: args must be a JSON array"
+        except json.JSONDecodeError as e:
+            return f"Error: Invalid JSON in args: {e}"
+
+    # Parse env if provided
+    parsed_env = {}
+    if env:
+        try:
+            parsed_env = json.loads(env)
+            if not isinstance(parsed_env, dict):
+                return "Error: env must be a JSON object"
+        except json.JSONDecodeError as e:
+            return f"Error: Invalid JSON in env: {e}"
+
+    # Determine persona/project for location
+    persona = None
+    project_root = None
+
+    if location == "persona":
+        if context.history_base_dir:
+            history_path = Path(context.history_base_dir)
+            if history_path.parent.name == "personas":
+                persona = history_path.name
+        if not persona:
+            return "Error: Could not determine current persona for persona location"
+    elif location == "project":
+        project_root = Path.cwd()
+
+    try:
+        path = add_mcp_server(
+            name=name,
+            command=command,
+            args=parsed_args,
+            env=parsed_env,
+            location=location,
+            persona=persona,
+            project_root=project_root,
+        )
+        return f"Added server '{name}' to {location} config at {path}\nRestart session or use /mcp connect {name} to connect."
+    except Exception as e:
+        return f"Error adding server: {e}"
+
+
+@tool(group="MCP")
+async def mcp_remove_server(
+    context: AgentContext,
+    name: str,
+    location: str = "global",
+) -> str:
+    """Remove an MCP server from the configuration.
+
+    Args:
+        name: Server name to remove
+        location: Where to remove from - "global" (default), "persona", or "project"
+    """
+    from pathlib import Path
+
+    from silica.developer.mcp.config import remove_mcp_server
+
+    # Determine persona/project for location
+    persona = None
+    project_root = None
+
+    if location == "persona":
+        if context.history_base_dir:
+            history_path = Path(context.history_base_dir)
+            if history_path.parent.name == "personas":
+                persona = history_path.name
+        if not persona:
+            return "Error: Could not determine current persona for persona location"
+    elif location == "project":
+        project_root = Path.cwd()
+
+    try:
+        removed = remove_mcp_server(
+            name=name,
+            location=location,
+            persona=persona,
+            project_root=project_root,
+        )
+        if removed:
+            return f"Removed server '{name}' from {location} config"
+        else:
+            return f"Server '{name}' not found in {location} config"
+    except Exception as e:
+        return f"Error removing server: {e}"

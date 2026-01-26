@@ -3417,6 +3417,8 @@ Let's collaborate on creating a solid plan before implementation."""
             /mcp cache <server> <on|off>  - Toggle caching for a server
             /mcp tools [server]       - List tools from server(s)
             /mcp setup <server>       - Run server's setup/auth flow
+            /mcp add <name> <cmd> [args]  - Add a server to config
+            /mcp remove <name>        - Remove a server from config
 
         Examples:
             /mcp                      - Show all servers with status
@@ -3424,6 +3426,8 @@ Let's collaborate on creating a solid plan before implementation."""
             /mcp tools                - List all MCP tools
             /mcp cache myserver off   - Disable caching for development
             /mcp setup gdrive         - Run gdrive server's auth setup
+            /mcp add github npx -y @modelcontextprotocol/server-github
+            /mcp remove github        - Remove github server
         """
 
         def _print(msg, markdown=True):
@@ -3479,6 +3483,23 @@ Let's collaborate on creating a solid plan before implementation."""
                 _print("[red]Usage: /mcp setup <server>[/red]")
                 return ("", False)
             return await self._mcp_setup(_print, args_list[1])
+
+        elif command == "add":
+            # /mcp add <name> <command> [args...]
+            if len(args_list) < 3:
+                _print("[red]Usage: /mcp add <name> <command> [args...][/red]")
+                _print(
+                    "Example: /mcp add sqlite uvx mcp-server-sqlite --db-path /tmp/test.db"
+                )
+                return ("", False)
+            return self._mcp_add(_print, args_list[1], args_list[2], args_list[3:])
+
+        elif command == "remove":
+            # /mcp remove <name>
+            if len(args_list) < 2:
+                _print("[red]Usage: /mcp remove <name>[/red]")
+                return ("", False)
+            return self._mcp_remove(_print, args_list[1])
 
         else:
             _print(f"[red]Unknown MCP command: {command}[/red]")
@@ -3722,6 +3743,50 @@ Let's collaborate on creating a solid plan before implementation."""
             return ("", False)
         except Exception as e:
             _print(f"[red]✗ Setup failed: {e}[/red]")
+            return ("", False)
+
+    def _mcp_add(self, _print, name, command, args):
+        """Add an MCP server to the global config."""
+        from silica.developer.mcp.config import add_mcp_server
+
+        try:
+            path = add_mcp_server(
+                name=name,
+                command=command,
+                args=args,
+            )
+            _print(f"[green]✓ Added server '{name}' to {path}[/green]")
+            _print(f"  command: {command}")
+            if args:
+                _print(f"  args: {' '.join(args)}")
+            _print("")
+            _print(f"Use [bold]/mcp connect {name}[/bold] to connect now")
+            _print("Or restart the session to auto-connect")
+            return ("", False)
+        except Exception as e:
+            _print(f"[red]Error adding server: {e}[/red]")
+            return ("", False)
+
+    def _mcp_remove(self, _print, name):
+        """Remove an MCP server from the global config."""
+        from silica.developer.mcp.config import remove_mcp_server
+
+        try:
+            removed = remove_mcp_server(name=name)
+            if removed:
+                _print(f"[green]✓ Removed server '{name}' from config[/green]")
+
+                # Disconnect if currently connected
+                if self.mcp_manager and name in self.mcp_manager._clients:
+                    import asyncio
+
+                    asyncio.create_task(self.mcp_manager.disconnect_server(name))
+                    _print(f"[dim]Disconnected from '{name}'[/dim]")
+            else:
+                _print(f"[yellow]Server '{name}' not found in global config[/yellow]")
+            return ("", False)
+        except Exception as e:
+            _print(f"[red]Error removing server: {e}[/red]")
             return ("", False)
 
     def _discover_user_tools(self):

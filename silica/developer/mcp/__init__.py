@@ -21,7 +21,10 @@ from silica.developer.mcp.client import (
 from silica.developer.mcp.config import (
     MCPConfig,
     MCPServerConfig,
+    add_mcp_server,
     load_mcp_config,
+    remove_mcp_server,
+    save_mcp_config,
 )
 from silica.developer.mcp.manager import MCPToolManager, ServerStatus
 from silica.developer.mcp.schema import (
@@ -43,7 +46,10 @@ __all__ = [
     # Config
     "MCPConfig",
     "MCPServerConfig",
+    "add_mcp_server",
     "load_mcp_config",
+    "remove_mcp_server",
+    "save_mcp_config",
     # Manager
     "MCPToolManager",
     "ServerStatus",
