@@ -269,3 +269,64 @@ class InputReceivedParams:
             content=data.get("content", ""),
             message_id=data.get("message_id", ""),
         )
+
+
+# ========== Progress Bar Types ==========
+
+
+class ActionStyle(str, Enum):
+    """Style for progress bar action buttons."""
+
+    PRIMARY = "primary"
+    SECONDARY = "secondary"
+    DESTRUCTIVE = "destructive"
+
+
+class CompletionStyle(str, Enum):
+    """Completion style for finished progress bars."""
+
+    SUCCESS = "success"
+    ERROR = "error"
+    CANCELLED = "cancelled"
+
+
+@dataclass
+class ProgressAction:
+    """An action button on a progress bar."""
+
+    id: str
+    label: str
+    style: ActionStyle = ActionStyle.SECONDARY
+    url_scheme: Optional[str] = None  # e.g., "file:///path" for Open in Finder
+
+    def to_dict(self) -> Dict[str, Any]:
+        result = {
+            "action_id": self.id,
+            "label": self.label,
+            "style": self.style.value,
+        }
+        if self.url_scheme:
+            result["url_scheme"] = self.url_scheme
+        return result
+
+
+@dataclass
+class ProgressActionClickedParams:
+    """Parameters for progress.action_clicked notification (server -> client).
+
+    Sent when a user clicks an action button on a progress bar.
+    """
+
+    session_id: str
+    progress_id: str
+    action_id: str
+    url_scheme: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ProgressActionClickedParams":
+        return cls(
+            session_id=data.get("session_id", ""),
+            progress_id=data.get("progress_id", ""),
+            action_id=data.get("action_id", ""),
+            url_scheme=data.get("url_scheme"),
+        )

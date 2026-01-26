@@ -37,6 +37,7 @@ PROTOCOL_VERSION = "1.0"
 
 
 InputCallback = Any  # Callable[[str, str, str], Awaitable[None]] - (session_id, content, message_id)
+ProgressActionCallback = Any  # Callable[[str, str, str, Optional[str]], Awaitable[None]] - (session_id, progress_id, action_id, url_scheme)
 
 
 class IslandClient:
@@ -86,6 +87,10 @@ class IslandClient:
         # Callback for user input from Island UI (bidirectional chat)
         # Signature: async def callback(session_id: str, content: str, message_id: str)
         self.on_input_received: Optional[InputCallback] = None
+
+        # Callback for progress bar action clicks
+        # Signature: async def callback(session_id: str, progress_id: str, action_id: str, url_scheme: Optional[str])
+        self.on_progress_action: Optional[ProgressActionCallback] = None
 
     @property
     def connected(self) -> bool:
@@ -230,6 +235,23 @@ class IslandClient:
                         await result
                 except Exception:
                     # Don't let callback errors break the reader loop
+                    pass
+
+        elif method == "progress.action_clicked":
+            # User clicked an action button on a progress bar
+            session_id = params.get("session_id", "")
+            progress_id = params.get("progress_id", "")
+            action_id = params.get("action_id", "")
+            url_scheme = params.get("url_scheme")
+
+            if self.on_progress_action:
+                try:
+                    result = self.on_progress_action(
+                        session_id, progress_id, action_id, url_scheme
+                    )
+                    if asyncio.iscoroutine(result):
+                        await result
+                except Exception:
                     pass
 
     def _next_id(self) -> int:
@@ -854,3 +876,159 @@ class IslandClient:
             return result.get("opened", False)
         except IslandError:
             return False
+
+    # ========== Progress Bar API ==========
+
+    async def progress_create(
+        self,
+        progress_id: str,
+        title: str,
+        progress: Optional[float] = None,
+        status_text: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> str:
+        """Create a new progress bar.
+
+        Args:
+            progress_id: Unique ID for this progress bar
+            title: Title to display
+            progress: Progress value 0-1, or None for indeterminate
+            status_text: Optional status text below the bar
+            session_id: Optional session ID (uses connected session if not specified)
+
+        Returns:
+            The progress_id
+        """
+        params: Dict[str, Any] = {
+            "progress_id": progress_id,
+            "title": title,
+        }
+        if progress is not None:
+            params["progress"] = progress
+        if status_text is not None:
+            params["status_text"] = status_text
+        if session_id is not None:
+            params["session_id"] = session_id
+
+        result = await self._send_request("progress.create", params)
+        return result.get("progress_id", progress_id)
+
+    async def progress_update(
+        self,
+        progress_id: str,
+        progress: Optional[float] = None,
+        status_text: Optional[str] = None,
+        title: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> bool:
+        """Update an existing progress bar.
+
+        Args:
+            progress_id: ID of the progress bar to update
+            progress: New progress value 0-1
+            status_text: New status text
+            title: New title
+            session_id: Optional session ID
+
+        Returns:
+            True if updated successfully
+        """
+        params: Dict[str, Any] = {"progress_id": progress_id}
+        if progress is not None:
+            params["progress"] = progress
+        if status_text is not None:
+            params["status_text"] = status_text
+        if title is not None:
+            params["title"] = title
+        if session_id is not None:
+            params["session_id"] = session_id
+
+        result = await self._send_request("progress.update", params)
+        return result.get("updated", False)
+
+    async def progress_complete(
+        self,
+        progress_id: str,
+        style: str = "success",
+        status_text: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> bool:
+        """Mark a progress bar as complete.
+
+        Args:
+            progress_id: ID of the progress bar
+            style: Completion style ("success", "error", "cancelled")
+            status_text: Final status text
+            session_id: Optional session ID
+
+        Returns:
+            True if completed successfully
+        """
+        params: Dict[str, Any] = {
+            "progress_id": progress_id,
+            "style": style,
+        }
+        if status_text is not None:
+            params["status_text"] = status_text
+        if session_id is not None:
+            params["session_id"] = session_id
+
+        result = await self._send_request("progress.complete", params)
+        return result.get("completed", False)
+
+    async def progress_add_action(
+        self,
+        progress_id: str,
+        action_id: str,
+        label: str,
+        style: str = "secondary",
+        url_scheme: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> bool:
+        """Add an action button to a progress bar.
+
+        Args:
+            progress_id: ID of the progress bar
+            action_id: Unique ID for this action
+            label: Button label text
+            style: Button style ("primary", "secondary", "destructive")
+            url_scheme: Optional URL to open when clicked (e.g., "file:///path")
+            session_id: Optional session ID
+
+        Returns:
+            True if added successfully
+        """
+        params: Dict[str, Any] = {
+            "progress_id": progress_id,
+            "action_id": action_id,
+            "label": label,
+            "style": style,
+        }
+        if url_scheme is not None:
+            params["url_scheme"] = url_scheme
+        if session_id is not None:
+            params["session_id"] = session_id
+
+        result = await self._send_request("progress.add_action", params)
+        return result.get("added", False)
+
+    async def progress_remove(
+        self,
+        progress_id: str,
+        session_id: Optional[str] = None,
+    ) -> bool:
+        """Remove/dismiss a progress bar.
+
+        Args:
+            progress_id: ID of the progress bar to remove
+            session_id: Optional session ID
+
+        Returns:
+            True if removed successfully
+        """
+        params: Dict[str, Any] = {"progress_id": progress_id}
+        if session_id is not None:
+            params["session_id"] = session_id
+
+        result = await self._send_request("progress.remove", params)
+        return result.get("removed", False)
