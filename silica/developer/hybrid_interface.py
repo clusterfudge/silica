@@ -36,6 +36,10 @@ class HybridUserInterface(UserInterface):
     For non-blocking events (messages, tool results):
     - Always show in CLI
     - Also send to Island if connected (fire-and-forget)
+
+    For bidirectional chat:
+    - User input from Island UI is queued and delivered via get_user_input()
+    - The agent loop processes it just like CLI input
     """
 
     def __init__(
@@ -53,6 +57,12 @@ class HybridUserInterface(UserInterface):
         self.socket_path = socket_path
         self._island = None  # IslandClient, lazily created
         self._island_available = None  # None = not checked, True/False = checked
+
+        # Queue for user input from Island UI (bidirectional chat)
+        self._island_input_queue: asyncio.Queue = asyncio.Queue()
+
+        # Reference to agent context (set by hdev.py after context creation)
+        self.agent_context = None
 
     @property
     def hybrid_mode(self) -> bool:
@@ -85,6 +95,8 @@ class HybridUserInterface(UserInterface):
 
             if connected:
                 self._island_available = True
+                # Register callback for bidirectional chat
+                self._island.on_input_received = self._handle_island_input
                 return True
             else:
                 self._island_available = False
@@ -99,6 +111,23 @@ class HybridUserInterface(UserInterface):
             self._island_available = False
             self._island = None
             return False
+
+    async def _handle_island_input(
+        self, session_id: str, content: str, message_id: str
+    ) -> None:
+        """Handle user input received from Island UI.
+
+        This is called by the IslandClient when an input.received notification
+        arrives. The input is queued and will be returned by the next call to
+        get_user_input().
+
+        Args:
+            session_id: The session this input belongs to
+            content: The user's message text
+            message_id: Unique message ID
+        """
+        # Queue the input for get_user_input() to pick up
+        await self._island_input_queue.put(content)
 
     async def disconnect_from_island(self) -> None:
         """Disconnect from Agent Island."""
@@ -469,8 +498,66 @@ class HybridUserInterface(UserInterface):
         self.cli.permission_rendering_callback(action, resource, action_arguments)
 
     async def get_user_input(self, prompt: str = "") -> str:
-        """Get user input - from CLI (Island doesn't handle free-form input yet)."""
-        return await self.cli.get_user_input(prompt)
+        """Get user input - races between CLI and Island UI.
+
+        If connected to Island, waits for input from either:
+        - The CLI (user types in terminal)
+        - The Island UI (user types in the chat interface)
+
+        First input wins, the other is cancelled/ignored.
+        """
+        if not self.hybrid_mode:
+            return await self.cli.get_user_input(prompt)
+
+        # Race between CLI input and Island input queue
+        result_holder: Dict[str, Any] = {"value": None, "source": None}
+        done_event = asyncio.Event()
+
+        async def cli_input():
+            """Wait for CLI input."""
+            try:
+                result = await self.cli.get_user_input(prompt)
+                if not done_event.is_set():
+                    result_holder["value"] = result
+                    result_holder["source"] = "cli"
+                    done_event.set()
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
+
+        async def island_input():
+            """Wait for Island UI input."""
+            try:
+                result = await self._island_input_queue.get()
+                if not done_event.is_set():
+                    result_holder["value"] = result
+                    result_holder["source"] = "island"
+                    done_event.set()
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
+
+        cli_task = asyncio.create_task(cli_input())
+        island_task = asyncio.create_task(island_input())
+
+        await done_event.wait()
+
+        # Clean up
+        if result_holder["source"] == "cli":
+            island_task.cancel()
+        else:
+            cli_task.cancel()
+            # Show confirmation that input came from Island
+            self.cli.handle_system_message(
+                f"[dim]✓ Input from Agent Island: {result_holder['value'][:50]}{'...' if len(result_holder['value']) > 50 else ''}[/dim]",
+                markdown=False,
+            )
+
+        await asyncio.gather(cli_task, island_task, return_exceptions=True)
+
+        return result_holder["value"]
 
     async def get_user_choice(self, question: str, options: List[str]) -> str:
         """Present choices - in both interfaces if hybrid mode."""
