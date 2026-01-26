@@ -344,6 +344,11 @@ async def _initialize_mcp(
 
     logger = logging.getLogger(__name__)
 
+    # Suppress MCP SDK's noisy warnings about non-JSON lines from server stdout
+    # Some MCP servers (e.g., @isaacphi/mcp-gdrive) incorrectly print log messages
+    # to stdout instead of stderr, causing benign parse errors
+    logging.getLogger("mcp.client.stdio").setLevel(logging.ERROR)
+
     try:
         # Determine persona name from history_base_dir
         persona_name = None
