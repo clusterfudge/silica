@@ -502,11 +502,17 @@ class CLIUserInterface(UserInterface):
         self,
         tool_name: str,
         tool_params: Dict[str, Any],
+        tool_use_id: Optional[str] = None,
     ):
         pass
 
     def handle_tool_result(
-        self, name: str, result: Dict[str, Any], markdown=False, live=None
+        self,
+        name: str,
+        result: Dict[str, Any],
+        markdown=False,
+        live=None,
+        tool_use_id: Optional[str] = None,
     ) -> None:
         from rich.markdown import Markdown
         from rich.console import Group

@@ -337,7 +337,7 @@ class CaptureInterface(UserInterface):
     def handle_assistant_message(self, message):
         self.output.append(message)
 
-    def handle_tool_use(self, tool_name, tool_input):
+    def handle_tool_use(self, tool_name, tool_input, tool_use_id=None):
         message = f"Using tool {tool_name} with input {tool_input}"
         self.bare(self._prior_renderable)
         self.bare("")
@@ -345,7 +345,7 @@ class CaptureInterface(UserInterface):
         self.status(message, update=True)
         self.output.append(message)
 
-    def handle_tool_result(self, tool_name, result, live=None):
+    def handle_tool_result(self, tool_name, result, live=None, tool_use_id=None):
         self.output.append(f"Tool {tool_name} result: {result}")
 
     def display_token_count(

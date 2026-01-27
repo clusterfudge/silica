@@ -758,25 +758,46 @@ class HybridUserInterface(UserInterface):
                 self._island.notify_system_message(message=message, style="info")
             )
 
-    def handle_tool_use(self, tool_name: str, tool_params: Dict[str, Any]) -> None:
+    def handle_tool_use(
+        self,
+        tool_name: str,
+        tool_params: Dict[str, Any],
+        tool_use_id: Optional[str] = None,
+    ) -> None:
         """Display tool use in both interfaces."""
         self.cli.handle_tool_use(tool_name, tool_params)
 
-        if self.hybrid_mode:
+        if self.hybrid_mode and tool_use_id:
             _fire_and_forget(
                 self._island.notify_tool_use(
-                    tool_name=tool_name, tool_params=tool_params
+                    tool_use_id=tool_use_id,
+                    tool_name=tool_name,
+                    tool_params=tool_params,
                 )
             )
 
-    def handle_tool_result(self, name: str, result: Dict[str, Any], live=None) -> None:
+    def handle_tool_result(
+        self,
+        name: str,
+        result: Dict[str, Any],
+        live=None,
+        tool_use_id: Optional[str] = None,
+    ) -> None:
         """Display tool result in both interfaces."""
-        self.cli.handle_tool_result(name, result, live=live)
+        self.cli.handle_tool_result(name, result, live=live, tool_use_id=tool_use_id)
 
-        if self.hybrid_mode:
+        if self.hybrid_mode and tool_use_id:
+            # Determine if this is an error result
+            is_error = result.get("is_error", False)
+            content = result.get("content", "")
+
             _fire_and_forget(
                 self._island.notify_tool_result(
-                    tool_name=name, result=result, success=True
+                    tool_use_id=tool_use_id,
+                    tool_name=name,
+                    result=content,
+                    success=not is_error,
+                    is_error=is_error,
                 )
             )
 

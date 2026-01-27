@@ -1077,6 +1077,7 @@ async def run(
                     loop_detected = False
                     for tool_use, result in zip(tool_uses, results):
                         tool_name = getattr(tool_use, "name", "unknown_tool")
+                        tool_use_id = getattr(tool_use, "id", None)
                         tool_input = getattr(tool_use, "input", {})
 
                         # Track modified files for plan task hints
@@ -1092,7 +1093,9 @@ async def run(
                         )
 
                         agent_context.tool_result_buffer.append(result)
-                        user_interface.handle_tool_result(tool_name, result)
+                        user_interface.handle_tool_result(
+                            tool_name, result, tool_use_id=tool_use_id
+                        )
 
                         # Check for repetitive loops
                         # Extract result content as string for comparison
@@ -1141,14 +1144,17 @@ async def run(
                     # because the API requires every tool_use to have a corresponding tool_result
                     cancelled_results = []
                     for tool_use in tool_uses:
+                        tool_use_id = getattr(tool_use, "id", "unknown_id")
                         result = {
                             "type": "tool_result",
-                            "tool_use_id": getattr(tool_use, "id", "unknown_id"),
+                            "tool_use_id": tool_use_id,
                             "content": "cancelled",
                         }
                         cancelled_results.append(result)
                         tool_name = getattr(tool_use, "name", "unknown_tool")
-                        user_interface.handle_tool_result(tool_name, result)
+                        user_interface.handle_tool_result(
+                            tool_name, result, tool_use_id=tool_use_id
+                        )
 
                     # Add cancelled results to chat history to satisfy API requirements
                     # Every tool_use must have a corresponding tool_result
@@ -1226,14 +1232,18 @@ async def run(
                     )
                     # Add error results for all tools
                     for tool_use in tool_uses:
+                        tool_use_id = getattr(tool_use, "id", "unknown_id")
                         result = {
                             "type": "tool_result",
-                            "tool_use_id": getattr(tool_use, "id", "unknown_id"),
+                            "tool_use_id": tool_use_id,
                             "content": error_message,
+                            "is_error": True,
                         }
                         agent_context.tool_result_buffer.append(result)
                         user_interface.handle_tool_result(
-                            getattr(tool_use, "name", "unknown_tool"), result
+                            getattr(tool_use, "name", "unknown_tool"),
+                            result,
+                            tool_use_id=tool_use_id,
                         )
             elif final_message.stop_reason == "max_tokens":
                 # Response was truncated - we need to signal the agent to continue

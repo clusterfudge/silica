@@ -21,10 +21,14 @@ class MockCLIInterface:
     def handle_system_message(self, message: str, markdown=True, live=None) -> None:
         self.messages.append(("system", message))
 
-    def handle_tool_use(self, tool_name: str, tool_params: dict) -> None:
+    def handle_tool_use(
+        self, tool_name: str, tool_params: dict, tool_use_id=None
+    ) -> None:
         self.messages.append(("tool_use", tool_name, tool_params))
 
-    def handle_tool_result(self, name: str, result: dict, live=None) -> None:
+    def handle_tool_result(
+        self, name: str, result: dict, live=None, tool_use_id=None
+    ) -> None:
         self.messages.append(("tool_result", name, result))
 
     def handle_user_input(self, user_input: str) -> str:

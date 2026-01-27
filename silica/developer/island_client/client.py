@@ -690,18 +690,63 @@ class IslandClient:
         await self._send_notification("event.assistant_message", params)
 
     async def notify_tool_use(
-        self, tool_name: str, tool_params: Dict[str, Any]
+        self, tool_use_id: str, tool_name: str, tool_params: Dict[str, Any]
     ) -> None:
+        """Notify about a tool being invoked.
+
+        Args:
+            tool_use_id: Unique ID for this tool invocation (used to link results)
+            tool_name: Name of the tool
+            tool_params: Parameters passed to the tool
+        """
         await self._send_notification(
-            "event.tool_use", {"tool_name": tool_name, "tool_params": tool_params}
+            "event.tool_use",
+            {
+                "tool_use_id": tool_use_id,
+                "tool_name": tool_name,
+                "tool_params": tool_params,
+            },
         )
 
     async def notify_tool_result(
-        self, tool_name: str, result: Any, success: bool = True
+        self,
+        tool_use_id: str,
+        tool_name: str,
+        result: Any,
+        success: bool = True,
+        is_error: bool = False,
     ) -> None:
+        """Notify about a tool result.
+
+        Args:
+            tool_use_id: The ID of the tool use this result corresponds to
+            tool_name: Name of the tool
+            result: The result content (will be serialized to JSON if dict)
+            success: Whether the tool execution succeeded
+            is_error: Whether the result represents an error
+        """
+        # Serialize result to string if needed
+        if isinstance(result, dict):
+            try:
+                import json
+
+                content = json.dumps(result, indent=2, default=str)
+            except Exception:
+                content = str(result)
+        elif isinstance(result, str):
+            content = result
+        else:
+            content = str(result)
+
         await self._send_notification(
             "event.tool_result",
-            {"tool_name": tool_name, "result": result, "success": success},
+            {
+                "tool_use_id": tool_use_id,
+                "tool_name": tool_name,
+                "content": content,
+                "success": success,
+                "is_error": is_error,
+            },
         )
 
     async def notify_thinking(

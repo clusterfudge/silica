@@ -79,22 +79,31 @@ class UserInterface(ABC):
         self,
         tool_name: str,
         tool_params: Dict[str, Any],
+        tool_use_id: Optional[str] = None,
     ):
         """
         Handle and display information about a tool being used, optionally check for permissions.
 
         :param tool_name: The name of the tool being used
         :param tool_params: The parameters passed to the tool
+        :param tool_use_id: Optional unique ID for this tool invocation
         """
 
     @abstractmethod
-    def handle_tool_result(self, name: str, result: Dict[str, Any], live=None) -> None:
+    def handle_tool_result(
+        self,
+        name: str,
+        result: Dict[str, Any],
+        live=None,
+        tool_use_id: Optional[str] = None,
+    ) -> None:
         """
         Handle and display the result of a tool use.
 
         :param name:  The name of the original tool invocation
         :param result: The result returned by the tool
         :param live: Optional Rich Live instance for real-time updates
+        :param tool_use_id: Optional ID of the tool use (for linking result to call)
         """
 
     @abstractmethod
