@@ -44,7 +44,7 @@ PROTOCOL_VERSION = "1.0"
 RECONNECT_BASE_DELAY = 0.5  # Initial delay in seconds
 RECONNECT_MAX_DELAY = 16.0  # Maximum delay cap
 RECONNECT_MAX_ATTEMPTS = 20  # Stop after this many attempts
-HEARTBEAT_INTERVAL = 30.0  # Seconds between heartbeat pings
+HEARTBEAT_INTERVAL = 60.0  # Seconds between heartbeat pings (increased to reduce load)
 
 InputCallback = Any
 ProgressActionCallback = Any
@@ -215,14 +215,22 @@ class IslandClient:
                 if not self._connected:
                     break
                 try:
-                    # Use a simple request as ping - handshake info is lightweight
-                    await self._send_request("system.ping", {}, timeout=5.0)
-                except Exception:
-                    # Ping failed - connection is likely dead
+                    # Try to send a lightweight notification as a connection check
+                    # This doesn't require Island to support any specific method
+                    if self._writer is not None:
+                        # Just check if we can write - don't wait for response
+                        # A broken pipe will raise an exception
+                        self._writer.write(b"")
+                        await self._writer.drain()
+                except (BrokenPipeError, ConnectionResetError, OSError):
+                    # Connection is dead
                     if self._connected and not self._intentional_disconnect:
-                        logger.info("Heartbeat failed - connection lost")
+                        logger.debug("Heartbeat detected broken connection")
                         await self._handle_connection_lost()
                     break
+                except Exception:
+                    # Other errors - ignore and continue
+                    pass
         except asyncio.CancelledError:
             pass
 
@@ -232,7 +240,7 @@ class IslandClient:
         await self._close_connection_internal()
 
         if was_connected and self.auto_reconnect and not self._intentional_disconnect:
-            logger.info("Connection to Agent Island lost, will attempt reconnection")
+            logger.debug("Connection to Agent Island lost, will attempt reconnection")
             self._start_reconnection()
 
     def _start_reconnection(self) -> None:
@@ -277,7 +285,7 @@ class IslandClient:
                     break
 
                 if await self.connect():
-                    logger.info("Reconnected to Agent Island")
+                    logger.debug("Reconnected to Agent Island")
                     await self._on_reconnected()
                     break
 

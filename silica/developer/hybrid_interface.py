@@ -205,10 +205,9 @@ class HybridUserInterface(UserInterface):
 
         Called by the IslandClient after successful reconnection.
         Session re-registration is handled automatically by the client.
+        This is intentionally quiet - no UI message to avoid clutter.
         """
-        self.cli.handle_system_message(
-            "[dim]Reconnected to Agent Island[/dim]", markdown=False
-        )
+        # Silently reconnected - no need to notify user
 
     async def _handle_island_input(
         self, session_id: str, content: str, message_id: str
@@ -622,6 +621,9 @@ class HybridUserInterface(UserInterface):
                     done_event.set()
             except asyncio.CancelledError:
                 pass
+            except KeyboardInterrupt:
+                # Re-raise KeyboardInterrupt so it propagates properly
+                raise
             except Exception:
                 pass
 
@@ -641,7 +643,14 @@ class HybridUserInterface(UserInterface):
         cli_task = asyncio.create_task(cli_input())
         island_task = asyncio.create_task(island_input())
 
-        await done_event.wait()
+        try:
+            await done_event.wait()
+        except asyncio.CancelledError:
+            # Clean up both tasks on cancellation
+            cli_task.cancel()
+            island_task.cancel()
+            await asyncio.gather(cli_task, island_task, return_exceptions=True)
+            raise
 
         # Clean up and track source
         if result_holder["source"] == "cli":
@@ -656,6 +665,7 @@ class HybridUserInterface(UserInterface):
                 markdown=False,
             )
 
+        # Wait for tasks to complete and suppress their exceptions
         await asyncio.gather(cli_task, island_task, return_exceptions=True)
 
         return result_holder["value"]

@@ -173,7 +173,7 @@ class TestHeartbeat:
 
     def test_heartbeat_interval_constant(self):
         """Verify heartbeat interval is reasonable."""
-        assert HEARTBEAT_INTERVAL == 30.0
+        assert HEARTBEAT_INTERVAL == 60.0
 
     @pytest.mark.asyncio
     async def test_heartbeat_starts_on_connect(self):
