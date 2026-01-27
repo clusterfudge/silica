@@ -8,10 +8,11 @@ When Agent Island is not available, falls back to CLI-only behavior.
 """
 
 import asyncio
+import contextlib
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
-import contextlib
 
 from .user_interface import UserInterface, PermissionResult
 from .sandbox import SandboxMode, DoSomethingElseError
@@ -40,6 +41,69 @@ def _fire_and_forget(coro) -> None:
         # This is fine for fire-and-forget notifications; CLI still handles it
         # Close the coroutine to avoid "coroutine was never awaited" warning
         coro.close()
+
+
+# Known Rich style names that we want to strip
+# This is a subset of common ones used in silica
+_RICH_STYLES = {
+    # Basic styles
+    "bold",
+    "dim",
+    "italic",
+    "underline",
+    "strike",
+    "reverse",
+    "blink",
+    # Colors
+    "black",
+    "red",
+    "green",
+    "yellow",
+    "blue",
+    "magenta",
+    "cyan",
+    "white",
+    # Bright colors
+    "bright_black",
+    "bright_red",
+    "bright_green",
+    "bright_yellow",
+    "bright_blue",
+    "bright_magenta",
+    "bright_cyan",
+    "bright_white",
+    # Common combinations we use
+    "bold blue",
+    "bold red",
+    "bold green",
+    "bold cyan",
+    "bold yellow",
+    "bold magenta",
+    "bold white",
+}
+
+# Build pattern that matches only known Rich tags
+# Matches [style], [/style], [style1 style2], and [/style1 style2]
+# Also matches hex colors like [#ff0000] and [/#ff0000]
+_style_pattern = "|".join(re.escape(s) for s in _RICH_STYLES)
+_RICH_MARKUP_PATTERN = re.compile(
+    rf"\[/?(?:{_style_pattern}|#[0-9a-fA-F]{{6}})\]", re.IGNORECASE
+)
+
+
+def _strip_rich_markup(text: str) -> str:
+    """Strip Rich markup tags from text for display in non-Rich contexts.
+
+    Only removes known Rich style tags like [bold], [blue], [/bold], [dim], etc.
+    Preserves other bracketed content like array[0] or [some text].
+
+    Args:
+        text: Text potentially containing Rich markup
+
+    Returns:
+        Text with Rich markup tags removed
+    """
+    return _RICH_MARKUP_PATTERN.sub("", text)
 
 
 # Default socket path for Agent Island
@@ -80,6 +144,9 @@ class HybridUserInterface(UserInterface):
 
         # Queue for user input from Island UI (bidirectional chat)
         self._island_input_queue: asyncio.Queue = asyncio.Queue()
+
+        # Track whether the last user input came from Island (to avoid echoing back)
+        self._last_input_from_island = False
 
         # Reference to agent context (set by hdev.py after context creation)
         self.agent_context = None
@@ -538,6 +605,7 @@ class HybridUserInterface(UserInterface):
         First input wins, the other is cancelled/ignored.
         """
         if not self.hybrid_mode:
+            self._last_input_from_island = False
             return await self.cli.get_user_input(prompt)
 
         # Race between CLI input and Island input queue
@@ -575,11 +643,13 @@ class HybridUserInterface(UserInterface):
 
         await done_event.wait()
 
-        # Clean up
+        # Clean up and track source
         if result_holder["source"] == "cli":
             island_task.cancel()
+            self._last_input_from_island = False
         else:
             cli_task.cancel()
+            self._last_input_from_island = True
             # Show confirmation that input came from Island
             self.cli.handle_system_message(
                 f"[dim]✓ Input from Agent Island: {result_holder['value'][:50]}{'...' if len(result_holder['value']) > 50 else ''}[/dim]",
@@ -754,8 +824,10 @@ class HybridUserInterface(UserInterface):
         self.cli.handle_system_message(message, markdown=markdown, live=live)
 
         if self.hybrid_mode:
+            # Strip Rich markup before sending to Island
+            clean_message = _strip_rich_markup(message)
             _fire_and_forget(
-                self._island.notify_system_message(message=message, style="info")
+                self._island.notify_system_message(message=clean_message, style="info")
             )
 
     def handle_tool_use(
@@ -802,17 +874,27 @@ class HybridUserInterface(UserInterface):
             )
 
     def handle_user_input(self, user_input: str) -> str:
-        """Display user input in both interfaces."""
+        """Display user input in both interfaces.
+
+        If the input originally came from Island (via get_user_input), we don't
+        echo it back to avoid duplicating the message.
+        """
         result = self.cli.handle_user_input(user_input)
 
-        if self.hybrid_mode:
+        # Don't echo back to Island if the input came from there
+        if self.hybrid_mode and not self._last_input_from_island:
             message_id = _generate_message_id()
+            # Strip Rich markup before sending to Island
+            clean_content = _strip_rich_markup(user_input)
             _fire_and_forget(
                 self._island.notify_user_message(
-                    content=user_input,
+                    content=clean_content,
                     message_id=message_id,
                 )
             )
+
+        # Reset the flag after handling
+        self._last_input_from_island = False
 
         return result
 
@@ -904,8 +986,12 @@ class HybridUserInterface(UserInterface):
         """Pass through to CLI."""
         # Also notify Island
         if self.hybrid_mode:
+            # Strip Rich markup before sending to Island
+            clean_message = _strip_rich_markup(message)
             _fire_and_forget(
-                self._island.notify_status(message=message, spinner=spinner is not None)
+                self._island.notify_status(
+                    message=clean_message, spinner=spinner is not None
+                )
             )
 
         return self.cli.status(message, spinner)

@@ -4,7 +4,11 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock
 import pytest
 
-from silica.developer.hybrid_interface import HybridUserInterface, _fire_and_forget
+from silica.developer.hybrid_interface import (
+    HybridUserInterface,
+    _fire_and_forget,
+    _strip_rich_markup,
+)
 from silica.developer.sandbox import SandboxMode
 
 
@@ -359,3 +363,129 @@ class TestHybridInterfaceNoEventLoop:
         hybrid.handle_tool_use("test_tool", {"param": "value"})
 
         assert ("tool_use", "test_tool", {"param": "value"}) in cli.messages
+
+
+class TestStripRichMarkup:
+    """Test Rich markup stripping for Island."""
+
+    def test_strip_simple_tags(self):
+        """Should strip simple Rich tags."""
+        assert _strip_rich_markup("[bold]Hello[/bold]") == "Hello"
+        assert _strip_rich_markup("[blue]World[/blue]") == "World"
+        assert _strip_rich_markup("[dim]text[/dim]") == "text"
+
+    def test_strip_compound_tags(self):
+        """Should strip compound Rich tags."""
+        assert _strip_rich_markup("[bold blue]Hello[/bold blue]") == "Hello"
+        assert _strip_rich_markup("[bold red]Error[/bold red]") == "Error"
+
+    def test_strip_nested_tags(self):
+        """Should strip nested Rich tags."""
+        text = "[bold][blue]You:[/blue][/bold] Hello"
+        assert _strip_rich_markup(text) == "You: Hello"
+
+    def test_preserve_non_markup_brackets(self):
+        """Should preserve brackets that aren't Rich markup."""
+        # Array indexing should be preserved
+        assert _strip_rich_markup("array[0]") == "array[0]"
+        assert _strip_rich_markup("dict['key']") == "dict['key']"
+        # Random bracketed text should be preserved
+        assert _strip_rich_markup("[some text]") == "[some text]"
+        assert _strip_rich_markup("See [this link]") == "See [this link]"
+
+    def test_strip_color_codes(self):
+        """Should strip color codes including hex."""
+        assert _strip_rich_markup("[#ff0000]Red[/#ff0000]") == "Red"
+
+    def test_empty_string(self):
+        """Should handle empty strings."""
+        assert _strip_rich_markup("") == ""
+
+    def test_no_markup(self):
+        """Should return unchanged if no markup."""
+        assert _strip_rich_markup("Hello World") == "Hello World"
+
+    def test_mixed_content(self):
+        """Should strip Rich markup but preserve other brackets."""
+        text = "[bold]Status:[/bold] array[0] is [green]OK[/green]"
+        assert _strip_rich_markup(text) == "Status: array[0] is OK"
+
+
+class TestIslandInputEchoSuppression:
+    """Test that input from Island is not echoed back."""
+
+    @pytest.mark.asyncio
+    async def test_input_from_island_not_echoed_back(self, tmp_path):
+        """Input received from Island should not be sent back via notify_user_message."""
+        cli = MockCLIInterface()
+        hybrid = HybridUserInterface(cli, socket_path=tmp_path / "test.sock")
+
+        mock_island = MagicMock()
+        mock_island.connected = True
+        mock_island.notify_user_message = AsyncMock()
+
+        hybrid._island = mock_island
+        hybrid._island_available = True
+
+        # Simulate input coming from Island
+        hybrid._last_input_from_island = True
+
+        # Handle the user input (which would normally echo to Island)
+        hybrid.handle_user_input("[bold blue]You:[/bold blue] Hello from Island")
+
+        # Give async tasks a chance to run
+        await asyncio.sleep(0.1)
+
+        # Island should NOT have been notified (input came from there)
+        mock_island.notify_user_message.assert_not_called()
+
+        # Flag should be reset
+        assert not hybrid._last_input_from_island
+
+    @pytest.mark.asyncio
+    async def test_input_from_cli_is_sent_to_island(self, tmp_path):
+        """Input from CLI should be sent to Island."""
+        cli = MockCLIInterface()
+        hybrid = HybridUserInterface(cli, socket_path=tmp_path / "test.sock")
+
+        mock_island = MagicMock()
+        mock_island.connected = True
+        mock_island.notify_user_message = AsyncMock()
+
+        hybrid._island = mock_island
+        hybrid._island_available = True
+
+        # Input from CLI (default)
+        hybrid._last_input_from_island = False
+
+        hybrid.handle_user_input("[bold blue]You:[/bold blue] Hello from CLI")
+
+        await asyncio.sleep(0.1)
+
+        # Island SHOULD have been notified
+        mock_island.notify_user_message.assert_called_once()
+
+        # Check that Rich markup was stripped
+        call_kwargs = mock_island.notify_user_message.call_args.kwargs
+        assert call_kwargs["content"] == "You: Hello from CLI"
+
+    @pytest.mark.asyncio
+    async def test_system_message_strips_rich_markup(self, tmp_path):
+        """System messages should have Rich markup stripped before sending to Island."""
+        cli = MockCLIInterface()
+        hybrid = HybridUserInterface(cli, socket_path=tmp_path / "test.sock")
+
+        mock_island = MagicMock()
+        mock_island.connected = True
+        mock_island.notify_system_message = AsyncMock()
+
+        hybrid._island = mock_island
+        hybrid._island_available = True
+
+        hybrid.handle_system_message("[dim]✓ Responded in terminal[/dim]")
+
+        await asyncio.sleep(0.1)
+
+        mock_island.notify_system_message.assert_called_once()
+        call_kwargs = mock_island.notify_system_message.call_args.kwargs
+        assert call_kwargs["message"] == "✓ Responded in terminal"
