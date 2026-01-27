@@ -10,10 +10,16 @@ from typing import TYPE_CHECKING
 
 from silica.developer.tools.framework import tool
 from silica.developer.plans import (
+    APPROVAL_MODE_AGENT,
+    APPROVAL_MODE_SUBAGENT,
+    APPROVAL_MODE_USER,
+    CATEGORY_EXPLORATION,
+    CATEGORY_IMPLEMENTATION,
     MetricSnapshot,
     Plan,
     PlanManager,
     PlanStatus,
+    PlanTask,
 )
 
 if TYPE_CHECKING:
@@ -811,6 +817,218 @@ def _get_root_dir(context: "AgentContext") -> str:
     return os.getcwd()
 
 
+async def _run_task_validation(
+    context: "AgentContext",
+    task: "PlanTask",
+) -> dict:
+    """Run validation for a task using a sub-agent.
+
+    Spawns a sub-agent with limited tools (shell_execute, read_file) to
+    verify the task's validation criteria is met. The sub-agent uses
+    judgment to adapt the validation approach if needed.
+
+    Args:
+        context: The agent context
+        task: The task with validation_criteria and optional validation_hint
+
+    Returns:
+        Dict with:
+        - passed: bool - whether validation passed
+        - reasoning: str - explanation of what was checked
+        - output: str - relevant command output
+    """
+    from datetime import datetime, timezone
+    from silica.developer.tools.subagent import run_agent
+
+    if not task.validation_criteria:
+        return {
+            "passed": True,
+            "reasoning": "No validation criteria specified",
+            "output": "",
+        }
+
+    # Build the validation prompt
+    hint_section = ""
+    if task.validation_hint:
+        hint_section = f"""
+SUGGESTED APPROACH: {task.validation_hint}
+Note: You can adapt this approach if it doesn't work (e.g., adjust paths, arguments).
+"""
+    else:
+        hint_section = """
+SUGGESTED APPROACH: Use your judgment to verify the criteria.
+"""
+
+    prompt = f"""You are a validation agent. Your ONLY job is to verify this criteria is met:
+
+CRITERIA: {task.validation_criteria}
+{hint_section}
+You have access to shell_execute and read_file tools. Verify the criteria is met.
+
+Rules:
+1. You MUST actually run commands to verify - do not assume or trust
+2. If the suggested approach doesn't work, try alternatives
+3. Adjust command arguments if needed (e.g., different test paths, flags)
+4. Report PASS only if you have concrete evidence the criteria is met
+5. Report FAIL with specific output showing why it failed
+
+After running your verification, respond with EXACTLY this format:
+VALIDATION_PASSED: [yes/no]
+REASONING: [brief explanation of what you checked and found]
+OUTPUT: [relevant command output, truncated if very long]"""
+
+    try:
+        # Run the validation sub-agent with limited tools
+        result = await run_agent(
+            context,
+            prompt=prompt,
+            tool_names=["shell_execute", "read_file"],
+            model="light",  # Use faster model for validation
+        )
+
+        # Parse the result
+        passed = False
+        reasoning = ""
+        output = ""
+
+        lines = result.strip().split("\n")
+        current_section = None
+
+        for line in lines:
+            line_lower = line.lower()
+            if line_lower.startswith("validation_passed:"):
+                value = line.split(":", 1)[1].strip().lower()
+                passed = value in ("yes", "true", "passed", "pass")
+                current_section = None
+            elif line_lower.startswith("reasoning:"):
+                reasoning = line.split(":", 1)[1].strip()
+                current_section = "reasoning"
+            elif line_lower.startswith("output:"):
+                output = line.split(":", 1)[1].strip()
+                current_section = "output"
+            elif current_section == "reasoning":
+                reasoning += " " + line.strip()
+            elif current_section == "output":
+                output += "\n" + line
+
+        # If parsing failed, try to infer from the full response
+        if not reasoning:
+            reasoning = result[:500] if len(result) > 500 else result
+            # Look for pass/fail indicators
+            result_lower = result.lower()
+            if "pass" in result_lower and "fail" not in result_lower:
+                passed = True
+            elif "fail" in result_lower or "error" in result_lower:
+                passed = False
+
+        # Update task validation state
+        task.validation_passed = passed
+        task.validation_result = f"Reasoning: {reasoning}\nOutput: {output[:1000]}"
+        task.validation_run_at = datetime.now(timezone.utc)
+
+        return {
+            "passed": passed,
+            "reasoning": reasoning,
+            "output": output.strip()[:2000],  # Truncate long output
+        }
+
+    except Exception as e:
+        # Validation failed due to error
+        task.validation_passed = False
+        task.validation_result = f"Validation error: {str(e)}"
+        task.validation_run_at = datetime.now(timezone.utc)
+
+        return {
+            "passed": False,
+            "reasoning": f"Validation failed with error: {str(e)}",
+            "output": "",
+        }
+
+
+def _check_and_maybe_auto_promote(
+    plan: Plan,
+    plan_manager: PlanManager,
+    task: "PlanTask",
+    context: "AgentContext",
+) -> tuple[bool, str]:
+    """Check plan status and maybe auto-promote for task completion.
+
+    This implements the auto-promotion logic based on task category and
+    approval policy:
+    - Exploration tasks: always allowed, no promotion needed
+    - Implementation tasks + plan not approved:
+      - Interactive policy: return error asking for explicit approval
+      - Autonomous policy: auto-promote to IN_PROGRESS
+
+    Args:
+        plan: The plan being modified
+        plan_manager: The plan manager for saving changes
+        task: The task being completed/verified
+        context: Agent context
+
+    Returns:
+        Tuple of (should_proceed: bool, message: str)
+        - If should_proceed is False, message contains the error/warning
+        - If should_proceed is True, message may contain info about auto-promotion
+    """
+
+    # Exploration tasks can always be completed without promotion
+    if task.is_exploration():
+        return True, ""
+
+    # Implementation task - check if plan is approved
+    if plan.is_approved():
+        return True, ""
+
+    # Plan is not approved (DRAFT or IN_REVIEW)
+    if plan.is_interactive():
+        # Interactive mode: require explicit approval
+        return (
+            False,
+            f"""⚠️ **Plan not approved for execution**
+
+This is an implementation task, but the plan is still in `{plan.status.value}` status.
+
+**Options:**
+1. Use `request_plan_approval("{plan.id}")` to get explicit user approval
+2. Change this task to exploration: update its category to "exploration"
+3. Set the plan's approval_policy to "autonomous" if you want to self-approve
+
+For exploration/research work during planning, add tasks with `"category": "exploration"`.""",
+        )
+
+    # Autonomous mode: auto-promote
+    # First, submit for review if still in DRAFT
+    if plan.status == PlanStatus.DRAFT:
+        plan.status = PlanStatus.IN_REVIEW
+        plan.add_progress("Auto-submitted for review (autonomous mode)")
+
+    # Then approve
+    if plan.status == PlanStatus.IN_REVIEW:
+        plan.status = PlanStatus.APPROVED
+        plan.approval_mode = APPROVAL_MODE_AGENT
+        plan.add_progress("Auto-approved (autonomous mode)")
+
+    # Then start execution
+    if plan.status == PlanStatus.APPROVED:
+        plan.status = PlanStatus.IN_PROGRESS
+        plan.add_progress("Auto-started execution (autonomous mode)")
+        _record_metrics_baseline(plan, context)
+
+    plan_manager.update_plan(plan)
+
+    return (
+        True,
+        f"""🤖 **Plan auto-promoted to IN_PROGRESS** (autonomous mode)
+
+The plan was automatically approved and started because:
+- Approval policy is set to `autonomous`
+- An implementation task is being completed
+
+You are now in execution mode for plan `{plan.id}`.""",
+    )
+
+
 @tool(group="Planning")
 def enter_plan_mode(
     context: "AgentContext",
@@ -1040,15 +1258,27 @@ def add_plan_tasks(
             - files: List of affected files (optional)
             - tests: Testing approach (optional)
             - dependencies: List of task IDs this depends on (optional)
+            - category: "exploration" or "implementation" (default: "implementation")
+                - exploration: Research/spike tasks during planning phase
+                - implementation: Actual deliverables for execution phase
+            - validation: Validation specification object (optional but recommended for implementation tasks):
+                - criteria: Description of what success looks like (required within validation)
+                - hint: Suggested command/approach, sub-agent can adapt (optional)
+                - timeout: Timeout in seconds (optional, default: 120)
 
     Returns:
         Confirmation with task IDs
 
     Example:
         tasks = '[
-            {"description": "Create database schema", "files": ["schema.sql"]},
-            {"description": "Implement API endpoints", "files": ["api.py"], "tests": "Unit tests"},
-            {"description": "Add frontend components", "dependencies": ["task-1", "task-2"]}
+            {"description": "Investigate current auth flow", "category": "exploration"},
+            {"description": "Create database schema", "files": ["schema.sql"],
+             "validation": {"criteria": "Schema file exists and is valid SQL"}},
+            {"description": "Implement API endpoints", "files": ["api.py"],
+             "validation": {"criteria": "All tests in tests/test_api.py pass",
+                           "hint": "pytest tests/test_api.py -v"}},
+            {"description": "Add frontend components", "dependencies": ["task-1", "task-2"],
+             "validation": {"criteria": "npm run build succeeds with no errors"}}
         ]'
     """
     plan_manager = _get_plan_manager(context)
@@ -1065,11 +1295,33 @@ def add_plan_tasks(
         return f"Error: Invalid JSON: {e}"
 
     added_tasks = []
+    exploration_count = 0
+    missing_validation_count = 0
     for task_data in tasks_list:
         if not isinstance(task_data, dict):
             continue
         if "description" not in task_data:
             continue
+
+        # Parse category, default to implementation
+        category = task_data.get("category", CATEGORY_IMPLEMENTATION)
+        if category not in (CATEGORY_EXPLORATION, CATEGORY_IMPLEMENTATION):
+            category = CATEGORY_IMPLEMENTATION
+
+        # Parse validation specification
+        validation_criteria = ""
+        validation_hint = ""
+        validation_timeout = 120
+        validation_spec = task_data.get("validation")
+        if isinstance(validation_spec, dict):
+            validation_criteria = validation_spec.get("criteria", "")
+            validation_hint = validation_spec.get("hint", "")
+            validation_timeout = validation_spec.get("timeout", 120)
+
+        # Track implementation tasks without validation
+        is_implementation = category == CATEGORY_IMPLEMENTATION
+        if is_implementation and not validation_criteria:
+            missing_validation_count += 1
 
         task = plan.add_task(
             description=task_data["description"],
@@ -1077,15 +1329,31 @@ def add_plan_tasks(
             files=task_data.get("files", []),
             tests=task_data.get("tests", ""),
             dependencies=task_data.get("dependencies", []),
+            category=category,
+            validation_criteria=validation_criteria,
+            validation_hint=validation_hint,
+            validation_timeout=validation_timeout,
         )
         added_tasks.append(task)
+        if category == CATEGORY_EXPLORATION:
+            exploration_count += 1
 
     plan.add_progress(f"Added {len(added_tasks)} tasks")
     plan_manager.update_plan(plan)
 
     result = f"✅ Added {len(added_tasks)} tasks to plan {plan_id}:\n\n"
     for task in added_tasks:
-        result += f"- `{task.id}`: {task.description}\n"
+        category_indicator = " 🔍" if task.category == CATEGORY_EXPLORATION else ""
+        validation_indicator = " ✓" if task.validation_criteria else ""
+        result += f"- `{task.id}`: {task.description}{category_indicator}{validation_indicator}\n"
+
+    if exploration_count > 0:
+        result += f"\n🔍 = exploration task ({exploration_count} total)"
+
+    if missing_validation_count > 0:
+        result += f"\n\n⚠️ **Warning:** {missing_validation_count} implementation task(s) without validation criteria."
+        result += "\nConsider adding validation to ensure task completion can be verified mechanically."
+        result += "\nUse `update_plan_task` to add validation, or mark tasks as `exploration` if validation isn't applicable."
 
     return result
 
@@ -2290,25 +2558,37 @@ def list_cancelled_tasks(
 
 
 @tool(group="Planning")
-def complete_plan_task(
+async def complete_plan_task(
     context: "AgentContext",
     plan_id: str,
     task_id: str,
     notes: str = "",
+    skip_validation: bool = False,
 ) -> str:
     """Mark a task in a plan as completed (implementation done).
 
-    This marks the task as complete, but it still needs to be verified.
-    After completing a task, run tests and use `verify_plan_task` to confirm
+    For tasks with validation criteria, validation is run automatically.
+    If validation fails, completion is REJECTED and the task remains incomplete.
+    Use skip_validation=True to bypass validation (with a warning).
+
+    After completing a task, use `verify_plan_task` to re-verify and confirm
     the implementation is correct.
+
+    For implementation tasks, the plan must be approved (APPROVED or IN_PROGRESS
+    status) unless the plan uses autonomous approval policy, in which case the
+    plan will be auto-promoted.
+
+    Exploration tasks can be completed at any plan status without requiring
+    approval and do not require validation.
 
     Args:
         plan_id: ID of the plan
         task_id: ID of the task to complete
         notes: Optional notes about completion
+        skip_validation: If True, bypass validation (not recommended)
 
     Returns:
-        Confirmation with reminder to verify
+        Confirmation with reminder to verify, or error if validation fails
     """
     plan_manager = _get_plan_manager(context)
     plan = plan_manager.get_plan(plan_id)
@@ -2321,6 +2601,13 @@ def complete_plan_task(
     if task is None:
         return f"Error: Task {task_id} not found in plan {plan_id}"
 
+    # Check auto-promotion logic for implementation tasks
+    should_proceed, promotion_msg = _check_and_maybe_auto_promote(
+        plan, plan_manager, task, context
+    )
+    if not should_proceed:
+        return promotion_msg
+
     # Warn if dependencies not satisfied (but allow completion)
     dep_warning = ""
     if task.dependencies:
@@ -2330,6 +2617,39 @@ def complete_plan_task(
             dep_warning = (
                 f"\n⚠️ **Warning:** Dependencies not satisfied: {blocker_ids}\n"
             )
+
+    # Run validation if task has validation criteria (unless skip_validation or exploration)
+    validation_msg = ""
+    if task.has_validation() and not task.is_exploration():
+        if skip_validation:
+            validation_msg = "\n⚠️ **Warning:** Validation skipped by request.\n"
+            task.validation_result = "Validation skipped by request"
+            task.validation_passed = False
+        else:
+            # Run validation via sub-agent
+            validation_result = await _run_task_validation(context, task)
+
+            if not validation_result["passed"]:
+                # REJECT completion - validation failed
+                plan_manager.update_plan(plan)  # Save validation state
+                return f"""❌ **Completion REJECTED** - Validation failed for task `{task_id}`
+
+**Validation Criteria:** {task.validation_criteria}
+{f"**Hint:** {task.validation_hint}" if task.validation_hint else ""}
+
+**Validation Result:**
+{validation_result["reasoning"]}
+
+**Output:**
+```
+{validation_result["output"][:1500]}
+```
+
+The task cannot be marked complete until validation passes.
+Fix the issues and try again, or use `skip_validation=True` to bypass (not recommended).
+"""
+            else:
+                validation_msg = f"\n✅ **Validation passed:** {validation_result['reasoning'][:200]}\n"
 
     if not plan.complete_task(task_id):
         return f"Error: Could not complete task {task_id}"
@@ -2373,7 +2693,15 @@ Run tests to confirm the implementation is correct, then call:
     remaining = plan.get_incomplete_tasks()
     unverified = plan.get_unverified_tasks()
 
-    status = f"✅ Task `{task_id}` marked as **completed** (implementation done).{dep_warning}{auto_complete_msg}\n{verify_hint}"
+    # Build base status message
+    category_note = " (exploration)" if task.is_exploration() else ""
+    status = f"✅ Task `{task_id}` marked as **completed**{category_note}.{dep_warning}{validation_msg}{auto_complete_msg}"
+
+    # Add auto-promotion message if applicable
+    if promotion_msg:
+        status = f"{promotion_msg}\n\n{status}"
+
+    status += f"\n{verify_hint}"
 
     if remaining:
         remaining_list = "\n".join(
@@ -2392,27 +2720,33 @@ Run tests to confirm the implementation is correct, then call:
 
 
 @tool(group="Planning")
-def verify_plan_task(
+async def verify_plan_task(
     context: "AgentContext",
     plan_id: str,
     task_id: str,
     test_results: str,
+    skip_validation: bool = False,
 ) -> str:
-    """Verify a completed task by confirming tests pass.
+    """Verify a completed task by re-running validation.
 
     A task must be marked as completed before it can be verified.
-    Verification confirms that:
-    - Tests pass
+    For tasks with validation criteria, validation is re-run to confirm:
+    - Tests still pass (catches regressions from other changes)
     - The implementation meets requirements
     - No regressions were introduced
+
+    For implementation tasks, the plan must be approved (APPROVED or IN_PROGRESS
+    status) unless the plan uses autonomous approval policy, in which case the
+    plan will be auto-promoted.
 
     Args:
         plan_id: ID of the plan
         task_id: ID of the task to verify
-        test_results: Evidence of verification (test output, manual testing notes, etc.)
+        test_results: Evidence of verification (test output, manual verification notes, etc.)
+        skip_validation: If True, bypass automated validation (not recommended)
 
     Returns:
-        Confirmation and remaining unverified tasks
+        Confirmation and remaining unverified tasks, or error if validation fails
     """
     plan_manager = _get_plan_manager(context)
     plan = plan_manager.get_plan(plan_id)
@@ -2421,12 +2755,7 @@ def verify_plan_task(
         return f"Error: Plan {plan_id} not found"
 
     # Find the task
-    task = None
-    for t in plan.tasks:
-        if t.id == task_id:
-            task = t
-            break
-
+    task = plan.get_task_by_id(task_id)
     if task is None:
         return f"Error: Task {task_id} not found in plan {plan_id}"
 
@@ -2438,6 +2767,47 @@ def verify_plan_task(
 
     if not test_results or not test_results.strip():
         return "Error: test_results is required. Provide evidence of testing (test output, manual verification notes, etc.)"
+
+    # Check auto-promotion logic for implementation tasks
+    should_proceed, promotion_msg = _check_and_maybe_auto_promote(
+        plan, plan_manager, task, context
+    )
+    if not should_proceed:
+        return promotion_msg
+
+    # Re-run validation if task has validation criteria (unless skip_validation or exploration)
+    validation_msg = ""
+    if task.has_validation() and not task.is_exploration():
+        if skip_validation:
+            validation_msg = "\n⚠️ **Warning:** Validation skipped by request.\n"
+            task.validation_result = "Validation skipped during verification"
+            task.validation_passed = False
+        else:
+            # Re-run validation via sub-agent to catch regressions
+            validation_result = await _run_task_validation(context, task)
+
+            if not validation_result["passed"]:
+                # REJECT verification - validation failed
+                plan_manager.update_plan(plan)  # Save validation state
+                return f"""❌ **Verification REJECTED** - Validation failed for task `{task_id}`
+
+This task was previously completed, but validation now fails (possible regression).
+
+**Validation Criteria:** {task.validation_criteria}
+{f"**Hint:** {task.validation_hint}" if task.validation_hint else ""}
+
+**Validation Result:**
+{validation_result["reasoning"]}
+
+**Output:**
+```
+{validation_result["output"][:1500]}
+```
+
+Fix the issues and try again, or use `skip_validation=True` to bypass (not recommended).
+"""
+            else:
+                validation_msg = f"\n✅ **Validation re-confirmed:** {validation_result['reasoning'][:200]}\n"
 
     if not plan.verify_task(task_id, test_results):
         return f"Error: Could not verify task {task_id}"
@@ -2456,7 +2826,13 @@ def verify_plan_task(
     incomplete = plan.get_incomplete_tasks()
     unverified = plan.get_unverified_tasks()
 
-    status = f"✓✓ Task `{task_id}` **verified**!\n"
+    # Build status message
+    category_note = " (exploration)" if task.is_exploration() else ""
+    status = f"✓✓ Task `{task_id}` **verified**{category_note}!{validation_msg}\n"
+
+    # Add auto-promotion message if applicable
+    if promotion_msg:
+        status = f"{promotion_msg}\n\n{status}"
 
     if incomplete:
         status += f"\n**Incomplete tasks ({len(incomplete)}):**\n"
@@ -2550,6 +2926,353 @@ Status changed to IN_PROGRESS.
 1. Review which tasks need to be redone
 2. Work through incomplete/unverified tasks
 3. Call `complete_plan("{plan_id}")` when finished
+"""
+
+
+@tool(group="Planning")
+async def request_plan_approval(
+    context: "AgentContext",
+    plan_id: str,
+    summary: str = "",
+) -> str:
+    """Request explicit user approval for a plan.
+
+    Presents an interactive menu for the user to review and approve the plan.
+    This is the recommended way to get plan approval in interactive mode.
+
+    The user can:
+    - View the full plan details
+    - Ask clarifying questions (which you should answer, then call this again)
+    - Approve and start execution
+    - Approve and shelve for later
+    - Approve and push to remote workspace
+    - Request changes
+    - Reject the plan
+
+    Args:
+        plan_id: The plan to request approval for
+        summary: Optional brief summary highlighting key points
+
+    Returns:
+        JSON object with the user's decision:
+        - {"decision": "approved", "mode": "execute"}
+        - {"decision": "approved", "mode": "shelve"}
+        - {"decision": "approved", "mode": "push", "workspace": "..."}
+        - {"decision": "question", "question": "..."}
+        - {"decision": "changes_requested", "feedback": "..."}
+        - {"decision": "rejected", "reason": "..."}
+
+    When decision is "question", answer the question and call this tool
+    again to continue the approval flow.
+    """
+    plan_manager = _get_plan_manager(context)
+    plan = plan_manager.get_plan(plan_id)
+
+    if plan is None:
+        return json.dumps({"error": f"Plan {plan_id} not found"})
+
+    # Ensure plan is submitted for review
+    if plan.status == PlanStatus.DRAFT:
+        plan.status = PlanStatus.IN_REVIEW
+        plan.add_progress("Plan submitted for review")
+        plan_manager.update_plan(plan)
+
+    # Build plan summary for display
+    task_summary = ""
+    if plan.tasks:
+        impl_tasks = plan.get_implementation_tasks()
+        expl_tasks = plan.get_exploration_tasks()
+        task_summary = f"\n\n**Tasks:** {len(impl_tasks)} implementation"
+        if expl_tasks:
+            task_summary += f", {len(expl_tasks)} exploration"
+        task_summary += "\n"
+        for t in plan.tasks[:5]:
+            status = "✅" if t.completed else "⬜"
+            cat = " 🔍" if t.is_exploration() else ""
+            task_summary += f"- {status} {t.description}{cat}\n"
+        if len(plan.tasks) > 5:
+            task_summary += f"- ... and {len(plan.tasks) - 5} more\n"
+
+    display_text = f"""📋 **Plan Ready for Review:** {plan.title} (`{plan_id}`)
+
+**Context:**
+{plan.context[:300] if plan.context else "_No context provided_"}{"..." if plan.context and len(plan.context) > 300 else ""}
+
+**Approach:**
+{plan.approach[:300] if plan.approach else "_No approach defined_"}{"..." if plan.approach and len(plan.approach) > 300 else ""}
+{task_summary}
+{summary if summary else ""}"""
+
+    # Present menu options
+    options = [
+        "✅ Approve and start execution",
+        "📋 Approve and shelve for later",
+        "🚀 Approve and push to remote workspace",
+        "📄 View full plan details",
+        "❓ Ask a question about this plan",
+        "✏️ Request changes",
+        "❌ Reject plan",
+    ]
+
+    while True:
+        # Show plan summary
+        if hasattr(context, "user_interface") and context.user_interface:
+            context.user_interface.handle_system_message(display_text)
+
+        # Get user choice
+        from silica.developer.tools.user_choice import user_choice
+
+        choice_result = await user_choice(
+            context, "What would you like to do?", json.dumps(options)
+        )
+
+        if "View full plan" in choice_result:
+            # Display full plan and loop back
+            if hasattr(context, "user_interface") and context.user_interface:
+                context.user_interface.handle_system_message(plan.to_markdown())
+            continue
+
+        elif "Ask a question" in choice_result:
+            # Get the question from user
+            if hasattr(context, "user_interface") and context.user_interface:
+                question = await context.user_interface.get_user_input(
+                    "What would you like to know about this plan? "
+                )
+            else:
+                question = "User question"
+            return json.dumps({"decision": "question", "question": question})
+
+        elif "start execution" in choice_result:
+            # Approve and start
+            plan.status = PlanStatus.APPROVED
+            plan.approval_mode = APPROVAL_MODE_USER
+            plan.add_progress("Plan approved by user")
+            plan_manager.update_plan(plan)
+            plan_manager.start_execution(plan_id)
+
+            # Record metrics baseline
+            plan = plan_manager.get_plan(plan_id)
+            _record_metrics_baseline(plan, context)
+            plan_manager.update_plan(plan)
+
+            context.active_plan_id = plan_id
+            return json.dumps({"decision": "approved", "mode": "execute"})
+
+        elif "shelve" in choice_result:
+            # Approve and shelve
+            plan.status = PlanStatus.APPROVED
+            plan.approval_mode = APPROVAL_MODE_USER
+            plan.shelved = True
+            plan.add_progress("Plan approved and shelved for later execution")
+            plan_manager.update_plan(plan)
+            return json.dumps({"decision": "approved", "mode": "shelve"})
+
+        elif "push to remote" in choice_result:
+            # Get workspace name
+            default_ws = f"plan-{plan.get_slug()}"
+            if hasattr(context, "user_interface") and context.user_interface:
+                workspace = await context.user_interface.get_user_input(
+                    f"Workspace name (leave blank for '{default_ws}'): "
+                )
+            else:
+                workspace = ""
+            workspace = workspace.strip() or default_ws
+
+            # Approve (but don't start - push handler will do that)
+            plan.status = PlanStatus.APPROVED
+            plan.approval_mode = APPROVAL_MODE_USER
+            plan.add_progress(f"Plan approved for push to remote: {workspace}")
+            plan_manager.update_plan(plan)
+
+            return json.dumps(
+                {
+                    "decision": "approved",
+                    "mode": "push",
+                    "workspace": workspace,
+                    "branch": f"plan/{plan.get_slug()}",
+                }
+            )
+
+        elif "Request changes" in choice_result:
+            # Get feedback
+            if hasattr(context, "user_interface") and context.user_interface:
+                feedback = await context.user_interface.get_user_input(
+                    "What changes would you like? "
+                )
+            else:
+                feedback = "Changes requested"
+            plan.add_progress(f"Changes requested: {feedback}")
+            plan_manager.update_plan(plan)
+            return json.dumps({"decision": "changes_requested", "feedback": feedback})
+
+        elif "Reject" in choice_result:
+            # Get reason
+            if hasattr(context, "user_interface") and context.user_interface:
+                reason = await context.user_interface.get_user_input(
+                    "Reason for rejection (optional): "
+                )
+            else:
+                reason = ""
+            plan.add_progress(f"Plan rejected: {reason}" if reason else "Plan rejected")
+            plan_manager.update_plan(plan)
+            return json.dumps({"decision": "rejected", "reason": reason})
+
+        else:
+            # Unknown choice, treat as rejection
+            return json.dumps({"decision": "rejected", "reason": "Unknown choice"})
+
+
+@tool(group="Planning")
+async def approve_plan(
+    context: "AgentContext",
+    plan_id: str,
+    mode: str = "self",
+    review_instructions: str = "",
+) -> str:
+    """Approve a plan for execution (autonomous approval).
+
+    Use this when working in autonomous mode to approve your own plan.
+    Optionally request a sub-agent review before approval.
+
+    Args:
+        plan_id: The plan to approve
+        mode: Approval mode:
+            - "self": Direct self-approval (sets approval_mode to "agent")
+            - "subagent": Request sub-agent review first (sets approval_mode to "subagent")
+        review_instructions: For subagent mode, specific review criteria.
+            Default review checks: completeness, feasibility, risks, missing tasks.
+
+    Returns:
+        For "self" mode: Confirmation that plan is approved and started
+        For "subagent" mode: Review feedback or approval confirmation
+
+    Example:
+        # Self-approval
+        approve_plan("abc123", mode="self")
+
+        # With sub-agent review
+        approve_plan("abc123", mode="subagent",
+                    review_instructions="Focus on security implications")
+    """
+    plan_manager = _get_plan_manager(context)
+    plan = plan_manager.get_plan(plan_id)
+
+    if plan is None:
+        return f"Error: Plan {plan_id} not found"
+
+    if plan.status not in (PlanStatus.DRAFT, PlanStatus.IN_REVIEW):
+        if plan.status == PlanStatus.APPROVED:
+            return f"Plan {plan_id} is already approved. Use `exit_plan_mode(action='execute')` to start."
+        elif plan.status == PlanStatus.IN_PROGRESS:
+            return f"Plan {plan_id} is already in progress."
+        else:
+            return f"Error: Cannot approve plan in {plan.status.value} status."
+
+    if mode == "subagent":
+        # Use sub-agent to review the plan
+        default_instructions = """Review this plan and provide feedback:
+1. Is the plan complete? Are there missing tasks or steps?
+2. Is the approach feasible? Are there technical concerns?
+3. What risks or edge cases should be considered?
+4. Are the task dependencies correct?
+5. Overall assessment: APPROVE or REQUEST_CHANGES
+
+Be concise and specific."""
+
+        instructions = review_instructions or default_instructions
+
+        review_prompt = f"""Please review the following plan:
+
+{plan.to_markdown()}
+
+{instructions}"""
+
+        # Call sub-agent for review
+        from silica.developer.tools.subagent import agent
+
+        review_result = await agent(
+            context,
+            prompt=review_prompt,
+            tool_names="",  # No tools needed for review
+        )
+
+        # Check if review approves or requests changes
+        review_lower = review_result.lower()
+        if "approve" in review_lower and "request_changes" not in review_lower:
+            # Sub-agent approved
+            if plan.status == PlanStatus.DRAFT:
+                plan.status = PlanStatus.IN_REVIEW
+            plan.status = PlanStatus.APPROVED
+            plan.approval_mode = APPROVAL_MODE_SUBAGENT
+            plan.add_progress("Plan approved after sub-agent review")
+            plan_manager.update_plan(plan)
+            plan_manager.start_execution(plan_id)
+
+            # Record metrics baseline
+            plan = plan_manager.get_plan(plan_id)
+            _record_metrics_baseline(plan, context)
+            plan_manager.update_plan(plan)
+
+            context.active_plan_id = plan_id
+
+            return f"""✅ **Plan Approved** (after sub-agent review)
+
+Plan `{plan_id}` is now IN_PROGRESS.
+
+**Sub-agent review:**
+{review_result}
+
+You can now begin implementing the tasks."""
+        else:
+            # Sub-agent requested changes
+            plan.add_progress("Sub-agent review requested changes")
+            plan_manager.update_plan(plan)
+
+            return f"""📝 **Changes Requested** (sub-agent review)
+
+The sub-agent review identified issues with the plan:
+
+{review_result}
+
+Please address the feedback and try again."""
+
+    else:  # mode == "self"
+        # Direct self-approval
+        if plan.status == PlanStatus.DRAFT:
+            plan.status = PlanStatus.IN_REVIEW
+            plan.add_progress("Auto-submitted for review (self-approval)")
+
+        plan.status = PlanStatus.APPROVED
+        plan.approval_mode = APPROVAL_MODE_AGENT
+        plan.add_progress("Plan self-approved by agent")
+        plan_manager.update_plan(plan)
+        plan_manager.start_execution(plan_id)
+
+        # Record metrics baseline
+        plan = plan_manager.get_plan(plan_id)
+        _record_metrics_baseline(plan, context)
+        plan_manager.update_plan(plan)
+
+        context.active_plan_id = plan_id
+
+        incomplete_tasks = plan.get_incomplete_tasks()
+        task_list = "\n".join(
+            f"- `{t.id}`: {t.description}" for t in incomplete_tasks[:5]
+        )
+
+        return f"""✅ **Plan Self-Approved**
+
+Plan `{plan_id}`: **{plan.title}**
+
+Status changed to IN_PROGRESS.
+
+**Tasks to complete ({len(incomplete_tasks)}):**
+{task_list}
+
+Begin implementing the tasks. After each:
+1. Call `complete_plan_task("{plan_id}", "<task_id>")`
+2. Run tests
+3. Call `verify_plan_task("{plan_id}", "<task_id>", "<test results>")`
 """
 
 

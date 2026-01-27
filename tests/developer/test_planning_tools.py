@@ -404,7 +404,9 @@ class TestExitPlanMode:
 class TestCompletePlanTask:
     """Tests for complete_plan_task tool."""
 
-    def test_complete_task(self, mock_context, temp_persona_dir):
+    @pytest.mark.asyncio
+    async def test_complete_task(self, mock_context, temp_persona_dir):
+        """Test completing a task on an approved plan."""
         plan_manager = PlanManager(temp_persona_dir)
         plan = plan_manager.create_plan(
             "Test Plan", "session123", root_dir=str(temp_persona_dir)
@@ -412,14 +414,21 @@ class TestCompletePlanTask:
         task = plan.add_task("Test task")
         plan_manager.update_plan(plan)
 
-        result = complete_plan_task(mock_context, plan.id, task.id)
+        # Approve the plan first (required for implementation tasks)
+        plan_manager.submit_for_review(plan.id)
+        plan_manager.approve_plan(plan.id)
+        plan_manager.start_execution(plan.id)
+
+        result = await complete_plan_task(mock_context, plan.id, task.id)
 
         assert "completed" in result.lower()
 
         updated = plan_manager.get_plan(plan.id)
         assert updated.tasks[0].completed is True
 
-    def test_complete_task_with_notes(self, mock_context, temp_persona_dir):
+    @pytest.mark.asyncio
+    async def test_complete_task_with_notes(self, mock_context, temp_persona_dir):
+        """Test completing a task with notes on an approved plan."""
         plan_manager = PlanManager(temp_persona_dir)
         plan = plan_manager.create_plan(
             "Test Plan", "session123", root_dir=str(temp_persona_dir)
@@ -427,7 +436,12 @@ class TestCompletePlanTask:
         task = plan.add_task("Test task")
         plan_manager.update_plan(plan)
 
-        result = complete_plan_task(
+        # Approve the plan first
+        plan_manager.submit_for_review(plan.id)
+        plan_manager.approve_plan(plan.id)
+        plan_manager.start_execution(plan.id)
+
+        result = await complete_plan_task(
             mock_context, plan.id, task.id, notes="Finished with tests"
         )
 
@@ -437,13 +451,85 @@ class TestCompletePlanTask:
         # Check progress log has the notes
         assert any("Finished with tests" in p.message for p in updated.progress_log)
 
-    def test_complete_nonexistent_task(self, mock_context, temp_persona_dir):
+    @pytest.mark.asyncio
+    async def test_complete_implementation_task_requires_approval_interactive(
+        self, mock_context, temp_persona_dir
+    ):
+        """Test that implementation tasks require approval in interactive mode."""
+        from silica.developer.plans import APPROVAL_POLICY_INTERACTIVE
+
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
+        plan.approval_policy = APPROVAL_POLICY_INTERACTIVE
+        task = plan.add_task("Implementation task")
+        plan_manager.update_plan(plan)
+
+        result = await complete_plan_task(mock_context, plan.id, task.id)
+
+        # Should return error asking for approval
+        assert "not approved" in result.lower()
+        assert "request_plan_approval" in result
+
+    @pytest.mark.asyncio
+    async def test_complete_implementation_task_auto_promotes_autonomous(
+        self, mock_context, temp_persona_dir
+    ):
+        """Test that implementation tasks auto-promote plan in autonomous mode."""
+        from silica.developer.plans import APPROVAL_POLICY_AUTONOMOUS
+
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
+        plan.approval_policy = APPROVAL_POLICY_AUTONOMOUS
+        task = plan.add_task("Implementation task")
+        plan_manager.update_plan(plan)
+
+        result = await complete_plan_task(mock_context, plan.id, task.id)
+
+        # Should auto-promote and complete
+        assert "completed" in result.lower()
+        assert "auto-promoted" in result.lower()
+
+        updated = plan_manager.get_plan(plan.id)
+        assert updated.status == PlanStatus.IN_PROGRESS
+        assert updated.tasks[0].completed is True
+
+    @pytest.mark.asyncio
+    async def test_complete_exploration_task_no_approval_needed(
+        self, mock_context, temp_persona_dir
+    ):
+        """Test that exploration tasks can be completed without approval."""
+        from silica.developer.plans import CATEGORY_EXPLORATION
+
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
+        task = plan.add_task("Research task", category=CATEGORY_EXPLORATION)
+        plan_manager.update_plan(plan)
+
+        result = await complete_plan_task(mock_context, plan.id, task.id)
+
+        # Should complete without requiring approval
+        assert "completed" in result.lower()
+        assert "exploration" in result.lower()
+
+        updated = plan_manager.get_plan(plan.id)
+        assert updated.tasks[0].completed is True
+        # Plan status should remain DRAFT
+        assert updated.status == PlanStatus.DRAFT
+
+    @pytest.mark.asyncio
+    async def test_complete_nonexistent_task(self, mock_context, temp_persona_dir):
         plan_manager = PlanManager(temp_persona_dir)
         plan = plan_manager.create_plan(
             "Test Plan", "session123", root_dir=str(temp_persona_dir)
         )
 
-        result = complete_plan_task(mock_context, plan.id, "nonexistent")
+        result = await complete_plan_task(mock_context, plan.id, "nonexistent")
 
         assert "Error" in result
         assert "not found" in result
@@ -452,7 +538,9 @@ class TestCompletePlanTask:
 class TestVerifyPlanTask:
     """Tests for verify_plan_task tool."""
 
-    def test_verify_completed_task(self, mock_context, temp_persona_dir):
+    @pytest.mark.asyncio
+    async def test_verify_completed_task(self, mock_context, temp_persona_dir):
+        """Test verifying a completed task on an approved plan."""
         from silica.developer.tools.planning import verify_plan_task
 
         plan_manager = PlanManager(temp_persona_dir)
@@ -463,7 +551,12 @@ class TestVerifyPlanTask:
         plan.complete_task(task.id)
         plan_manager.update_plan(plan)
 
-        result = verify_plan_task(
+        # Approve the plan first (required for implementation tasks)
+        plan_manager.submit_for_review(plan.id)
+        plan_manager.approve_plan(plan.id)
+        plan_manager.start_execution(plan.id)
+
+        result = await verify_plan_task(
             mock_context, plan.id, task.id, "All tests pass: 10/10"
         )
 
@@ -473,7 +566,8 @@ class TestVerifyPlanTask:
         assert updated.tasks[0].verified is True
         assert "10/10" in updated.tasks[0].verification_notes
 
-    def test_verify_incomplete_task_fails(self, mock_context, temp_persona_dir):
+    @pytest.mark.asyncio
+    async def test_verify_incomplete_task_fails(self, mock_context, temp_persona_dir):
         from silica.developer.tools.planning import verify_plan_task
 
         plan_manager = PlanManager(temp_persona_dir)
@@ -483,12 +577,14 @@ class TestVerifyPlanTask:
         task = plan.add_task("Test task")
         plan_manager.update_plan(plan)
 
-        result = verify_plan_task(mock_context, plan.id, task.id, "Tests pass")
+        result = await verify_plan_task(mock_context, plan.id, task.id, "Tests pass")
 
         assert "Error" in result
         assert "completed" in result.lower()
 
-    def test_verify_requires_test_results(self, mock_context, temp_persona_dir):
+    @pytest.mark.asyncio
+    async def test_verify_requires_test_results(self, mock_context, temp_persona_dir):
+        """Test that verification requires test results."""
         from silica.developer.tools.planning import verify_plan_task
 
         plan_manager = PlanManager(temp_persona_dir)
@@ -499,12 +595,18 @@ class TestVerifyPlanTask:
         plan.complete_task(task.id)
         plan_manager.update_plan(plan)
 
-        result = verify_plan_task(mock_context, plan.id, task.id, "")
+        # Approve the plan first
+        plan_manager.submit_for_review(plan.id)
+        plan_manager.approve_plan(plan.id)
+        plan_manager.start_execution(plan.id)
+
+        result = await verify_plan_task(mock_context, plan.id, task.id, "")
 
         assert "Error" in result
         assert "required" in result.lower()
 
-    def test_verify_nonexistent_task(self, mock_context, temp_persona_dir):
+    @pytest.mark.asyncio
+    async def test_verify_nonexistent_task(self, mock_context, temp_persona_dir):
         from silica.developer.tools.planning import verify_plan_task
 
         plan_manager = PlanManager(temp_persona_dir)
@@ -512,10 +614,40 @@ class TestVerifyPlanTask:
             "Test Plan", "session123", root_dir=str(temp_persona_dir)
         )
 
-        result = verify_plan_task(mock_context, plan.id, "nonexistent", "Tests pass")
+        result = await verify_plan_task(
+            mock_context, plan.id, "nonexistent", "Tests pass"
+        )
 
         assert "Error" in result
         assert "not found" in result
+
+    @pytest.mark.asyncio
+    async def test_verify_exploration_task_no_approval_needed(
+        self, mock_context, temp_persona_dir
+    ):
+        """Test that exploration tasks can be verified without approval."""
+        from silica.developer.tools.planning import verify_plan_task
+        from silica.developer.plans import CATEGORY_EXPLORATION
+
+        plan_manager = PlanManager(temp_persona_dir)
+        plan = plan_manager.create_plan(
+            "Test Plan", "session123", root_dir=str(temp_persona_dir)
+        )
+        task = plan.add_task("Research task", category=CATEGORY_EXPLORATION)
+        plan.complete_task(task.id)
+        plan_manager.update_plan(plan)
+
+        result = await verify_plan_task(
+            mock_context, plan.id, task.id, "Research complete"
+        )
+
+        # Should verify without requiring approval
+        assert "verified" in result.lower()
+
+        updated = plan_manager.get_plan(plan.id)
+        assert updated.tasks[0].verified is True
+        # Plan status should remain DRAFT
+        assert updated.status == PlanStatus.DRAFT
 
 
 class TestCompletePlan:

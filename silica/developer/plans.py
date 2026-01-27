@@ -48,6 +48,15 @@ def slugify(text: str, max_length: int = 50) -> str:
 LOCATION_LOCAL = "local"
 LOCATION_GLOBAL = "global"
 
+# Approval policy constants
+APPROVAL_POLICY_INTERACTIVE = "interactive"
+APPROVAL_POLICY_AUTONOMOUS = "autonomous"
+
+# Approval mode constants (how the plan was approved)
+APPROVAL_MODE_USER = "user"  # Explicit user approval via /plan approve or tool
+APPROVAL_MODE_AGENT = "agent"  # Agent self-approved
+APPROVAL_MODE_SUBAGENT = "subagent"  # Agent approved after sub-agent review
+
 
 def get_git_root(cwd: Path | str | None = None) -> Path | None:
     """Find git repo root, or None if not in a repo."""
@@ -108,6 +117,11 @@ class PlanStatus(Enum):
     ABANDONED = "abandoned"
 
 
+# Task category constants
+CATEGORY_EXPLORATION = "exploration"
+CATEGORY_IMPLEMENTATION = "implementation"
+
+
 @dataclass
 class PlanTask:
     """A single task within a plan.
@@ -121,6 +135,12 @@ class PlanTask:
 
     Tasks can also be cancelled when feedback changes the plan direction.
     Cancelled tasks are preserved for audit trail but excluded from progress.
+
+    Task categories:
+    - exploration: Research/spike tasks during planning (can be completed without
+      plan approval, don't trigger auto-promotion)
+    - implementation: Actual deliverables (require plan approval in interactive mode,
+      trigger auto-promotion in autonomous mode)
     """
 
     id: str
@@ -139,6 +159,18 @@ class PlanTask:
     # Cancelled tasks are preserved but excluded from progress tracking
     cancelled: bool = False
     cancelled_reason: str = ""
+    # Task category: "exploration" (planning phase) or "implementation" (execution phase)
+    category: str = CATEGORY_IMPLEMENTATION
+    # Validation specification - describes what success looks like
+    validation_criteria: str = ""  # Required for implementation tasks: what to verify
+    validation_hint: str = (
+        ""  # Optional: suggested command/approach (sub-agent can adapt)
+    )
+    validation_timeout: int = 120  # Timeout in seconds for validation
+    # Validation state - results from last validation run
+    validation_result: str = ""  # Output/reasoning from validation
+    validation_passed: bool = False  # Whether last validation passed
+    validation_run_at: Optional[datetime] = None  # When validation was last run
 
     def to_dict(self) -> dict:
         result = {
@@ -161,10 +193,37 @@ class PlanTask:
             result["cancelled"] = self.cancelled
         if self.cancelled_reason:
             result["cancelled_reason"] = self.cancelled_reason
+        # Include category if not default
+        if self.category != CATEGORY_IMPLEMENTATION:
+            result["category"] = self.category
+        # Validation specification
+        if self.validation_criteria:
+            result["validation_criteria"] = self.validation_criteria
+        if self.validation_hint:
+            result["validation_hint"] = self.validation_hint
+        if self.validation_timeout != 120:  # Only if non-default
+            result["validation_timeout"] = self.validation_timeout
+        # Validation state
+        if self.validation_result:
+            result["validation_result"] = self.validation_result
+        if self.validation_passed:
+            result["validation_passed"] = self.validation_passed
+        if self.validation_run_at:
+            result["validation_run_at"] = self.validation_run_at.isoformat()
         return result
 
     @classmethod
     def from_dict(cls, data: dict) -> "PlanTask":
+        # Parse validation_run_at datetime if present
+        validation_run_at = None
+        if data.get("validation_run_at"):
+            try:
+                validation_run_at = datetime.fromisoformat(
+                    data["validation_run_at"].replace("Z", "+00:00")
+                )
+            except (ValueError, AttributeError):
+                pass
+
         return cls(
             id=data.get("id", str(uuid.uuid4())[:8]),
             description=data.get("description", ""),
@@ -179,7 +238,35 @@ class PlanTask:
             require_verified_deps=data.get("require_verified_deps", False),
             cancelled=data.get("cancelled", False),
             cancelled_reason=data.get("cancelled_reason", ""),
+            category=data.get("category", CATEGORY_IMPLEMENTATION),
+            # Validation fields
+            validation_criteria=data.get("validation_criteria", ""),
+            validation_hint=data.get("validation_hint", ""),
+            validation_timeout=data.get("validation_timeout", 120),
+            validation_result=data.get("validation_result", ""),
+            validation_passed=data.get("validation_passed", False),
+            validation_run_at=validation_run_at,
         )
+
+    def is_exploration(self) -> bool:
+        """Check if this is an exploration task."""
+        return self.category == CATEGORY_EXPLORATION
+
+    def is_implementation(self) -> bool:
+        """Check if this is an implementation task."""
+        return self.category == CATEGORY_IMPLEMENTATION
+
+    def has_validation(self) -> bool:
+        """Check if this task has validation criteria configured."""
+        return bool(self.validation_criteria)
+
+    def requires_validation(self) -> bool:
+        """Check if this task requires validation to be completed.
+
+        Implementation tasks require validation criteria.
+        Exploration tasks do not require validation.
+        """
+        return self.is_implementation() and not self.is_exploration()
 
 
 @dataclass
@@ -544,6 +631,11 @@ class Plan:
     completion_notes: str = ""
     # Metrics tracking
     metrics: PlanMetrics = field(default_factory=PlanMetrics)
+    # Approval workflow settings
+    approval_policy: str = APPROVAL_POLICY_INTERACTIVE  # "interactive" or "autonomous"
+    approval_mode: Optional[str] = (
+        None  # "user", "agent", or "subagent" (set when approved)
+    )
 
     def get_slug(self) -> str:
         """Get a slugified version of the plan title."""
@@ -563,7 +655,7 @@ class Plan:
 
     def to_dict(self) -> dict:
         """Convert plan to dictionary for JSON serialization."""
-        return {
+        result = {
             "id": self.id,
             "title": self.title,
             "status": self.status.value,
@@ -588,7 +680,12 @@ class Plan:
             "progress_log": [p.to_dict() for p in self.progress_log],
             "completion_notes": self.completion_notes,
             "metrics": self.metrics.to_dict(),
+            "approval_policy": self.approval_policy,
         }
+        # Only include approval_mode if set
+        if self.approval_mode:
+            result["approval_mode"] = self.approval_mode
+        return result
 
     @classmethod
     def from_dict(cls, data: dict) -> "Plan":
@@ -646,6 +743,8 @@ class Plan:
             ],
             completion_notes=data.get("completion_notes", ""),
             metrics=PlanMetrics.from_dict(data.get("metrics", {})),
+            approval_policy=data.get("approval_policy", APPROVAL_POLICY_INTERACTIVE),
+            approval_mode=data.get("approval_mode"),
         )
 
     def to_markdown(self) -> str:
@@ -663,6 +762,9 @@ class Plan:
             f"**Updated:** {self.updated_at.strftime('%Y-%m-%d %H:%M:%S UTC')}"
         )
         lines.append(f"**Status:** {self.status.value}")
+        lines.append(f"**Approval Policy:** {self.approval_policy}")
+        if self.approval_mode:
+            lines.append(f"**Approved By:** {self.approval_mode}")
         lines.append(f"**Session:** {self.session_id}")
         if self.shelved:
             lines.append("**Shelved:** Yes (awaiting remote execution)")
@@ -739,8 +841,12 @@ class Plan:
                     if task.cancelled
                     else f"**{task.description}**"
                 )
+                # Show category indicator for exploration tasks
+                category_indicator = (
+                    " 🔍" if task.category == CATEGORY_EXPLORATION else ""
+                )
                 task_lines.append(
-                    f"{indent}- {status} {desc} (id: {task.id}){readiness}"
+                    f"{indent}- {status} {desc} (id: {task.id}){category_indicator}{readiness}"
                 )
                 if task.details:
                     task_lines.append(f"{indent}  - Details: {task.details}")
@@ -752,6 +858,31 @@ class Plan:
                     task_lines.append(
                         f"{indent}  - Dependencies: {', '.join(task.dependencies)}"
                     )
+                # Validation specification
+                if task.validation_criteria:
+                    task_lines.append(
+                        f"{indent}  - Validation: {task.validation_criteria}"
+                    )
+                    if task.validation_hint:
+                        task_lines.append(
+                            f"{indent}    - Hint: `{task.validation_hint}`"
+                        )
+                    if task.validation_timeout != 120:
+                        task_lines.append(
+                            f"{indent}    - Timeout: {task.validation_timeout}s"
+                        )
+                # Validation results (if run)
+                if task.validation_run_at:
+                    status_icon = "✅" if task.validation_passed else "❌"
+                    task_lines.append(
+                        f"{indent}  - Last validation: {status_icon} {task.validation_run_at.strftime('%Y-%m-%d %H:%M')}"
+                    )
+                    if task.validation_result:
+                        # Truncate long results
+                        result_preview = task.validation_result[:100]
+                        if len(task.validation_result) > 100:
+                            result_preview += "..."
+                        task_lines.append(f"{indent}    - Result: {result_preview}")
                 if task.verification_notes:
                     task_lines.append(
                         f"{indent}  - Verification: {task.verification_notes}"
@@ -1544,6 +1675,42 @@ class Plan:
     def get_incomplete_tasks(self) -> list[PlanTask]:
         """Get all incomplete tasks (not completed, not cancelled)."""
         return [t for t in self.tasks if not t.completed and not t.cancelled]
+
+    def get_exploration_tasks(self) -> list[PlanTask]:
+        """Get all exploration tasks (not cancelled)."""
+        return [t for t in self.tasks if t.is_exploration() and not t.cancelled]
+
+    def get_implementation_tasks(self) -> list[PlanTask]:
+        """Get all implementation tasks (not cancelled)."""
+        return [t for t in self.tasks if t.is_implementation() and not t.cancelled]
+
+    def get_incomplete_exploration_tasks(self) -> list[PlanTask]:
+        """Get incomplete exploration tasks."""
+        return [
+            t
+            for t in self.tasks
+            if t.is_exploration() and not t.completed and not t.cancelled
+        ]
+
+    def get_incomplete_implementation_tasks(self) -> list[PlanTask]:
+        """Get incomplete implementation tasks."""
+        return [
+            t
+            for t in self.tasks
+            if t.is_implementation() and not t.completed and not t.cancelled
+        ]
+
+    def is_approved(self) -> bool:
+        """Check if the plan has been approved (APPROVED or IN_PROGRESS status)."""
+        return self.status in (PlanStatus.APPROVED, PlanStatus.IN_PROGRESS)
+
+    def is_interactive(self) -> bool:
+        """Check if the plan uses interactive approval policy."""
+        return self.approval_policy == APPROVAL_POLICY_INTERACTIVE
+
+    def is_autonomous(self) -> bool:
+        """Check if the plan uses autonomous approval policy."""
+        return self.approval_policy == APPROVAL_POLICY_AUTONOMOUS
 
     def get_unverified_tasks(self) -> list[PlanTask]:
         """Get all unverified tasks (completed but not verified, not cancelled)."""

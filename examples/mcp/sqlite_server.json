@@ -1,0 +1,14 @@
+{
+  "servers": {
+    "sqlite": {
+      "command": "uvx",
+      "args": [
+        "mcp-server-sqlite",
+        "--db-path",
+        "${HOME}/data/mydb.sqlite"
+      ],
+      "enabled": true,
+      "cache": true
+    }
+  }
+}
