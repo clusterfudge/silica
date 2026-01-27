@@ -270,12 +270,25 @@ class Sandbox:
             "shell", command, {"denied": denied_commands}
         )
 
+        # Convert ParsedShellCommand to a JSON-serializable dict for IPC
+        parsed_dict = None
+        if parsed:
+            parsed_dict = {
+                "original": parsed.original,
+                "commands": parsed.commands,
+                "is_compound": parsed.is_compound,
+                "has_substitution": parsed.has_substitution,
+                "has_redirection": parsed.has_redirection,
+                "parse_error": parsed.parse_error,
+                "is_simple": parsed.is_simple,
+            }
+
         # Build a special prompt showing denied commands
         result = self._permission_check_callback(
             "shell",
             command,
             self.mode,
-            {"denied": denied_commands, "parsed": parsed},
+            {"denied": denied_commands, "parsed": parsed_dict},
             group,
         )
 
@@ -292,8 +305,21 @@ class Sandbox:
         """Prompt for shell command permission."""
         self._permission_check_rendering_callback("shell", command, None)
 
+        # Convert ParsedShellCommand to a JSON-serializable dict for IPC
+        parsed_dict = None
+        if parsed:
+            parsed_dict = {
+                "original": parsed.original,
+                "commands": parsed.commands,
+                "is_compound": parsed.is_compound,
+                "has_substitution": parsed.has_substitution,
+                "has_redirection": parsed.has_redirection,
+                "parse_error": parsed.parse_error,
+                "is_simple": parsed.is_simple,
+            }
+
         result = self._permission_check_callback(
-            "shell", command, self.mode, {"parsed": parsed}, group
+            "shell", command, self.mode, {"parsed": parsed_dict}, group
         )
 
         return self._handle_permission_result(

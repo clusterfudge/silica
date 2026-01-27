@@ -52,6 +52,17 @@ dependencies = [
     "keyring>=24.0.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pre-commit>=4.2.0",
+    "pytest>=8.3.5",
+    "pytest-asyncio>=1.1.0",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.13.0",
+    "moto[s3]>=5.0.0",
+    "pytest-mock>=3.15.1",
+]
+
 [project.scripts]
 silica = "silica.cli:main"
 si = "silica.cli:main"
@@ -72,16 +83,6 @@ exclude = ["data*", "config*"]
 "silica.utils" = ["templates/*"]
 "silica.agents" = ["*.yaml"]  
 "silica.cron" = ["templates/*", "static/*"]
-
-[project.optional-dependencies]
-dev = [
-    "pre-commit>=4.2.0",
-    "pytest>=8.3.5",
-    "pytest-asyncio>=1.1.0",
-    "pytest-cov>=6.0.0",
-    "ruff>=0.13.0",
-    "moto[s3]>=5.0.0",
-]
 
 [tool.setuptools_scm]
 write_to = "silica/_version.py"
@@ -104,3 +105,5 @@ markers = [
     "safe: marks tests as safe to run without side effects",
 ]
 asyncio_mode = "auto"
+
+

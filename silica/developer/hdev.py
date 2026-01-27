@@ -37,6 +37,7 @@ from silica.developer.tools.sessions import (
 )
 from silica.developer.user_interface import UserInterface
 from silica.developer.toolbox import Toolbox
+from silica.developer.hybrid_interface import HybridUserInterface
 from prompt_toolkit.completion import Completer, WordCompleter, Completion
 
 
@@ -1400,6 +1401,7 @@ def _run_agent_loop(
     single_response: bool,
     enable_compaction: bool,
     log_file_path: str | None,
+    hybrid_interface: Optional["HybridUserInterface"] = None,
 ) -> None:
     """Run the agent loop with graceful shutdown handling.
 
@@ -1407,8 +1409,36 @@ def _run_agent_loop(
     when interrupted by Ctrl+C, preventing the "Task was destroyed but it is pending!"
     warning message.
     """
+    # Disconnect from Agent Island BEFORE creating new loop
+    # (the Island client was connected on the previous/default loop)
+    if hybrid_interface is not None:
+        try:
+            old_loop = asyncio.get_event_loop()
+            old_loop.run_until_complete(hybrid_interface.disconnect_from_island())
+        except Exception:
+            pass
+
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
+
+    # Reconnect to Agent Island on the new loop and re-register session
+    if hybrid_interface is not None:
+        try:
+            loop.run_until_complete(hybrid_interface.connect_to_island())
+            # Re-register the session on the new connection
+            if hybrid_interface.hybrid_mode:
+                loop.run_until_complete(
+                    hybrid_interface.register_session(
+                        session_id=context.session_id,
+                        working_directory=os.getcwd(),
+                        model=context.model_spec.get("title")
+                        if context.model_spec
+                        else None,
+                        persona=None,  # Persona info not easily available here
+                    )
+                )
+        except Exception:
+            pass
 
     try:
         loop.run_until_complete(
@@ -1425,6 +1455,13 @@ def _run_agent_loop(
         # Gracefully handle Ctrl+C by cancelling pending tasks
         pass
     finally:
+        # Disconnect from Agent Island before cancelling tasks
+        if hybrid_interface is not None:
+            try:
+                loop.run_until_complete(hybrid_interface.disconnect_from_island())
+            except Exception:
+                pass
+
         # Cancel all pending tasks
         pending = asyncio.all_tasks(loop)
         for task in pending:
@@ -1735,8 +1772,16 @@ def cyclopts_main(
     if not session_id and "SILICA_DEVELOPER_SESSION_ID" in os.environ:
         session_id = os.environ.get("SILICA_DEVELOPER_SESSION_ID")
 
-    # Initialize user interface
-    user_interface = CLIUserInterface(console, parsed_sandbox_mode)
+    # Initialize user interface with hybrid support
+    cli_interface = CLIUserInterface(console, parsed_sandbox_mode)
+    user_interface = HybridUserInterface(cli_interface)
+
+    # Try to connect to Agent Island (non-blocking, will fall back to CLI if unavailable)
+    asyncio.get_event_loop().run_until_complete(user_interface.connect_to_island())
+    if user_interface.hybrid_mode:
+        console.print(
+            "[dim]Connected to Agent Island - dialogs will appear in both terminal and app[/dim]"
+        )
 
     # Handle --resume or --resume-all flag: show interactive session picker
     if (resume or resume_all) and not session_id:
@@ -1857,6 +1902,17 @@ def cyclopts_main(
     # Set dwr_mode on context for permissions system bypass
     context.dwr_mode = dwr
 
+    # Register session with Agent Island if connected
+    if user_interface.hybrid_mode:
+        asyncio.get_event_loop().run_until_complete(
+            user_interface.register_session(
+                session_id=context.session_id,
+                working_directory=os.getcwd(),
+                model=model,
+                persona=persona_name,
+            )
+        )
+
     # If resuming a session, show the last few messages for context
     if session_id and context.chat_history:
         _display_resumed_session_context(context, user_interface, console)
@@ -1873,4 +1929,5 @@ def cyclopts_main(
         single_response=bool(initial_prompt),
         enable_compaction=not disable_compaction,
         log_file_path=log_requests,
+        hybrid_interface=user_interface,
     )
