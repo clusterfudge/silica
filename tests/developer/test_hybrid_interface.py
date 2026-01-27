@@ -173,10 +173,11 @@ class TestHybridInterfaceWithMockedIsland:
         # Check CLI received the message
         assert ("assistant", "Hello from assistant") in cli.messages
 
-        # Check Island was notified
-        mock_island.notify_assistant_message.assert_called_once_with(
-            content="Hello from assistant", format="markdown"
-        )
+        # Check Island was notified (message_id is dynamically generated)
+        mock_island.notify_assistant_message.assert_called_once()
+        call_kwargs = mock_island.notify_assistant_message.call_args.kwargs
+        assert call_kwargs["content"] == "Hello from assistant"
+        assert call_kwargs["format"] == "markdown"
 
     @pytest.mark.asyncio
     async def test_token_usage_sent_to_both(self, tmp_path):
@@ -227,12 +228,12 @@ class TestHybridInterfaceWithMockedIsland:
         )
 
         assert result is True
-        mock_island.register_session.assert_called_once_with(
-            session_id="test-123",
-            working_directory="/tmp/test",
-            model="claude-sonnet",
-            persona="default",
-        )
+        mock_island.register_session.assert_called_once()
+        call_kwargs = mock_island.register_session.call_args.kwargs
+        assert call_kwargs["session_id"] == "test-123"
+        assert call_kwargs["working_directory"] == "/tmp/test"
+        assert call_kwargs["model"] == "claude-sonnet"
+        assert call_kwargs["persona"] == "default"
 
     @pytest.mark.asyncio
     async def test_register_session_when_not_connected(self, tmp_path):
