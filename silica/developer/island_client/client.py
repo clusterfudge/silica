@@ -1,13 +1,17 @@
 """Agent Island IPC Client.
 
 Provides async communication with the Agent Island macOS app over Unix socket.
+Includes automatic reconnection with exponential backoff, session re-registration,
+heartbeat detection, and silent failure mode.
 """
 
 import asyncio
 import json
+import logging
 import os
+import random
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 from uuid import uuid4
 
 from .protocol import (
@@ -31,36 +35,30 @@ from .exceptions import (
     TimeoutError,
 )
 
+logger = logging.getLogger(__name__)
 
 DEFAULT_SOCKET_PATH = "~/.agent-island/agent.sock"
 PROTOCOL_VERSION = "1.0"
 
+# Reconnection constants
+RECONNECT_BASE_DELAY = 0.5  # Initial delay in seconds
+RECONNECT_MAX_DELAY = 16.0  # Maximum delay cap
+RECONNECT_MAX_ATTEMPTS = 20  # Stop after this many attempts
+HEARTBEAT_INTERVAL = 30.0  # Seconds between heartbeat pings
 
-InputCallback = Any  # Callable[[str, str, str], Awaitable[None]] - (session_id, content, message_id)
-ProgressActionCallback = Any  # Callable[[str, str, str, Optional[str]], Awaitable[None]] - (session_id, progress_id, action_id, url_scheme)
+InputCallback = Any
+ProgressActionCallback = Any
+ReconnectedCallback = Callable[[], None]
 
 
 class IslandClient:
     """Async client for Agent Island IPC communication.
 
-    Usage:
-        async with IslandClient() as client:
-            if client.connected:
-                result = await client.permission_request(...)
-
-    Or manually:
-        client = IslandClient()
-        await client.connect()
-        try:
-            result = await client.permission_request(...)
-        finally:
-            await client.disconnect()
-
-    For bidirectional chat, register an input callback:
-        async def handle_input(session_id: str, content: str, message_id: str):
-            print(f"User said: {content}")
-
-        client.on_input_received = handle_input
+    Features:
+    - Automatic reconnection with exponential backoff when connection drops
+    - Session re-registration after reconnection
+    - Heartbeat/ping to detect disconnection proactively
+    - Silent failure mode for fire-and-forget operations when disconnected
     """
 
     def __init__(
@@ -69,11 +67,13 @@ class IslandClient:
         app_name: str = "silica",
         app_icon: str = "brain",
         agent_version: str = "1.0.0",
+        auto_reconnect: bool = True,
     ):
         self.socket_path = Path(socket_path).expanduser()
         self.app_name = app_name
         self.app_icon = app_icon
         self.agent_version = agent_version
+        self.auto_reconnect = auto_reconnect
 
         self._reader: Optional[asyncio.StreamReader] = None
         self._writer: Optional[asyncio.StreamWriter] = None
@@ -84,13 +84,22 @@ class IslandClient:
         self._island_version: Optional[str] = None
         self._supported_methods: List[str] = []
 
-        # Callback for user input from Island UI (bidirectional chat)
-        # Signature: async def callback(session_id: str, content: str, message_id: str)
-        self.on_input_received: Optional[InputCallback] = None
+        # Reconnection state
+        self._intentional_disconnect = False
+        self._reconnecting = False
+        self._reconnect_task: Optional[asyncio.Task] = None
+        self._reconnect_attempts = 0
 
-        # Callback for progress bar action clicks
-        # Signature: async def callback(session_id: str, progress_id: str, action_id: str, url_scheme: Optional[str])
+        # Heartbeat state
+        self._heartbeat_task: Optional[asyncio.Task] = None
+
+        # Session state for re-registration
+        self._session_info: Optional[Dict[str, Any]] = None
+
+        # Callbacks
+        self.on_input_received: Optional[InputCallback] = None
         self.on_progress_action: Optional[ProgressActionCallback] = None
+        self.on_reconnected: Optional[ReconnectedCallback] = None
 
     @property
     def connected(self) -> bool:
@@ -98,17 +107,20 @@ class IslandClient:
         return self._connected and self._writer is not None
 
     @property
+    def reconnecting(self) -> bool:
+        """Check if currently attempting to reconnect."""
+        return self._reconnecting
+
+    @property
     def island_version(self) -> Optional[str]:
         """Get the connected Island's version."""
         return self._island_version
 
     async def __aenter__(self) -> "IslandClient":
-        """Async context manager entry."""
         await self.connect()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Async context manager exit."""
         await self.disconnect()
 
     def socket_exists(self) -> bool:
@@ -116,12 +128,7 @@ class IslandClient:
         return self.socket_path.exists()
 
     async def connect(self) -> bool:
-        """Connect to Agent Island.
-
-        Returns:
-            True if connected successfully, False otherwise.
-            Does not raise exceptions - returns False on any failure.
-        """
+        """Connect to Agent Island. Returns True if successful."""
         if self._connected:
             return True
 
@@ -132,17 +139,20 @@ class IslandClient:
             self._reader, self._writer = await asyncio.open_unix_connection(
                 str(self.socket_path)
             )
-
-            # Start background reader task
             self._read_task = asyncio.create_task(self._reader_loop())
 
-            # Perform handshake
-            handshake_result = await self._handshake()
-            if not handshake_result:
-                await self._close_connection()
+            if not await self._handshake():
+                await self._close_connection_internal()
                 return False
 
             self._connected = True
+            self._intentional_disconnect = False
+            self._reconnect_attempts = 0
+
+            # Start heartbeat
+            self._start_heartbeat()
+
+            logger.debug("Connected to Agent Island")
             return True
 
         except (OSError, ConnectionRefusedError, FileNotFoundError):
@@ -150,12 +160,17 @@ class IslandClient:
             return False
 
     async def disconnect(self) -> None:
-        """Disconnect from Agent Island."""
-        await self._close_connection()
+        """Disconnect from Agent Island (intentional - no reconnection)."""
+        self._intentional_disconnect = True
+        self._stop_reconnection()
+        self._stop_heartbeat()
+        await self._close_connection_internal()
+        logger.debug("Disconnected from Agent Island")
 
-    async def _close_connection(self) -> None:
-        """Close the connection and clean up."""
+    async def _close_connection_internal(self) -> None:
+        """Close connection without triggering reconnection."""
         self._connected = False
+        self._stop_heartbeat()
 
         if self._read_task:
             self._read_task.cancel()
@@ -175,11 +190,120 @@ class IslandClient:
 
         self._reader = None
 
-        # Cancel any pending requests
         for future in self._pending_requests.values():
             if not future.done():
                 future.set_exception(ConnectionError("Connection closed"))
         self._pending_requests.clear()
+
+    def _start_heartbeat(self) -> None:
+        """Start the heartbeat task."""
+        self._stop_heartbeat()
+        self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+
+    def _stop_heartbeat(self) -> None:
+        """Stop the heartbeat task."""
+        if self._heartbeat_task:
+            self._heartbeat_task.cancel()
+            self._heartbeat_task = None
+
+    async def _heartbeat_loop(self) -> None:
+        """Background task that sends periodic pings."""
+        try:
+            while self._connected:
+                await asyncio.sleep(HEARTBEAT_INTERVAL)
+                if not self._connected:
+                    break
+                try:
+                    # Use a simple request as ping - handshake info is lightweight
+                    await self._send_request("system.ping", {}, timeout=5.0)
+                except Exception:
+                    # Ping failed - connection is likely dead
+                    if self._connected and not self._intentional_disconnect:
+                        logger.info("Heartbeat failed - connection lost")
+                        await self._handle_connection_lost()
+                    break
+        except asyncio.CancelledError:
+            pass
+
+    async def _handle_connection_lost(self) -> None:
+        """Handle unexpected connection loss."""
+        was_connected = self._connected
+        await self._close_connection_internal()
+
+        if was_connected and self.auto_reconnect and not self._intentional_disconnect:
+            logger.info("Connection to Agent Island lost, will attempt reconnection")
+            self._start_reconnection()
+
+    def _start_reconnection(self) -> None:
+        """Start the reconnection task if not already running."""
+        if self._reconnecting or self._intentional_disconnect:
+            return
+        self._reconnecting = True
+        self._reconnect_task = asyncio.create_task(self._reconnection_loop())
+
+    def _stop_reconnection(self) -> None:
+        """Stop any ongoing reconnection attempts."""
+        self._reconnecting = False
+        if self._reconnect_task:
+            self._reconnect_task.cancel()
+            self._reconnect_task = None
+
+    async def _reconnection_loop(self) -> None:
+        """Background task that attempts reconnection with exponential backoff."""
+        try:
+            while self._reconnecting and not self._intentional_disconnect:
+                if self._reconnect_attempts >= RECONNECT_MAX_ATTEMPTS:
+                    logger.warning(
+                        f"Giving up reconnection after {RECONNECT_MAX_ATTEMPTS} attempts"
+                    )
+                    break
+
+                # Exponential backoff with jitter
+                delay = min(
+                    RECONNECT_BASE_DELAY * (2**self._reconnect_attempts),
+                    RECONNECT_MAX_DELAY,
+                )
+                delay *= 0.5 + random.random()  # Add jitter
+
+                self._reconnect_attempts += 1
+                logger.debug(
+                    f"Reconnection attempt {self._reconnect_attempts} in {delay:.1f}s"
+                )
+
+                await asyncio.sleep(delay)
+
+                if self._intentional_disconnect:
+                    break
+
+                if await self.connect():
+                    logger.info("Reconnected to Agent Island")
+                    await self._on_reconnected()
+                    break
+
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self._reconnecting = False
+            self._reconnect_task = None
+
+    async def _on_reconnected(self) -> None:
+        """Called after successful reconnection."""
+        # Re-register session if we had one
+        if self._session_info:
+            try:
+                await self.register_session(**self._session_info)
+                logger.debug("Session re-registered after reconnection")
+            except Exception:
+                logger.debug("Failed to re-register session after reconnection")
+
+        # Notify callback
+        if self.on_reconnected:
+            try:
+                result = self.on_reconnected()
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception:
+                pass
 
     async def _reader_loop(self) -> None:
         """Background task that reads responses from the socket."""
@@ -187,12 +311,12 @@ class IslandClient:
             while self._reader:
                 line = await self._reader.readline()
                 if not line:
+                    # Connection closed
                     break
 
                 try:
                     data = json.loads(line.decode("utf-8"))
 
-                    # Check if it's a response (has id)
                     if "id" in data and data["id"] in self._pending_requests:
                         response = JsonRpcResponse(
                             id=data["id"],
@@ -203,7 +327,6 @@ class IslandClient:
                         if not future.done():
                             future.set_result(response)
 
-                    # Handle server-initiated notifications (no id field)
                     elif "method" in data and "id" not in data:
                         await self._handle_notification(data)
 
@@ -213,8 +336,11 @@ class IslandClient:
         except asyncio.CancelledError:
             pass
         except Exception:
-            # Connection lost
-            self._connected = False
+            pass
+        finally:
+            # Connection lost - trigger reconnection if appropriate
+            if not self._intentional_disconnect and self._connected:
+                asyncio.create_task(self._handle_connection_lost())
 
     async def _handle_notification(self, data: Dict[str, Any]) -> None:
         """Handle a server-initiated notification."""
@@ -222,32 +348,26 @@ class IslandClient:
         params = data.get("params", {})
 
         if method == "input.received":
-            # User sent input from Island UI
-            session_id = params.get("session_id", "")
-            content = params.get("content", "")
-            message_id = params.get("message_id", "")
-
             if self.on_input_received:
                 try:
-                    # Call the callback (may be sync or async)
-                    result = self.on_input_received(session_id, content, message_id)
+                    result = self.on_input_received(
+                        params.get("session_id", ""),
+                        params.get("content", ""),
+                        params.get("message_id", ""),
+                    )
                     if asyncio.iscoroutine(result):
                         await result
                 except Exception:
-                    # Don't let callback errors break the reader loop
                     pass
 
         elif method == "progress.action_clicked":
-            # User clicked an action button on a progress bar
-            session_id = params.get("session_id", "")
-            progress_id = params.get("progress_id", "")
-            action_id = params.get("action_id", "")
-            url_scheme = params.get("url_scheme")
-
             if self.on_progress_action:
                 try:
                     result = self.on_progress_action(
-                        session_id, progress_id, action_id, url_scheme
+                        params.get("session_id", ""),
+                        params.get("progress_id", ""),
+                        params.get("action_id", ""),
+                        params.get("url_scheme"),
                     )
                     if asyncio.iscoroutine(result):
                         await result
@@ -255,7 +375,6 @@ class IslandClient:
                     pass
 
     def _next_id(self) -> int:
-        """Get the next request ID."""
         self._request_id += 1
         return self._request_id
 
@@ -266,23 +385,7 @@ class IslandClient:
         timeout: Optional[float] = None,
         _allow_during_handshake: bool = False,
     ) -> Dict[str, Any]:
-        """Send a request and wait for response.
-
-        Args:
-            method: JSON-RPC method name
-            params: Method parameters
-            timeout: Optional timeout in seconds
-            _allow_during_handshake: Internal flag to allow requests before connected
-
-        Returns:
-            The result dict from the response
-
-        Raises:
-            ConnectionError: If not connected
-            ProtocolError: If response is an error
-            TimeoutError: If request times out
-        """
-        # Allow requests during handshake (before _connected is set)
+        """Send a request and wait for response."""
         if not _allow_during_handshake and not self.connected:
             raise ConnectionError("Not connected to Agent Island")
 
@@ -292,22 +395,18 @@ class IslandClient:
         request_id = self._next_id()
         request = JsonRpcRequest(method=method, params=params, id=request_id)
 
-        # Create future for response
         future: asyncio.Future[JsonRpcResponse] = asyncio.Future()
         self._pending_requests[request_id] = future
 
         try:
-            # Send request
             self._writer.write(request.to_bytes())
             await self._writer.drain()
 
-            # Wait for response
             if timeout:
                 response = await asyncio.wait_for(future, timeout=timeout)
             else:
                 response = await future
 
-            # Check for error
             if response.is_error:
                 error = response.error
                 code = error.get("code", ErrorCode.INTERNAL_ERROR)
@@ -330,27 +429,19 @@ class IslandClient:
             raise
 
     async def _send_notification(self, method: str, params: Dict[str, Any]) -> None:
-        """Send a notification (fire-and-forget, no response expected).
-
-        Does not raise exceptions - silently fails if not connected.
-        """
+        """Send a notification (fire-and-forget). Silently fails if not connected."""
         if not self.connected:
-            return
+            return  # Silent fail - no logging
 
         try:
             notification = JsonRpcNotification(method=method, params=params)
             self._writer.write(notification.to_bytes())
             await self._writer.drain()
         except Exception:
-            # Fire-and-forget - don't propagate errors
-            pass
+            pass  # Silent fail - no logging
 
     async def _handshake(self) -> bool:
-        """Perform protocol handshake.
-
-        Returns:
-            True if handshake successful, False otherwise.
-        """
+        """Perform protocol handshake."""
         try:
             params = HandshakeParams(
                 agent=self.app_name,
@@ -363,14 +454,12 @@ class IslandClient:
                 "handshake", params.to_dict(), timeout=5.0, _allow_during_handshake=True
             )
 
-            # Verify protocol version compatibility
             island_protocol = result.get("protocol_version", "")
             if not island_protocol.startswith("1."):
                 return False
 
             self._island_version = result.get("island_version")
             self._supported_methods = result.get("supported_methods", [])
-
             return True
 
         except Exception:
@@ -386,18 +475,16 @@ class IslandClient:
         persona: Optional[str] = None,
         history: Optional[List[Dict[str, Any]]] = None,
     ) -> bool:
-        """Register a session with Agent Island.
+        """Register a session with Agent Island."""
+        # Store for re-registration on reconnect
+        self._session_info = {
+            "session_id": session_id,
+            "working_directory": working_directory,
+            "model": model,
+            "persona": persona,
+            # Don't store history - only needed on initial registration
+        }
 
-        Args:
-            session_id: Unique session identifier
-            working_directory: Current working directory
-            model: Optional model name
-            persona: Optional persona name
-            history: Optional list of chat history messages to bulk load
-
-        Returns:
-            True if registered successfully
-        """
         params = SessionRegisterParams(
             session_id=session_id,
             app_name=self.app_name,
@@ -418,14 +505,8 @@ class IslandClient:
             return False
 
     async def unregister_session(self, session_id: str) -> bool:
-        """Unregister a session.
-
-        Args:
-            session_id: Session ID to unregister
-
-        Returns:
-            True if unregistered successfully
-        """
+        """Unregister a session."""
+        self._session_info = None  # Clear stored session
         try:
             await self._send_request("session.unregister", {"session_id": session_id})
             return True
@@ -442,18 +523,6 @@ class IslandClient:
         dialog_id: Optional[str] = None,
         hint: Optional[str] = None,
     ) -> bool:
-        """Show an alert dialog.
-
-        Args:
-            title: Dialog title
-            message: Message body
-            style: Alert style (info, warning, error)
-            dialog_id: Optional dialog ID for cancellation
-            hint: Optional hint about alternative interface
-
-        Returns:
-            True when dismissed
-        """
         params = {
             "dialog_id": dialog_id or str(uuid4()),
             "title": title,
@@ -462,7 +531,6 @@ class IslandClient:
         }
         if hint:
             params["hint"] = hint
-
         result = await self._send_request("ui.alert", params)
         return result.get("dismissed", True)
 
@@ -475,19 +543,6 @@ class IslandClient:
         dialog_id: Optional[str] = None,
         hint: Optional[str] = None,
     ) -> Optional[str]:
-        """Show a text input prompt.
-
-        Args:
-            title: Dialog title
-            message: Prompt message
-            default_value: Optional default value
-            placeholder: Optional placeholder text
-            dialog_id: Optional dialog ID for cancellation
-            hint: Optional hint about alternative interface
-
-        Returns:
-            User's input string, or None if cancelled
-        """
         params = {
             "dialog_id": dialog_id or str(uuid4()),
             "title": title,
@@ -501,7 +556,6 @@ class IslandClient:
             params["hint"] = hint
 
         result = await self._send_request("ui.prompt", params)
-
         if result.get("cancelled"):
             return None
         return result.get("value")
@@ -515,19 +569,6 @@ class IslandClient:
         dialog_id: Optional[str] = None,
         hint: Optional[str] = None,
     ) -> bool:
-        """Show a confirmation dialog.
-
-        Args:
-            title: Dialog title
-            message: Confirmation message
-            confirm_text: Text for confirm button
-            cancel_text: Text for cancel button
-            dialog_id: Optional dialog ID for cancellation
-            hint: Optional hint about alternative interface
-
-        Returns:
-            True if confirmed, False if cancelled
-        """
         params = {
             "dialog_id": dialog_id or str(uuid4()),
             "title": title,
@@ -537,7 +578,6 @@ class IslandClient:
         }
         if hint:
             params["hint"] = hint
-
         result = await self._send_request("ui.confirm", params)
         return result.get("confirmed", False)
 
@@ -550,19 +590,6 @@ class IslandClient:
         dialog_id: Optional[str] = None,
         hint: Optional[str] = None,
     ) -> Optional[str]:
-        """Show a selection dialog.
-
-        Args:
-            title: Dialog title
-            message: Selection prompt
-            options: List of options to choose from
-            allow_custom: Whether to allow custom input
-            dialog_id: Optional dialog ID for cancellation
-            hint: Optional hint about alternative interface
-
-        Returns:
-            Selected option string, or None if cancelled
-        """
         params = {
             "dialog_id": dialog_id or str(uuid4()),
             "title": title,
@@ -572,9 +599,7 @@ class IslandClient:
         }
         if hint:
             params["hint"] = hint
-
         result = await self._send_request("ui.select", params)
-
         if result.get("cancelled"):
             return None
         return result.get("selection")
@@ -586,18 +611,6 @@ class IslandClient:
         dialog_id: Optional[str] = None,
         hint: Optional[str] = None,
     ) -> Optional[Dict[str, str]]:
-        """Show a questionnaire form.
-
-        Args:
-            title: Form title
-            questions: List of questions
-            dialog_id: Optional dialog ID for cancellation
-            hint: Optional hint about alternative interface
-
-        Returns:
-            Dict mapping question IDs to answers, or None if cancelled
-        """
-        # Convert questions to dicts
         q_list = []
         for q in questions:
             if isinstance(q, QuestionnaireQuestion):
@@ -614,7 +627,6 @@ class IslandClient:
             params["hint"] = hint
 
         result = await self._send_request("ui.questionnaire", params)
-
         if result.get("cancelled"):
             return None
         return result.get("answers")
@@ -631,20 +643,6 @@ class IslandClient:
         shell_parsed: Optional[Dict[str, Any]] = None,
         hint: Optional[str] = None,
     ) -> PermissionResponse:
-        """Request permission for an action.
-
-        Args:
-            action: Action name (e.g., "shell", "read_file")
-            resource: Resource being accessed
-            dialog_id: Optional dialog ID for cancellation
-            group: Optional tool group
-            details: Optional additional details (diff, etc.)
-            shell_parsed: Optional parsed shell command info
-            hint: Optional hint about alternative interface
-
-        Returns:
-            PermissionResponse with the user's decision
-        """
         params = PermissionRequestParams(
             dialog_id=dialog_id or str(uuid4()),
             action=action,
@@ -654,45 +652,24 @@ class IslandClient:
             shell_parsed=shell_parsed,
             hint=hint,
         )
-
         result = await self._send_request("permission.request", params.to_dict())
         return PermissionResponse.from_result(result)
 
     # ========== Dialog Lifecycle ==========
 
     async def cancel_dialog(self, dialog_id: str) -> bool:
-        """Cancel a pending dialog.
-
-        Args:
-            dialog_id: ID of dialog to cancel
-
-        Returns:
-            True if cancelled successfully
-        """
         try:
             result = await self._send_request("dialog.cancel", {"dialog_id": dialog_id})
             return result.get("cancelled", False)
-        except DialogNotFoundError:
-            return False
-        except IslandError:
+        except (DialogNotFoundError, IslandError):
             return False
 
-    # ========== Event Notifications ==========
+    # ========== Event Notifications (fire-and-forget) ==========
 
     async def notify_user_message(
-        self,
-        content: str,
-        message_id: Optional[str] = None,
+        self, content: str, message_id: Optional[str] = None
     ) -> None:
-        """Notify about a user message.
-
-        Args:
-            content: The user's message text
-            message_id: Optional unique message ID for deduplication
-        """
-        params = {
-            "content": content,
-        }
+        params = {"content": content}
         if message_id:
             params["message_id"] = message_id
         await self._send_notification("event.user_message", params)
@@ -704,18 +681,7 @@ class IslandClient:
         message_id: Optional[str] = None,
         notification: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Notify about an assistant message.
-
-        Args:
-            content: The assistant's message content
-            format: Content format ("markdown" or "text")
-            message_id: Optional unique message ID for deduplication
-            notification: Optional notification style override {"style": "none|indicator|sound|expand|bounce", "sound": "optional_sound_name"}
-        """
-        params: Dict[str, Any] = {
-            "content": content,
-            "format": format,
-        }
+        params: Dict[str, Any] = {"content": content, "format": format}
         if message_id:
             params["message_id"] = message_id
         if notification:
@@ -723,55 +689,24 @@ class IslandClient:
         await self._send_notification("event.assistant_message", params)
 
     async def notify_tool_use(
-        self,
-        tool_name: str,
-        tool_params: Dict[str, Any],
+        self, tool_name: str, tool_params: Dict[str, Any]
     ) -> None:
-        """Notify about a tool being used."""
         await self._send_notification(
-            "event.tool_use",
-            {
-                "tool_name": tool_name,
-                "tool_params": tool_params,
-            },
+            "event.tool_use", {"tool_name": tool_name, "tool_params": tool_params}
         )
 
     async def notify_tool_result(
-        self,
-        tool_name: str,
-        result: Any,
-        success: bool = True,
+        self, tool_name: str, result: Any, success: bool = True
     ) -> None:
-        """Notify about a tool result."""
         await self._send_notification(
             "event.tool_result",
-            {
-                "tool_name": tool_name,
-                "result": result,
-                "success": success,
-            },
+            {"tool_name": tool_name, "result": result, "success": success},
         )
 
     async def notify_thinking(
-        self,
-        content: str,
-        tokens: int,
-        cost: float,
-        message_id: Optional[str] = None,
+        self, content: str, tokens: int, cost: float, message_id: Optional[str] = None
     ) -> None:
-        """Notify about thinking content.
-
-        Args:
-            content: The thinking/reasoning content
-            tokens: Number of tokens in thinking
-            cost: Cost of thinking tokens
-            message_id: Optional unique message ID for deduplication
-        """
-        params = {
-            "content": content,
-            "tokens": tokens,
-            "cost": cost,
-        }
+        params = {"content": content, "tokens": tokens, "cost": cost}
         if message_id:
             params["message_id"] = message_id
         await self._send_notification("event.thinking", params)
@@ -787,7 +722,6 @@ class IslandClient:
         thinking_tokens: Optional[int] = None,
         elapsed_seconds: Optional[float] = None,
     ) -> None:
-        """Notify about token usage."""
         params = {
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
@@ -803,7 +737,6 @@ class IslandClient:
             params["thinking_tokens"] = thinking_tokens
         if elapsed_seconds is not None:
             params["elapsed_seconds"] = elapsed_seconds
-
         await self._send_notification("event.token_usage", params)
 
     async def notify_status(
@@ -812,17 +745,7 @@ class IslandClient:
         spinner: bool = False,
         notification: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Notify about a status update.
-
-        Args:
-            message: Status message
-            spinner: Whether to show a spinner
-            notification: Optional notification style override
-        """
-        params: Dict[str, Any] = {
-            "message": message,
-            "spinner": spinner,
-        }
+        params: Dict[str, Any] = {"message": message, "spinner": spinner}
         if notification:
             params["notification"] = notification
         await self._send_notification("event.status", params)
@@ -833,46 +756,18 @@ class IslandClient:
         style: str = "info",
         notification: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Notify about a system message.
-
-        Args:
-            message: System message content
-            style: Message style (info, warning, error)
-            notification: Optional notification style override
-        """
-        params: Dict[str, Any] = {
-            "message": message,
-            "style": style,
-        }
+        params: Dict[str, Any] = {"message": message, "style": style}
         if notification:
             params["notification"] = notification
         await self._send_notification("event.system_message", params)
 
-    async def notify_ready_for_input(
-        self,
-        message: str = "Ready for input",
-    ) -> None:
-        """Notify that the agent is ready for user input.
-
-        This triggers a notification sound by default.
-        """
+    async def notify_ready_for_input(self, message: str = "Ready for input") -> None:
         await self._send_notification(
             "event.ready_for_input",
-            {
-                "message": message,
-                "notification": {"style": "sound"},
-            },
+            {"message": message, "notification": {"style": "sound"}},
         )
 
-    async def notify_error(
-        self,
-        message: str,
-        details: Optional[str] = None,
-    ) -> None:
-        """Notify about an error.
-
-        This triggers a notification sound by default.
-        """
+    async def notify_error(self, message: str, details: Optional[str] = None) -> None:
         params: Dict[str, Any] = {
             "message": message,
             "notification": {"style": "sound"},
@@ -881,17 +776,9 @@ class IslandClient:
             params["details"] = details
         await self._send_notification("event.error", params)
 
-    # ========== Panel Control (Testing/Debugging) ==========
+    # ========== Panel Control ==========
 
     async def open_panel(self) -> bool:
-        """Open the Agent Island panel.
-
-        This is primarily for testing/debugging to programmatically
-        open the panel to inspect its current state.
-
-        Returns:
-            True if panel was opened successfully
-        """
         try:
             result = await self._send_request("ui.open", {})
             return result.get("opened", False)
@@ -899,14 +786,6 @@ class IslandClient:
             return False
 
     async def close_panel(self) -> bool:
-        """Close the Agent Island panel.
-
-        This is primarily for testing/debugging to programmatically
-        close the panel.
-
-        Returns:
-            True if panel was closed successfully
-        """
         try:
             result = await self._send_request("ui.close", {})
             return result.get("closed", False)
@@ -914,14 +793,6 @@ class IslandClient:
             return False
 
     async def open_settings(self) -> bool:
-        """Open the Agent Island settings panel.
-
-        This is primarily for testing/debugging to programmatically
-        open the settings view.
-
-        Returns:
-            True if settings were opened successfully
-        """
         try:
             result = await self._send_request("ui.settings", {})
             return result.get("opened", False)
@@ -930,24 +801,10 @@ class IslandClient:
 
     # ========== Session Phase API ==========
 
-    async def update_phase(
-        self,
-        phase: str,
-        session_id: Optional[str] = None,
-    ) -> bool:
-        """Update the session phase.
-
-        Args:
-            phase: Phase name ("idle", "processing", "waiting_for_input", "ended")
-            session_id: Optional session ID (uses connected session if not specified)
-
-        Returns:
-            True if updated successfully
-        """
+    async def update_phase(self, phase: str, session_id: Optional[str] = None) -> bool:
         params: Dict[str, Any] = {"phase": phase}
         if session_id is not None:
             params["session_id"] = session_id
-
         try:
             result = await self._send_request("session.update_phase", params)
             return result.get("updated", False)
@@ -964,29 +821,13 @@ class IslandClient:
         status_text: Optional[str] = None,
         session_id: Optional[str] = None,
     ) -> str:
-        """Create a new progress bar.
-
-        Args:
-            progress_id: Unique ID for this progress bar
-            title: Title to display
-            progress: Progress value 0-1, or None for indeterminate
-            status_text: Optional status text below the bar
-            session_id: Optional session ID (uses connected session if not specified)
-
-        Returns:
-            The progress_id
-        """
-        params: Dict[str, Any] = {
-            "progress_id": progress_id,
-            "title": title,
-        }
+        params: Dict[str, Any] = {"progress_id": progress_id, "title": title}
         if progress is not None:
             params["progress"] = progress
         if status_text is not None:
             params["status_text"] = status_text
         if session_id is not None:
             params["session_id"] = session_id
-
         result = await self._send_request("progress.create", params)
         return result.get("progress_id", progress_id)
 
@@ -998,18 +839,6 @@ class IslandClient:
         title: Optional[str] = None,
         session_id: Optional[str] = None,
     ) -> bool:
-        """Update an existing progress bar.
-
-        Args:
-            progress_id: ID of the progress bar to update
-            progress: New progress value 0-1
-            status_text: New status text
-            title: New title
-            session_id: Optional session ID
-
-        Returns:
-            True if updated successfully
-        """
         params: Dict[str, Any] = {"progress_id": progress_id}
         if progress is not None:
             params["progress"] = progress
@@ -1019,7 +848,6 @@ class IslandClient:
             params["title"] = title
         if session_id is not None:
             params["session_id"] = session_id
-
         result = await self._send_request("progress.update", params)
         return result.get("updated", False)
 
@@ -1030,26 +858,11 @@ class IslandClient:
         status_text: Optional[str] = None,
         session_id: Optional[str] = None,
     ) -> bool:
-        """Mark a progress bar as complete.
-
-        Args:
-            progress_id: ID of the progress bar
-            style: Completion style ("success", "error", "cancelled")
-            status_text: Final status text
-            session_id: Optional session ID
-
-        Returns:
-            True if completed successfully
-        """
-        params: Dict[str, Any] = {
-            "progress_id": progress_id,
-            "style": style,
-        }
+        params: Dict[str, Any] = {"progress_id": progress_id, "style": style}
         if status_text is not None:
             params["status_text"] = status_text
         if session_id is not None:
             params["session_id"] = session_id
-
         result = await self._send_request("progress.complete", params)
         return result.get("completed", False)
 
@@ -1062,19 +875,6 @@ class IslandClient:
         url_scheme: Optional[str] = None,
         session_id: Optional[str] = None,
     ) -> bool:
-        """Add an action button to a progress bar.
-
-        Args:
-            progress_id: ID of the progress bar
-            action_id: Unique ID for this action
-            label: Button label text
-            style: Button style ("primary", "secondary", "destructive")
-            url_scheme: Optional URL to open when clicked (e.g., "file:///path")
-            session_id: Optional session ID
-
-        Returns:
-            True if added successfully
-        """
         params: Dict[str, Any] = {
             "progress_id": progress_id,
             "action_id": action_id,
@@ -1085,27 +885,14 @@ class IslandClient:
             params["url_scheme"] = url_scheme
         if session_id is not None:
             params["session_id"] = session_id
-
         result = await self._send_request("progress.add_action", params)
         return result.get("added", False)
 
     async def progress_remove(
-        self,
-        progress_id: str,
-        session_id: Optional[str] = None,
+        self, progress_id: str, session_id: Optional[str] = None
     ) -> bool:
-        """Remove/dismiss a progress bar.
-
-        Args:
-            progress_id: ID of the progress bar to remove
-            session_id: Optional session ID
-
-        Returns:
-            True if removed successfully
-        """
         params: Dict[str, Any] = {"progress_id": progress_id}
         if session_id is not None:
             params["session_id"] = session_id
-
         result = await self._send_request("progress.remove", params)
         return result.get("removed", False)
