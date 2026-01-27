@@ -190,9 +190,10 @@ class IslandClient:
 
         self._reader = None
 
+        # Cancel pending requests silently - don't set exceptions that won't be retrieved
         for future in self._pending_requests.values():
             if not future.done():
-                future.set_exception(ConnectionError("Connection closed"))
+                future.cancel()
         self._pending_requests.clear()
 
     def _start_heartbeat(self) -> None:
