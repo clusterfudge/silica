@@ -215,22 +215,16 @@ class IslandClient:
                 if not self._connected:
                     break
                 try:
-                    # Try to send a lightweight notification as a connection check
-                    # This doesn't require Island to support any specific method
-                    if self._writer is not None:
-                        # Just check if we can write - don't wait for response
-                        # A broken pipe will raise an exception
-                        self._writer.write(b"")
-                        await self._writer.drain()
-                except (BrokenPipeError, ConnectionResetError, OSError):
-                    # Connection is dead
+                    # Send a ping and wait for pong response
+                    result = await self._send_request("system.ping", {}, timeout=10.0)
+                    if not result.get("pong"):
+                        raise Exception("Invalid ping response")
+                except Exception:
+                    # Ping failed - connection is likely dead
                     if self._connected and not self._intentional_disconnect:
-                        logger.debug("Heartbeat detected broken connection")
+                        logger.debug("Heartbeat ping failed - connection lost")
                         await self._handle_connection_lost()
                     break
-                except Exception:
-                    # Other errors - ignore and continue
-                    pass
         except asyncio.CancelledError:
             pass
 
