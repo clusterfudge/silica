@@ -304,24 +304,51 @@ def _process_file_mentions(
     return results
 
 
-def _continuation_message(final_message: MessageParam) -> MessageParam | None:
-    continue_message = {
-        "type": "text",
-        "text": "In a previous attempt, you hit max tokens. Please try to be more concise. Attempts of 3: ",
+def _get_max_tokens_attempt_count(chat_history: list[MessageParam]) -> int:
+    """Count how many max_tokens retry attempts have been made.
+
+    Looks for the retry marker message in chat history.
+
+    Returns:
+        Number of previous attempts (0 if none)
+    """
+    marker = "[MAX_TOKENS_RETRY]"
+    for msg in reversed(chat_history):
+        if msg["role"] == "user":
+            content = msg.get("content", [])
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        text = block.get("text", "")
+                        if marker in text:
+                            # Count [X] markers
+                            return text.count("[X]")
+            elif isinstance(content, str) and marker in content:
+                return content.count("[X]")
+    return 0
+
+
+def _create_max_tokens_retry_message(attempt: int) -> MessageParam:
+    """Create a user message instructing the agent to retry more concisely.
+
+    Args:
+        attempt: Which attempt this is (1, 2, or 3)
+
+    Returns:
+        A user message with retry instructions
+    """
+    marker = "[MAX_TOKENS_RETRY]"
+    return {
+        "role": "user",
+        "content": [
+            {
+                "type": "text",
+                "text": f"{marker} Your previous response was cut off because it hit the max token limit. "
+                f"Please continue from where you left off, but be more concise. "
+                f"Attempt {attempt} of 3: " + "[X]" * attempt,
+            }
+        ],
     }
-    last_content_block = final_message["content"][-1]
-    if last_content_block["type"] != "text" or not last_content_block[
-        "text"
-    ].startswith(continue_message["text"]):
-        final_message["content"].append(continue_message)
-    else:
-        continue_message = final_message["content"][-1]
-
-    continue_message["text"] += "[X]"
-    if "[X][X][X]" in continue_message["text"]:
-        return None  # we've already had 3 attempts, stop trying. :(
-
-    return final_message
 
 
 async def _initialize_mcp(
@@ -1209,31 +1236,37 @@ async def run(
                             getattr(tool_use, "name", "unknown_tool"), result
                         )
             elif final_message.stop_reason == "max_tokens":
-                # Don't add the partial message to chat history (remove it if necessary)
-                if (
+                # Response was truncated - we need to signal the agent to continue
+                # but more concisely
+
+                # Count previous retry attempts
+                attempt_count = _get_max_tokens_attempt_count(
                     agent_context.chat_history
-                    and agent_context.chat_history[-1]["role"] == "assistant"
-                ):
-                    agent_context.chat_history.pop()
+                )
 
-                # Modify the last user message to add continuation marker
-                retry_message = _continuation_message(agent_context.chat_history[-1])
-
-                if retry_message:
-                    user_interface.handle_assistant_message(
-                        "[bold yellow]Hit max tokens. I'll continue from where I left off...[/bold yellow]"
+                if attempt_count >= 3:
+                    # Already tried 3 times, give up
+                    user_interface.handle_system_message(
+                        "[bold yellow]Hit max tokens. Was unable to continue after multiple attempts.[/bold yellow]",
+                        markdown=False,
+                    )
+                    # Keep the partial response in history so user can see what was generated
+                    # Don't continue the loop - return to user
+                else:
+                    # Can retry - add a new user message with retry instructions
+                    attempt_count += 1
+                    user_interface.handle_system_message(
+                        f"[bold yellow]Hit max tokens (attempt {attempt_count}/3). Continuing...[/bold yellow]",
+                        markdown=False,
                     )
 
-                    # Update the last user message with continuation marker
-                    agent_context.chat_history[-1] = retry_message
+                    # Add retry message as a NEW user message
+                    # This ensures the agent sees the instruction clearly
+                    retry_msg = _create_max_tokens_retry_message(attempt_count)
+                    agent_context.chat_history.append(retry_msg)
+
                     # Continue the loop to retry the API call
                     continue
-                else:
-                    user_interface.handle_assistant_message(
-                        "[bold yellow]Hit max tokens. Was unable to continue after multiple attempts.[/bold yellow]"
-                    )
-                    # Pop the user message that has [X][X][X] marker
-                    agent_context.chat_history.pop()
 
             else:
                 # Check if we should inject a plan reminder to keep the agent working
