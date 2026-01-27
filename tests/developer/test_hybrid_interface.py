@@ -4,7 +4,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock
 import pytest
 
-from silica.developer.hybrid_interface import HybridUserInterface
+from silica.developer.hybrid_interface import HybridUserInterface, _fire_and_forget
 from silica.developer.sandbox import SandboxMode
 
 
@@ -247,3 +247,111 @@ class TestHybridInterfaceWithMockedIsland:
 
         # Should succeed silently when Island not available
         assert result is True
+
+
+class TestFireAndForget:
+    """Test the _fire_and_forget helper function."""
+
+    @pytest.mark.asyncio
+    async def test_fire_and_forget_with_event_loop(self):
+        """_fire_and_forget should schedule coroutine when loop is running."""
+        executed = []
+
+        async def test_coro():
+            executed.append(True)
+
+        _fire_and_forget(test_coro())
+
+        # Give the task a chance to run
+        await asyncio.sleep(0.1)
+
+        assert executed == [True]
+
+    def test_fire_and_forget_without_event_loop(self):
+        """_fire_and_forget should not raise when no event loop is running."""
+        executed = []
+
+        async def test_coro():
+            executed.append(True)
+
+        # This should NOT raise, even though there's no event loop
+        _fire_and_forget(test_coro())
+
+        # The coroutine should NOT have executed
+        assert executed == []
+
+    def test_fire_and_forget_closes_coroutine(self):
+        """_fire_and_forget should close the coroutine to avoid warnings."""
+
+        # Create a coroutine
+        async def test_coro():
+            pass
+
+        coro = test_coro()
+
+        # This should close the coroutine without warnings
+        _fire_and_forget(coro)
+
+        # Verify the coroutine was closed by checking it raises RuntimeError
+        # when we try to send to it (closed/awaited coroutines raise this)
+        with pytest.raises(
+            RuntimeError, match="cannot reuse already awaited coroutine"
+        ):
+            coro.send(None)
+
+
+class TestHybridInterfaceNoEventLoop:
+    """Test HybridUserInterface methods called without an event loop."""
+
+    def test_handle_system_message_without_event_loop(self, tmp_path):
+        """handle_system_message should not raise when no event loop is running."""
+        cli = MockCLIInterface()
+        hybrid = HybridUserInterface(cli, socket_path=tmp_path / "test.sock")
+
+        # Mock the Island client as connected
+        mock_island = MagicMock()
+        mock_island.connected = True
+        mock_island.notify_system_message = AsyncMock()
+
+        hybrid._island = mock_island
+        hybrid._island_available = True
+
+        # This should NOT raise "no running event loop" error
+        hybrid.handle_system_message("Test message")
+
+        # CLI should still have received the message
+        assert ("system", "Test message") in cli.messages
+
+    def test_handle_assistant_message_without_event_loop(self, tmp_path):
+        """handle_assistant_message should not raise when no event loop is running."""
+        cli = MockCLIInterface()
+        hybrid = HybridUserInterface(cli, socket_path=tmp_path / "test.sock")
+
+        mock_island = MagicMock()
+        mock_island.connected = True
+        mock_island.notify_assistant_message = AsyncMock()
+
+        hybrid._island = mock_island
+        hybrid._island_available = True
+
+        # This should NOT raise
+        hybrid.handle_assistant_message("Hello")
+
+        assert ("assistant", "Hello") in cli.messages
+
+    def test_handle_tool_use_without_event_loop(self, tmp_path):
+        """handle_tool_use should not raise when no event loop is running."""
+        cli = MockCLIInterface()
+        hybrid = HybridUserInterface(cli, socket_path=tmp_path / "test.sock")
+
+        mock_island = MagicMock()
+        mock_island.connected = True
+        mock_island.notify_tool_use = AsyncMock()
+
+        hybrid._island = mock_island
+        hybrid._island_available = True
+
+        # This should NOT raise
+        hybrid.handle_tool_use("test_tool", {"param": "value"})
+
+        assert ("tool_use", "test_tool", {"param": "value"}) in cli.messages

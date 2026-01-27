@@ -22,6 +22,26 @@ def _generate_message_id() -> str:
     return str(uuid4())
 
 
+def _fire_and_forget(coro) -> None:
+    """Schedule a coroutine for fire-and-forget execution.
+
+    This safely handles the case where there's no running event loop,
+    which can happen when these methods are called from synchronous contexts
+    during startup or initialization.
+
+    Args:
+        coro: The coroutine to schedule
+    """
+    try:
+        asyncio.get_running_loop()
+        asyncio.create_task(coro)
+    except RuntimeError:
+        # No running event loop - silently skip Island notification
+        # This is fine for fire-and-forget notifications; CLI still handles it
+        # Close the coroutine to avoid "coroutine was never awaited" warning
+        coro.close()
+
+
 # Default socket path for Agent Island
 DEFAULT_SOCKET_PATH = Path("~/.agent-island/agent.sock").expanduser()
 
@@ -95,8 +115,9 @@ class HybridUserInterface(UserInterface):
 
             if connected:
                 self._island_available = True
-                # Register callback for bidirectional chat
+                # Register callbacks
                 self._island.on_input_received = self._handle_island_input
+                self._island.on_reconnected = self._handle_island_reconnected
                 return True
             else:
                 self._island_available = False
@@ -111,6 +132,16 @@ class HybridUserInterface(UserInterface):
             self._island_available = False
             self._island = None
             return False
+
+    async def _handle_island_reconnected(self) -> None:
+        """Handle reconnection to Agent Island.
+
+        Called by the IslandClient after successful reconnection.
+        Session re-registration is handled automatically by the client.
+        """
+        self.cli.handle_system_message(
+            "[dim]Reconnected to Agent Island[/dim]", markdown=False
+        )
 
     async def _handle_island_input(
         self, session_id: str, content: str, message_id: str
@@ -710,7 +741,7 @@ class HybridUserInterface(UserInterface):
 
         if self.hybrid_mode:
             message_id = _generate_message_id()
-            asyncio.create_task(
+            _fire_and_forget(
                 self._island.notify_assistant_message(
                     content=message,
                     format="markdown",
@@ -723,7 +754,7 @@ class HybridUserInterface(UserInterface):
         self.cli.handle_system_message(message, markdown=markdown, live=live)
 
         if self.hybrid_mode:
-            asyncio.create_task(
+            _fire_and_forget(
                 self._island.notify_system_message(message=message, style="info")
             )
 
@@ -732,7 +763,7 @@ class HybridUserInterface(UserInterface):
         self.cli.handle_tool_use(tool_name, tool_params)
 
         if self.hybrid_mode:
-            asyncio.create_task(
+            _fire_and_forget(
                 self._island.notify_tool_use(
                     tool_name=tool_name, tool_params=tool_params
                 )
@@ -743,7 +774,7 @@ class HybridUserInterface(UserInterface):
         self.cli.handle_tool_result(name, result, live=live)
 
         if self.hybrid_mode:
-            asyncio.create_task(
+            _fire_and_forget(
                 self._island.notify_tool_result(
                     tool_name=name, result=result, success=True
                 )
@@ -755,7 +786,7 @@ class HybridUserInterface(UserInterface):
 
         if self.hybrid_mode:
             message_id = _generate_message_id()
-            asyncio.create_task(
+            _fire_and_forget(
                 self._island.notify_user_message(
                     content=user_input,
                     message_id=message_id,
@@ -772,7 +803,7 @@ class HybridUserInterface(UserInterface):
 
         if self.hybrid_mode:
             message_id = _generate_message_id()
-            asyncio.create_task(
+            _fire_and_forget(
                 self._island.notify_thinking(
                     content=content,
                     tokens=tokens,
@@ -822,7 +853,7 @@ class HybridUserInterface(UserInterface):
         )
 
         if self.hybrid_mode:
-            asyncio.create_task(
+            _fire_and_forget(
                 self._island.notify_token_usage(
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
@@ -852,7 +883,7 @@ class HybridUserInterface(UserInterface):
         """Pass through to CLI."""
         # Also notify Island
         if self.hybrid_mode:
-            asyncio.create_task(
+            _fire_and_forget(
                 self._island.notify_status(message=message, spinner=spinner is not None)
             )
 
