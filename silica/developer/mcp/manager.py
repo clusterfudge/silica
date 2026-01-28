@@ -38,6 +38,7 @@ class ServerStatus:
     tool_count: int
     cache_enabled: bool
     needs_setup: bool = False  # True if credentials_path is set but doesn't exist
+    enabled: bool = True  # Whether server auto-connects at startup
     error: str | None = None
 
 
@@ -434,6 +435,7 @@ class MCPToolManager:
                     tool_count=tool_count,
                     cache_enabled=server_config.cache,
                     needs_setup=server_config.needs_setup(),
+                    enabled=server_config.enabled,
                     error=None,
                 )
             )

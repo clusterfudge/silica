@@ -3477,82 +3477,87 @@ Let's collaborate on creating a solid plan before implementation."""
             return await self._island_disconnect(_print, user_interface)
 
         else:
-            _print(f"[red]Unknown island command: {command}[/red]")
-            _print("Use /help island for usage information.")
+            _print(
+                f"[red]Unknown island command: {command}[/red]\n"
+                "Use /help island for usage information."
+            )
             return ("", False)
 
     def _island_status(self, _print, user_interface):
         """Show Island connection status."""
         island = getattr(user_interface, "_island", None)
-
-        _print("[bold]Agent Island Status:[/bold]\n")
+        lines = ["[bold]Agent Island Status:[/bold]", ""]
 
         # Check socket path
         socket_path = getattr(user_interface, "socket_path", None)
         if socket_path:
-            _print(f"**Socket Path:** `{socket_path}`\n")
+            lines.append(f"**Socket Path:** `{socket_path}`")
             if socket_path.exists():
-                _print("**Socket Exists:** ✓ Yes\n")
+                lines.append("**Socket Exists:** ✓ Yes")
             else:
-                _print("**Socket Exists:** ✗ No\n")
+                lines.append("**Socket Exists:** ✗ No")
         else:
-            _print("**Socket Path:** Not configured\n")
+            lines.append("**Socket Path:** Not configured")
 
         # Check connection status
         if island is None:
-            _print("**Connection:** ✗ Not initialized\n")
-            _print("\n[dim]Island client has not been created yet.[/dim]")
+            lines.append("**Connection:** ✗ Not initialized")
+            lines.append("")
+            lines.append("[dim]Island client has not been created yet.[/dim]")
         elif island.connected:
-            _print("**Connection:** ✓ Connected\n")
+            lines.append("**Connection:** ✓ Connected")
 
             # Show version if available
             version = island.island_version
             if version:
-                _print(f"**Island Version:** {version}\n")
+                lines.append(f"**Island Version:** {version}")
 
             # Show reconnecting status
             if island.reconnecting:
-                _print("**Status:** 🔄 Reconnecting...\n")
+                lines.append("**Status:** 🔄 Reconnecting...")
             else:
-                _print("**Status:** Ready\n")
+                lines.append("**Status:** Ready")
         else:
-            _print("**Connection:** ✗ Disconnected\n")
+            lines.append("**Connection:** ✗ Disconnected")
             if island.reconnecting:
-                _print("**Status:** 🔄 Attempting to reconnect...\n")
+                lines.append("**Status:** 🔄 Attempting to reconnect...")
             else:
-                _print("**Status:** Idle\n")
+                lines.append("**Status:** Idle")
 
+        _print("\n".join(lines))
         return ("", False)
 
     async def _island_reconnect(self, _print, user_interface):
         """Force reconnect to Island."""
         island = getattr(user_interface, "_island", None)
+        lines = []
 
         if island is None:
             # Try to create a new connection
-            _print("Attempting to connect to Island...")
+            lines.append("Attempting to connect to Island...")
             if hasattr(user_interface, "connect_to_island"):
                 connected = await user_interface.connect_to_island()
                 if connected:
-                    _print("[green]✓ Connected to Island[/green]")
+                    lines.append("[green]✓ Connected to Island[/green]")
                 else:
-                    _print("[red]✗ Failed to connect to Island[/red]")
-                    _print("[dim]Make sure Agent Island is running.[/dim]")
+                    lines.append("[red]✗ Failed to connect to Island[/red]")
+                    lines.append("[dim]Make sure Agent Island is running.[/dim]")
             else:
-                _print("[red]✗ Island connection not supported[/red]")
+                lines.append("[red]✗ Island connection not supported[/red]")
+            _print("\n".join(lines))
             return ("", False)
 
         # Disconnect first if connected
         if island.connected:
-            _print("Disconnecting from Island...")
+            lines.append("Disconnecting from Island...")
             await island.disconnect()
 
         # Reconnect
-        _print("Reconnecting to Island...")
+        lines.append("Reconnecting to Island...")
         try:
             connected = await island.connect()
             if connected:
-                _print("[green]✓ Reconnected to Island[/green]")
+                lines.append("[green]✓ Reconnected to Island[/green]")
 
                 # Re-register session if we have context
                 if self.context and self.context.session_id:
@@ -3561,17 +3566,18 @@ Let's collaborate on creating a solid plan before implementation."""
                             session_id=self.context.session_id,
                             name="Silica Session",
                         )
-                        _print("[dim]Session re-registered[/dim]")
+                        lines.append("[dim]Session re-registered[/dim]")
                     except Exception as e:
-                        _print(
+                        lines.append(
                             f"[yellow]Warning: Could not re-register session: {e}[/yellow]"
                         )
             else:
-                _print("[red]✗ Failed to reconnect[/red]")
-                _print("[dim]Make sure Agent Island is running.[/dim]")
+                lines.append("[red]✗ Failed to reconnect[/red]")
+                lines.append("[dim]Make sure Agent Island is running.[/dim]")
         except Exception as e:
-            _print(f"[red]✗ Reconnection failed: {e}[/red]")
+            lines.append(f"[red]✗ Reconnection failed: {e}[/red]")
 
+        _print("\n".join(lines))
         return ("", False)
 
     async def _island_disconnect(self, _print, user_interface):
@@ -3586,13 +3592,14 @@ Let's collaborate on creating a solid plan before implementation."""
             _print("[yellow]Already disconnected from Island[/yellow]")
             return ("", False)
 
-        _print("Disconnecting from Island...")
+        lines = ["Disconnecting from Island..."]
         try:
             await island.disconnect()
-            _print("[green]✓ Disconnected from Island[/green]")
+            lines.append("[green]✓ Disconnected from Island[/green]")
         except Exception as e:
-            _print(f"[red]✗ Disconnect failed: {e}[/red]")
+            lines.append(f"[red]✗ Disconnect failed: {e}[/red]")
 
+        _print("\n".join(lines))
         return ("", False)
 
     async def _mcp(self, user_interface, sandbox, user_input, *args, **kwargs):
@@ -3606,6 +3613,8 @@ Let's collaborate on creating a solid plan before implementation."""
             /mcp reconnect [server]   - Reconnect to server(s)
             /mcp refresh [server]     - Force refresh tool schemas
             /mcp cache <server> <on|off>  - Toggle caching for a server
+            /mcp enable <server>      - Enable server for auto-connect at startup
+            /mcp disable <server>     - Disable server from auto-connecting
             /mcp tools [server]       - List tools from server(s)
             /mcp setup <server>       - Run server's setup/auth flow
             /mcp add <name> <cmd> [args]  - Add a server to config
@@ -3616,6 +3625,7 @@ Let's collaborate on creating a solid plan before implementation."""
             /mcp connect sqlite       - Connect to sqlite server
             /mcp tools                - List all MCP tools
             /mcp cache myserver off   - Disable caching for development
+            /mcp disable sqlite       - Stop sqlite from auto-connecting
             /mcp setup gdrive         - Run gdrive server's auth setup
             /mcp add github npx -y @modelcontextprotocol/server-github
             /mcp remove github        - Remove github server
@@ -3664,6 +3674,18 @@ Let's collaborate on creating a solid plan before implementation."""
             enabled = args_list[2].lower() in ("on", "true", "1", "yes")
             return self._mcp_set_cache(_print, server_name, enabled)
 
+        elif command == "enable":
+            if len(args_list) < 2:
+                _print("[red]Usage: /mcp enable <server>[/red]")
+                return ("", False)
+            return self._mcp_set_enabled(_print, args_list[1], True)
+
+        elif command == "disable":
+            if len(args_list) < 2:
+                _print("[red]Usage: /mcp disable <server>[/red]")
+                return ("", False)
+            return self._mcp_set_enabled(_print, args_list[1], False)
+
         elif command == "tools":
             server_name = args_list[1] if len(args_list) > 1 else None
             return self._mcp_tools(_print, server_name)
@@ -3705,7 +3727,7 @@ Let's collaborate on creating a solid plan before implementation."""
             _print("[yellow]No MCP servers configured.[/yellow]")
             return ("", False)
 
-        _print("[bold]MCP Servers:[/bold]")
+        lines = ["[bold]MCP Servers:[/bold]"]
         for status in statuses:
             # Build status line
             conn_icon = "✓" if status.connected else "✗"
@@ -3715,16 +3737,20 @@ Let's collaborate on creating a solid plan before implementation."""
             tool_text = f"{status.tool_count:2d} tools" if status.connected else ""
             cache_text = f"cache: {'on' if status.cache_enabled else 'off'}"
 
-            # Setup status if applicable
-            setup_text = ""
+            # Extra status indicators
+            extra = []
             if status.needs_setup:
-                setup_text = "  [yellow]⚠ needs setup[/yellow]"
+                extra.append("[yellow]⚠ needs setup[/yellow]")
+            if not status.enabled:
+                extra.append("[dim]disabled[/dim]")
+            extra_text = "  " + " ".join(extra) if extra else ""
 
-            _print(
+            lines.append(
                 f"  {status.name:16} [{conn_color}]{conn_icon} {conn_text:12}[/{conn_color}]"
-                f"  {tool_text:10}  {cache_text}{setup_text}"
+                f"  {tool_text:10}  {cache_text}{extra_text}"
             )
 
+        _print("\n".join(lines))
         return ("", False)
 
     async def _mcp_connect(self, _print, server_name):
@@ -3808,6 +3834,63 @@ Let's collaborate on creating a solid plan before implementation."""
         except ValueError as e:
             _print(f"[red]{e}[/red]")
 
+        return ("", False)
+
+    def _mcp_set_enabled(self, _print, server_name, enabled):
+        """Enable or disable an MCP server for auto-connect at startup."""
+        import json
+        from pathlib import Path
+
+        from silica.developer.mcp.config import MCPConfig, save_mcp_config
+
+        # Try each config location in order: project, persona, global
+        silica_dir = Path.home() / ".silica"
+        locations_to_try = []
+
+        # Project config
+        project_path = Path.cwd() / ".silica" / "mcp_servers.json"
+        if project_path.exists():
+            locations_to_try.append(("project", project_path, Path.cwd(), None))
+
+        # Persona config (if we can determine it)
+        if self.context and self.context.history_base_dir:
+            history_path = Path(self.context.history_base_dir)
+            if history_path.parent.name == "personas":
+                persona = history_path.name
+                persona_path = silica_dir / "personas" / persona / "mcp_servers.json"
+                if persona_path.exists():
+                    locations_to_try.append(("persona", persona_path, None, persona))
+
+        # Global config
+        global_path = silica_dir / "mcp_servers.json"
+        if global_path.exists():
+            locations_to_try.append(("global", global_path, None, None))
+
+        # Find which config contains this server
+        for location, path, project_root, persona in locations_to_try:
+            try:
+                config = MCPConfig.from_file(path)
+                if server_name in config.servers:
+                    # Found it - update and save
+                    config.servers[server_name].enabled = enabled
+                    save_mcp_config(
+                        config,
+                        location=location,
+                        project_root=project_root,
+                        persona=persona,
+                    )
+                    status = "enabled" if enabled else "disabled"
+                    note = (
+                        " (will auto-connect on startup)"
+                        if enabled
+                        else " (won't auto-connect)"
+                    )
+                    _print(f"[green]Server '{server_name}' {status}{note}[/green]")
+                    return ("", False)
+            except (json.JSONDecodeError, KeyError):
+                continue
+
+        _print(f"[red]Server '{server_name}' not found in any config[/red]")
         return ("", False)
 
     def _mcp_tools(self, _print, server_name):

@@ -34,12 +34,16 @@ async def mcp_list_servers(context: AgentContext) -> str:
         tool_count = f"{status.tool_count} tools" if status.connected else "-"
         cache_status = "cache: on" if status.cache_enabled else "cache: off"
 
-        setup_text = ""
+        extra = []
         if status.needs_setup:
-            setup_text = "  ⚠ needs setup"
+            extra.append("⚠ needs setup")
+        if not status.enabled:
+            extra.append("disabled")
+
+        extra_text = f"  ({', '.join(extra)})" if extra else ""
 
         lines.append(
-            f"  {status.name}: {conn_status}, {tool_count}, {cache_status}{setup_text}"
+            f"  {status.name}: {conn_status}, {tool_count}, {cache_status}{extra_text}"
         )
 
     return "\n".join(lines)
@@ -302,3 +306,70 @@ async def mcp_remove_server(
             return f"Server '{name}' not found in {location} config"
     except Exception as e:
         return f"Error removing server: {e}"
+
+
+@tool(group="MCP")
+async def mcp_set_enabled(
+    context: AgentContext,
+    name: str,
+    enabled: bool,
+    location: str = "global",
+) -> str:
+    """Enable or disable an MCP server for auto-connection at startup.
+
+    Disabled servers remain in the config but won't connect automatically.
+    You can still manually connect using mcp_connect.
+
+    Args:
+        name: Server name to enable/disable
+        enabled: True to enable auto-connect, False to disable
+        location: Config location - "global" (default), "persona", or "project"
+    """
+    import json
+    from pathlib import Path
+
+    from silica.developer.mcp.config import MCPConfig, save_mcp_config
+
+    # Determine config path based on location
+    silica_dir = Path.home() / ".silica"
+    persona = None
+    project_root = None
+
+    if location == "global":
+        path = silica_dir / "mcp_servers.json"
+    elif location == "persona":
+        if context.history_base_dir:
+            history_path = Path(context.history_base_dir)
+            if history_path.parent.name == "personas":
+                persona = history_path.name
+        if not persona:
+            return "Error: Could not determine current persona for persona location"
+        path = silica_dir / "personas" / persona / "mcp_servers.json"
+    elif location == "project":
+        project_root = Path.cwd()
+        path = project_root / ".silica" / "mcp_servers.json"
+    else:
+        return f"Error: Unknown location '{location}'"
+
+    if not path.exists():
+        return f"Error: No MCP config found at {location} location"
+
+    try:
+        config = MCPConfig.from_file(path)
+    except (json.JSONDecodeError, KeyError) as e:
+        return f"Error reading config: {e}"
+
+    if name not in config.servers:
+        return f"Error: Server '{name}' not found in {location} config"
+
+    config.servers[name].enabled = enabled
+    save_mcp_config(
+        config,
+        location=location,
+        persona=persona,
+        project_root=project_root,
+    )
+
+    status = "enabled" if enabled else "disabled"
+    note = " (will auto-connect on startup)" if enabled else " (won't auto-connect)"
+    return f"Server '{name}' {status}{note}"
