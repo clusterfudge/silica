@@ -1323,16 +1323,39 @@ class Toolbox:
             except Exception:
                 pass
 
+        # Get git branch name
+        branch_name = None
+        try:
+            import subprocess
+
+            result = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                branch_name = result.stdout.strip()
+        except Exception:
+            pass
+
         # Format the output
         info = "# Session Information\n\n"
 
         # Persona
         info += f"**Persona:** `{persona_name}`\n\n"
 
+        # Git branch
+        if branch_name:
+            info += f"**Git Branch:** `{branch_name}`\n\n"
+
         # Session IDs
         info += f"**Session ID:** `{session_id}`\n\n"
         if parent_session_id:
             info += f"**Parent Session ID:** `{parent_session_id}`\n\n"
+
+        # Session file path
+        info += f"**Session File:** `{history_file}`\n\n"
 
         # Session timestamps
         if created_at:

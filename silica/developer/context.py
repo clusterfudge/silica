@@ -269,13 +269,19 @@ class AgentContext:
             model_breakdown["cached_tokens"] += cache_read_input_tokens
 
             model_breakdown["total_cost"] += total_cost
-            model_breakdown["thinking_cost"] += thinking_cost / 1_000_000
+            model_breakdown["thinking_cost"] += thinking_cost
 
             usage_summary["total_cost"] += total_cost
             usage_summary["thinking_cost"] += thinking_cost
 
+        # Convert from per-token costs to per-million-token costs
         usage_summary["total_cost"] /= 1_000_000
         usage_summary["thinking_cost"] /= 1_000_000
+
+        # Also convert model breakdown costs
+        for model_breakdown in usage_summary["model_breakdown"].values():
+            model_breakdown["total_cost"] /= 1_000_000
+            model_breakdown["thinking_cost"] /= 1_000_000
 
         return usage_summary
 
