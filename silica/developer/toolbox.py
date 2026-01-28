@@ -221,6 +221,13 @@ class Toolbox:
             "Manage MCP server connections and tools",
         )
 
+        # Register Island management CLI tool
+        self.register_cli_tool(
+            "island",
+            self._island,
+            "Manage Agent Island connection",
+        )
+
         # Note: agent_schema is now a property that dynamically re-discovers user tools
         # This ensures newly created user tools are immediately available
 
@@ -3431,6 +3438,162 @@ Let's collaborate on creating a solid plan before implementation."""
             # Return (content, auto_add=True) to automatically add to conversation
             # and trigger agent response
             return (planning_prompt, True)
+
+    async def _island(self, user_interface, sandbox, user_input, *args, **kwargs):
+        """Manage Agent Island connection.
+
+        Usage:
+            /island                   - Show Island connection status
+            /island status            - Same as /island
+            /island reconnect         - Force reconnect to Island
+            /island disconnect        - Disconnect from Island
+
+        Examples:
+            /island                   - Check if Island is connected
+            /island reconnect         - Reconnect after Island restart
+        """
+
+        def _print(msg, markdown=True):
+            """Print directly to user without adding to conversation."""
+            user_interface.handle_system_message(msg, markdown=markdown)
+
+        # Check if we have a hybrid interface
+        if not hasattr(user_interface, "_island"):
+            _print(
+                "[yellow]Island integration not available in this interface.[/yellow]"
+            )
+            return ("", False)
+
+        args_list = user_input.strip().split() if user_input.strip() else []
+        command = args_list[0].lower() if args_list else "status"
+
+        if command == "status" or not args_list:
+            return self._island_status(_print, user_interface)
+
+        elif command == "reconnect":
+            return await self._island_reconnect(_print, user_interface)
+
+        elif command == "disconnect":
+            return await self._island_disconnect(_print, user_interface)
+
+        else:
+            _print(f"[red]Unknown island command: {command}[/red]")
+            _print("Use /help island for usage information.")
+            return ("", False)
+
+    def _island_status(self, _print, user_interface):
+        """Show Island connection status."""
+        island = getattr(user_interface, "_island", None)
+
+        _print("[bold]Agent Island Status:[/bold]\n")
+
+        # Check socket path
+        socket_path = getattr(user_interface, "socket_path", None)
+        if socket_path:
+            _print(f"**Socket Path:** `{socket_path}`\n")
+            if socket_path.exists():
+                _print("**Socket Exists:** ✓ Yes\n")
+            else:
+                _print("**Socket Exists:** ✗ No\n")
+        else:
+            _print("**Socket Path:** Not configured\n")
+
+        # Check connection status
+        if island is None:
+            _print("**Connection:** ✗ Not initialized\n")
+            _print("\n[dim]Island client has not been created yet.[/dim]")
+        elif island.connected:
+            _print("**Connection:** ✓ Connected\n")
+
+            # Show version if available
+            version = island.island_version
+            if version:
+                _print(f"**Island Version:** {version}\n")
+
+            # Show reconnecting status
+            if island.reconnecting:
+                _print("**Status:** 🔄 Reconnecting...\n")
+            else:
+                _print("**Status:** Ready\n")
+        else:
+            _print("**Connection:** ✗ Disconnected\n")
+            if island.reconnecting:
+                _print("**Status:** 🔄 Attempting to reconnect...\n")
+            else:
+                _print("**Status:** Idle\n")
+
+        return ("", False)
+
+    async def _island_reconnect(self, _print, user_interface):
+        """Force reconnect to Island."""
+        island = getattr(user_interface, "_island", None)
+
+        if island is None:
+            # Try to create a new connection
+            _print("Attempting to connect to Island...")
+            if hasattr(user_interface, "connect_to_island"):
+                connected = await user_interface.connect_to_island()
+                if connected:
+                    _print("[green]✓ Connected to Island[/green]")
+                else:
+                    _print("[red]✗ Failed to connect to Island[/red]")
+                    _print("[dim]Make sure Agent Island is running.[/dim]")
+            else:
+                _print("[red]✗ Island connection not supported[/red]")
+            return ("", False)
+
+        # Disconnect first if connected
+        if island.connected:
+            _print("Disconnecting from Island...")
+            await island.disconnect()
+
+        # Reconnect
+        _print("Reconnecting to Island...")
+        try:
+            connected = await island.connect()
+            if connected:
+                _print("[green]✓ Reconnected to Island[/green]")
+
+                # Re-register session if we have context
+                if self.context and self.context.session_id:
+                    try:
+                        await island.register_session(
+                            session_id=self.context.session_id,
+                            name="Silica Session",
+                        )
+                        _print("[dim]Session re-registered[/dim]")
+                    except Exception as e:
+                        _print(
+                            f"[yellow]Warning: Could not re-register session: {e}[/yellow]"
+                        )
+            else:
+                _print("[red]✗ Failed to reconnect[/red]")
+                _print("[dim]Make sure Agent Island is running.[/dim]")
+        except Exception as e:
+            _print(f"[red]✗ Reconnection failed: {e}[/red]")
+
+        return ("", False)
+
+    async def _island_disconnect(self, _print, user_interface):
+        """Disconnect from Island."""
+        island = getattr(user_interface, "_island", None)
+
+        if island is None:
+            _print("[yellow]Not connected to Island[/yellow]")
+            return ("", False)
+
+        if not island.connected:
+            _print("[yellow]Already disconnected from Island[/yellow]")
+            return ("", False)
+
+        _print("Disconnecting from Island...")
+        try:
+            await island.disconnect()
+            _print("[green]✓ Disconnected from Island[/green]")
+        except Exception as e:
+            _print(f"[red]✗ Disconnect failed: {e}[/red]")
+
+        return ("", False)
 
     async def _mcp(self, user_interface, sandbox, user_input, *args, **kwargs):
         """Manage MCP server connections and tools.
