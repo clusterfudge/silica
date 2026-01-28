@@ -1425,7 +1425,9 @@ class Toolbox:
             for model, model_usage in usage["model_breakdown"].items():
                 info += f"- **{model}:** ${model_usage['total_cost']:.4f}\n\n"
 
-        return info
+        # Print directly instead of returning, so we don't get prompted to add to conversation
+        user_interface.handle_system_message(info, markdown=True)
+        return ("", False)
 
     def _model(self, user_interface, sandbox, user_input, *args, **kwargs):
         """Display or change the current AI model"""
