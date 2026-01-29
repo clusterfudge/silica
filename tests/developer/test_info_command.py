@@ -370,6 +370,23 @@ def test_info_command_contains_persona_name(mock_context, tmp_path):
     assert "**Persona:** `my_persona`" in output
 
 
+def test_info_command_contains_current_directory(mock_context):
+    """Test that current working directory is included in output."""
+    import os
+
+    toolbox = Toolbox(mock_context)
+
+    toolbox._info(
+        user_interface=mock_context.user_interface,
+        sandbox=mock_context.sandbox,
+        user_input="",
+    )
+
+    output = mock_context.user_interface.handle_system_message.call_args[0][0]
+    assert "**Current Directory:**" in output
+    assert os.getcwd() in output
+
+
 def test_info_command_renders_as_markdown(mock_context):
     """Test that info command output is rendered as markdown."""
     import asyncio
