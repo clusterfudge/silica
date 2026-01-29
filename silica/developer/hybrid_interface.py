@@ -149,7 +149,24 @@ class HybridUserInterface(UserInterface):
         self._last_input_from_island = False
 
         # Reference to agent context (set by hdev.py after context creation)
-        self.agent_context = None
+        self._agent_context = None
+
+    @property
+    def agent_context(self):
+        """Get the agent context."""
+        return self._agent_context
+
+    @agent_context.setter
+    def agent_context(self, value):
+        """Set the agent context and propagate to CLI interface.
+
+        The CLI interface needs the agent context for keyboard shortcuts like
+        Ctrl+T to toggle thinking mode.
+        """
+        self._agent_context = value
+        # Propagate to CLI interface so keyboard shortcuts work
+        if hasattr(self.cli, "agent_context"):
+            self.cli.agent_context = value
 
     @property
     def hybrid_mode(self) -> bool:
