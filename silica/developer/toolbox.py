@@ -170,6 +170,11 @@ class Toolbox:
             self._compact_rollback,
             "Rollback to the conversation state before the last compaction",
         )
+        self.register_cli_tool(
+            "repair-history",
+            self._repair_history,
+            "Repair chat history by truncating oversized tool results",
+        )
 
         # Register permission management CLI tools
         self.register_cli_tool(
@@ -1364,6 +1369,12 @@ class Toolbox:
         # Session file path
         info += f"**Session File:** `{history_file}`\n\n"
 
+        # Current working directory
+        import os
+
+        cwd = os.getcwd()
+        info += f"**Current Directory:** `{cwd}`\n\n"
+
         # Session timestamps
         if created_at:
             try:
@@ -1741,6 +1752,119 @@ class Toolbox:
                 f"Rollback failed: {e}\n\n{error_details}", markdown=False
             )
             return f"Error: Rollback failed - {e}"
+
+    def _repair_history(self, user_interface, sandbox, user_input, *args, **kwargs):
+        """Repair chat history by truncating oversized tool results.
+
+        This command scans the conversation history for tool_result blocks that
+        exceed the token limit and replaces them with truncation messages. This
+        can recover a session that became unloadable due to context overflow.
+
+        Usage:
+            /repair-history           - Scan and fix with default limit (50K tokens)
+            /repair-history 20000     - Use custom token limit
+            /repair-history --dry-run - Show what would be fixed without changing anything
+        """
+        from silica.developer.tool_result_limit import (
+            get_result_content_size,
+            create_truncation_message,
+            get_max_tool_result_tokens,
+        )
+
+        # Parse arguments
+        args_list = user_input.strip().split() if user_input.strip() else []
+        dry_run = "--dry-run" in args_list
+        args_list = [a for a in args_list if a != "--dry-run"]
+
+        # Get token limit
+        if args_list:
+            try:
+                max_tokens = int(args_list[0])
+            except ValueError:
+                return f"Error: Invalid token limit '{args_list[0]}'. Use a number like 50000."
+        else:
+            max_tokens = get_max_tool_result_tokens()
+
+        # Scan history for oversized tool results
+        oversized = []
+        total_messages = len(self.context.chat_history)
+
+        for msg_idx, message in enumerate(self.context.chat_history):
+            if message.get("role") != "user":
+                continue
+
+            content = message.get("content", [])
+            if not isinstance(content, list):
+                continue
+
+            for block_idx, block in enumerate(content):
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") != "tool_result":
+                    continue
+
+                # Check size of this tool result
+                result_for_check = {"content": block.get("content", "")}
+                estimated_tokens, content_type = get_result_content_size(
+                    result_for_check
+                )
+
+                if estimated_tokens > max_tokens:
+                    tool_use_id = block.get("tool_use_id", "unknown")
+                    oversized.append(
+                        {
+                            "msg_idx": msg_idx,
+                            "block_idx": block_idx,
+                            "tool_use_id": tool_use_id,
+                            "estimated_tokens": estimated_tokens,
+                            "content_type": content_type,
+                        }
+                    )
+
+        if not oversized:
+            return f"✓ No oversized tool results found (checked {total_messages} messages, limit: {max_tokens:,} tokens)"
+
+        # Report findings
+        result = f"Found {len(oversized)} oversized tool result(s):\n\n"
+        for item in oversized:
+            result += f"- Message {item['msg_idx']}: ~{item['estimated_tokens']:,} tokens ({item['content_type']})\n"
+        result += "\n"
+
+        if dry_run:
+            result += "**Dry run** - no changes made. Run `/repair-history` to fix."
+            user_interface.handle_system_message(result, markdown=True)
+            return ("", False)
+
+        # Fix the oversized results
+        fixed_count = 0
+        for item in oversized:
+            msg_idx = item["msg_idx"]
+            block_idx = item["block_idx"]
+
+            # Get the block
+            block = self.context.chat_history[msg_idx]["content"][block_idx]
+
+            # Create truncation message
+            truncation_msg = create_truncation_message(
+                tool_name="unknown",  # We don't have the tool name in tool_result
+                original_tokens=item["estimated_tokens"],
+                max_tokens=max_tokens,
+                content_type=item["content_type"],
+            )
+
+            # Replace the content but preserve tool_use_id and type
+            block["content"] = truncation_msg
+            block["is_error"] = True
+            fixed_count += 1
+
+        # Save the repaired history
+        self.context.flush(self.context.chat_history, compact=False)
+
+        result += f"✓ Fixed {fixed_count} oversized tool result(s)\n\n"
+        result += "History has been saved. The session should now be recoverable."
+
+        user_interface.handle_system_message(result, markdown=True)
+        return ("", False)
 
     def _permissions(self, user_interface, sandbox, user_input, *args, **kwargs):
         """Manage tool permissions for this persona.
