@@ -1092,6 +1092,21 @@ async def run(
                             tool_result=result,
                         )
 
+                        # Check if result is too large and would overflow context
+                        from silica.developer.tool_result_limit import (
+                            check_and_limit_result,
+                        )
+
+                        result, was_truncated = check_and_limit_result(
+                            result, tool_name
+                        )
+                        if was_truncated:
+                            original_tokens = result.get("_original_tokens", 0)
+                            user_interface.handle_system_message(
+                                f"[bold yellow]Tool result truncated: ~{original_tokens:,} tokens exceeded limit[/bold yellow]",
+                                markdown=False,
+                            )
+
                         agent_context.tool_result_buffer.append(result)
                         user_interface.handle_tool_result(
                             tool_name, result, tool_use_id=tool_use_id

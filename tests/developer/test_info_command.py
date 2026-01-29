@@ -98,125 +98,141 @@ def test_info_command_basic(mock_context):
         user_input="",
     )
 
-    # Check that result is a non-empty string
-    assert isinstance(result, str)
-    assert len(result) > 0
+    # The command returns ("", False) and prints via handle_system_message
+    assert result == ("", False)
+
+    # Get the output that was passed to handle_system_message
+    mock_context.user_interface.handle_system_message.assert_called_once()
+    output = mock_context.user_interface.handle_system_message.call_args[0][0]
+
+    # Check that output is a non-empty string
+    assert isinstance(output, str)
+    assert len(output) > 0
 
     # Check for key sections
-    assert "Session Information" in result
-    assert "Model Configuration" in result
-    assert "Conversation Statistics" in result
-    assert "Token Usage" in result
-    assert "Cost Information" in result
+    assert "Session Information" in output
+    assert "Model Configuration" in output
+    assert "Conversation Statistics" in output
+    assert "Token Usage" in output
+    assert "Cost Information" in output
 
 
 def test_info_command_contains_session_id(mock_context):
     """Test that session ID is included in output."""
     toolbox = Toolbox(mock_context)
 
-    result = toolbox._info(
+    toolbox._info(
         user_interface=mock_context.user_interface,
         sandbox=mock_context.sandbox,
         user_input="",
     )
 
-    assert mock_context.session_id in result
+    output = mock_context.user_interface.handle_system_message.call_args[0][0]
+    assert mock_context.session_id in output
 
 
 def test_info_command_contains_model_info(mock_context):
     """Test that model information is included in output."""
     toolbox = Toolbox(mock_context)
 
-    result = toolbox._info(
+    toolbox._info(
         user_interface=mock_context.user_interface,
         sandbox=mock_context.sandbox,
         user_input="",
     )
 
-    assert "claude-3-5-sonnet-20241022" in result
-    assert "8,192" in result  # max_tokens formatted with comma
-    assert "200,000" in result  # context_window formatted with comma
+    output = mock_context.user_interface.handle_system_message.call_args[0][0]
+    assert "claude-3-5-sonnet-20241022" in output
+    assert "8,192" in output  # max_tokens formatted with comma
+    assert "200,000" in output  # context_window formatted with comma
 
 
 def test_info_command_contains_thinking_mode(mock_context):
     """Test that thinking mode is displayed correctly."""
     toolbox = Toolbox(mock_context)
 
-    result = toolbox._info(
+    toolbox._info(
         user_interface=mock_context.user_interface,
         sandbox=mock_context.sandbox,
         user_input="",
     )
 
-    assert "💭 Normal (8k tokens)" in result
+    output = mock_context.user_interface.handle_system_message.call_args[0][0]
+    assert "💭 Normal (8k tokens)" in output
 
     # Test with thinking mode off
     mock_context.thinking_mode = "off"
-    result = toolbox._info(
+    mock_context.user_interface.reset_mock()
+    toolbox._info(
         user_interface=mock_context.user_interface,
         sandbox=mock_context.sandbox,
         user_input="",
     )
-    assert "Off" in result
+    output = mock_context.user_interface.handle_system_message.call_args[0][0]
+    assert "Off" in output
 
 
 def test_info_command_contains_message_count(mock_context):
     """Test that message count is included."""
     toolbox = Toolbox(mock_context)
 
-    result = toolbox._info(
+    toolbox._info(
         user_interface=mock_context.user_interface,
         sandbox=mock_context.sandbox,
         user_input="",
     )
 
-    assert "Message Count:** 4" in result
+    output = mock_context.user_interface.handle_system_message.call_args[0][0]
+    assert "Message Count:** 4" in output
 
 
 def test_info_command_contains_token_usage(mock_context):
     """Test that token usage information is included."""
     toolbox = Toolbox(mock_context)
 
-    result = toolbox._info(
+    toolbox._info(
         user_interface=mock_context.user_interface,
         sandbox=mock_context.sandbox,
         user_input="",
     )
 
-    assert "Input Tokens:** 100" in result
-    assert "Output Tokens:** 50" in result
-    assert "cached: 20" in result
-    assert "Total Tokens:** 150" in result
+    output = mock_context.user_interface.handle_system_message.call_args[0][0]
+    assert "Input Tokens:** 100" in output
+    assert "Output Tokens:** 50" in output
+    assert "cached: 20" in output
+    assert "Total Tokens:** 150" in output
 
 
 def test_info_command_contains_cost(mock_context):
     """Test that cost information is included."""
     toolbox = Toolbox(mock_context)
 
-    result = toolbox._info(
+    toolbox._info(
         user_interface=mock_context.user_interface,
         sandbox=mock_context.sandbox,
         user_input="",
     )
 
-    assert "Session Cost:**" in result
+    output = mock_context.user_interface.handle_system_message.call_args[0][0]
+    assert "Session Cost:**" in output
     # Cost should be formatted to 4 decimal places
-    assert "$0.0010" in result or "$0.0011" in result
+    assert "$0.0010" in output or "$0.0011" in output
 
 
 def test_info_command_with_conversation_size(mock_context):
     """Test that conversation size and compaction info are displayed when available."""
     toolbox = Toolbox(mock_context)
 
-    result = toolbox._info(
+    toolbox._info(
         user_interface=mock_context.user_interface,
         sandbox=mock_context.sandbox,
         user_input="",
     )
 
-    assert "Conversation Size:** 1,500 tokens" in result
-    assert "% of context" in result
-    assert "Tokens Until Compaction:**" in result
+    output = mock_context.user_interface.handle_system_message.call_args[0][0]
+    assert "Conversation Size:** 1,500 tokens" in output
+    assert "% of context" in output
+    assert "Tokens Until Compaction:**" in output
 
 
 def test_info_command_with_thinking_tokens(mock_context):
@@ -227,14 +243,15 @@ def test_info_command_with_thinking_tokens(mock_context):
 
     toolbox = Toolbox(mock_context)
 
-    result = toolbox._info(
+    toolbox._info(
         user_interface=mock_context.user_interface,
         sandbox=mock_context.sandbox,
         user_input="",
     )
 
-    assert "Thinking Tokens:** 5,000" in result
-    assert "Thinking Cost:** $0.0450" in result
+    output = mock_context.user_interface.handle_system_message.call_args[0][0]
+    assert "Thinking Tokens:** 5,000" in output
+    assert "Thinking Cost:** $0.0450" in output
 
 
 def test_info_command_with_parent_session(mock_context):
@@ -243,14 +260,15 @@ def test_info_command_with_parent_session(mock_context):
 
     toolbox = Toolbox(mock_context)
 
-    result = toolbox._info(
+    toolbox._info(
         user_interface=mock_context.user_interface,
         sandbox=mock_context.sandbox,
         user_input="",
     )
 
-    assert "Parent Session ID:**" in result
-    assert "parent-session-id-12345" in result
+    output = mock_context.user_interface.handle_system_message.call_args[0][0]
+    assert "Parent Session ID:**" in output
+    assert "parent-session-id-12345" in output
 
 
 def test_info_command_with_session_metadata(mock_context, tmp_path):
@@ -294,15 +312,16 @@ def test_info_command_with_session_metadata(mock_context, tmp_path):
     try:
         toolbox = Toolbox(mock_context)
 
-        result = toolbox._info(
+        toolbox._info(
             user_interface=mock_context.user_interface,
             sandbox=mock_context.sandbox,
             user_input="",
         )
 
-        assert "Created:**" in result
-        assert "Last Updated:**" in result
-        assert "Working Directory:** `/home/user/project`" in result
+        output = mock_context.user_interface.handle_system_message.call_args[0][0]
+        assert "Created:**" in output
+        assert "Last Updated:**" in output
+        assert "Working Directory:** `/home/user/project`" in output
     finally:
         # Restore original Path.home
         Path.home = staticmethod(original_home)
@@ -325,27 +344,30 @@ def test_info_command_contains_persona_name(mock_context, tmp_path):
     mock_context.history_base_dir = None
     toolbox = Toolbox(mock_context)
 
-    result = toolbox._info(
+    toolbox._info(
         user_interface=mock_context.user_interface,
         sandbox=mock_context.sandbox,
         user_input="",
     )
 
-    assert "**Persona:** `default`" in result
+    output = mock_context.user_interface.handle_system_message.call_args[0][0]
+    assert "**Persona:** `default`" in output
 
     # Test with custom persona
     mock_context.history_base_dir = tmp_path / ".silica" / "personas" / "my_persona"
     mock_context.history_base_dir.mkdir(parents=True, exist_ok=True)
+    mock_context.user_interface.reset_mock()
 
     toolbox = Toolbox(mock_context)
 
-    result = toolbox._info(
+    toolbox._info(
         user_interface=mock_context.user_interface,
         sandbox=mock_context.sandbox,
         user_input="",
     )
 
-    assert "**Persona:** `my_persona`" in result
+    output = mock_context.user_interface.handle_system_message.call_args[0][0]
+    assert "**Persona:** `my_persona`" in output
 
 
 def test_info_command_renders_as_markdown(mock_context):

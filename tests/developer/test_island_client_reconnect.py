@@ -226,7 +226,7 @@ class TestSilentFailure:
         # Should not raise, should not log
         await client.notify_user_message("test")
         await client.notify_assistant_message("test")
-        await client.notify_tool_use("test", {})
+        await client.notify_tool_use("test_id", "test_tool", {})
         await client.notify_status("test")
 
     @pytest.mark.asyncio
