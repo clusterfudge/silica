@@ -365,6 +365,63 @@ class TestHybridInterfaceNoEventLoop:
         assert ("tool_use", "test_tool", {"param": "value"}) in cli.messages
 
 
+class TestAgentContextPropagation:
+    """Test that agent_context is properly propagated to CLI."""
+
+    def test_agent_context_propagates_to_cli(self, tmp_path):
+        """Setting agent_context on hybrid should propagate to CLI."""
+        cli = MockCLIInterface()
+        cli.agent_context = None  # Ensure attribute exists
+        hybrid = HybridUserInterface(cli, socket_path=tmp_path / "nonexistent.sock")
+
+        # Create a mock agent context
+        mock_context = MagicMock()
+        mock_context.thinking_mode = "off"
+
+        # Set on hybrid
+        hybrid.agent_context = mock_context
+
+        # Should propagate to CLI
+        assert hybrid.agent_context is mock_context
+        assert cli.agent_context is mock_context
+
+    def test_agent_context_allows_thinking_toggle(self, tmp_path):
+        """With agent_context set, thinking mode should be toggleable."""
+        cli = MockCLIInterface()
+        cli.agent_context = None
+        hybrid = HybridUserInterface(cli, socket_path=tmp_path / "nonexistent.sock")
+
+        mock_context = MagicMock()
+        mock_context.thinking_mode = "off"
+
+        hybrid.agent_context = mock_context
+
+        # Simulate what the Ctrl+T handler does
+        if cli.agent_context:
+            current_mode = cli.agent_context.thinking_mode
+            if current_mode == "off":
+                cli.agent_context.thinking_mode = "normal"
+            elif current_mode == "normal":
+                cli.agent_context.thinking_mode = "ultra"
+            else:
+                cli.agent_context.thinking_mode = "off"
+
+        # Should have toggled
+        assert mock_context.thinking_mode == "normal"
+
+    def test_agent_context_none_does_not_crash(self, tmp_path):
+        """Setting agent_context to None should not crash."""
+        cli = MockCLIInterface()
+        cli.agent_context = None
+        hybrid = HybridUserInterface(cli, socket_path=tmp_path / "nonexistent.sock")
+
+        # Should not raise
+        hybrid.agent_context = None
+
+        assert hybrid.agent_context is None
+        assert cli.agent_context is None
+
+
 class TestStripRichMarkup:
     """Test Rich markup stripping for Island."""
 
