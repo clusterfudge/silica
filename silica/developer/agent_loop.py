@@ -1097,11 +1097,10 @@ async def run(
                             check_and_limit_result,
                         )
 
-                        result, was_truncated = check_and_limit_result(
+                        result, was_truncated, original_tokens = check_and_limit_result(
                             result, tool_name
                         )
                         if was_truncated:
-                            original_tokens = result.get("_original_tokens", 0)
                             user_interface.handle_system_message(
                                 f"[bold yellow]Tool result truncated: ~{original_tokens:,} tokens exceeded limit[/bold yellow]",
                                 markdown=False,
@@ -1289,6 +1288,9 @@ async def run(
                     # This ensures the agent sees the instruction clearly
                     retry_msg = _create_max_tokens_retry_message(attempt_count)
                     agent_context.chat_history.append(retry_msg)
+
+                    # Skip user input on next iteration - we just injected a retry message
+                    skip_user_input = True
 
                     # Continue the loop to retry the API call
                     continue

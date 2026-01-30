@@ -165,7 +165,7 @@ def check_and_limit_result(
     result: dict[str, Any],
     tool_name: str,
     max_tokens: int | None = None,
-) -> tuple[dict[str, Any], bool]:
+) -> tuple[dict[str, Any], bool, int]:
     """Check if a tool result exceeds the size limit and truncate if needed.
 
     Args:
@@ -174,7 +174,10 @@ def check_and_limit_result(
         max_tokens: Maximum allowed tokens (uses default if not specified)
 
     Returns:
-        Tuple of (result, was_truncated) where result may be modified
+        Tuple of (result, was_truncated, original_tokens) where:
+        - result: The (possibly modified) tool result dict
+        - was_truncated: True if the result was truncated
+        - original_tokens: Estimated token count of the original result (0 if not truncated)
     """
     if max_tokens is None:
         max_tokens = get_max_tool_result_tokens()
@@ -182,7 +185,7 @@ def check_and_limit_result(
     estimated_tokens, content_type = get_result_content_size(result)
 
     if estimated_tokens <= max_tokens:
-        return result, False
+        return result, False, 0
 
     # Result is too large - replace with truncation message
     truncation_msg = create_truncation_message(
@@ -193,15 +196,16 @@ def check_and_limit_result(
     )
 
     # Preserve the tool_use_id and other metadata, just replace content
+    # Note: Only include fields that are valid for the API schema
+    # (type, tool_use_id, content, is_error)
     truncated_result = {
-        **result,
+        "type": result.get("type", "tool_result"),
+        "tool_use_id": result.get("tool_use_id"),
         "content": truncation_msg,
         "is_error": True,  # Mark as error so agent knows to try something else
-        "_truncated": True,  # Internal flag
-        "_original_tokens": estimated_tokens,
     }
 
-    return truncated_result, True
+    return truncated_result, True, estimated_tokens
 
 
 def check_context_overflow(
