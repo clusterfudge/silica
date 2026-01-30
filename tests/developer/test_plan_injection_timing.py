@@ -157,7 +157,10 @@ class TestPlanContinuationLoop:
         # Verify that skip_user_input = True is set near the plan reminder injection
         # This is a structural test to ensure the fix is in place
         plan_reminder_idx = source.find("_should_inject_plan_reminder")
-        skip_set_idx = source.find("skip_user_input = True")
+
+        # Find skip_user_input = True AFTER the plan reminder check
+        # (there may be other occurrences earlier in the file for other cases like max_tokens)
+        skip_set_idx = source.find("skip_user_input = True", plan_reminder_idx)
 
         # skip_user_input = True should come AFTER the plan reminder check
         # but BEFORE the continue statement

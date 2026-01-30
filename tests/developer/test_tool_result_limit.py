@@ -146,10 +146,15 @@ class TestCheckAndLimitResult:
             "tool_use_id": "test123",
             "content": "Small result",
         }
-        limited, was_truncated = check_and_limit_result(result, "test_tool")
+        limited, was_truncated, original_tokens = check_and_limit_result(
+            result, "test_tool"
+        )
         assert not was_truncated
+        assert original_tokens == 0
         assert limited["content"] == "Small result"
+        # Internal fields should not be in result (would break API)
         assert "_truncated" not in limited
+        assert "_original_tokens" not in limited
 
     def test_large_result_truncated(self):
         """Large results should be truncated."""
@@ -160,14 +165,17 @@ class TestCheckAndLimitResult:
             "tool_use_id": "test123",
             "content": large_content,
         }
-        limited, was_truncated = check_and_limit_result(
+        limited, was_truncated, original_tokens = check_and_limit_result(
             result, "test_tool", max_tokens=10000
         )
         assert was_truncated
-        assert limited["_truncated"] is True
+        assert original_tokens > 50000  # Original token count returned separately
         assert limited["is_error"] is True
         assert "TOOL RESULT TOO LARGE" in limited["content"]
         assert limited["tool_use_id"] == "test123"  # Preserved
+        # Internal fields should NOT be in result (would break API)
+        assert "_truncated" not in limited
+        assert "_original_tokens" not in limited
 
     def test_preserves_tool_use_id(self):
         """Tool use ID should be preserved even when truncated."""
@@ -177,7 +185,7 @@ class TestCheckAndLimitResult:
             "tool_use_id": "my_unique_id",
             "content": large_content,
         }
-        limited, _ = check_and_limit_result(result, "test", max_tokens=1000)
+        limited, _, _ = check_and_limit_result(result, "test", max_tokens=1000)
         assert limited["tool_use_id"] == "my_unique_id"
 
     def test_custom_max_tokens(self):
@@ -186,23 +194,41 @@ class TestCheckAndLimitResult:
         result = {"content": content}
 
         # Should pass with high limit
-        _, truncated1 = check_and_limit_result(result, "test", max_tokens=50000)
+        _, truncated1, _ = check_and_limit_result(result, "test", max_tokens=50000)
         assert not truncated1
 
         # Should fail with low limit
-        _, truncated2 = check_and_limit_result(result, "test", max_tokens=5000)
+        _, truncated2, _ = check_and_limit_result(result, "test", max_tokens=5000)
         assert truncated2
 
-    def test_stores_original_token_count(self):
-        """Truncated results should store original token count."""
+    def test_returns_original_token_count(self):
+        """Truncated results should return original token count."""
         large_content = "x" * 300000  # ~100K tokens
         result = {"content": large_content}
-        limited, was_truncated = check_and_limit_result(
+        limited, was_truncated, original_tokens = check_and_limit_result(
             result, "test", max_tokens=10000
         )
         assert was_truncated
-        assert "_original_tokens" in limited
-        assert limited["_original_tokens"] > 50000
+        assert original_tokens > 50000
+        # Internal fields should NOT be in result
+        assert "_original_tokens" not in limited
+
+    def test_truncated_result_has_only_valid_api_fields(self):
+        """Truncated results should only have fields valid for the API schema."""
+        large_content = "x" * 500000
+        result = {
+            "type": "tool_result",
+            "tool_use_id": "test123",
+            "content": large_content,
+        }
+        limited, was_truncated, _ = check_and_limit_result(
+            result, "test_tool", max_tokens=10000
+        )
+        assert was_truncated
+        # Only these fields are valid in the API schema
+        valid_fields = {"type", "tool_use_id", "content", "is_error"}
+        for key in limited.keys():
+            assert key in valid_fields, f"Unexpected field '{key}' in truncated result"
 
 
 class TestGetMaxToolResultTokens:
