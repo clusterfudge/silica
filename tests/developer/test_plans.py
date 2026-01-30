@@ -2,6 +2,8 @@
 
 import pytest
 from datetime import datetime, timezone
+from pathlib import Path
+from unittest.mock import patch
 
 from silica.developer.plans import (
     Plan,
@@ -9,6 +11,8 @@ from silica.developer.plans import (
     PlanStatus,
     PlanManager,
     ClarificationQuestion,
+    get_workspace_root,
+    get_project_root,
 )
 
 
@@ -595,3 +599,162 @@ class TestPlanManager:
         assert final.status == PlanStatus.COMPLETED
         assert all(t.completed for t in final.tasks)
         assert final.completion_notes == "Feature X implemented successfully!"
+
+
+class TestWorkspaceDetection:
+    """Tests for workspace root detection functions."""
+
+    def test_get_workspace_root_in_workspace(self, tmp_path):
+        """Test detecting workspace root when inside a workspace directory."""
+        # Create a fake workspaces structure
+        workspaces_dir = tmp_path / "workspaces"
+        project_dir = workspaces_dir / "my-project"
+        subdir = project_dir / "src" / "module"
+        subdir.mkdir(parents=True)
+
+        # Patch Path.home() to return our temp path
+        with patch.object(Path, "home", return_value=tmp_path):
+            # Test from project root
+            result = get_workspace_root(project_dir)
+            assert result == project_dir
+
+            # Test from subdirectory
+            result = get_workspace_root(subdir)
+            assert result == project_dir
+
+    def test_get_workspace_root_at_workspaces_dir(self, tmp_path):
+        """Test that ~/workspaces itself returns None (not a project)."""
+        workspaces_dir = tmp_path / "workspaces"
+        workspaces_dir.mkdir(parents=True)
+
+        with patch.object(Path, "home", return_value=tmp_path):
+            result = get_workspace_root(workspaces_dir)
+            assert result is None
+
+    def test_get_workspace_root_not_in_workspace(self, tmp_path):
+        """Test that directories outside ~/workspaces return None."""
+        other_dir = tmp_path / "code" / "project"
+        other_dir.mkdir(parents=True)
+
+        with patch.object(Path, "home", return_value=tmp_path):
+            result = get_workspace_root(other_dir)
+            assert result is None
+
+    def test_get_workspace_root_home_dir(self, tmp_path):
+        """Test that home directory returns None."""
+        with patch.object(Path, "home", return_value=tmp_path):
+            result = get_workspace_root(tmp_path)
+            assert result is None
+
+    def test_get_workspace_root_with_none_uses_cwd(self, tmp_path):
+        """Test that passing None uses current working directory."""
+        workspaces_dir = tmp_path / "workspaces"
+        project_dir = workspaces_dir / "my-project"
+        project_dir.mkdir(parents=True)
+
+        with patch.object(Path, "home", return_value=tmp_path):
+            with patch.object(Path, "cwd", return_value=project_dir):
+                result = get_workspace_root(None)
+                assert result == project_dir
+
+
+class TestGetProjectRoot:
+    """Tests for the unified get_project_root function."""
+
+    def test_get_project_root_prefers_git(self, tmp_path):
+        """Test that git root takes precedence over workspace root."""
+        # Create workspace structure
+        workspaces_dir = tmp_path / "workspaces"
+        project_dir = workspaces_dir / "my-project"
+        project_dir.mkdir(parents=True)
+
+        # Mock git root to return the project dir
+        with patch.object(Path, "home", return_value=tmp_path):
+            with patch("silica.developer.plans.get_git_root", return_value=project_dir):
+                result = get_project_root(project_dir)
+                assert result == project_dir
+
+    def test_get_project_root_falls_back_to_workspace(self, tmp_path):
+        """Test fallback to workspace root when not in git repo."""
+        workspaces_dir = tmp_path / "workspaces"
+        project_dir = workspaces_dir / "my-project"
+        project_dir.mkdir(parents=True)
+
+        with patch.object(Path, "home", return_value=tmp_path):
+            with patch("silica.developer.plans.get_git_root", return_value=None):
+                result = get_project_root(project_dir)
+                assert result == project_dir
+
+    def test_get_project_root_returns_none_outside_both(self, tmp_path):
+        """Test that None is returned when not in git repo or workspace."""
+        other_dir = tmp_path / "random" / "directory"
+        other_dir.mkdir(parents=True)
+
+        with patch.object(Path, "home", return_value=tmp_path):
+            with patch("silica.developer.plans.get_git_root", return_value=None):
+                result = get_project_root(other_dir)
+                assert result is None
+
+    def test_get_project_root_git_inside_workspace(self, tmp_path):
+        """Test git repo inside workspace returns git root."""
+        workspaces_dir = tmp_path / "workspaces"
+        project_dir = workspaces_dir / "my-project"
+        git_dir = project_dir / ".git"
+        git_dir.mkdir(parents=True)
+
+        # When git root exists inside workspace, git root should win
+        with patch.object(Path, "home", return_value=tmp_path):
+            with patch("silica.developer.plans.get_git_root", return_value=project_dir):
+                result = get_project_root(project_dir)
+                # Git root takes precedence (same path in this case)
+                assert result == project_dir
+
+
+class TestPlanManagerWithWorkspaces:
+    """Tests for PlanManager with workspace support."""
+
+    @pytest.fixture
+    def temp_setup(self, tmp_path):
+        """Set up temporary directories for testing."""
+        persona_dir = tmp_path / "personas" / "test"
+        persona_dir.mkdir(parents=True)
+
+        workspaces_dir = tmp_path / "workspaces"
+        project_dir = workspaces_dir / "my-project"
+        project_dir.mkdir(parents=True)
+
+        return {
+            "tmp_path": tmp_path,
+            "persona_dir": persona_dir,
+            "workspaces_dir": workspaces_dir,
+            "project_dir": project_dir,
+        }
+
+    def test_plan_manager_with_workspace_project_root(self, temp_setup):
+        """Test PlanManager accepts workspace directory as project_root."""
+        manager = PlanManager(
+            temp_setup["persona_dir"], project_root=temp_setup["project_dir"]
+        )
+
+        # Should have local plans dir set
+        assert manager.local_plans_dir is not None
+        assert temp_setup["project_dir"] in manager.local_plans_dir.parents or str(
+            manager.local_plans_dir
+        ).startswith(str(temp_setup["project_dir"]))
+
+    def test_create_plan_stores_locally_in_workspace(self, temp_setup):
+        """Test that plans created in workspace are stored locally."""
+        manager = PlanManager(
+            temp_setup["persona_dir"],
+            project_root=temp_setup["project_dir"],
+            default_location="auto",
+        )
+
+        plan = manager.create_plan("Test Plan", "session123")
+
+        # Should be stored locally since project_root is set
+        assert plan.storage_location == "local"
+
+        # Local plan file should exist
+        local_plan_file = manager.local_active_dir / f"{plan.id}.md"
+        assert local_plan_file.exists()
