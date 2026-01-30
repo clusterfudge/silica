@@ -788,7 +788,7 @@ def _generate_metrics_feedback(plan: Plan, snapshot: MetricSnapshot) -> str:
 
 def _get_plan_manager(context: "AgentContext") -> PlanManager:
     """Get or create a PlanManager for the current persona with project awareness."""
-    from silica.developer.plans import get_git_root
+    from silica.developer.plans import get_project_root
 
     if context.history_base_dir is None:
         base_dir = Path.home() / ".silica" / "personas" / "default"
@@ -796,10 +796,11 @@ def _get_plan_manager(context: "AgentContext") -> PlanManager:
         base_dir = Path(context.history_base_dir)
 
     # Get project root for local plan storage
+    # This supports both git repos and ~/workspaces directories
     project_root = None
     if hasattr(context, "sandbox") and context.sandbox is not None:
         if hasattr(context.sandbox, "root_directory"):
-            project_root = get_git_root(context.sandbox.root_directory)
+            project_root = get_project_root(context.sandbox.root_directory)
 
     return PlanManager(base_dir, project_root=project_root)
 

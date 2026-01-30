@@ -74,6 +74,80 @@ def get_git_root(cwd: Path | str | None = None) -> Path | None:
     return None
 
 
+def get_workspace_root(cwd: Path | str | None = None) -> Path | None:
+    """Find workspace root if the directory is under ~/workspaces.
+
+    For a path like ~/workspaces/my-project/subdir, returns ~/workspaces/my-project.
+    The workspace root is the immediate child directory of ~/workspaces.
+
+    Args:
+        cwd: Directory to check (defaults to current working directory)
+
+    Returns:
+        Path to the workspace root, or None if not in a workspace
+
+    Examples:
+        ~/workspaces/my-project -> ~/workspaces/my-project
+        ~/workspaces/my-project/src/module -> ~/workspaces/my-project
+        ~/code/other-project -> None
+    """
+    try:
+        # Resolve the path to handle symlinks and relative paths
+        check_path = Path(cwd or Path.cwd()).resolve()
+
+        # Get the workspaces directory (expand ~ to handle both forms)
+        workspaces_dir = Path.home() / "workspaces"
+
+        # Check if the path is under ~/workspaces
+        try:
+            relative = check_path.relative_to(workspaces_dir)
+        except ValueError:
+            # Not under ~/workspaces
+            return None
+
+        # Get the first component (the workspace name)
+        parts = relative.parts
+        if not parts:
+            # We're at ~/workspaces itself, not in a workspace
+            return None
+
+        # Return the workspace root (immediate child of ~/workspaces)
+        return workspaces_dir / parts[0]
+    except Exception:
+        return None
+
+
+def get_project_root(cwd: Path | str | None = None) -> Path | None:
+    """Find the project root directory.
+
+    This function determines the project root by checking (in order):
+    1. Git repository root (if in a git repo)
+    2. Workspace root (if under ~/workspaces)
+
+    Git repos take precedence because a git repo inside ~/workspaces should
+    use the git root, not the workspace root.
+
+    Args:
+        cwd: Directory to check (defaults to current working directory)
+
+    Returns:
+        Path to the project root, or None if not in a recognized project
+
+    Examples:
+        In a git repo: returns git repo root
+        In ~/workspaces/my-project: returns ~/workspaces/my-project
+        In ~/workspaces/my-project with .git: returns git root (same path usually)
+        In ~/random/directory: returns None
+    """
+    # First try git root - this takes precedence
+    git_root = get_git_root(cwd)
+    if git_root is not None:
+        return git_root
+
+    # Fall back to workspace root
+    return get_workspace_root(cwd)
+
+
 def get_local_plans_dir(project_root: Path) -> Path:
     """Get the local plans directory for a project.
 
