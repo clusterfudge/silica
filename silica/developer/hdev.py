@@ -1400,6 +1400,34 @@ def _display_resumed_session_context(
     console.print("[dim]━━━ Continue below ━━━[/dim]\n")
 
 
+def _print_resume_command(
+    session_id: str,
+    persona_name: str | None = None,
+) -> None:
+    """Print the command to resume this session on exit.
+
+    This is called via atexit to ensure the user knows how to resume
+    their session, regardless of how the CLI exits.
+
+    Args:
+        session_id: The session ID to resume
+        persona_name: Optional persona name (if not 'default')
+    """
+    import sys
+
+    # Build the resume command
+    cmd_parts = ["silica", "--session-id", session_id]
+    if persona_name and persona_name != "default":
+        cmd_parts.extend(["--persona", persona_name])
+
+    resume_cmd = " ".join(cmd_parts)
+
+    # Print to stderr so it's visible even if stdout is redirected
+    # Use a simple format that's easy to copy
+    print("\n\033[2m# To resume this session:\033[0m", file=sys.stderr)
+    print(f"\033[36m{resume_cmd}\033[0m", file=sys.stderr)
+
+
 def _run_agent_loop(
     context: AgentContext,
     initial_prompt: str | None,
@@ -1907,6 +1935,12 @@ def cyclopts_main(
 
     # Set dwr_mode on context for permissions system bypass
     context.dwr_mode = dwr
+
+    # Register atexit handler to print resume command on exit
+    # This ensures users always know how to resume their session
+    import atexit
+
+    atexit.register(_print_resume_command, context.session_id, persona_name)
 
     # Register session with Agent Island if connected
     if user_interface.hybrid_mode:
