@@ -211,21 +211,35 @@ class BrowserSessionManager:
         """Cleanup all sessions (called on exit)."""
         import asyncio
 
-        # Create a new event loop if needed
+        if not self.sessions:
+            return
+
+        # Always create a fresh event loop for cleanup
+        # The main loop may be closed or in an inconsistent state at exit time
         try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-        # Close all sessions
-        for session in list(self.sessions.values()):
+            # Try to get existing loop and check if it's running/closed
             try:
-                loop.run_until_complete(session.close())
-            except Exception as e:
-                print(f"Warning: Error cleaning up session {session.name}: {e}")
+                loop = asyncio.get_event_loop()
+                if loop.is_closed():
+                    raise RuntimeError("Loop is closed")
+            except RuntimeError:
+                # No loop or loop is closed - create a new one
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
 
-        self.sessions.clear()
+            # Close all sessions
+            for session in list(self.sessions.values()):
+                try:
+                    loop.run_until_complete(session.close())
+                except Exception:
+                    # Silently ignore errors during cleanup - we're exiting anyway
+                    pass
+
+            self.sessions.clear()
+        except Exception:
+            # Last resort - just clear the sessions dict
+            # The browser process will be cleaned up by the OS
+            self.sessions.clear()
 
 
 # Global session manager instance
