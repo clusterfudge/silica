@@ -389,6 +389,157 @@ class TestStatePersistence:
         assert reloaded2.state.agents["a1"].current_task_id == "task-1"
 
 
+class TestSessionResumption:
+    """Test session resumption and state sync from room history."""
+
+    def test_resume_syncs_from_room_by_default(self, deaddrop, temp_sessions_dir):
+        """Resume should sync agent states from room history by default."""
+        from silica.developer.coordination import Progress
+
+        # Create session and register an agent
+        session = CoordinationSession.create_session(deaddrop, "Test")
+        identity = deaddrop.create_identity(
+            ns=session.namespace_id,
+            display_name="Worker",
+            ns_secret=session.namespace_secret,
+        )
+        session.register_agent("agent-1", identity["id"], "Worker 1", "ws-1")
+        session.add_agent_to_room("agent-1")
+        session.update_agent_state("agent-1", AgentState.IDLE)
+
+        # Simulate agent sending messages to room
+        from silica.developer.coordination.client import CoordinationContext
+
+        agent_context = CoordinationContext(
+            deaddrop=deaddrop,
+            namespace_id=session.namespace_id,
+            namespace_secret=session.namespace_secret,
+            identity_id=identity["id"],
+            identity_secret=identity["secret"],
+            room_id=session.state.room_id,
+        )
+
+        # Agent sends Progress (working)
+        progress_msg = Progress(
+            task_id="task-1",
+            message="Working on it",
+            progress=0.5,
+        )
+        agent_context.broadcast(progress_msg)
+
+        # Save and reload session
+        session_id = session.session_id
+
+        # Manually set state to IDLE before resuming to test sync
+        session.state.agents["agent-1"].state = AgentState.IDLE
+        session.save_state()
+
+        # Resume - should sync and update to WORKING
+        resumed = CoordinationSession.resume_session(
+            deaddrop, session_id=session_id, sync_from_room=True
+        )
+
+        agent = resumed.get_agent("agent-1")
+        assert agent.state == AgentState.WORKING
+
+    def test_resume_without_sync(self, deaddrop, temp_sessions_dir):
+        """Resume with sync_from_room=False should not update states."""
+
+        session = CoordinationSession.create_session(deaddrop, "Test")
+        identity = deaddrop.create_identity(
+            ns=session.namespace_id,
+            display_name="Worker",
+            ns_secret=session.namespace_secret,
+        )
+        session.register_agent("agent-1", identity["id"], "Worker 1", "ws-1")
+        session.add_agent_to_room("agent-1")
+        session.update_agent_state("agent-1", AgentState.WORKING)
+
+        session_id = session.session_id
+
+        # Resume without sync - state should remain as persisted
+        resumed = CoordinationSession.resume_session(
+            deaddrop, session_id=session_id, sync_from_room=False
+        )
+
+        agent = resumed.get_agent("agent-1")
+        assert agent.state == AgentState.WORKING
+
+    def test_sync_detects_idle_agents(self, deaddrop, temp_sessions_dir):
+        """Sync should detect agents that sent Idle messages."""
+        from silica.developer.coordination import Idle
+        from silica.developer.coordination.client import CoordinationContext
+
+        session = CoordinationSession.create_session(deaddrop, "Test")
+        identity = deaddrop.create_identity(
+            ns=session.namespace_id,
+            display_name="Worker",
+            ns_secret=session.namespace_secret,
+        )
+        session.register_agent("agent-1", identity["id"], "Worker 1", "ws-1")
+        session.add_agent_to_room("agent-1")
+        session.update_agent_state("agent-1", AgentState.WORKING)
+
+        # Agent broadcasts Idle
+        agent_context = CoordinationContext(
+            deaddrop=deaddrop,
+            namespace_id=session.namespace_id,
+            namespace_secret=session.namespace_secret,
+            identity_id=identity["id"],
+            identity_secret=identity["secret"],
+            room_id=session.state.room_id,
+        )
+        agent_context.broadcast(Idle(agent_id="agent-1"))
+
+        # Manually sync
+        results = session.sync_agent_states()
+
+        assert results["agents_updated"] >= 1
+        agent = session.get_agent("agent-1")
+        assert agent.state == AgentState.IDLE
+
+    def test_sync_finds_pending_permissions(self, deaddrop, temp_sessions_dir):
+        """Sync should find permission requests in room history."""
+        from silica.developer.coordination import PermissionRequest
+        from silica.developer.coordination.client import CoordinationContext
+
+        session = CoordinationSession.create_session(deaddrop, "Test")
+        identity = deaddrop.create_identity(
+            ns=session.namespace_id,
+            display_name="Worker",
+            ns_secret=session.namespace_secret,
+        )
+        session.register_agent("agent-1", identity["id"], "Worker 1", "ws-1")
+        session.add_agent_to_room("agent-1")
+
+        # Agent broadcasts PermissionRequest
+        agent_context = CoordinationContext(
+            deaddrop=deaddrop,
+            namespace_id=session.namespace_id,
+            namespace_secret=session.namespace_secret,
+            identity_id=identity["id"],
+            identity_secret=identity["secret"],
+            room_id=session.state.room_id,
+        )
+
+        request = PermissionRequest(
+            request_id="perm-123",
+            agent_id="agent-1",
+            action="shell",
+            resource="rm -rf /tmp",
+            context="cleaning",
+        )
+        agent_context.broadcast(request)
+
+        # Sync
+        results = session.sync_agent_states()
+
+        assert results["permissions_found"] >= 1
+        pending = session.get_pending_permission("perm-123")
+        assert pending is not None
+        assert pending.action == "shell"
+
+
 class TestPermissionQueue:
     """Test permission queue management."""
 

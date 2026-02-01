@@ -273,6 +273,7 @@ class CoordinationSession:
         deaddrop: Deaddrop,
         session_id: str = None,
         namespace_secret: str = None,
+        sync_from_room: bool = True,
     ) -> "CoordinationSession":
         """Resume an existing coordination session.
 
@@ -280,10 +281,14 @@ class CoordinationSession:
         - session_id: Loads from ~/.silica/coordination/{session_id}.json
         - namespace_secret: Reconstructs state from deaddrop
 
+        If sync_from_room is True, reads recent room history to update
+        agent states based on their last messages.
+
         Args:
             deaddrop: Deaddrop client
             session_id: Session ID to load from file
             namespace_secret: Namespace secret to reconstruct from
+            sync_from_room: Whether to sync agent states from room history
 
         Returns:
             Resumed CoordinationSession instance
@@ -302,7 +307,13 @@ class CoordinationSession:
                 data = json.load(f)
 
             state = SessionState.from_dict(data)
-            return cls(deaddrop, state)
+            session = cls(deaddrop, state)
+
+            # Sync agent states from room history
+            if sync_from_room:
+                session._sync_from_room_history()
+
+            return session
 
         elif namespace_secret:
             # Reconstruct from namespace secret
@@ -315,6 +326,154 @@ class CoordinationSession:
 
         else:
             raise ValueError("Either session_id or namespace_secret must be provided")
+
+    def _sync_from_room_history(self) -> dict[str, Any]:
+        """Sync agent states from room history.
+
+        Reads recent messages from the coordination room to update:
+        - Agent states (idle vs working)
+        - Last seen timestamps
+        - Pending permission requests
+
+        Returns:
+            Dict with sync results (agents_updated, permissions_found)
+        """
+        from .protocol import (
+            Idle,
+            Progress,
+            Result,
+            TaskAck,
+            PermissionRequest,
+            deserialize_message,
+        )
+        from .compression import decompress_payload
+
+        results = {
+            "agents_updated": 0,
+            "permissions_found": 0,
+            "messages_processed": 0,
+        }
+
+        try:
+            # Get room messages (use coordinator identity secret to read)
+            room_messages = self.deaddrop.get_room_messages(
+                ns=self.namespace_id,
+                room_id=self.state.room_id,
+                secret=self.state.coordinator_secret,
+            )
+        except Exception:
+            # Room may not exist or we may not have access
+            return results
+
+        # Track the most recent state-relevant message per agent
+        agent_latest_state: dict[
+            str, tuple[str, str]
+        ] = {}  # agent_id -> (state, timestamp)
+
+        for raw_msg in room_messages:
+            results["messages_processed"] += 1
+
+            # Get sender identity
+            sender_id = raw_msg.get("from") or raw_msg.get("sender_id")
+            if not sender_id:
+                continue
+
+            # Find agent by identity
+            agent = self.get_agent_by_identity(sender_id)
+            if not agent:
+                continue
+
+            # Parse message content (field name varies: "body" or "content")
+            content = raw_msg.get("body") or raw_msg.get("content", "")
+            content_type = raw_msg.get("content_type", "")
+
+            if content_type != "application/vnd.silica.coordination+json":
+                continue
+
+            try:
+                # Check for compression
+                compression = None
+                if "compression=" in content_type:
+                    for part in content_type.split(";"):
+                        part = part.strip()
+                        if part.startswith("compression="):
+                            compression = part.split("=", 1)[1]
+                            break
+
+                # Decompress if needed
+                decompressed = decompress_payload(content, compression)
+
+                # Parse JSON if still needed
+                if isinstance(decompressed, str):
+                    msg_data = json.loads(decompressed)
+                else:
+                    msg_data = decompressed
+
+                message = deserialize_message(msg_data)
+            except Exception:
+                continue
+
+            # Get timestamp
+            timestamp = raw_msg.get("created_at") or raw_msg.get("timestamp", "")
+
+            # Determine state from message type
+            if isinstance(message, Idle):
+                new_state = "idle"
+            elif isinstance(message, (Progress, TaskAck)):
+                new_state = "working"
+            elif isinstance(message, Result):
+                # Result could mean task complete (idle) or termination
+                if message.status == "terminated":
+                    new_state = "terminated"
+                else:
+                    new_state = "idle"  # Task complete, waiting for next
+            elif isinstance(message, PermissionRequest):
+                new_state = "waiting_permission"
+                # Track as pending if not already in our queue
+                if message.request_id not in self.state.pending_permissions:
+                    self.queue_permission(
+                        request_id=message.request_id,
+                        agent_id=agent.agent_id,
+                        action=message.action,
+                        resource=message.resource,
+                        context=message.context,
+                    )
+                    results["permissions_found"] += 1
+            else:
+                continue
+
+            # Update if this is newer than what we have
+            current = agent_latest_state.get(agent.agent_id)
+            if not current or timestamp > current[1]:
+                agent_latest_state[agent.agent_id] = (new_state, timestamp)
+
+        # Apply state updates
+        for agent_id, (state_str, timestamp) in agent_latest_state.items():
+            agent = self.get_agent(agent_id)
+            if agent and agent.state != AgentState.TERMINATED:
+                try:
+                    new_state = AgentState(state_str)
+                    if agent.state != new_state:
+                        self.update_agent_state(agent_id, new_state)
+                        results["agents_updated"] += 1
+                    # Always update last_seen
+                    agent.last_seen = timestamp
+                except ValueError:
+                    pass
+
+        self.save_state()
+        return results
+
+    def sync_agent_states(self) -> dict[str, Any]:
+        """Manually trigger agent state sync from room history.
+
+        Call this to refresh agent states when resuming a session
+        or when you suspect state may be stale.
+
+        Returns:
+            Dict with sync results
+        """
+        return self._sync_from_room_history()
 
     def save_state(self) -> Path:
         """Persist session state to disk.
