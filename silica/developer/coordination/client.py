@@ -3,21 +3,90 @@
 Provides convenience methods that combine Deaddrop operations with
 message protocol serialization and compression. This is NOT a wrapper -
 it uses Deaddrop directly and adds coordination-specific logic on top.
+
+Includes error recovery:
+- Retry with exponential backoff for connection failures
+- Skip and log for message parse errors
+- Graceful degradation for transient failures
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from functools import wraps
 import json
+import logging
+import random
+import time
+from typing import Any, Callable, Optional, TypeVar
 
 from deadrop import Deaddrop
 
-from .protocol import (
-    CoordinationMessage,
-    COORDINATION_CONTENT_TYPE,
-    serialize_message,
-    deserialize_message,
-)
 from .compression import compress_payload, decompress_payload
+from .protocol import (
+    COORDINATION_CONTENT_TYPE,
+    CoordinationMessage,
+    deserialize_message,
+    serialize_message,
+)
+
+logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
+
+
+class DeaddropConnectionError(Exception):
+    """Raised when deaddrop connection fails after retries."""
+
+
+def with_retry(
+    max_attempts: int = 3,
+    base_delay: float = 1.0,
+    max_delay: float = 30.0,
+    exponential_base: float = 2.0,
+    jitter: bool = True,
+) -> Callable[[Callable[..., T]], Callable[..., T]]:
+    """Decorator that adds retry with exponential backoff.
+
+    Args:
+        max_attempts: Maximum number of attempts (default 3)
+        base_delay: Initial delay in seconds (default 1.0)
+        max_delay: Maximum delay in seconds (default 30.0)
+        exponential_base: Base for exponential backoff (default 2.0)
+        jitter: Add randomness to prevent thundering herd (default True)
+
+    Returns:
+        Decorated function with retry logic
+    """
+
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+        @wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> T:
+            last_exception: Optional[Exception] = None
+            for attempt in range(max_attempts):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_exception = e
+                    if attempt < max_attempts - 1:
+                        delay = min(base_delay * (exponential_base**attempt), max_delay)
+                        if jitter:
+                            delay *= 0.5 + random.random()
+                        logger.warning(
+                            f"Deaddrop operation failed (attempt {attempt + 1}/{max_attempts}): {e}. "
+                            f"Retrying in {delay:.1f}s..."
+                        )
+                        time.sleep(delay)
+                    else:
+                        logger.error(
+                            f"Deaddrop operation failed after {max_attempts} attempts: {e}"
+                        )
+            # If we get here, all retries failed
+            raise DeaddropConnectionError(
+                f"Operation failed after {max_attempts} attempts"
+            ) from last_exception
+
+        return wrapper
+
+    return decorator
 
 
 @dataclass
@@ -75,54 +144,72 @@ class CoordinationContext:
         self,
         to_id: str,
         message: CoordinationMessage,
+        retry: bool = True,
     ) -> dict[str, Any]:
         """Send a coordination message to a specific identity.
 
         Args:
             to_id: Recipient identity ID
             message: Message dataclass to send
+            retry: Whether to retry on connection failure (default True)
 
         Returns:
             Deaddrop send result
+
+        Raises:
+            DeaddropConnectionError: If all retries fail (when retry=True)
         """
         body, compression = self._serialize_with_compression(message)
         content_type = self._content_type_with_compression(compression)
 
-        return self.deaddrop.send_message(
-            ns=self.namespace_id,
-            from_secret=self.identity_secret,
-            to_id=to_id,
-            body=body,
-            content_type=content_type,
-        )
+        def _send() -> dict[str, Any]:
+            return self.deaddrop.send_message(
+                ns=self.namespace_id,
+                from_secret=self.identity_secret,
+                to_id=to_id,
+                body=body,
+                content_type=content_type,
+            )
 
-    def send_to_coordinator(self, message: CoordinationMessage) -> dict[str, Any]:
+        if retry:
+            return with_retry()(_send)()
+        return _send()
+
+    def send_to_coordinator(
+        self, message: CoordinationMessage, retry: bool = True
+    ) -> dict[str, Any]:
         """Send a message to the coordinator (convenience for workers).
 
         Args:
             message: Message to send
+            retry: Whether to retry on connection failure (default True)
 
         Returns:
             Deaddrop send result
 
         Raises:
             ValueError: If coordinator_id not set
+            DeaddropConnectionError: If all retries fail (when retry=True)
         """
         if not self.coordinator_id:
             raise ValueError("coordinator_id not set - cannot send to coordinator")
-        return self.send_message(self.coordinator_id, message)
+        return self.send_message(self.coordinator_id, message, retry=retry)
 
-    def broadcast(self, message: CoordinationMessage) -> dict[str, Any]:
+    def broadcast(
+        self, message: CoordinationMessage, retry: bool = True
+    ) -> dict[str, Any]:
         """Broadcast a message to the coordination room.
 
         Args:
             message: Message to broadcast
+            retry: Whether to retry on connection failure (default True)
 
         Returns:
             Deaddrop send result
 
         Raises:
             ValueError: If room_id not set
+            DeaddropConnectionError: If all retries fail (when retry=True)
         """
         if not self.room_id:
             raise ValueError("room_id not set - cannot broadcast")
@@ -130,66 +217,118 @@ class CoordinationContext:
         body, compression = self._serialize_with_compression(message)
         content_type = self._content_type_with_compression(compression)
 
-        return self.deaddrop.send_room_message(
-            ns=self.namespace_id,
-            room_id=self.room_id,
-            secret=self.identity_secret,
-            body=body,
-            content_type=content_type,
-        )
+        def _broadcast() -> dict[str, Any]:
+            return self.deaddrop.send_room_message(
+                ns=self.namespace_id,
+                room_id=self.room_id,
+                secret=self.identity_secret,
+                body=body,
+                content_type=content_type,
+            )
+
+        if retry:
+            return with_retry()(_broadcast)()
+        return _broadcast()
 
     def receive_messages(
         self,
         wait: int = 0,
         include_room: bool = True,
+        retry: bool = True,
     ) -> list[ReceivedMessage]:
         """Receive messages from inbox and optionally room.
+
+        Skips messages that fail to parse (logs warning).
+        Retries on connection failure if retry=True.
 
         Args:
             wait: Long-poll timeout in seconds (0 for immediate return)
             include_room: Whether to also check the coordination room
+            retry: Whether to retry on connection failure (default True)
 
         Returns:
             List of received messages, newest first
+
+        Raises:
+            DeaddropConnectionError: If all retries fail (when retry=True)
         """
         messages = []
 
-        # Get inbox messages
-        inbox_messages = self.deaddrop.get_inbox(
-            ns=self.namespace_id,
-            identity_id=self.identity_id,
-            secret=self.identity_secret,
-            after_mid=self._last_inbox_mid,
-            wait=wait
-            if not include_room
-            else 0,  # Only wait on inbox if not checking room
-        )
+        def _get_inbox() -> list[dict[str, Any]]:
+            return self.deaddrop.get_inbox(
+                ns=self.namespace_id,
+                identity_id=self.identity_id,
+                secret=self.identity_secret,
+                after_mid=self._last_inbox_mid,
+                wait=wait if not include_room else 0,
+            )
+
+        # Get inbox messages with optional retry
+        try:
+            if retry:
+                inbox_messages = with_retry()(_get_inbox)()
+            else:
+                inbox_messages = _get_inbox()
+        except DeaddropConnectionError:
+            logger.warning("Failed to get inbox messages, continuing with empty")
+            inbox_messages = []
 
         for raw in inbox_messages:
-            msg = self._parse_message(raw)
-            if msg:
-                msg.is_room_message = False
-                messages.append(msg)
-                self._last_inbox_mid = raw.get("mid")
+            try:
+                msg = self._parse_message(raw)
+                if msg:
+                    msg.is_room_message = False
+                    messages.append(msg)
+                    self._last_inbox_mid = raw.get("mid")
+                else:
+                    # Update cursor even if we couldn't parse (skip bad messages)
+                    mid = raw.get("mid")
+                    if mid:
+                        self._last_inbox_mid = mid
+            except Exception as e:
+                logger.warning(f"Failed to parse inbox message: {e}")
+                # Still update cursor to skip this message
+                mid = raw.get("mid")
+                if mid:
+                    self._last_inbox_mid = mid
 
         # Get room messages if requested and room is set
         if include_room and self.room_id:
-            room_messages = self.deaddrop.get_room_messages(
-                ns=self.namespace_id,
-                room_id=self.room_id,
-                secret=self.identity_secret,
-                after_mid=self._last_room_mid,
-                wait=wait
-                if not inbox_messages
-                else 0,  # Wait on room if inbox was empty
-            )
+
+            def _get_room() -> list[dict[str, Any]]:
+                return self.deaddrop.get_room_messages(
+                    ns=self.namespace_id,
+                    room_id=self.room_id,
+                    secret=self.identity_secret,
+                    after_mid=self._last_room_mid,
+                    wait=wait if not inbox_messages else 0,
+                )
+
+            try:
+                if retry:
+                    room_messages = with_retry()(_get_room)()
+                else:
+                    room_messages = _get_room()
+            except DeaddropConnectionError:
+                logger.warning("Failed to get room messages, continuing with empty")
+                room_messages = []
 
             for raw in room_messages:
-                msg = self._parse_message(raw)
-                if msg:
-                    msg.is_room_message = True
-                    messages.append(msg)
-                    self._last_room_mid = raw.get("mid")
+                try:
+                    msg = self._parse_message(raw)
+                    if msg:
+                        msg.is_room_message = True
+                        messages.append(msg)
+                        self._last_room_mid = raw.get("mid")
+                    else:
+                        mid = raw.get("mid")
+                        if mid:
+                            self._last_room_mid = mid
+                except Exception as e:
+                    logger.warning(f"Failed to parse room message: {e}")
+                    mid = raw.get("mid")
+                    if mid:
+                        self._last_room_mid = mid
 
         return messages
 

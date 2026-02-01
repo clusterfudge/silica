@@ -20,6 +20,8 @@ from .compression import compress_payload, decompress_payload
 from .client import (
     CoordinationContext,
     ReceivedMessage,
+    DeaddropConnectionError,
+    with_retry,
     create_coordination_namespace,
     create_identity_with_invite,
     create_coordination_room,
@@ -52,6 +54,8 @@ __all__ = [
     # Context
     "CoordinationContext",
     "ReceivedMessage",
+    "DeaddropConnectionError",
+    "with_retry",
     "create_coordination_namespace",
     "create_identity_with_invite",
     "create_coordination_room",
