@@ -443,6 +443,176 @@ def escalate_to_user(
     return f"✓ Escalated permission request to {len(humans)} human participant(s)"
 
 
+# === Agent Spawning ===
+
+
+def spawn_agent(
+    workspace_name: str = None,
+    display_name: str = None,
+    remote: bool = False,
+) -> str:
+    """Create a new worker agent identity and prepare for spawning.
+
+    This tool:
+    1. Creates a deaddrop identity for the worker
+    2. Registers the agent in the session
+    3. Returns spawn instructions with the invite URL
+
+    The actual workspace creation should be done with `silica remote create`
+    using the provided environment variables.
+
+    Args:
+        workspace_name: Name for the worker's workspace (auto-generated if not provided)
+        display_name: Human-readable name for the agent
+        remote: Whether this will be a remote workspace (vs local)
+
+    Returns:
+        Spawn instructions including environment variables to set
+    """
+    import uuid
+
+    session = get_current_session()
+
+    # Generate names if not provided
+    if not workspace_name:
+        workspace_name = f"worker-{uuid.uuid4().hex[:8]}"
+    if not display_name:
+        display_name = workspace_name.replace("-", " ").title()
+
+    # Create identity for the worker
+    worker_identity = session.deaddrop.create_identity(
+        ns=session.namespace_id,
+        display_name=display_name,
+        ns_secret=session.namespace_secret,
+    )
+
+    # Generate agent ID
+    agent_id = f"agent-{uuid.uuid4().hex[:8]}"
+
+    # Register agent in session (state: SPAWNING)
+    session.register_agent(
+        agent_id=agent_id,
+        identity_id=worker_identity["id"],
+        display_name=display_name,
+        workspace_name=workspace_name,
+    )
+
+    # Add agent to coordination room
+    session.add_agent_to_room(agent_id)
+
+    # Build the invite URL that the worker will use to connect
+    # For now, we'll encode the necessary info that worker_bootstrap.py expects
+    # Format: deaddrop://<server>/<ns_id>/<identity_id>/<identity_secret>?room=<room_id>&coordinator=<coord_id>
+    # In practice this would be a proper invite URL from deaddrop
+
+    # For in-memory testing and initial implementation, we'll return the raw credentials
+    # The worker bootstrap can handle both invite URLs and raw credentials
+    invite_data = {
+        "namespace_id": session.namespace_id,
+        "namespace_secret": session.namespace_secret,
+        "identity_id": worker_identity["id"],
+        "identity_secret": worker_identity["secret"],
+        "room_id": session.state.room_id,
+        "coordinator_id": session.state.coordinator_id,
+    }
+
+    # Encode as a simple base64 JSON string for the env var
+    import json
+    import base64
+
+    invite_json = json.dumps(invite_data)
+    invite_encoded = base64.b64encode(invite_json.encode()).decode()
+
+    # Build spawn instructions
+    env_vars = {
+        "DEADDROP_INVITE_URL": f"data:application/json;base64,{invite_encoded}",
+        "COORDINATION_AGENT_ID": agent_id,
+    }
+
+    lines = [
+        f"**Agent Created: {display_name}**",
+        f"- Agent ID: {agent_id}",
+        f"- Workspace: {workspace_name}",
+        "- State: SPAWNING",
+        "",
+        "**To spawn the worker, run:**",
+        "```bash",
+    ]
+
+    if remote:
+        lines.append(f"silica remote create -w {workspace_name} \\")
+    else:
+        lines.append(f"silica remote create -w {workspace_name} --local 0 \\")
+
+    lines.append("  # Then set environment variables:")
+    for key, value in env_vars.items():
+        # Truncate long values for display
+        display_value = value if len(value) < 60 else value[:57] + "..."
+        lines.append(f"  # {key}={display_value}")
+
+    lines.extend(
+        [
+            "```",
+            "",
+            "**Environment Variables (full):**",
+        ]
+    )
+
+    for key, value in env_vars.items():
+        lines.append(f"- `{key}`: {value}")
+
+    lines.extend(
+        [
+            "",
+            "Once the workspace is created and the environment variables are set,",
+            "the worker will automatically connect to this coordination session.",
+        ]
+    )
+
+    return "\n".join(lines)
+
+
+def terminate_agent(
+    agent_id: str,
+    reason: str = None,
+) -> str:
+    """Terminate a worker agent.
+
+    Sends a termination message to the agent and updates its state.
+    The workspace should be destroyed separately with `silica remote destroy`.
+
+    Args:
+        agent_id: The agent to terminate
+        reason: Optional reason for termination
+
+    Returns:
+        Status message
+    """
+    session = get_current_session()
+    agent = session.get_agent(agent_id)
+
+    if not agent:
+        return f"❌ Agent '{agent_id}' not found"
+
+    # Send termination message
+    msg = Terminate(reason=reason or "Terminated by coordinator")
+    session.context.send_message(agent.identity_id, msg)
+
+    # Update state
+    session.update_agent_state(agent_id, AgentState.TERMINATED)
+
+    lines = [
+        f"✓ Terminated agent: {agent.display_name} ({agent_id})",
+        "",
+        "**To destroy the workspace:**",
+        "```bash",
+        f"silica remote destroy -w {agent.workspace_name}",
+        "```",
+    ]
+
+    return "\n".join(lines)
+
+
 # === Health Monitoring ===
 
 

@@ -318,6 +318,83 @@ class TestEscalateToUser:
         assert "1 human" in result
 
 
+class TestSpawnAgent:
+    """Test spawn_agent tool."""
+
+    def test_spawn_agent_basic(self, session):
+        from silica.developer.tools.coordination import spawn_agent
+
+        result = spawn_agent(workspace_name="test-worker")
+
+        assert "Agent Created" in result
+        assert "test-worker" in result
+        assert "DEADDROP_INVITE_URL" in result
+        assert "COORDINATION_AGENT_ID" in result
+
+        # Agent should be registered
+        agents = session.list_agents()
+        assert len(agents) == 1
+        assert agents[0].workspace_name == "test-worker"
+        assert agents[0].state == AgentState.SPAWNING
+
+    def test_spawn_agent_auto_names(self, session):
+        from silica.developer.tools.coordination import spawn_agent
+
+        result = spawn_agent()
+
+        assert "Agent Created" in result
+        # Should have generated names
+        assert "worker-" in result.lower()
+
+    def test_spawn_agent_with_display_name(self, session):
+        from silica.developer.tools.coordination import spawn_agent
+
+        result = spawn_agent(
+            workspace_name="research-agent",
+            display_name="Research Bot",
+        )
+
+        assert "Research Bot" in result
+
+        agents = session.list_agents()
+        assert agents[0].display_name == "Research Bot"
+
+    def test_spawn_multiple_agents(self, session):
+        from silica.developer.tools.coordination import spawn_agent
+
+        spawn_agent(workspace_name="worker-1", display_name="Worker 1")
+        spawn_agent(workspace_name="worker-2", display_name="Worker 2")
+
+        agents = session.list_agents()
+        assert len(agents) == 2
+
+
+class TestTerminateAgent:
+    """Test terminate_agent tool."""
+
+    def test_terminate_agent(self, session_with_agent):
+        from silica.developer.tools.coordination import terminate_agent
+
+        session, _ = session_with_agent
+
+        result = terminate_agent("agent-1", reason="Job done")
+
+        assert "✓" in result
+        assert "Terminated" in result
+        assert "Worker-1" in result
+        assert "silica remote destroy" in result
+
+        # Agent should be TERMINATED
+        agent = session.get_agent("agent-1")
+        assert agent.state == AgentState.TERMINATED
+
+    def test_terminate_nonexistent_agent(self, session):
+        from silica.developer.tools.coordination import terminate_agent
+
+        result = terminate_agent("nonexistent")
+        assert "not found" in result
+
+
 class TestCheckAgentHealth:
     """Test check_agent_health tool."""
 
