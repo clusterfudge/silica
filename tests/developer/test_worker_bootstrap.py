@@ -221,3 +221,188 @@ class TestBootstrapWorker:
 
             # Tools should be configured
             assert get_worker_agent_id().startswith("worker-")
+
+
+class TestDataUrlInvite:
+    """Test parsing data: URL invites from spawn_agent."""
+
+    def test_parse_data_url_invite(
+        self, deaddrop, temp_sessions_dir, clean_env, cleanup_worker_context
+    ):
+        """Should parse data: URL invites correctly."""
+        import json
+        import base64
+        from silica.developer.coordination.worker_bootstrap import (
+            _parse_data_url_invite,
+        )
+
+        # Create invite data like spawn_agent does
+        invite_data = {
+            "namespace_id": "ns-123",
+            "namespace_secret": "ns-secret",
+            "identity_id": "id-456",
+            "identity_secret": "id-secret",
+            "room_id": "room-789",
+            "coordinator_id": "coord-abc",
+        }
+
+        invite_json = json.dumps(invite_data)
+        invite_encoded = base64.b64encode(invite_json.encode()).decode()
+        invite_url = f"data:application/json;base64,{invite_encoded}"
+
+        # Parse it
+        result = _parse_data_url_invite(invite_url)
+
+        assert result["namespace_id"] == "ns-123"
+        assert result["identity_id"] == "id-456"
+        assert result["room_id"] == "room-789"
+        assert result["coordinator_id"] == "coord-abc"
+
+    def test_claim_invite_data_url(
+        self, deaddrop, temp_sessions_dir, clean_env, cleanup_worker_context
+    ):
+        """Should handle data: URL in claim_invite_and_connect."""
+        import json
+        import base64
+
+        # Create a coordinator session
+        session = CoordinationSession.create_session(deaddrop, "Test Coordinator")
+
+        # Create a worker identity
+        worker_identity = deaddrop.create_identity(
+            ns=session.namespace_id,
+            display_name="Test Worker",
+            ns_secret=session.namespace_secret,
+        )
+
+        # Create invite data like spawn_agent does
+        invite_data = {
+            "namespace_id": session.namespace_id,
+            "namespace_secret": session.namespace_secret,
+            "identity_id": worker_identity["id"],
+            "identity_secret": worker_identity["secret"],
+            "room_id": session.state.room_id,
+            "coordinator_id": session.state.coordinator_id,
+        }
+
+        invite_json = json.dumps(invite_data)
+        invite_encoded = base64.b64encode(invite_json.encode()).decode()
+        invite_url = f"data:application/json;base64,{invite_encoded}"
+
+        # Connect using the data URL
+        result = claim_invite_and_connect(invite_url=invite_url)
+
+        assert result.namespace_id == session.namespace_id
+        assert result.room_id == session.state.room_id
+        assert result.coordinator_id == session.state.coordinator_id
+        assert result.context is not None
+
+    def test_invalid_data_url_raises(self, clean_env):
+        """Should raise for invalid data: URL."""
+        from silica.developer.coordination.worker_bootstrap import (
+            _parse_data_url_invite,
+        )
+
+        with pytest.raises(ValueError, match="Invalid data URL format"):
+            _parse_data_url_invite("data:text/plain;base64,abc")
+
+        with pytest.raises(ValueError, match="Invalid data URL format"):
+            _parse_data_url_invite("https://example.com/invite")
+
+
+class TestGetWorkerPersona:
+    """Test getting worker persona."""
+
+    def test_get_worker_persona(self):
+        """Should return worker persona with correct settings."""
+        from silica.developer.coordination.worker_bootstrap import get_worker_persona
+
+        persona = get_worker_persona()
+
+        assert persona.system_block is not None
+        assert "text" in persona.system_block
+        # Worker persona should mention coordination
+        assert (
+            "coordinator" in persona.system_block["text"].lower()
+            or "coordination" in persona.system_block["text"].lower()
+            or "check_inbox" in persona.system_block["text"].lower()
+        )
+
+
+class TestIntegrateWorkerStartup:
+    """Test the hdev integration function."""
+
+    def test_integrate_not_coordinated(self, clean_env):
+        """Should return None if not a coordinated worker."""
+        from silica.developer.coordination.worker_bootstrap import (
+            integrate_worker_startup,
+        )
+
+        mock_ui = MagicMock()
+        result = integrate_worker_startup(mock_ui)
+        assert result is None
+        # Should not have shown any messages
+        mock_ui.handle_system_message.assert_not_called()
+
+    def test_integrate_coordinated_worker(
+        self, deaddrop, temp_sessions_dir, clean_env, cleanup_worker_context
+    ):
+        """Should bootstrap and send Idle when coordinated."""
+        import json
+        import base64
+        from silica.developer.coordination.worker_bootstrap import (
+            integrate_worker_startup,
+        )
+
+        # Create a coordinator session
+        session = CoordinationSession.create_session(deaddrop, "Test Coordinator")
+
+        # Create worker identity
+        worker_identity = deaddrop.create_identity(
+            ns=session.namespace_id,
+            display_name="Worker",
+            ns_secret=session.namespace_secret,
+        )
+
+        # Set up environment
+        invite_data = {
+            "namespace_id": session.namespace_id,
+            "namespace_secret": session.namespace_secret,
+            "identity_id": worker_identity["id"],
+            "identity_secret": worker_identity["secret"],
+            "room_id": session.state.room_id,
+            "coordinator_id": session.state.coordinator_id,
+        }
+        invite_json = json.dumps(invite_data)
+        invite_encoded = base64.b64encode(invite_json.encode()).decode()
+        os.environ[DEADDROP_INVITE_URL] = (
+            f"data:application/json;base64,{invite_encoded}"
+        )
+        os.environ[COORDINATION_AGENT_ID] = "test-worker-1"
+
+        # Mock UI
+        mock_ui = MagicMock()
+
+        # Mock Deaddrop to return our in-memory instance
+        with patch(
+            "silica.developer.coordination.worker_bootstrap.Deaddrop",
+            return_value=deaddrop,
+        ):
+            # Integrate
+            result = integrate_worker_startup(mock_ui)
+
+        assert result is not None
+        assert result.agent_id == "test-worker-1"
+
+        # Should have shown status messages
+        assert mock_ui.handle_system_message.call_count >= 2
+
+        # Coordinator should have received the Idle message
+        # (Check by polling coordinator's inbox)
+        from silica.developer.coordination import Idle
+
+        messages = session.context.receive_messages(wait=0)
+        # Filter for Idle messages
+        idle_messages = [m for m in messages if isinstance(m.message, Idle)]
+        assert len(idle_messages) == 1
+        assert idle_messages[0].message.agent_id == "test-worker-1"
