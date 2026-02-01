@@ -233,6 +233,33 @@ def setup_worker_tools(bootstrap_result: WorkerBootstrapResult) -> None:
     )
 
 
+def setup_worker_sandbox_permissions(
+    sandbox,
+    bootstrap_result: WorkerBootstrapResult,
+    timeout: float = 300.0,
+) -> None:
+    """Configure sandbox to use coordination-based permissions.
+
+    This replaces the sandbox's permission callbacks with ones that
+    send permission requests to the coordinator via deaddrop.
+
+    Args:
+        sandbox: The Sandbox instance to configure
+        bootstrap_result: The worker bootstrap result with context
+        timeout: Timeout in seconds for permission requests (default 5 min)
+    """
+    from silica.developer.coordination.worker_permissions import (
+        setup_worker_sandbox_permissions as _setup_permissions,
+    )
+
+    _setup_permissions(
+        sandbox=sandbox,
+        context=bootstrap_result.context,
+        agent_id=bootstrap_result.agent_id,
+        timeout=timeout,
+    )
+
+
 def bootstrap_worker(
     invite_url: Optional[str] = None,
     server_url: Optional[str] = None,

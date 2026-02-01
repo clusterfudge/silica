@@ -24,6 +24,10 @@ from .client import (
     create_identity_with_invite,
     create_coordination_room,
 )
+from .worker_permissions import (
+    create_worker_permission_callback,
+    setup_worker_sandbox_permissions,
+)
 
 __all__ = [
     # Message types
@@ -51,4 +55,7 @@ __all__ = [
     "create_coordination_namespace",
     "create_identity_with_invite",
     "create_coordination_room",
+    # Worker permissions
+    "create_worker_permission_callback",
+    "setup_worker_sandbox_permissions",
 ]
