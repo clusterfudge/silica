@@ -50,6 +50,7 @@ dependencies = [
     "bashlex>=0.18",
     "mcp>=1.0.0",
     "keyring>=24.0.0",
+    "deaddrop>=0.1.0",
 ]
 
 [project.optional-dependencies]
