@@ -387,3 +387,103 @@ class TestStatePersistence:
         )
         assert reloaded2.state.agents["a1"].state == AgentState.WORKING
         assert reloaded2.state.agents["a1"].current_task_id == "task-1"
+
+
+class TestPermissionQueue:
+    """Test permission queue management."""
+
+    def test_queue_permission(self, deaddrop, temp_sessions_dir):
+        """Should queue a permission request."""
+        session = CoordinationSession.create_session(deaddrop, "Test")
+
+        pending = session.queue_permission(
+            request_id="req-123",
+            agent_id="agent-1",
+            action="shell",
+            resource="rm -rf /tmp/test",
+            context="Cleaning temp files",
+        )
+
+        assert pending.request_id == "req-123"
+        assert pending.agent_id == "agent-1"
+        assert pending.action == "shell"
+        assert pending.status == "pending"
+
+    def test_get_pending_permission(self, deaddrop, temp_sessions_dir):
+        """Should retrieve a pending permission by ID."""
+        session = CoordinationSession.create_session(deaddrop, "Test")
+
+        session.queue_permission(
+            request_id="req-456",
+            agent_id="agent-1",
+            action="read_file",
+            resource="/etc/passwd",
+            context="Reading config",
+        )
+
+        pending = session.get_pending_permission("req-456")
+        assert pending is not None
+        assert pending.resource == "/etc/passwd"
+
+        # Non-existent
+        assert session.get_pending_permission("req-999") is None
+
+    def test_list_pending_permissions(self, deaddrop, temp_sessions_dir):
+        """Should list pending permissions with filters."""
+        session = CoordinationSession.create_session(deaddrop, "Test")
+
+        session.queue_permission("req-1", "agent-1", "shell", "cmd1", "ctx1")
+        session.queue_permission("req-2", "agent-2", "read_file", "file1", "ctx2")
+        session.queue_permission("req-3", "agent-1", "write_file", "file2", "ctx3")
+
+        # List all
+        all_pending = session.list_pending_permissions()
+        assert len(all_pending) == 3
+
+        # Filter by agent
+        agent1_pending = session.list_pending_permissions(agent_id="agent-1")
+        assert len(agent1_pending) == 2
+
+        # Filter by status
+        session.update_pending_permission("req-1", "granted")
+        pending_only = session.list_pending_permissions(status="pending")
+        assert len(pending_only) == 2
+
+    def test_update_pending_permission(self, deaddrop, temp_sessions_dir):
+        """Should update permission status."""
+        session = CoordinationSession.create_session(deaddrop, "Test")
+
+        session.queue_permission("req-1", "agent-1", "shell", "cmd", "ctx")
+
+        # Update to granted
+        updated = session.update_pending_permission("req-1", "granted")
+        assert updated.status == "granted"
+
+        # Non-existent
+        assert session.update_pending_permission("req-999", "denied") is None
+
+    def test_remove_pending_permission(self, deaddrop, temp_sessions_dir):
+        """Should remove a pending permission."""
+        session = CoordinationSession.create_session(deaddrop, "Test")
+
+        session.queue_permission("req-1", "agent-1", "shell", "cmd", "ctx")
+
+        removed = session.remove_pending_permission("req-1")
+        assert removed is not None
+        assert removed.request_id == "req-1"
+
+        # Should be gone
+        assert session.get_pending_permission("req-1") is None
+
+    def test_permission_queue_persisted(self, deaddrop, temp_sessions_dir):
+        """Permission queue should be persisted."""
+        session = CoordinationSession.create_session(deaddrop, "Test")
+
+        session.queue_permission("req-1", "agent-1", "shell", "cmd", "ctx")
+
+        # Resume session
+        session2 = CoordinationSession.resume_session(deaddrop, session.session_id)
+
+        pending = session2.get_pending_permission("req-1")
+        assert pending is not None
+        assert pending.action == "shell"

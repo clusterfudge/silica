@@ -19,6 +19,7 @@ def create_worker_permission_callback(
     context: CoordinationContext,
     agent_id: str,
     timeout: float = 300.0,  # 5 minutes default
+    queue_on_timeout: bool = False,
 ):
     """Create a permission callback for coordinated workers.
 
@@ -29,6 +30,7 @@ def create_worker_permission_callback(
         context: The worker's CoordinationContext for messaging
         agent_id: This worker's agent ID
         timeout: Timeout in seconds to wait for permission response
+        queue_on_timeout: If True, send a queue notification to coordinator on timeout
 
     Returns:
         A permission callback function compatible with Sandbox
@@ -134,6 +136,30 @@ def create_worker_permission_callback(
         logger.warning(
             f"Permission request timed out after {timeout}s: {action} on {resource}"
         )
+
+        # Optionally notify coordinator to queue the request
+        if queue_on_timeout:
+            try:
+                from silica.developer.coordination import Progress
+
+                # Send a progress message indicating the permission was queued
+                queue_msg = Progress(
+                    task_id="permission_queue",
+                    message=f"Permission request timed out and queued: {action} on {resource}",
+                    percent_complete=0,
+                    details={
+                        "request_id": request_id,
+                        "action": action,
+                        "resource": resource,
+                        "context": context_str,
+                        "queue_reason": "timeout",
+                    },
+                )
+                context.send_to_coordinator(queue_msg)
+                logger.info(f"Sent queue notification for permission {request_id}")
+            except Exception as e:
+                logger.warning(f"Failed to send queue notification: {e}")
+
         return False
 
     return worker_permission_callback

@@ -77,6 +77,30 @@ class HumanParticipant:
 
 
 @dataclass
+class PendingPermission:
+    """A permission request that timed out waiting for response.
+
+    When a worker times out waiting for permission, the request is queued
+    so the coordinator can later review and potentially grant it.
+    """
+
+    request_id: str
+    agent_id: str
+    action: str
+    resource: str
+    context: str
+    requested_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    status: str = "pending"  # pending, granted, denied, expired
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "PendingPermission":
+        return cls(**data)
+
+
+@dataclass
 class SessionState:
     """Serializable state of a coordination session."""
 
@@ -88,6 +112,7 @@ class SessionState:
     room_id: str
     agents: dict[str, AgentInfo] = field(default_factory=dict)
     humans: dict[str, HumanParticipant] = field(default_factory=dict)
+    pending_permissions: dict[str, PendingPermission] = field(default_factory=dict)
     created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
     display_name: str = "Coordination Session"
 
@@ -101,6 +126,9 @@ class SessionState:
             "room_id": self.room_id,
             "agents": {k: v.to_dict() for k, v in self.agents.items()},
             "humans": {k: v.to_dict() for k, v in self.humans.items()},
+            "pending_permissions": {
+                k: v.to_dict() for k, v in self.pending_permissions.items()
+            },
             "created_at": self.created_at,
             "display_name": self.display_name,
         }
@@ -113,6 +141,10 @@ class SessionState:
         }
         data["humans"] = {
             k: HumanParticipant.from_dict(v) for k, v in data.get("humans", {}).items()
+        }
+        data["pending_permissions"] = {
+            k: PendingPermission.from_dict(v)
+            for k, v in data.get("pending_permissions", {}).items()
         }
         return cls(**data)
 
@@ -492,6 +524,128 @@ class CoordinationSession:
             return True
         except Exception:
             return False
+
+    # --- Permission Queue ---
+
+    def queue_permission(
+        self,
+        request_id: str,
+        agent_id: str,
+        action: str,
+        resource: str,
+        context: str,
+    ) -> PendingPermission:
+        """Queue a permission request that timed out.
+
+        Args:
+            request_id: Unique request identifier
+            agent_id: Agent that made the request
+            action: The action being requested
+            resource: The resource being accessed
+            context: Additional context about the request
+
+        Returns:
+            PendingPermission object
+        """
+        pending = PendingPermission(
+            request_id=request_id,
+            agent_id=agent_id,
+            action=action,
+            resource=resource,
+            context=context,
+        )
+        self.state.pending_permissions[request_id] = pending
+        self.save_state()
+        return pending
+
+    def get_pending_permission(self, request_id: str) -> Optional[PendingPermission]:
+        """Get a pending permission by request ID."""
+        return self.state.pending_permissions.get(request_id)
+
+    def list_pending_permissions(
+        self,
+        agent_id: str = None,
+        status: str = None,
+    ) -> list[PendingPermission]:
+        """List pending permissions.
+
+        Args:
+            agent_id: Optional filter by agent
+            status: Optional filter by status (pending, granted, denied, expired)
+
+        Returns:
+            List of PendingPermission objects
+        """
+        permissions = list(self.state.pending_permissions.values())
+        if agent_id:
+            permissions = [p for p in permissions if p.agent_id == agent_id]
+        if status:
+            permissions = [p for p in permissions if p.status == status]
+        return permissions
+
+    def update_pending_permission(
+        self,
+        request_id: str,
+        status: str,
+    ) -> Optional[PendingPermission]:
+        """Update a pending permission's status.
+
+        Args:
+            request_id: Request to update
+            status: New status (granted, denied, expired)
+
+        Returns:
+            Updated PendingPermission, or None if not found
+        """
+        pending = self.state.pending_permissions.get(request_id)
+        if pending:
+            pending.status = status
+            self.save_state()
+        return pending
+
+    def remove_pending_permission(self, request_id: str) -> Optional[PendingPermission]:
+        """Remove a pending permission from the queue.
+
+        Args:
+            request_id: Request to remove
+
+        Returns:
+            Removed PendingPermission, or None if not found
+        """
+        pending = self.state.pending_permissions.pop(request_id, None)
+        if pending:
+            self.save_state()
+        return pending
+
+    def clear_expired_permissions(self, max_age_hours: int = 24) -> int:
+        """Clear permissions older than the specified age.
+
+        Args:
+            max_age_hours: Maximum age in hours before expiring
+
+        Returns:
+            Number of permissions cleared
+        """
+        from datetime import timedelta
+
+        cutoff = datetime.utcnow() - timedelta(hours=max_age_hours)
+        to_remove = []
+
+        for request_id, pending in self.state.pending_permissions.items():
+            try:
+                requested_at = datetime.fromisoformat(pending.requested_at)
+                if requested_at < cutoff:
+                    to_remove.append(request_id)
+            except (ValueError, TypeError):
+                continue
+
+        for request_id in to_remove:
+            self.state.pending_permissions[request_id].status = "expired"
+
+        if to_remove:
+            self.save_state()
+
+        return len(to_remove)
 
 
 def list_sessions() -> list[dict[str, Any]]:

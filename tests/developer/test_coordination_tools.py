@@ -395,6 +395,123 @@ class TestTerminateAgent:
         assert "not found" in result
 
 
+class TestListPendingPermissions:
+    """Test the list_pending_permissions tool."""
+
+    def test_list_no_pending(self, session):
+        """Should handle empty queue."""
+        from silica.developer.tools.coordination import list_pending_permissions
+
+        result = list_pending_permissions()
+        assert "No pending permissions" in result
+
+    def test_list_pending_permissions(self, session):
+        """Should list pending permissions."""
+        from silica.developer.tools.coordination import list_pending_permissions
+
+        # Queue some permissions
+        session.queue_permission("req-1", "agent-1", "shell", "rm -rf /tmp", "cleaning")
+        session.queue_permission(
+            "req-2", "agent-2", "read_file", "/etc/passwd", "reading"
+        )
+
+        result = list_pending_permissions()
+        assert "req-1" in result
+        assert "req-2" in result
+        assert "shell" in result
+        assert "read_file" in result
+
+    def test_list_with_filter(self, session):
+        """Should filter by agent or status."""
+        from silica.developer.tools.coordination import list_pending_permissions
+
+        session.queue_permission("req-1", "agent-1", "shell", "cmd1", "ctx1")
+        session.queue_permission("req-2", "agent-2", "shell", "cmd2", "ctx2")
+
+        result = list_pending_permissions(agent_id="agent-1")
+        assert "req-1" in result
+        assert "req-2" not in result
+
+
+class TestGrantQueuedPermission:
+    """Test the grant_queued_permission tool."""
+
+    def test_grant_permission(self, session_with_agent):
+        """Should grant a queued permission."""
+        from silica.developer.tools.coordination import grant_queued_permission
+
+        session, identity = session_with_agent
+
+        # Queue a permission for existing agent
+        session.queue_permission("req-1", "agent-1", "shell", "cmd", "ctx")
+
+        result = grant_queued_permission("req-1", "allow")
+        assert "granted" in result.lower()
+
+        # Check status updated
+        pending = session.get_pending_permission("req-1")
+        assert pending.status == "granted"
+
+    def test_deny_permission(self, session_with_agent):
+        """Should deny a queued permission."""
+        from silica.developer.tools.coordination import grant_queued_permission
+
+        session, identity = session_with_agent
+
+        session.queue_permission("req-1", "agent-1", "shell", "rm -rf /", "dangerous")
+
+        result = grant_queued_permission("req-1", "deny", reason="Too dangerous")
+        assert "denied" in result.lower()
+
+        pending = session.get_pending_permission("req-1")
+        assert pending.status == "denied"
+
+    def test_grant_nonexistent(self, session):
+        """Should handle nonexistent request."""
+        from silica.developer.tools.coordination import grant_queued_permission
+
+        result = grant_queued_permission("req-999", "allow")
+        assert "not found" in result.lower()
+
+
+class TestClearExpiredPermissions:
+    """Test the clear_expired_permissions tool."""
+
+    def test_clear_no_expired(self, session):
+        """Should handle no expired permissions."""
+        from silica.developer.tools.coordination import clear_expired_permissions
+
+        result = clear_expired_permissions()
+        assert "No expired" in result
+
+    def test_clear_expired(self, session):
+        """Should clear old permissions."""
+        from silica.developer.tools.coordination import clear_expired_permissions
+        from silica.developer.coordination.session import PendingPermission
+
+        # Manually add an old permission
+        from datetime import datetime, timedelta
+
+        old_time = (datetime.utcnow() - timedelta(hours=48)).isoformat()
+        old_perm = PendingPermission(
+            request_id="old-req",
+            agent_id="agent-1",
+            action="shell",
+            resource="cmd",
+            context="ctx",
+            requested_at=old_time,
+        )
+        session.state.pending_permissions["old-req"] = old_perm
+        session.save_state()
+
+        result = clear_expired_permissions(max_age_hours=24)
+        assert "1" in result
+
+        # Check status
+        pending = session.get_pending_permission("old-req")
+        assert pending.status == "expired"
+
+
 class TestCheckAgentHealth:
     """Test check_agent_health tool."""
 

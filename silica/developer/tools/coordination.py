@@ -267,19 +267,26 @@ def get_session_state() -> str:
 
     Returns:
         Formatted session state including namespace info, agent registry,
-        and summary statistics.
+        pending permissions, and summary statistics.
     """
     session = get_current_session()
     state = session.get_state()
 
     agents = state.get("agents", {})
     humans = state.get("humans", {})
+    pending_permissions = state.get("pending_permissions", {})
 
     # Count agents by state
     state_counts = {}
     for agent in agents.values():
         s = agent.get("state", "unknown")
         state_counts[s] = state_counts.get(s, 0) + 1
+
+    # Count pending permissions by status
+    pending_counts = {}
+    for perm in pending_permissions.values():
+        s = perm.get("status", "pending")
+        pending_counts[s] = pending_counts.get(s, 0) + 1
 
     lines = [
         f"**Session:** {state['session_id']}",
@@ -293,6 +300,13 @@ def get_session_state() -> str:
         lines.append(f"  - {s}: {count}")
 
     lines.append(f"**Human participants:** {len(humans)}")
+
+    # Show pending permissions if any
+    if pending_permissions:
+        lines.append("")
+        lines.append(f"**Pending Permissions:** {len(pending_permissions)}")
+        for s, count in pending_counts.items():
+            lines.append(f"  - {s}: {count}")
 
     return "\n".join(lines)
 
@@ -672,3 +686,129 @@ def check_agent_health(
     lines.insert(1, f"Healthy: {healthy} | Stale: {stale} | Terminated: {terminated}\n")
 
     return "\n".join(lines)
+
+
+# === Permission Queue ===
+
+
+def list_pending_permissions(
+    agent_id: str = None,
+    status: str = None,
+) -> str:
+    """List pending permission requests in the queue.
+
+    Permissions are queued when workers time out waiting for a response.
+    The coordinator can later review and grant/deny them.
+
+    Args:
+        agent_id: Optional filter by agent ID
+        status: Optional filter by status (pending, granted, denied, expired)
+
+    Returns:
+        Formatted list of pending permissions
+    """
+    session = get_current_session()
+    pending = session.list_pending_permissions(agent_id=agent_id, status=status)
+
+    if not pending:
+        filter_desc = []
+        if agent_id:
+            filter_desc.append(f"agent={agent_id}")
+        if status:
+            filter_desc.append(f"status={status}")
+        filter_str = f" (filter: {', '.join(filter_desc)})" if filter_desc else ""
+        return f"No pending permissions{filter_str}"
+
+    lines = [f"**Pending Permissions:** {len(pending)}\n"]
+
+    for p in pending:
+        lines.append(f"**Request:** {p.request_id}")
+        lines.append(f"  - Agent: {p.agent_id}")
+        lines.append(f"  - Action: {p.action}")
+        lines.append(f"  - Resource: {p.resource}")
+        lines.append(f"  - Status: {p.status}")
+        lines.append(f"  - Requested: {p.requested_at}")
+        if p.context:
+            # Truncate context for display
+            ctx = p.context[:200] + "..." if len(p.context) > 200 else p.context
+            lines.append(f"  - Context: {ctx}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def grant_queued_permission(
+    request_id: str,
+    decision: str = "allow",
+    reason: str = None,
+) -> str:
+    """Grant or deny a queued permission request.
+
+    After granting, the worker can be notified to retry the operation.
+
+    Args:
+        request_id: The permission request ID
+        decision: "allow" or "deny"
+        reason: Optional reason for the decision
+
+    Returns:
+        Confirmation message
+    """
+    session = get_current_session()
+    pending = session.get_pending_permission(request_id)
+
+    if not pending:
+        return f"❌ Permission request '{request_id}' not found"
+
+    if pending.status != "pending":
+        return f"❌ Permission request '{request_id}' already {pending.status}"
+
+    if decision not in ("allow", "deny"):
+        return f"❌ Invalid decision: {decision}. Use 'allow' or 'deny'."
+
+    # Update the status
+    new_status = "granted" if decision == "allow" else "denied"
+    session.update_pending_permission(request_id, new_status)
+
+    # Get the agent
+    agent = session.get_agent(pending.agent_id)
+    if not agent:
+        return (
+            f"✓ Permission {new_status} (but agent '{pending.agent_id}' not found - "
+            "cannot notify)"
+        )
+
+    # Send a PermissionResponse to the worker
+    response = PermissionResponse(
+        request_id=request_id,
+        decision=decision,
+        reason=reason,
+    )
+
+    try:
+        session.context.send_message(agent.identity_id, response)
+        return (
+            f"✓ Permission {new_status} and notification sent to {agent.display_name}"
+        )
+    except Exception as e:
+        return f"✓ Permission {new_status} but failed to notify agent: {e}"
+
+
+def clear_expired_permissions(
+    max_age_hours: int = 24,
+) -> str:
+    """Clear expired permission requests from the queue.
+
+    Args:
+        max_age_hours: Clear requests older than this many hours
+
+    Returns:
+        Number of permissions cleared
+    """
+    session = get_current_session()
+    count = session.clear_expired_permissions(max_age_hours=max_age_hours)
+
+    if count == 0:
+        return "No expired permissions to clear"
+
+    return f"✓ Marked {count} permission(s) as expired"
