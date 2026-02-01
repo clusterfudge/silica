@@ -10,6 +10,7 @@ This test:
 6. Verifies worker goes back to Idle
 
 Run with: uv run python scripts/e2e/test_task_flow.py
+Set DEADDROP_E2E_REMOTE=1 for remote testing.
 """
 
 import os
@@ -61,8 +62,24 @@ def create_worker_invite(deaddrop, ns, coordinator, room, worker_name):
     return worker, f"data:application/json;base64,{invite_encoded}"
 
 
-def spawn_worker(session_name, invite_url, agent_id):
+def spawn_worker(session_name, invite_url, agent_id, deaddrop_url):
+    """Spawn a worker process in tmux.
+
+    Args:
+        session_name: Name for the tmux session
+        invite_url: Invite URL for the worker
+        agent_id: Agent ID for the worker
+        deaddrop_url: URL of the deaddrop server
+
+    Returns:
+        True if spawn succeeded
+    """
     script_dir = os.path.dirname(__file__)
+
+    # Pass DEADDROP_URL through environment
+    env = os.environ.copy()
+    env["DEADDROP_URL"] = deaddrop_url
+
     result = subprocess.run(
         [
             os.path.join(script_dir, "spawn_worker.sh"),
@@ -72,6 +89,7 @@ def spawn_worker(session_name, invite_url, agent_id):
         ],
         capture_output=True,
         text=True,
+        env=env,
     )
     return result.returncode == 0
 
@@ -116,8 +134,8 @@ def main():
         )
 
         try:
-            # Spawn worker
-            if not spawn_worker(session_name, invite_url, agent_id):
+            # Spawn worker, passing deaddrop URL
+            if not spawn_worker(session_name, invite_url, agent_id, deaddrop.location):
                 log("FAILED to spawn worker")
                 return False
             log("Worker spawned")

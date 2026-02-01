@@ -11,6 +11,8 @@ set -e
 SESSION_NAME="${1:-e2e-worker}"
 INVITE_URL="$2"
 AGENT_ID="${3:-unknown}"
+
+# Use environment variable if set, otherwise default to local
 DEADDROP_URL="${DEADDROP_URL:-http://127.0.0.1:8765}"
 
 if [ -z "$INVITE_URL" ]; then
@@ -18,6 +20,9 @@ if [ -z "$INVITE_URL" ]; then
     echo "  session_name: tmux session name"
     echo "  invite_url: DEADDROP_INVITE_URL value"
     echo "  agent_id: COORDINATION_AGENT_ID value (optional)"
+    echo ""
+    echo "Environment variables:"
+    echo "  DEADDROP_URL: Override deaddrop server URL (default: http://127.0.0.1:8765)"
     exit 1
 fi
 

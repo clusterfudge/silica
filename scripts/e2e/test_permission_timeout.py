@@ -60,8 +60,10 @@ def create_worker_invite(deaddrop, ns, coordinator, room, worker_name):
     return worker, f"data:application/json;base64,{invite_encoded}"
 
 
-def spawn_worker(session_name, invite_url, agent_id):
+def spawn_worker(session_name, invite_url, agent_id, deaddrop_url):
     script_dir = os.path.dirname(__file__)
+    env = os.environ.copy()
+    env["DEADDROP_URL"] = deaddrop_url
     result = subprocess.run(
         [
             os.path.join(script_dir, "spawn_worker.sh"),
@@ -70,6 +72,7 @@ def spawn_worker(session_name, invite_url, agent_id):
             agent_id,
         ],
         capture_output=True,
+        env=env,
         text=True,
     )
     return result.returncode == 0
@@ -126,7 +129,7 @@ def main():
 
         try:
             # Spawn worker
-            if not spawn_worker(session_name, invite_url, agent_id):
+            if not spawn_worker(session_name, invite_url, agent_id, deaddrop.location):
                 log("FAILED to spawn worker")
                 return False
             log("Worker spawned")

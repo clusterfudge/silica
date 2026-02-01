@@ -2,19 +2,20 @@
 """E2E Test: Spawn worker and verify communication.
 
 This test:
-1. Creates a coordination session on the local deaddrop
+1. Creates a coordination session on the deaddrop
 2. Spawns a worker in tmux
 3. Verifies worker claims invite and sends Idle
 4. Cleans up
 
 Run with: uv run python scripts/e2e/test_spawn_worker.py
+Set DEADDROP_E2E_REMOTE=1 to test against remote server.
 """
 
+import json
 import os
+import subprocess
 import sys
 import time
-import subprocess
-import json
 import base64
 from datetime import datetime
 
@@ -76,8 +77,16 @@ def create_worker_invite(
     return worker, invite_url
 
 
-def spawn_worker_in_tmux(session_name: str, invite_url: str, agent_id: str) -> bool:
+def spawn_worker_in_tmux(
+    session_name: str, invite_url: str, agent_id: str, deaddrop_url: str
+) -> bool:
     """Spawn a worker process in tmux.
+
+    Args:
+        session_name: Name for the tmux session
+        invite_url: Invite URL for the worker
+        agent_id: Agent ID for the worker
+        deaddrop_url: URL of the deaddrop server
 
     Returns:
         True if spawn succeeded
@@ -85,10 +94,15 @@ def spawn_worker_in_tmux(session_name: str, invite_url: str, agent_id: str) -> b
     script_dir = os.path.dirname(__file__)
     spawn_script = os.path.join(script_dir, "spawn_worker.sh")
 
+    # Pass DEADDROP_URL through environment
+    env = os.environ.copy()
+    env["DEADDROP_URL"] = deaddrop_url
+
     result = subprocess.run(
         [spawn_script, session_name, invite_url, agent_id],
         capture_output=True,
         text=True,
+        env=env,
     )
 
     if result.returncode != 0:
@@ -161,8 +175,10 @@ def main():
         )
 
         try:
-            # Spawn worker
-            if not spawn_worker_in_tmux(session_name, invite_url, agent_id):
+            # Spawn worker, passing the deaddrop URL
+            if not spawn_worker_in_tmux(
+                session_name, invite_url, agent_id, deaddrop.location
+            ):
                 log("FAILED: Could not spawn worker")
                 return False
 
