@@ -406,3 +406,117 @@ class TestIntegrateWorkerStartup:
         idle_messages = [m for m in messages if isinstance(m.message, Idle)]
         assert len(idle_messages) == 1
         assert idle_messages[0].message.agent_id == "test-worker-1"
+
+
+class TestTaskExecutionLoop:
+    """Test task execution loop helpers."""
+
+    def test_get_worker_initial_prompt(self, deaddrop, temp_sessions_dir):
+        """Should generate initial prompt for worker."""
+        from silica.developer.coordination.worker_bootstrap import (
+            get_worker_initial_prompt,
+            WorkerBootstrapResult,
+        )
+        from silica.developer.coordination.client import CoordinationContext
+
+        # Create a mock bootstrap result
+        session = CoordinationSession.create_session(deaddrop, "Test")
+        identity = deaddrop.create_identity(
+            ns=session.namespace_id,
+            display_name="Worker",
+            ns_secret=session.namespace_secret,
+        )
+
+        context = CoordinationContext(
+            deaddrop=deaddrop,
+            namespace_id=session.namespace_id,
+            namespace_secret=session.namespace_secret,
+            identity_id=identity["id"],
+            identity_secret=identity["secret"],
+            room_id=session.state.room_id,
+            coordinator_id=session.state.coordinator_id,
+        )
+
+        result = WorkerBootstrapResult(
+            context=context,
+            agent_id="test-worker-1",
+            display_name="Test Worker",
+            namespace_id=session.namespace_id,
+            room_id=session.state.room_id,
+            coordinator_id=session.state.coordinator_id,
+        )
+
+        prompt = get_worker_initial_prompt(result)
+
+        # Should include worker info
+        assert "Test Worker" in prompt
+        assert "test-worker-1" in prompt
+
+        # Should instruct to check inbox
+        assert "check_inbox" in prompt
+        assert "task" in prompt.lower()
+
+    def test_create_worker_task_loop_prompt(self):
+        """Should create task loop reminder prompt."""
+        from silica.developer.coordination.worker_bootstrap import (
+            create_worker_task_loop_prompt,
+        )
+
+        prompt = create_worker_task_loop_prompt()
+
+        # Should mention key actions
+        assert "mark_idle" in prompt
+        assert "check_inbox" in prompt
+        assert "termination" in prompt.lower()
+
+    def test_handle_worker_termination(
+        self, deaddrop, temp_sessions_dir, cleanup_worker_context
+    ):
+        """Should send termination acknowledgment."""
+        from silica.developer.coordination.worker_bootstrap import (
+            handle_worker_termination,
+            WorkerBootstrapResult,
+        )
+        from silica.developer.coordination.client import CoordinationContext
+        from silica.developer.coordination import Result
+
+        # Create a mock bootstrap result
+        session = CoordinationSession.create_session(deaddrop, "Test")
+        identity = deaddrop.create_identity(
+            ns=session.namespace_id,
+            display_name="Worker",
+            ns_secret=session.namespace_secret,
+        )
+
+        context = CoordinationContext(
+            deaddrop=deaddrop,
+            namespace_id=session.namespace_id,
+            namespace_secret=session.namespace_secret,
+            identity_id=identity["id"],
+            identity_secret=identity["secret"],
+            room_id=session.state.room_id,
+            coordinator_id=session.state.coordinator_id,
+        )
+
+        result = WorkerBootstrapResult(
+            context=context,
+            agent_id="test-worker-1",
+            display_name="Test Worker",
+            namespace_id=session.namespace_id,
+            room_id=session.state.room_id,
+            coordinator_id=session.state.coordinator_id,
+        )
+
+        mock_ui = MagicMock()
+
+        # Handle termination
+        handle_worker_termination(result, mock_ui, reason="Job complete")
+
+        # Should have sent termination acknowledgment to coordinator
+        messages = session.context.receive_messages(wait=0)
+        result_messages = [m for m in messages if isinstance(m.message, Result)]
+        assert len(result_messages) == 1
+        assert result_messages[0].message.status == "terminated"
+
+        # Should have shown status message
+        mock_ui.handle_system_message.assert_called_once()

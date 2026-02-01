@@ -336,3 +336,87 @@ def integrate_worker_startup(
             markdown=False,
         )
         raise
+
+
+def get_worker_initial_prompt(bootstrap_result: WorkerBootstrapResult) -> str:
+    """Generate the initial prompt for a worker agent.
+
+    This prompt kicks off the task execution loop by having the worker
+    check their inbox for task assignments.
+
+    Args:
+        bootstrap_result: The bootstrap result with connection info
+
+    Returns:
+        Initial prompt string to start the worker agent loop
+    """
+    return f"""You are now connected to a coordination session as Worker Agent "{bootstrap_result.display_name}" (ID: {bootstrap_result.agent_id}).
+
+**Your first action: Check your inbox for task assignments.**
+
+Use `check_inbox()` to see if you have any pending tasks from the coordinator.
+
+If you have a task:
+1. Acknowledge it with `send_to_coordinator("ack", task_id=...)`
+2. Execute the task using your available tools
+3. Report progress periodically with `send_to_coordinator("progress", ...)`
+4. When complete, send results with `send_to_coordinator("result", ...)`
+5. Call `mark_idle()` when ready for the next task
+
+If no task yet, call `mark_idle()` and wait. The coordinator will assign work when ready.
+
+Begin by checking your inbox now."""
+
+
+def create_worker_task_loop_prompt() -> str:
+    """Create a prompt that reminds the worker to continue the task loop.
+
+    This can be injected into the conversation when the worker seems
+    to have completed a task but hasn't checked for the next one.
+
+    Returns:
+        Prompt string to continue the task loop
+    """
+    return """**Task Loop Reminder**
+
+You've completed your current task. To continue working:
+
+1. If you haven't already, call `mark_idle()` to signal availability
+2. Call `check_inbox()` to see if there are new task assignments
+3. If you receive a termination message, acknowledge and shut down gracefully
+
+Continue the task loop now."""
+
+
+def handle_worker_termination(
+    bootstrap_result: WorkerBootstrapResult,
+    user_interface,
+    reason: Optional[str] = None,
+) -> None:
+    """Handle graceful worker termination.
+
+    Called when the worker receives a termination message or needs to shut down.
+
+    Args:
+        bootstrap_result: The bootstrap result with connection info
+        user_interface: The user interface for status messages
+        reason: Optional reason for termination
+    """
+    from silica.developer.coordination import Result
+
+    # Send final result acknowledging termination
+    result_msg = Result(
+        task_id="termination",
+        status="terminated",
+        summary=f"Worker shutting down: {reason or 'Termination requested'}",
+        data={},
+    )
+
+    try:
+        bootstrap_result.context.send_to_coordinator(result_msg)
+        user_interface.handle_system_message(
+            f"[yellow]Worker terminating: {reason or 'Requested by coordinator'}[/yellow]",
+            markdown=False,
+        )
+    except Exception as e:
+        logger.warning(f"Failed to send termination acknowledgment: {e}")
