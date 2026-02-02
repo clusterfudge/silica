@@ -102,16 +102,19 @@ def claim_invite_and_connect(
 
     This is the main entry point for worker bootstrap. It:
     1. Reads invite URL from parameter or environment
-    2. Parses credentials (from data: URL or deaddrop invite)
+    2. Parses credentials (from deaddrop invite URL or legacy data: URL)
     3. Creates a CoordinationContext for communication
 
-    The invite can be:
-    - A data: URL with base64-encoded JSON (from spawn_agent)
-    - A standard deaddrop invite URL (claimed from deaddrop server)
+    The invite URL format is: https://server/join/{invite_id}#{key}?room=...&coordinator=...
+    - Server domain is extracted from the URL itself
+    - Encryption key is in the fragment
+    - Coordination metadata (room, coordinator) is in query params
+
+    Legacy data: URLs are still supported for backwards compatibility.
 
     Args:
         invite_url: Invite URL (defaults to DEADDROP_INVITE_URL env var)
-        server_url: Optional server URL override
+        server_url: Optional server URL override (usually not needed)
 
     Returns:
         WorkerBootstrapResult with context and connection info
@@ -120,6 +123,8 @@ def claim_invite_and_connect(
         RuntimeError: If invite URL not provided or invalid
         ConnectionError: If unable to connect to deaddrop server
     """
+    from urllib.parse import urlparse, parse_qs
+
     # Get invite URL
     invite_url = invite_url or get_invite_from_env()
     if not invite_url:
@@ -128,31 +133,47 @@ def claim_invite_and_connect(
             "or pass invite_url parameter."
         )
 
-    # Get server URL
-    server_url = server_url or os.environ.get(DEADDROP_SERVER_URL)
-
-    # Create deaddrop client
-    if server_url:
-        deaddrop = Deaddrop(server_url)
-    else:
-        # Default deaddrop server
-        deaddrop = Deaddrop()
-
     # Parse invite - handle different formats
     if invite_url.startswith("data:"):
-        # Coordinator-generated invite with embedded credentials
+        # Legacy: Coordinator-generated invite with embedded credentials
         logger.info("Parsing embedded credentials from data URL...")
         try:
             claim_result = _parse_data_url_invite(invite_url)
         except ValueError as e:
             raise RuntimeError(f"Invalid invite data: {e}") from e
-    else:
-        # Standard deaddrop invite URL - claim from server
-        logger.info(f"Claiming invite from server: {invite_url[:50]}...")
+
+        # For data URLs, we need a server URL from env or param
+        effective_server_url = server_url or os.environ.get(DEADDROP_SERVER_URL)
+        if effective_server_url:
+            deaddrop = Deaddrop.remote(url=effective_server_url)
+        else:
+            deaddrop = Deaddrop()  # Auto-discover
+
+        # Extract coordination metadata from data URL payload
+        room_id = claim_result.get("room_id")
+        coordinator_id = claim_result.get("coordinator_id")
+
+    elif invite_url.startswith("http://") or invite_url.startswith("https://"):
+        # Standard deaddrop invite URL - server is in the URL itself
+        parsed = urlparse(invite_url)
+        extracted_server_url = f"{parsed.scheme}://{parsed.netloc}"
+
+        # Use explicit server_url if provided, otherwise extract from invite URL
+        effective_server_url = server_url or extracted_server_url
+        deaddrop = Deaddrop.remote(url=effective_server_url)
+
+        # Extract coordination metadata from query params
+        query_params = parse_qs(parsed.query)
+        room_id = query_params.get("room", [None])[0]
+        coordinator_id = query_params.get("coordinator", [None])[0]
+
+        logger.info(f"Claiming invite from server: {effective_server_url}...")
         try:
             claim_result = deaddrop.claim_invite(invite_url)
         except Exception as e:
             raise ConnectionError(f"Failed to claim invite: {e}") from e
+    else:
+        raise RuntimeError(f"Invalid invite URL format: {invite_url[:50]}...")
 
     # Extract credentials from claim result
     identity_id = claim_result.get("identity_id") or claim_result.get("id")
@@ -168,14 +189,8 @@ def claim_invite_and_connect(
             f"Invalid claim result, missing required fields: {claim_result}"
         )
 
-    # Look up room info - coordinator puts workers in the coordination room
-    # The invite metadata should include the room_id and coordinator_id
-    room_id = claim_result.get("room_id")
-    coordinator_id = claim_result.get("coordinator_id")
-
-    # If not in invite, try to get from namespace info
+    # If we still don't have room/coordinator info, try to get from namespace
     if not room_id or not coordinator_id:
-        # Get namespace info to find room
         try:
             ns_info = deaddrop.get_namespace(
                 ns=namespace_id,
@@ -185,7 +200,7 @@ def claim_invite_and_connect(
             if "rooms" in ns_info:
                 for room in ns_info["rooms"]:
                     if room.get("name") == "coordination":
-                        room_id = room.get("id")
+                        room_id = room_id or room.get("id")
                         break
         except Exception:
             logger.warning("Could not retrieve namespace info for room discovery")

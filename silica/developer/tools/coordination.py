@@ -514,32 +514,49 @@ def spawn_agent(
     # Add agent to coordination room
     session.add_agent_to_room(agent_id)
 
-    # Build the invite URL that the worker will use to connect
-    # For now, we'll encode the necessary info that worker_bootstrap.py expects
-    # Format: deaddrop://<server>/<ns_id>/<identity_id>/<identity_secret>?room=<room_id>&coordinator=<coord_id>
-    # In practice this would be a proper invite URL from deaddrop
+    # Create a proper deaddrop invite URL for the worker
+    # The invite URL contains the server domain, so workers can connect without
+    # needing a separate DEADDROP_URL environment variable
+    invite = session.deaddrop.create_invite(
+        ns=session.namespace_id,
+        identity_id=worker_identity["id"],
+        identity_secret=worker_identity["secret"],
+        ns_secret=session.namespace_secret,
+        display_name=f"Worker: {display_name}",
+    )
 
-    # For in-memory testing and initial implementation, we'll return the raw credentials
-    # The worker bootstrap can handle both invite URLs and raw credentials
-    invite_data = {
-        "namespace_id": session.namespace_id,
-        "namespace_secret": session.namespace_secret,
-        "identity_id": worker_identity["id"],
-        "identity_secret": worker_identity["secret"],
-        "room_id": session.state.room_id,
-        "coordinator_id": session.state.coordinator_id,
-    }
+    # The invite URL is the primary way to share credentials
+    # We also include room_id and coordinator_id as query params for coordination
+    invite_url = invite["invite_url"]
 
-    # Encode as a simple base64 JSON string for the env var
-    import json
-    import base64
+    # Add coordination metadata as query parameters
+    # (These could also be stored on the server, but query params are simpler)
+    from urllib.parse import urlencode, urlparse, urlunparse
 
-    invite_json = json.dumps(invite_data)
-    invite_encoded = base64.b64encode(invite_json.encode()).decode()
+    parsed = urlparse(invite_url)
+    # Preserve the fragment (encryption key) while adding query params
+    coord_params = urlencode(
+        {
+            "room": session.state.room_id,
+            "coordinator": session.state.coordinator_id,
+        }
+    )
+    # Combine with any existing query string
+    new_query = f"{parsed.query}&{coord_params}" if parsed.query else coord_params
+    invite_url = urlunparse(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path,
+            parsed.params,
+            new_query,
+            parsed.fragment,
+        )
+    )
 
     # Build spawn instructions
     env_vars = {
-        "DEADDROP_INVITE_URL": f"data:application/json;base64,{invite_encoded}",
+        "DEADDROP_INVITE_URL": invite_url,
         "COORDINATION_AGENT_ID": agent_id,
     }
 

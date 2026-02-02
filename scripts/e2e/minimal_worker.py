@@ -7,27 +7,28 @@ This script simulates a worker agent that:
 3. Sends Idle message to coordinator
 4. Waits for messages and responds
 
-Run with: DEADDROP_INVITE_URL=data:... python minimal_worker.py
+Run with: DEADDROP_INVITE_URL=<url> python minimal_worker.py
+
+The invite URL can be:
+- A data: URL (legacy): data:application/json;base64,<encoded-json>
+- A deaddrop invite URL: https://server/join/{id}#{key}?room=...&coordinator=...
 """
 
-import json
 import os
 import sys
 import time
-import base64
 from datetime import datetime
 
 # Add silica to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
-from deadrop import Deaddrop
 from silica.developer.coordination import (
-    CoordinationContext,
     Idle,
     TaskAck,
     Progress,
     Result,
 )
+from silica.developer.coordination.worker_bootstrap import claim_invite_and_connect
 
 
 def log(msg: str):
@@ -36,65 +37,24 @@ def log(msg: str):
     print(f"[{ts}] {msg}", flush=True)
 
 
-def parse_invite_url() -> dict:
-    """Parse the DEADDROP_INVITE_URL environment variable.
-
-    Returns:
-        Dict with namespace_id, namespace_secret, identity_id, identity_secret,
-        room_id, coordinator_id
-    """
-    invite_url = os.environ.get("DEADDROP_INVITE_URL")
-    if not invite_url:
-        raise ValueError("DEADDROP_INVITE_URL environment variable not set")
-
-    # Parse data: URL format
-    if invite_url.startswith("data:"):
-        # data:application/json;base64,<base64-encoded-json>
-        parts = invite_url.split(",", 1)
-        if len(parts) != 2:
-            raise ValueError(f"Invalid data: URL format: {invite_url[:50]}...")
-        encoded = parts[1]
-        decoded = base64.b64decode(encoded).decode()
-        return json.loads(decoded)
-
-    raise ValueError(f"Unsupported invite URL format: {invite_url[:50]}...")
-
-
-def get_deaddrop_url() -> str:
-    """Get the deaddrop server URL from environment or default."""
-    return os.environ.get("DEADDROP_URL", "http://127.0.0.1:8765")
-
-
 def main():
     """Main worker loop."""
     log("Worker starting...")
 
-    # Parse invite
+    # Bootstrap: parse invite and connect
     try:
-        invite = parse_invite_url()
-        log(f"Parsed invite for namespace {invite['namespace_id'][:8]}...")
+        bootstrap = claim_invite_and_connect()
+        log(f"Connected to namespace {bootstrap.namespace_id[:8]}...")
+        log(f"Agent ID: {bootstrap.agent_id}")
     except Exception as e:
-        log(f"ERROR: Failed to parse invite: {e}")
+        log(f"ERROR: Failed to bootstrap: {e}")
+        import traceback
+
+        traceback.print_exc()
         sys.exit(1)
 
-    # Connect to deaddrop
-    deaddrop_url = get_deaddrop_url()
-    log(f"Connecting to {deaddrop_url}")
-    deaddrop = Deaddrop.remote(url=deaddrop_url)
-
-    # Create coordination context
-    context = CoordinationContext(
-        deaddrop=deaddrop,
-        namespace_id=invite["namespace_id"],
-        namespace_secret=invite["namespace_secret"],
-        identity_id=invite["identity_id"],
-        identity_secret=invite["identity_secret"],
-        room_id=invite.get("room_id"),
-        coordinator_id=invite.get("coordinator_id"),
-    )
-
-    agent_id = os.environ.get("COORDINATION_AGENT_ID", "unknown-agent")
-    log(f"Agent ID: {agent_id}")
+    context = bootstrap.context
+    agent_id = bootstrap.agent_id
 
     # Send Idle message
     log("Sending Idle message to room...")
@@ -188,6 +148,9 @@ def main():
             running = False
         except Exception as e:
             log(f"ERROR in loop: {e}")
+            import traceback
+
+            traceback.print_exc()
             time.sleep(5)  # Back off on error
 
     log("Worker exiting.")
