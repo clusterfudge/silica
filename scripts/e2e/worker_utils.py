@@ -1,9 +1,8 @@
 """Utilities for spawning and managing workers in E2E tests."""
 
-import json
 import os
 import subprocess
-import base64
+from urllib.parse import urlencode, urlparse, urlunparse
 
 
 def create_worker_invite(
@@ -35,48 +34,61 @@ def create_worker_invite(
         secret=coordinator_secret,
     )
 
-    # Create invite URL (data: format)
-    invite_data = {
-        "namespace_id": namespace_id,
-        "namespace_secret": namespace_secret,
-        "identity_id": worker["id"],
-        "identity_secret": worker["secret"],
-        "room_id": room_id,
-        "coordinator_id": coordinator_id,
-    }
-    invite_json = json.dumps(invite_data)
-    invite_encoded = base64.b64encode(invite_json.encode()).decode()
-    invite_url = f"data:application/json;base64,{invite_encoded}"
+    # Create real invite URL using deaddrop's invite system
+    invite = deaddrop.create_invite(
+        ns=namespace_id,
+        identity_id=worker["id"],
+        identity_secret=worker["secret"],
+        ns_secret=namespace_secret,
+        display_name=f"Worker: {worker_name}",
+    )
+
+    # Add coordination metadata as query parameters
+    invite_url = invite["invite_url"]
+    parsed = urlparse(invite_url)
+    coord_params = urlencode(
+        {
+            "room": room_id,
+            "coordinator": coordinator_id,
+        }
+    )
+    new_query = f"{parsed.query}&{coord_params}" if parsed.query else coord_params
+    invite_url = urlunparse(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path,
+            parsed.params,
+            new_query,
+            parsed.fragment,
+        )
+    )
 
     return worker, invite_url
 
 
-def spawn_worker_in_tmux(
-    session_name: str, invite_url: str, agent_id: str, deaddrop_url: str
-) -> bool:
+def spawn_worker_in_tmux(session_name: str, invite_url: str, agent_id: str) -> bool:
     """Spawn a worker process in tmux.
 
     Args:
         session_name: Name for the tmux session
-        invite_url: Invite URL for the worker
+        invite_url: Invite URL for the worker (includes server domain)
         agent_id: Agent ID for the worker
-        deaddrop_url: URL of the deaddrop server
 
     Returns:
         True if spawn succeeded
     """
     script_dir = os.path.dirname(__file__)
-    spawn_script = os.path.join(script_dir, "spawn_worker.sh")
-
-    # Pass DEADDROP_URL through environment
-    env = os.environ.copy()
-    env["DEADDROP_URL"] = deaddrop_url
 
     result = subprocess.run(
-        [spawn_script, session_name, invite_url, agent_id],
+        [
+            os.path.join(script_dir, "spawn_worker.sh"),
+            session_name,
+            invite_url,
+            agent_id,
+        ],
         capture_output=True,
         text=True,
-        env=env,
     )
 
     if result.returncode != 0:

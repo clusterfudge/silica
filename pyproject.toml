@@ -108,3 +108,6 @@ markers = [
 asyncio_mode = "auto"
 
 
+
+[tool.uv.sources]
+deaddrop = { path = "../deaddrop", editable = true }

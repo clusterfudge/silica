@@ -1,26 +1,15 @@
 #!/usr/bin/env python3
-"""E2E Test: Spawn multiple workers simultaneously.
-
-This test:
-1. Creates a coordination session
-2. Spawns 3 workers in parallel
-3. Verifies all send Idle messages
-4. Cleans up
-
-Run with: uv run python scripts/e2e/test_multiple_workers.py
-"""
+"""E2E Test: Spawn multiple workers."""
 
 import os
 import sys
 import time
-import subprocess
-import json
-import base64
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from config import get_e2e_deaddrop, test_namespace
+from worker_utils import create_worker_invite, spawn_worker_in_tmux, kill_tmux_session
 from silica.developer.coordination import CoordinationContext, Idle
 
 
@@ -29,63 +18,16 @@ def log(msg: str):
     print(f"[{ts}] {msg}", flush=True)
 
 
-def create_worker_invite(deaddrop, ns, coordinator, room, worker_name):
-    worker = deaddrop.create_identity(
-        ns=ns["ns"],
-        display_name=worker_name,
-        ns_secret=ns["secret"],
-    )
-    deaddrop.add_room_member(
-        ns=ns["ns"],
-        room_id=room["room_id"],
-        identity_id=worker["id"],
-        secret=coordinator["secret"],
-    )
-    invite_data = {
-        "namespace_id": ns["ns"],
-        "namespace_secret": ns["secret"],
-        "identity_id": worker["id"],
-        "identity_secret": worker["secret"],
-        "room_id": room["room_id"],
-        "coordinator_id": coordinator["id"],
-    }
-    invite_json = json.dumps(invite_data)
-    invite_encoded = base64.b64encode(invite_json.encode()).decode()
-    return worker, f"data:application/json;base64,{invite_encoded}"
-
-
-def spawn_worker(session_name, invite_url, agent_id, deaddrop_url):
-    script_dir = os.path.dirname(__file__)
-    env = os.environ.copy()
-    env["DEADDROP_URL"] = deaddrop_url
-    result = subprocess.run(
-        [
-            os.path.join(script_dir, "spawn_worker.sh"),
-            session_name,
-            invite_url,
-            agent_id,
-        ],
-        capture_output=True,
-        env=env,
-        text=True,
-    )
-    return result.returncode == 0
-
-
-def kill_tmux_session(session_name):
-    subprocess.run(["tmux", "kill-session", "-t", session_name], capture_output=True)
-
-
 def main():
     print("=" * 60)
     print("E2E Test: Spawn Multiple Workers")
     print("=" * 60)
 
-    NUM_WORKERS = 3
     deaddrop = get_e2e_deaddrop()
     log(f"Connected to: {deaddrop.location}")
 
     sessions = []
+    num_workers = 3
 
     with test_namespace(deaddrop, prefix="multi-worker-test") as ns:
         log(f"Created namespace: {ns['ns'][:8]}...")
@@ -109,61 +51,59 @@ def main():
             room_id=room["room_id"],
         )
 
-        # Spawn workers
-        workers = []
-        for i in range(NUM_WORKERS):
-            worker_name = f"Worker-{i + 1}"
-            agent_id = f"agent-{i + 1:03d}"
-            session_name = f"e2e-multi-worker-{i + 1}"
-            sessions.append(session_name)
+        try:
+            # Spawn workers
+            expected_agents = []
+            for i in range(num_workers):
+                worker, invite_url = create_worker_invite(
+                    deaddrop,
+                    ns["ns"],
+                    ns["secret"],
+                    coordinator["id"],
+                    coordinator["secret"],
+                    room["room_id"],
+                    f"Worker-{i+1}",
+                )
+                agent_id = f"agent-{i+1:03d}"
+                session_name = f"e2e-multi-{i+1}"
+                sessions.append(session_name)
+                expected_agents.append(agent_id)
 
-            worker, invite_url = create_worker_invite(
-                deaddrop, ns, coordinator, room, worker_name
-            )
-            workers.append({"agent_id": agent_id, "idle_received": False})
+                if not spawn_worker_in_tmux(session_name, invite_url, agent_id):
+                    log(f"FAILED to spawn worker {i+1}")
+                    return False
+                log(f"Spawned Worker-{i+1} ({agent_id})")
 
-            if spawn_worker(session_name, invite_url, agent_id, deaddrop.location):
-                log(f"Spawned {worker_name} ({agent_id})")
-            else:
-                log(f"FAILED to spawn {worker_name}")
+            # Wait for all Idle messages
+            log(f"Waiting for {num_workers} Idle messages...")
+            received_agents = set()
+            timeout = 30
+            start = time.time()
+
+            while time.time() - start < timeout and len(received_agents) < num_workers:
+                messages = context.receive_messages(wait=3, include_room=True)
+                for msg in messages:
+                    if isinstance(msg.message, Idle):
+                        agent = msg.message.agent_id
+                        if agent in expected_agents and agent not in received_agents:
+                            received_agents.add(agent)
+                            log(f"✓ Received Idle from {agent}")
+
+            if len(received_agents) < num_workers:
+                log(
+                    f"FAILED: Only received {len(received_agents)}/{num_workers} Idle messages"
+                )
                 return False
 
-        # Wait for all Idle messages
-        log(f"Waiting for {NUM_WORKERS} Idle messages...")
-        timeout = 30
-        start = time.time()
-
-        while time.time() - start < timeout:
-            messages = context.receive_messages(wait=5, include_room=True)
-
-            for msg in messages:
-                if isinstance(msg.message, Idle):
-                    agent_id = msg.message.agent_id
-                    for w in workers:
-                        if w["agent_id"] == agent_id and not w["idle_received"]:
-                            w["idle_received"] = True
-                            log(f"✓ Received Idle from {agent_id}")
-
-            # Check if all received
-            if all(w["idle_received"] for w in workers):
-                break
-
-        # Verify
-        all_received = all(w["idle_received"] for w in workers)
-        received_count = sum(1 for w in workers if w["idle_received"])
-
-        for session in sessions:
-            kill_tmux_session(session)
-
-        if all_received:
             print()
             print("=" * 60)
-            print(f"✓ All {NUM_WORKERS} workers spawned and sent Idle!")
+            print(f"✓ All {num_workers} workers spawned and sent Idle!")
             print("=" * 60)
             return True
-        else:
-            log(f"FAILED: Only {received_count}/{NUM_WORKERS} workers sent Idle")
-            return False
+
+        finally:
+            for session in sessions:
+                kill_tmux_session(session)
 
 
 if __name__ == "__main__":

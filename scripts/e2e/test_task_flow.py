@@ -16,14 +16,12 @@ Set DEADDROP_E2E_REMOTE=1 for remote testing.
 import os
 import sys
 import time
-import subprocess
-import json
-import base64
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from config import get_e2e_deaddrop, test_namespace
+from worker_utils import create_worker_invite, spawn_worker_in_tmux, kill_tmux_session
 from silica.developer.coordination import (
     CoordinationContext,
     Idle,
@@ -37,65 +35,6 @@ from silica.developer.coordination import (
 def log(msg: str):
     ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
     print(f"[{ts}] {msg}", flush=True)
-
-
-def create_worker_invite(deaddrop, ns, coordinator, room, worker_name):
-    worker = deaddrop.create_identity(
-        ns=ns["ns"], display_name=worker_name, ns_secret=ns["secret"]
-    )
-    deaddrop.add_room_member(
-        ns=ns["ns"],
-        room_id=room["room_id"],
-        identity_id=worker["id"],
-        secret=coordinator["secret"],
-    )
-    invite_data = {
-        "namespace_id": ns["ns"],
-        "namespace_secret": ns["secret"],
-        "identity_id": worker["id"],
-        "identity_secret": worker["secret"],
-        "room_id": room["room_id"],
-        "coordinator_id": coordinator["id"],
-    }
-    invite_json = json.dumps(invite_data)
-    invite_encoded = base64.b64encode(invite_json.encode()).decode()
-    return worker, f"data:application/json;base64,{invite_encoded}"
-
-
-def spawn_worker(session_name, invite_url, agent_id, deaddrop_url):
-    """Spawn a worker process in tmux.
-
-    Args:
-        session_name: Name for the tmux session
-        invite_url: Invite URL for the worker
-        agent_id: Agent ID for the worker
-        deaddrop_url: URL of the deaddrop server
-
-    Returns:
-        True if spawn succeeded
-    """
-    script_dir = os.path.dirname(__file__)
-
-    # Pass DEADDROP_URL through environment
-    env = os.environ.copy()
-    env["DEADDROP_URL"] = deaddrop_url
-
-    result = subprocess.run(
-        [
-            os.path.join(script_dir, "spawn_worker.sh"),
-            session_name,
-            invite_url,
-            agent_id,
-        ],
-        capture_output=True,
-        text=True,
-        env=env,
-    )
-    return result.returncode == 0
-
-
-def kill_tmux_session(session_name):
-    subprocess.run(["tmux", "kill-session", "-t", session_name], capture_output=True)
 
 
 def main():
@@ -120,7 +59,13 @@ def main():
             display_name="Coordination",
         )
         worker, invite_url = create_worker_invite(
-            deaddrop, ns, coordinator, room, "TaskWorker"
+            deaddrop,
+            ns["ns"],
+            ns["secret"],
+            coordinator["id"],
+            coordinator["secret"],
+            room["room_id"],
+            "TaskWorker",
         )
 
         agent_id = "task-worker-001"
@@ -134,8 +79,8 @@ def main():
         )
 
         try:
-            # Spawn worker, passing deaddrop URL
-            if not spawn_worker(session_name, invite_url, agent_id, deaddrop.location):
+            # Spawn worker
+            if not spawn_worker_in_tmux(session_name, invite_url, agent_id):
                 log("FAILED to spawn worker")
                 return False
             log("Worker spawned")
@@ -173,7 +118,6 @@ def main():
             received_result = False
             final_idle = False
 
-            # Worker polls every 30s, so we need to wait up to 60s for full cycle
             timeout = 60
             start = time.time()
 
@@ -206,7 +150,6 @@ def main():
                             log("✓ Final Idle (after task)")
                             final_idle = True
 
-                # Check if all expected messages received
                 if (
                     received_ack
                     and progress_count >= 2

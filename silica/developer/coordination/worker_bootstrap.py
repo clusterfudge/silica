@@ -5,10 +5,11 @@ Workers detect their coordination context via environment variables and connect
 to the coordinator's deaddrop namespace.
 """
 
-import os
 import logging
-from typing import Optional
+import os
 from dataclasses import dataclass
+from typing import Optional
+from urllib.parse import parse_qs, urlparse
 
 from deadrop import Deaddrop
 
@@ -19,7 +20,6 @@ logger = logging.getLogger(__name__)
 
 # Environment variable names
 DEADDROP_INVITE_URL = "DEADDROP_INVITE_URL"
-DEADDROP_SERVER_URL = "DEADDROP_SERVER_URL"
 COORDINATION_AGENT_ID = "COORDINATION_AGENT_ID"
 
 
@@ -36,85 +36,32 @@ class WorkerBootstrapResult:
 
 
 def get_invite_from_env() -> Optional[str]:
-    """Check if coordination invite URL is in environment.
-
-    Returns:
-        Invite URL if present, None otherwise
-    """
+    """Check if coordination invite URL is in environment."""
     return os.environ.get(DEADDROP_INVITE_URL)
 
 
 def get_agent_id_from_env() -> Optional[str]:
-    """Get agent ID from environment.
-
-    Returns:
-        Agent ID if present, None otherwise
-    """
+    """Get agent ID from environment."""
     return os.environ.get(COORDINATION_AGENT_ID)
 
 
 def is_coordinated_worker() -> bool:
-    """Check if this agent should run as a coordinated worker.
-
-    Returns:
-        True if coordination environment variables are set
-    """
+    """Check if this agent should run as a coordinated worker."""
     return get_invite_from_env() is not None
-
-
-def _parse_data_url_invite(invite_url: str) -> dict:
-    """Parse a data: URL containing base64-encoded JSON credentials.
-
-    The coordinator's spawn_agent creates invites in this format:
-    data:application/json;base64,<base64-encoded-json>
-
-    Args:
-        invite_url: The data URL to parse
-
-    Returns:
-        Dictionary with credential fields
-
-    Raises:
-        ValueError: If URL format is invalid
-    """
-    import json
-    import base64
-
-    if not invite_url.startswith("data:application/json;base64,"):
-        raise ValueError(f"Invalid data URL format: {invite_url[:50]}...")
-
-    # Extract the base64 part after the prefix
-    prefix = "data:application/json;base64,"
-    encoded_data = invite_url[len(prefix) :]
-
-    try:
-        decoded_bytes = base64.b64decode(encoded_data)
-        return json.loads(decoded_bytes.decode("utf-8"))
-    except Exception as e:
-        raise ValueError(f"Failed to decode invite data: {e}") from e
 
 
 def claim_invite_and_connect(
     invite_url: Optional[str] = None,
-    server_url: Optional[str] = None,
 ) -> WorkerBootstrapResult:
     """Claim a deaddrop invite and connect to the coordination namespace.
-
-    This is the main entry point for worker bootstrap. It:
-    1. Reads invite URL from parameter or environment
-    2. Parses credentials (from deaddrop invite URL or legacy data: URL)
-    3. Creates a CoordinationContext for communication
 
     The invite URL format is: https://server/join/{invite_id}#{key}?room=...&coordinator=...
     - Server domain is extracted from the URL itself
     - Encryption key is in the fragment
     - Coordination metadata (room, coordinator) is in query params
 
-    Legacy data: URLs are still supported for backwards compatibility.
-
     Args:
         invite_url: Invite URL (defaults to DEADDROP_INVITE_URL env var)
-        server_url: Optional server URL override (usually not needed)
 
     Returns:
         WorkerBootstrapResult with context and connection info
@@ -123,9 +70,6 @@ def claim_invite_and_connect(
         RuntimeError: If invite URL not provided or invalid
         ConnectionError: If unable to connect to deaddrop server
     """
-    from urllib.parse import urlparse, parse_qs
-
-    # Get invite URL
     invite_url = invite_url or get_invite_from_env()
     if not invite_url:
         raise RuntimeError(
@@ -133,55 +77,31 @@ def claim_invite_and_connect(
             "or pass invite_url parameter."
         )
 
-    # Parse invite - handle different formats
-    if invite_url.startswith("data:"):
-        # Legacy: Coordinator-generated invite with embedded credentials
-        logger.info("Parsing embedded credentials from data URL...")
-        try:
-            claim_result = _parse_data_url_invite(invite_url)
-        except ValueError as e:
-            raise RuntimeError(f"Invalid invite data: {e}") from e
-
-        # For data URLs, we need a server URL from env or param
-        effective_server_url = server_url or os.environ.get(DEADDROP_SERVER_URL)
-        if effective_server_url:
-            deaddrop = Deaddrop.remote(url=effective_server_url)
-        else:
-            deaddrop = Deaddrop()  # Auto-discover
-
-        # Extract coordination metadata from data URL payload
-        room_id = claim_result.get("room_id")
-        coordinator_id = claim_result.get("coordinator_id")
-
-    elif invite_url.startswith("http://") or invite_url.startswith("https://"):
-        # Standard deaddrop invite URL - server is in the URL itself
-        parsed = urlparse(invite_url)
-        extracted_server_url = f"{parsed.scheme}://{parsed.netloc}"
-
-        # Use explicit server_url if provided, otherwise extract from invite URL
-        effective_server_url = server_url or extracted_server_url
-        deaddrop = Deaddrop.remote(url=effective_server_url)
-
-        # Extract coordination metadata from query params
-        query_params = parse_qs(parsed.query)
-        room_id = query_params.get("room", [None])[0]
-        coordinator_id = query_params.get("coordinator", [None])[0]
-
-        logger.info(f"Claiming invite from server: {effective_server_url}...")
-        try:
-            claim_result = deaddrop.claim_invite(invite_url)
-        except Exception as e:
-            raise ConnectionError(f"Failed to claim invite: {e}") from e
-    else:
+    # Parse invite URL
+    if not (invite_url.startswith("http://") or invite_url.startswith("https://")):
         raise RuntimeError(f"Invalid invite URL format: {invite_url[:50]}...")
 
-    # Extract credentials from claim result
-    identity_id = claim_result.get("identity_id") or claim_result.get("id")
-    identity_secret = claim_result.get("identity_secret") or claim_result.get("secret")
-    namespace_id = claim_result.get("namespace_id") or claim_result.get("ns")
-    namespace_secret = claim_result.get("namespace_secret") or claim_result.get(
-        "ns_secret"
-    )
+    parsed = urlparse(invite_url)
+    server_url = f"{parsed.scheme}://{parsed.netloc}"
+
+    # Extract coordination metadata from query params
+    query_params = parse_qs(parsed.query)
+    room_id = query_params.get("room", [None])[0]
+    coordinator_id = query_params.get("coordinator", [None])[0]
+
+    # Connect and claim
+    deaddrop = Deaddrop.remote(url=server_url)
+    logger.info(f"Claiming invite from server: {server_url}...")
+
+    try:
+        claim_result = deaddrop.claim_invite(invite_url)
+    except Exception as e:
+        raise ConnectionError(f"Failed to claim invite: {e}") from e
+
+    # Extract credentials
+    identity_id = claim_result.get("identity_id")
+    identity_secret = claim_result.get("secret")
+    namespace_id = claim_result.get("ns")
     display_name = claim_result.get("display_name", "Worker")
 
     if not all([identity_id, identity_secret, namespace_id]):
@@ -189,36 +109,18 @@ def claim_invite_and_connect(
             f"Invalid claim result, missing required fields: {claim_result}"
         )
 
-    # If we still don't have room/coordinator info, try to get from namespace
-    if not room_id or not coordinator_id:
-        try:
-            ns_info = deaddrop.get_namespace(
-                ns=namespace_id,
-                secret=namespace_secret,
-            )
-            # Look for a "coordination" room
-            if "rooms" in ns_info:
-                for room in ns_info["rooms"]:
-                    if room.get("name") == "coordination":
-                        room_id = room_id or room.get("id")
-                        break
-        except Exception:
-            logger.warning("Could not retrieve namespace info for room discovery")
-
     # Create coordination context
     context = CoordinationContext(
         deaddrop=deaddrop,
         namespace_id=namespace_id,
-        namespace_secret=namespace_secret,
+        namespace_secret=None,  # Workers don't get namespace secret
         identity_id=identity_id,
         identity_secret=identity_secret,
         room_id=room_id,
         coordinator_id=coordinator_id,
     )
 
-    # Get agent ID from environment or generate from identity
     agent_id = get_agent_id_from_env() or f"worker-{identity_id[:8]}"
-
     logger.info(f"Worker connected as {display_name} (ID: {agent_id})")
 
     return WorkerBootstrapResult(
@@ -232,14 +134,7 @@ def claim_invite_and_connect(
 
 
 def setup_worker_tools(bootstrap_result: WorkerBootstrapResult) -> None:
-    """Set up worker coordination tools with the bootstrap context.
-
-    This configures the worker_coordination module's global context
-    so the tools (check_inbox, send_to_coordinator, etc.) work.
-
-    Args:
-        bootstrap_result: Result from claim_invite_and_connect()
-    """
+    """Set up worker coordination tools with the bootstrap context."""
     from silica.developer.tools.worker_coordination import set_worker_context
 
     set_worker_context(
@@ -253,16 +148,7 @@ def setup_worker_sandbox_permissions(
     bootstrap_result: WorkerBootstrapResult,
     timeout: float = 300.0,
 ) -> None:
-    """Configure sandbox to use coordination-based permissions.
-
-    This replaces the sandbox's permission callbacks with ones that
-    send permission requests to the coordinator via deaddrop.
-
-    Args:
-        sandbox: The Sandbox instance to configure
-        bootstrap_result: The worker bootstrap result with context
-        timeout: Timeout in seconds for permission requests (default 5 min)
-    """
+    """Configure sandbox to use coordination-based permissions."""
     from silica.developer.coordination.worker_permissions import (
         setup_worker_sandbox_permissions as _setup_permissions,
     )
@@ -277,51 +163,24 @@ def setup_worker_sandbox_permissions(
 
 def bootstrap_worker(
     invite_url: Optional[str] = None,
-    server_url: Optional[str] = None,
 ) -> Optional[WorkerBootstrapResult]:
-    """Full worker bootstrap - connect and set up tools.
-
-    Convenience function that combines claim_invite_and_connect()
-    and setup_worker_tools().
-
-    Args:
-        invite_url: Optional invite URL override
-        server_url: Optional server URL override
-
-    Returns:
-        WorkerBootstrapResult if successful, None if not a coordinated worker
-
-    Raises:
-        RuntimeError, ConnectionError: If bootstrap fails
-    """
-    # Check if we should bootstrap
+    """Full worker bootstrap - connect and set up tools."""
     if not invite_url and not is_coordinated_worker():
         return None
 
-    # Connect
-    result = claim_invite_and_connect(
-        invite_url=invite_url,
-        server_url=server_url,
-    )
-
-    # Set up tools
+    result = claim_invite_and_connect(invite_url=invite_url)
     setup_worker_tools(result)
-
     return result
 
 
 def get_worker_persona():
-    """Get the worker persona for coordinated workers.
+    """Get the worker persona for coordinated workers."""
+    from pathlib import Path
 
-    Returns:
-        Persona object configured for worker agents
-    """
     from silica.developer import personas
     from silica.developer.personas.worker_agent import PERSONA as WORKER_PERSONA
     from silica.developer.utils import wrap_text_as_content_block
-    from pathlib import Path
 
-    # Create a Persona object with the worker persona prompt
     return personas.Persona(
         system_block=wrap_text_as_content_block(WORKER_PERSONA),
         base_directory=Path("~/.silica/personas/coordination_worker").expanduser(),
@@ -331,21 +190,10 @@ def get_worker_persona():
 def integrate_worker_startup(
     user_interface,
 ) -> Optional[WorkerBootstrapResult]:
-    """Integrate worker coordination into agent startup.
-
-    This is the main entry point called from hdev.py when starting an agent.
-    It checks for coordination environment variables and bootstraps if present.
-
-    Args:
-        user_interface: The user interface for status messages
-
-    Returns:
-        WorkerBootstrapResult if this is a coordinated worker, None otherwise
-    """
+    """Integrate worker coordination into agent startup."""
     if not is_coordinated_worker():
         return None
 
-    # Show coordination status
     user_interface.handle_system_message(
         "[bold cyan]🤝 Coordination Mode Detected[/bold cyan]\n"
         "Connecting to coordinator...",
@@ -356,7 +204,6 @@ def integrate_worker_startup(
         result = bootstrap_worker()
 
         if result:
-            # Send Idle message to coordinator to signal we're ready
             from silica.developer.coordination import Idle
 
             idle_msg = Idle(agent_id=result.agent_id)
@@ -381,17 +228,7 @@ def integrate_worker_startup(
 
 
 def get_worker_initial_prompt(bootstrap_result: WorkerBootstrapResult) -> str:
-    """Generate the initial prompt for a worker agent.
-
-    This prompt kicks off the task execution loop by having the worker
-    check their inbox for task assignments.
-
-    Args:
-        bootstrap_result: The bootstrap result with connection info
-
-    Returns:
-        Initial prompt string to start the worker agent loop
-    """
+    """Generate the initial prompt for a worker agent."""
     return f"""You are now connected to a coordination session as Worker Agent "{bootstrap_result.display_name}" (ID: {bootstrap_result.agent_id}).
 
 **Your first action: Check your inbox for task assignments.**
@@ -411,14 +248,7 @@ Begin by checking your inbox now."""
 
 
 def create_worker_task_loop_prompt() -> str:
-    """Create a prompt that reminds the worker to continue the task loop.
-
-    This can be injected into the conversation when the worker seems
-    to have completed a task but hasn't checked for the next one.
-
-    Returns:
-        Prompt string to continue the task loop
-    """
+    """Create a prompt that reminds the worker to continue the task loop."""
     return """**Task Loop Reminder**
 
 You've completed your current task. To continue working:
@@ -435,18 +265,9 @@ def handle_worker_termination(
     user_interface,
     reason: Optional[str] = None,
 ) -> None:
-    """Handle graceful worker termination.
-
-    Called when the worker receives a termination message or needs to shut down.
-
-    Args:
-        bootstrap_result: The bootstrap result with connection info
-        user_interface: The user interface for status messages
-        reason: Optional reason for termination
-    """
+    """Handle graceful worker termination."""
     from silica.developer.coordination import Result
 
-    # Send final result acknowledging termination
     result_msg = Result(
         task_id="termination",
         status="terminated",
