@@ -180,6 +180,8 @@ def poll_messages(
         lines.append(f"**Type:** {msg_type}")
 
         # Include relevant fields based on type
+        if hasattr(msg, "agent_id") and msg.agent_id:
+            lines.append(f"**Agent ID:** {msg.agent_id}")
         if hasattr(msg, "task_id") and msg.task_id:
             lines.append(f"**Task:** {msg.task_id}")
         if hasattr(msg, "status"):

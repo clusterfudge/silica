@@ -12,6 +12,7 @@ import cyclopts
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from rich.prompt import Prompt, Confirm
 
 from silica.developer.coordination.session import (
     CoordinationSession,
@@ -29,41 +30,57 @@ coordinator_app = cyclopts.App(
 )
 
 
+def _ensure_deaddrop_configured():
+    """Ensure deaddrop is configured, running init wizard if needed.
+
+    Returns:
+        Configured Deaddrop client
+    """
+    from deadrop import Deaddrop
+    from deadrop.config import GlobalConfig, init_wizard
+
+    if not GlobalConfig.exists():
+        console.print("[yellow]Deaddrop not configured.[/yellow]")
+        console.print("Let's set it up first.\n")
+        init_wizard()
+        console.print()
+
+    config = GlobalConfig.load()
+    return Deaddrop.remote(url=config.url, bearer_token=config.bearer_token)
+
+
 @coordinator_app.command(name="new")
 def coordinator_new(
     name: Annotated[
-        str,
-        cyclopts.Parameter(help="Display name for the coordination session"),
-    ] = "Coordination Session",
-    deaddrop_url: Annotated[
         Optional[str],
-        cyclopts.Parameter(help="Override deaddrop server URL"),
+        cyclopts.Parameter(help="Display name for the coordination session"),
     ] = None,
 ):
     """Create a new coordination session.
 
     Creates a new deaddrop namespace and starts the coordinator agent.
     """
-    from deadrop import Deaddrop
-
     console.print("\n[bold cyan]🤝 Creating Coordination Session[/bold cyan]\n")
 
-    # Create deaddrop client
-    if deaddrop_url:
-        deaddrop = Deaddrop(deaddrop_url)
-        console.print(f"[dim]Using custom deaddrop server: {deaddrop_url}[/dim]")
-    else:
-        deaddrop = Deaddrop()
-        console.print("[dim]Using default deaddrop server[/dim]")
+    # Ensure deaddrop is configured
+    deaddrop = _ensure_deaddrop_configured()
+    console.print(f"[dim]Using deaddrop: {deaddrop.location}[/dim]\n")
+
+    # Prompt for name if not provided
+    if not name:
+        name = Prompt.ask(
+            "Session name",
+            default="Coordination Session",
+        )
 
     # Create the session
     try:
         session = CoordinationSession.create_session(deaddrop, name)
     except Exception as e:
         console.print(f"[red]Failed to create session: {e}[/red]")
-        return
+        raise
 
-    console.print(f"[green]✓ Session created: {session.session_id}[/green]")
+    console.print(f"\n[green]✓ Session created: {session.session_id}[/green]")
     console.print(f"[dim]Namespace: {session.namespace_id}[/dim]")
     console.print(
         f"[dim]Session saved to: ~/.silica/coordination/{session.session_id}.json[/dim]"
@@ -77,29 +94,69 @@ def coordinator_new(
 @coordinator_app.command(name="resume")
 def coordinator_resume(
     session_id: Annotated[
-        str,
-        cyclopts.Parameter(help="Session ID to resume"),
-    ],
-    deaddrop_url: Annotated[
         Optional[str],
-        cyclopts.Parameter(help="Override deaddrop server URL"),
+        cyclopts.Parameter(help="Session ID to resume (interactive if not provided)"),
     ] = None,
 ):
     """Resume an existing coordination session.
 
     Reconnects to a previously created session and restarts the coordinator agent.
+    If no session_id is provided, lists available sessions for selection.
     """
-    from deadrop import Deaddrop
+    console.print("\n[bold cyan]🤝 Resuming Coordination Session[/bold cyan]\n")
 
-    console.print(
-        f"\n[bold cyan]🤝 Resuming Coordination Session: {session_id}[/bold cyan]\n"
-    )
+    # Ensure deaddrop is configured
+    deaddrop = _ensure_deaddrop_configured()
 
-    # Create deaddrop client
-    if deaddrop_url:
-        deaddrop = Deaddrop(deaddrop_url)
-    else:
-        deaddrop = Deaddrop()
+    # If no session_id provided, show interactive selection
+    if not session_id:
+        sessions = list_sessions()
+
+        if not sessions:
+            console.print("[yellow]No saved sessions found.[/yellow]")
+            console.print("[dim]Use 'silica coordinator new' to create one.[/dim]")
+            return
+
+        # Display sessions
+        table = Table(title="Available Sessions", show_header=True)
+        table.add_column("#", style="dim", width=3)
+        table.add_column("Session ID", style="cyan")
+        table.add_column("Name")
+        table.add_column("Agents", justify="right")
+        table.add_column("Created")
+
+        for i, s in enumerate(sessions, 1):
+            table.add_row(
+                str(i),
+                s["session_id"],
+                s.get("display_name", ""),
+                str(s.get("agent_count", 0)),
+                s.get("created_at", "")[:10] if s.get("created_at") else "",
+            )
+
+        console.print(table)
+        console.print()
+
+        # Prompt for selection
+        choice = Prompt.ask(
+            "Select session number (or 'q' to quit)",
+            default="1" if len(sessions) == 1 else None,
+        )
+
+        if choice.lower() == "q":
+            console.print("[yellow]Cancelled[/yellow]")
+            return
+
+        try:
+            idx = int(choice) - 1
+            if 0 <= idx < len(sessions):
+                session_id = sessions[idx]["session_id"]
+            else:
+                console.print("[red]Invalid selection[/red]")
+                return
+        except ValueError:
+            # Maybe they typed the session ID directly
+            session_id = choice
 
     # Resume the session
     try:
@@ -112,12 +169,12 @@ def coordinator_resume(
         return
     except Exception as e:
         console.print(f"[red]Failed to resume session: {e}[/red]")
-        return
+        raise
 
     state = session.get_state()
     console.print(f"[green]✓ Session resumed: {state['display_name']}[/green]")
+    console.print(f"[dim]Session ID: {state['session_id']}[/dim]")
     console.print(f"[dim]Agents: {len(state.get('agents', {}))}[/dim]")
-    console.print(f"[dim]Humans: {len(state.get('humans', {}))}[/dim]")
     console.print()
 
     # Start the coordinator agent loop
@@ -154,18 +211,49 @@ def coordinator_list():
 @coordinator_app.command(name="delete")
 def coordinator_delete(
     session_id: Annotated[
-        str,
+        Optional[str],
         cyclopts.Parameter(help="Session ID to delete"),
-    ],
+    ] = None,
     force: Annotated[
         bool,
         cyclopts.Parameter("--force", "-f", help="Skip confirmation"),
     ] = False,
 ):
     """Delete a saved coordination session."""
+    # Interactive selection if no session_id
+    if not session_id:
+        sessions = list_sessions()
+
+        if not sessions:
+            console.print("[yellow]No sessions to delete.[/yellow]")
+            return
+
+        table = Table(title="Sessions", show_header=True)
+        table.add_column("#", style="dim", width=3)
+        table.add_column("Session ID", style="cyan")
+        table.add_column("Name")
+
+        for i, s in enumerate(sessions, 1):
+            table.add_row(str(i), s["session_id"], s.get("display_name", ""))
+
+        console.print(table)
+
+        choice = Prompt.ask("Select session to delete (or 'q' to quit)")
+        if choice.lower() == "q":
+            return
+
+        try:
+            idx = int(choice) - 1
+            if 0 <= idx < len(sessions):
+                session_id = sessions[idx]["session_id"]
+            else:
+                console.print("[red]Invalid selection[/red]")
+                return
+        except ValueError:
+            session_id = choice
+
     if not force:
-        confirm = console.input(f"Delete session [cyan]{session_id}[/cyan]? [y/N] ")
-        if confirm.lower() != "y":
+        if not Confirm.ask(f"Delete session [cyan]{session_id}[/cyan]?", default=False):
             console.print("[yellow]Cancelled[/yellow]")
             return
 
@@ -178,14 +266,40 @@ def coordinator_delete(
 @coordinator_app.command(name="info")
 def coordinator_info(
     session_id: Annotated[
-        str,
+        Optional[str],
         cyclopts.Parameter(help="Session ID to inspect"),
-    ],
+    ] = None,
 ):
     """Show detailed information about a coordination session."""
-    from deadrop import Deaddrop
+    # Interactive selection if no session_id
+    if not session_id:
+        sessions = list_sessions()
 
-    deaddrop = Deaddrop()
+        if not sessions:
+            console.print("[yellow]No sessions found.[/yellow]")
+            return
+
+        if len(sessions) == 1:
+            session_id = sessions[0]["session_id"]
+        else:
+            table = Table(show_header=True)
+            table.add_column("#", style="dim", width=3)
+            table.add_column("Session ID", style="cyan")
+            table.add_column("Name")
+
+            for i, s in enumerate(sessions, 1):
+                table.add_row(str(i), s["session_id"], s.get("display_name", ""))
+
+            console.print(table)
+
+            choice = Prompt.ask("Select session", default="1")
+            try:
+                idx = int(choice) - 1
+                session_id = sessions[idx]["session_id"]
+            except (ValueError, IndexError):
+                session_id = choice
+
+    deaddrop = _ensure_deaddrop_configured()
 
     try:
         session = CoordinationSession.resume_session(deaddrop, session_id=session_id)
@@ -359,8 +473,43 @@ I'm ready to help orchestrate your multi-agent workflow."""
         set_current_session(None)
 
 
-# Default command (same as 'new')
+# Default command shows help and options
 @coordinator_app.default
 def coordinator_default():
-    """Start coordinator mode (same as 'silica coordinator new')."""
-    coordinator_new()
+    """Interactive coordinator mode."""
+    console.print("\n[bold cyan]🤝 Silica Coordinator[/bold cyan]\n")
+
+    sessions = list_sessions()
+
+    options = []
+    if sessions:
+        options.append(
+            ("resume", f"Resume existing session ({len(sessions)} available)")
+        )
+    options.append(("new", "Create new coordination session"))
+    options.append(("list", "List all sessions"))
+    options.append(("quit", "Exit"))
+
+    for i, (key, desc) in enumerate(options, 1):
+        console.print(f"  [cyan]{i}[/cyan]. {desc}")
+
+    console.print()
+    choice = Prompt.ask("Select option", default="1" if sessions else "2")
+
+    try:
+        idx = int(choice) - 1
+        if 0 <= idx < len(options):
+            action = options[idx][0]
+        else:
+            return
+    except ValueError:
+        action = choice.lower()
+
+    if action == "resume":
+        coordinator_resume()
+    elif action == "new":
+        coordinator_new()
+    elif action == "list":
+        coordinator_list()
+    elif action == "quit":
+        return
