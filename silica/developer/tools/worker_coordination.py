@@ -356,3 +356,320 @@ def request_permission_async(
     ctx.send_to_coordinator(request)
 
     return f"✓ Permission request sent (ID: {request_id}). Check inbox for response."
+
+
+# === Agent-to-Agent Communication Tools ===
+
+
+def list_workers() -> str:
+    """List other workers in this coordination session.
+
+    Returns information about other workers you can communicate with.
+
+    Returns:
+        Formatted list of workers with their IDs and status
+    """
+    ctx = get_worker_context()
+    get_worker_agent_id()
+
+    # Get room members from the coordination room
+    # Workers can see who else is in the room
+    try:
+        room_members = ctx.deaddrop.list_room_members(
+            ns=ctx.namespace_id,
+            room_id=ctx.room_id,
+            secret=ctx.identity_secret,
+        )
+    except Exception as e:
+        return f"❌ Could not list workers: {e}"
+
+    if not room_members:
+        return "No other workers found in this session."
+
+    lines = [f"**{len(room_members)} participant(s) in coordination room:**\n"]
+
+    for member in room_members:
+        member_id = member.get("identity_id", "unknown")
+        display_name = member.get("display_name", member_id[:8])
+
+        # Mark self
+        if member_id == ctx.identity_id:
+            lines.append(f"- **{display_name}** ({member_id[:8]}...) ← you")
+        elif member_id == ctx.coordinator_id:
+            lines.append(f"- **{display_name}** ({member_id[:8]}...) [coordinator]")
+        else:
+            lines.append(f"- **{display_name}** ({member_id[:8]}...)")
+
+    return "\n".join(lines)
+
+
+def send_to_worker(
+    worker_id: str,
+    message: str,
+    message_type: str = "text",
+) -> str:
+    """Send a direct message to another worker.
+
+    Args:
+        worker_id: The identity ID of the worker (or partial ID prefix)
+        message: The message content
+        message_type: Type of message ("text", "json", or custom)
+
+    Returns:
+        Confirmation or error message
+    """
+    ctx = get_worker_context()
+    agent_id = get_worker_agent_id()
+
+    # Resolve partial worker ID if needed
+    if len(worker_id) < 16:
+        # Try to find matching worker in room
+        try:
+            room_members = ctx.deaddrop.list_room_members(
+                ns=ctx.namespace_id,
+                room_id=ctx.room_id,
+                secret=ctx.identity_secret,
+            )
+            matches = [
+                m
+                for m in room_members
+                if m.get("identity_id", "").startswith(worker_id)
+            ]
+            if len(matches) == 1:
+                worker_id = matches[0]["identity_id"]
+            elif len(matches) > 1:
+                return (
+                    f"❌ Ambiguous worker ID '{worker_id}' - matches multiple workers"
+                )
+            else:
+                return f"❌ No worker found matching '{worker_id}'"
+        except Exception:
+            pass  # Fall through and try the ID as-is
+
+    # Build message body
+    import json
+
+    body = json.dumps(
+        {
+            "type": message_type,
+            "from_agent": agent_id,
+            "content": message,
+        }
+    )
+
+    try:
+        ctx.deaddrop.send_message(
+            ns=ctx.namespace_id,
+            to_id=worker_id,
+            body=body,
+            from_secret=ctx.identity_secret,
+            content_type="application/vnd.silica.worker-message+json",
+        )
+        return f"✓ Message sent to {worker_id[:8]}..."
+    except Exception as e:
+        return f"❌ Failed to send message: {e}"
+
+
+def create_collaboration_room(
+    name: str,
+    invite_workers: list[str] = None,
+) -> str:
+    """Create a room for collaborating with other workers.
+
+    Use this when you need to coordinate with specific workers on a sub-task.
+    You can invite other workers to the room.
+
+    Args:
+        name: Display name for the room
+        invite_workers: Optional list of worker identity IDs to invite
+
+    Returns:
+        Room ID and confirmation, or error message
+    """
+    ctx = get_worker_context()
+
+    try:
+        room = ctx.deaddrop.create_room(
+            ns=ctx.namespace_id,
+            creator_secret=ctx.identity_secret,
+            display_name=name,
+        )
+        room_id = room["room_id"]
+
+        lines = [f"✓ Created room: **{name}**", f"  Room ID: {room_id}"]
+
+        # Invite workers if specified
+        if invite_workers:
+            for worker_id in invite_workers:
+                try:
+                    ctx.deaddrop.add_room_member(
+                        ns=ctx.namespace_id,
+                        room_id=room_id,
+                        identity_id=worker_id,
+                        secret=ctx.identity_secret,
+                    )
+                    lines.append(f"  ✓ Invited {worker_id[:8]}...")
+                except Exception as e:
+                    lines.append(f"  ❌ Failed to invite {worker_id[:8]}...: {e}")
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        return f"❌ Failed to create room: {e}"
+
+
+def invite_to_room(
+    room_id: str,
+    worker_id: str,
+) -> str:
+    """Invite another worker to a room you're a member of.
+
+    Args:
+        room_id: The room to invite to
+        worker_id: The worker's identity ID
+
+    Returns:
+        Confirmation or error message
+    """
+    ctx = get_worker_context()
+
+    try:
+        ctx.deaddrop.add_room_member(
+            ns=ctx.namespace_id,
+            room_id=room_id,
+            identity_id=worker_id,
+            secret=ctx.identity_secret,
+        )
+        return f"✓ Invited {worker_id[:8]}... to room {room_id[:8]}..."
+    except Exception as e:
+        return f"❌ Failed to invite: {e}"
+
+
+def send_to_room(
+    room_id: str,
+    message: str,
+    message_type: str = "text",
+) -> str:
+    """Send a message to a collaboration room.
+
+    Args:
+        room_id: The room to send to
+        message: The message content
+        message_type: Type of message ("text", "json", or custom)
+
+    Returns:
+        Confirmation or error message
+    """
+    ctx = get_worker_context()
+    agent_id = get_worker_agent_id()
+
+    import json
+
+    body = json.dumps(
+        {
+            "type": message_type,
+            "from_agent": agent_id,
+            "content": message,
+        }
+    )
+
+    try:
+        ctx.deaddrop.send_room_message(
+            ns=ctx.namespace_id,
+            room_id=room_id,
+            body=body,
+            secret=ctx.identity_secret,
+            content_type="application/vnd.silica.worker-message+json",
+        )
+        return f"✓ Message sent to room {room_id[:8]}..."
+    except Exception as e:
+        return f"❌ Failed to send: {e}"
+
+
+def list_my_rooms() -> str:
+    """List rooms you're a member of.
+
+    Returns:
+        Formatted list of rooms
+    """
+    ctx = get_worker_context()
+
+    try:
+        rooms = ctx.deaddrop.list_rooms(
+            ns=ctx.namespace_id,
+            secret=ctx.identity_secret,
+        )
+    except Exception as e:
+        return f"❌ Could not list rooms: {e}"
+
+    if not rooms:
+        return "You're not a member of any rooms (besides the main coordination room)."
+
+    lines = [f"**{len(rooms)} room(s):**\n"]
+
+    for room in rooms:
+        room_id = room.get("room_id", "unknown")
+        name = room.get("display_name", "Unnamed")
+        member_count = room.get("member_count", "?")
+
+        if room_id == ctx.room_id:
+            lines.append(
+                f"- **{name}** ({room_id[:8]}...) - {member_count} members [coordination]"
+            )
+        else:
+            lines.append(f"- **{name}** ({room_id[:8]}...) - {member_count} members")
+
+    return "\n".join(lines)
+
+
+def get_room_messages(
+    room_id: str,
+    limit: int = 20,
+) -> str:
+    """Get recent messages from a room.
+
+    Args:
+        room_id: The room to read from
+        limit: Maximum number of messages to return
+
+    Returns:
+        Formatted list of messages
+    """
+    ctx = get_worker_context()
+
+    try:
+        messages = ctx.deaddrop.get_room_messages(
+            ns=ctx.namespace_id,
+            room_id=room_id,
+            secret=ctx.identity_secret,
+        )
+    except Exception as e:
+        return f"❌ Could not get messages: {e}"
+
+    if not messages:
+        return "No messages in this room."
+
+    # Limit and reverse to show oldest first
+    messages = messages[-limit:]
+
+    lines = [f"**{len(messages)} message(s) from room {room_id[:8]}...:**\n"]
+
+    for msg in messages:
+        from_id = msg.get("from_id", "unknown")[:8]
+        body = msg.get("body", "")
+        created = msg.get("created_at", "")[:19]  # Trim to datetime
+
+        # Try to parse as worker message
+        try:
+            import json
+
+            parsed = json.loads(body)
+            if "from_agent" in parsed:
+                from_id = parsed.get("from_agent", from_id)
+            content = parsed.get("content", body)
+        except Exception:
+            content = body
+
+        lines.append(f"[{created}] **{from_id}**: {content[:200]}")
+
+    return "\n".join(lines)
