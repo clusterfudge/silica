@@ -467,25 +467,24 @@ def spawn_agent(
     display_name: str = None,
     remote: bool = False,
 ) -> str:
-    """Create a new worker agent identity and prepare for spawning.
+    """Create a new worker agent and launch it.
 
     This tool:
     1. Creates a deaddrop identity for the worker
     2. Registers the agent in the session
-    3. Returns spawn instructions with the invite URL
-
-    The actual workspace creation should be done with `silica remote create`
-    using the provided environment variables.
+    3. Launches the worker in a tmux session (local mode) or via silica remote (remote mode)
 
     Args:
         workspace_name: Name for the worker's workspace (auto-generated if not provided)
         display_name: Human-readable name for the agent
-        remote: Whether this will be a remote workspace (vs local)
+        remote: Whether to deploy via silica remote (vs local tmux)
 
     Returns:
-        Spawn instructions including environment variables to set
+        Status of the spawned worker
     """
     import uuid
+    import subprocess
+    import os
 
     session = get_current_session()
 
@@ -517,8 +516,6 @@ def spawn_agent(
     session.add_agent_to_room(agent_id)
 
     # Create a proper deaddrop invite URL for the worker
-    # The invite URL contains the server domain, so workers can connect without
-    # needing a separate DEADDROP_URL environment variable
     invite = session.deaddrop.create_invite(
         ns=session.namespace_id,
         identity_id=worker_identity["id"],
@@ -527,23 +524,18 @@ def spawn_agent(
         display_name=f"Worker: {display_name}",
     )
 
-    # The invite URL is the primary way to share credentials
-    # We also include room_id and coordinator_id as query params for coordination
     invite_url = invite["invite_url"]
 
     # Add coordination metadata as query parameters
-    # (These could also be stored on the server, but query params are simpler)
     from urllib.parse import urlencode, urlparse, urlunparse
 
     parsed = urlparse(invite_url)
-    # Preserve the fragment (encryption key) while adding query params
     coord_params = urlencode(
         {
             "room": session.state.room_id,
             "coordinator": session.state.coordinator_id,
         }
     )
-    # Combine with any existing query string
     new_query = f"{parsed.query}&{coord_params}" if parsed.query else coord_params
     invite_url = urlunparse(
         (
@@ -556,7 +548,7 @@ def spawn_agent(
         )
     )
 
-    # Build spawn instructions
+    # Environment variables for the worker
     env_vars = {
         "DEADDROP_INVITE_URL": invite_url,
         "COORDINATION_AGENT_ID": agent_id,
@@ -566,41 +558,122 @@ def spawn_agent(
         f"**Agent Created: {display_name}**",
         f"- Agent ID: {agent_id}",
         f"- Workspace: {workspace_name}",
-        "- State: SPAWNING",
-        "",
-        "**To spawn the worker, run:**",
-        "```bash",
     ]
 
     if remote:
-        lines.append(f"silica remote create -w {workspace_name} \\")
-    else:
-        lines.append(f"silica remote create -w {workspace_name} --local 0 \\")
+        # Remote mode - use silica remote infrastructure
+        # TODO: Implement remote worker spawning via Piku
+        lines.extend(
+            [
+                "- Mode: REMOTE (not yet implemented)",
+                "",
+                "Remote worker spawning via Piku is not yet implemented.",
+                "Please use local mode (remote=False) for now.",
+            ]
+        )
+        return "\n".join(lines)
 
-    lines.append("  # Then set environment variables:")
-    for key, value in env_vars.items():
-        # Truncate long values for display
-        display_value = value if len(value) < 60 else value[:57] + "..."
-        lines.append(f"  # {key}={display_value}")
+    # Local mode - spawn worker directly in tmux
+    tmux_session = f"worker-{agent_id}"
 
-    lines.extend(
-        [
-            "```",
-            "",
-            "**Environment Variables (full):**",
-        ]
+    # Store tmux session name in agent registration for later cleanup
+    session.update_agent_state(
+        agent_id,
+        AgentState.SPAWNING,
+        tmux_session=tmux_session,
     )
 
-    for key, value in env_vars.items():
-        lines.append(f"- `{key}`: {value}")
+    # Build environment propagation
+    # Copy important env vars from coordinator to worker
+    from silica.remote.utils.github_auth import get_github_token
 
-    lines.extend(
-        [
-            "",
-            "Once the workspace is created and the environment variables are set,",
-            "the worker will automatically connect to this coordination session.",
-        ]
-    )
+    propagate_vars = [
+        "ANTHROPIC_API_KEY",
+        "BRAVE_SEARCH_API_KEY",
+    ]
+
+    env_setup = []
+
+    # Add coordination-specific env vars
+    for key, value in env_vars.items():
+        # Escape single quotes in value for shell
+        escaped_value = value.replace("'", "'\\''")
+        env_setup.append(f"export {key}='{escaped_value}'")
+
+    # Add GitHub token
+    github_token = get_github_token()
+    if github_token:
+        env_setup.append(f"export GH_TOKEN='{github_token}'")
+        env_setup.append(f"export GITHUB_TOKEN='{github_token}'")
+
+    # Propagate other important env vars
+    for var in propagate_vars:
+        value = os.environ.get(var)
+        if value:
+            escaped_value = value.replace("'", "'\\''")
+            env_setup.append(f"export {var}='{escaped_value}'")
+
+    env_setup_str = " && ".join(env_setup)
+
+    # Build the worker launch command
+    # Run from current directory since worker can access files there
+    worker_dir = os.getcwd()
+    worker_command = f"cd '{worker_dir}' && {env_setup_str} && uv run silica worker"
+
+    try:
+        # Create tmux session
+        subprocess.run(
+            ["tmux", "new-session", "-d", "-s", tmux_session],
+            check=True,
+            capture_output=True,
+        )
+
+        # Give session a moment to initialize
+        import time
+
+        time.sleep(0.5)
+
+        # Send the worker command to the session
+        subprocess.run(
+            ["tmux", "send-keys", "-t", tmux_session, worker_command, "C-m"],
+            check=True,
+            capture_output=True,
+        )
+
+        lines.extend(
+            [
+                "- Mode: LOCAL",
+                f"- tmux session: `{tmux_session}`",
+                "- State: SPAWNING → waiting for worker to connect",
+                "",
+                "**Worker launched successfully!**",
+                "",
+                f"View worker: `tmux attach -t {tmux_session}`",
+                "",
+                "The worker should announce itself shortly. Use `list_agents` to check status.",
+            ]
+        )
+
+    except subprocess.CalledProcessError as e:
+        error_msg = e.stderr.decode() if e.stderr else str(e)
+        session.update_agent_state(agent_id, AgentState.TERMINATED)
+        lines.extend(
+            [
+                "- State: FAILED",
+                "",
+                f"**Failed to launch worker:** {error_msg}",
+            ]
+        )
+    except FileNotFoundError:
+        session.update_agent_state(agent_id, AgentState.TERMINATED)
+        lines.extend(
+            [
+                "- State: FAILED",
+                "",
+                "**Failed to launch worker:** tmux not found",
+                "Please install tmux to spawn local workers.",
+            ]
+        )
 
     return "\n".join(lines)
 
@@ -611,8 +684,8 @@ def terminate_agent(
 ) -> str:
     """Terminate a worker agent.
 
-    Sends a termination message to the agent and updates its state.
-    The workspace should be destroyed separately with `silica remote destroy`.
+    Sends a termination message to the agent, kills its tmux session (if local),
+    and updates its state.
 
     Args:
         agent_id: The agent to terminate
@@ -621,27 +694,45 @@ def terminate_agent(
     Returns:
         Status message
     """
+    import subprocess
+
     session = get_current_session()
     agent = session.get_agent(agent_id)
 
     if not agent:
         return f"❌ Agent '{agent_id}' not found"
 
-    # Send termination message
-    msg = Terminate(reason=reason or "Terminated by coordinator")
-    session.context.send_message(agent.identity_id, msg)
+    lines = [f"**Terminating agent: {agent.display_name} ({agent_id})**"]
+
+    # Try to send termination message (may fail if agent already dead)
+    try:
+        msg = Terminate(reason=reason or "Terminated by coordinator")
+        session.context.send_message(agent.identity_id, msg)
+        lines.append("- ✓ Sent termination message")
+    except Exception as e:
+        lines.append(f"- ⚠ Could not send termination message: {e}")
+
+    # Kill tmux session if this is a local worker
+    tmux_session = getattr(agent, "tmux_session", None)
+    if tmux_session:
+        try:
+            subprocess.run(
+                ["tmux", "kill-session", "-t", tmux_session],
+                check=True,
+                capture_output=True,
+            )
+            lines.append(f"- ✓ Killed tmux session: {tmux_session}")
+        except subprocess.CalledProcessError as e:
+            error_msg = e.stderr.decode() if e.stderr else str(e)
+            lines.append(f"- ⚠ Could not kill tmux session: {error_msg}")
+        except FileNotFoundError:
+            lines.append("- ⚠ tmux not available for session cleanup")
+    else:
+        lines.append("- No tmux session to clean up (remote worker?)")
 
     # Update state
     session.update_agent_state(agent_id, AgentState.TERMINATED)
-
-    lines = [
-        f"✓ Terminated agent: {agent.display_name} ({agent_id})",
-        "",
-        "**To destroy the workspace:**",
-        "```bash",
-        f"silica remote destroy -w {agent.workspace_name}",
-        "```",
-    ]
+    lines.append("- ✓ Agent state updated to TERMINATED")
 
     return "\n".join(lines)
 

@@ -189,10 +189,15 @@ class AgentContext:
         # Create system message
         system_message = create_system_message(self)
 
-        # Create toolbox and get tool schemas
-        # Suppress warnings since this is just for schema generation, not the main toolbox
-        toolbox = Toolbox(self, tool_names=tool_names, show_warnings=False)
-        tools = toolbox.agent_schema
+        # Use existing toolbox if available, otherwise create a new one
+        # Suppress warnings since this is just for schema generation
+        if hasattr(self, "toolbox") and self.toolbox is not None and tool_names is None:
+            # Use the existing toolbox's schema (already configured with correct tools)
+            tools = self.toolbox.agent_schema
+        else:
+            # Create a new toolbox for schema generation
+            toolbox = Toolbox(self, tool_names=tool_names, show_warnings=False)
+            tools = toolbox.agent_schema
 
         # Process messages with inlined file mentions and ephemeral plan state
         processed_messages = _process_file_mentions(self.chat_history, self)

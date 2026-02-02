@@ -218,3 +218,5 @@ except Exception:
 #     ALL_TOOLS += [basic_agent, coding_agent, deep_research_agent]
 # except Exception as e:
 #     print(f"Error importing personas: {repr(e)}")
+
+# Coordination tools for multi-agent orchestration

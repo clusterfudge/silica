@@ -375,20 +375,21 @@ def _run_coordinator_agent(session: CoordinationSession):
     from silica.developer.context import AgentContext
     from silica.developer.models import get_model
     from silica.developer.sandbox import SandboxMode, Sandbox
-    from silica.developer.hybrid_interface import HybridUserInterface
+    from silica.developer.hdev import CLIUserInterface
     from silica.developer.personas.coordinator_agent import (
         PERSONA as COORDINATOR_PERSONA,
         TOOL_GROUPS,
         MODEL,
     )
+    from silica.developer.tools.coordination_tools import COORDINATION_TOOLS
     from silica.developer.utils import wrap_text_as_content_block
     from uuid import uuid4
 
     # Set as current session for tools
     set_current_session(session)
 
-    # Create user interface
-    user_interface = HybridUserInterface()
+    # Create user interface (CLI-only for coordinator)
+    user_interface = CLIUserInterface(console, SandboxMode.ALLOW_ALL)
 
     # Get model spec (coordinator uses specified model, typically sonnet)
     model_spec = get_model(MODEL)
@@ -422,6 +423,8 @@ def _run_coordinator_agent(session: CoordinationSession):
         cli_args=None,
         history_base_dir=persona_dir,
     )
+    # Coordinator uses DWR mode to bypass permissions for coordination tools
+    context.dwr_mode = True
 
     # Build initial prompt
     state = session.get_state()
@@ -464,7 +467,7 @@ I'm ready to help orchestrate your multi-agent workflow."""
                 agent_context=context,
                 initial_prompt=initial_prompt,
                 system_prompt=wrap_text_as_content_block(COORDINATOR_PERSONA),
-                tool_names=TOOL_GROUPS,
+                tools=COORDINATION_TOOLS,  # Pass actual tool functions
             )
         )
     except KeyboardInterrupt:

@@ -40,7 +40,7 @@ class Toolbox:
         self,
         context: AgentContext,
         tool_names: List[str] | None = None,
-        tools: List[str] | None = None,
+        tools: List | None = None,  # List of tool functions
         skip_user_tool_auth: bool = False,
         show_warnings: bool = True,
         mcp_manager: "MCPToolManager | None" = None,
@@ -49,7 +49,10 @@ class Toolbox:
         self.local = {}  # CLI tools
         self.mcp_manager: "MCPToolManager | None" = mcp_manager
 
-        if tool_names is not None:
+        if tools is not None:
+            # Direct list of tool functions provided
+            self.agent_tools = tools
+        elif tool_names is not None:
             self.agent_tools = [
                 tool for tool in ALL_TOOLS if tool.__name__ in tool_names
             ]

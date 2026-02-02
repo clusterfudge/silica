@@ -47,6 +47,7 @@ class AgentInfo:
     created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
     last_seen: Optional[str] = None
     created_by: str = "coordinator"  # Track creator for cleanup
+    tmux_session: Optional[str] = None  # For local workers, the tmux session name
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -526,6 +527,7 @@ class CoordinationSession:
         agent_id: str,
         state: AgentState,
         task_id: str = None,
+        tmux_session: str = None,
     ) -> AgentInfo:
         """Update an agent's state.
 
@@ -533,6 +535,7 @@ class CoordinationSession:
             agent_id: Agent to update
             state: New state
             task_id: Associated task ID (for WORKING state)
+            tmux_session: tmux session name (for local workers)
 
         Returns:
             Updated AgentInfo
@@ -547,6 +550,8 @@ class CoordinationSession:
             agent.current_task_id = task_id
         elif state == AgentState.IDLE:
             agent.current_task_id = None
+        if tmux_session is not None:
+            agent.tmux_session = tmux_session
         self.save_state()
         return agent
 
