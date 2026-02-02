@@ -72,23 +72,42 @@ def _run_worker_agent(
         PERSONA as WORKER_PERSONA,
         MODEL,
     )
+
+    # Import standard tool modules for workers
+    from silica.developer.tools import ALL_TOOLS
     from silica.developer.utils import wrap_text_as_content_block
     from silica.developer.coordination import Idle, Progress
     from uuid import uuid4
 
-    # Create user interface
-    user_interface = CLIUserInterface(console, SandboxMode.ALLOW_ALL)
+    # Create user interface (used for local rendering, not permissions)
+    user_interface = CLIUserInterface(console, SandboxMode.REQUEST_EVERY_TIME)
 
     # Get model spec
     model_spec = get_model(MODEL)
 
-    # Create sandbox (workers can do file operations in their workspace)
+    # Create sandbox with coordination-based permissions
+    # Workers route permission requests to the coordinator
+    from silica.developer.coordination import setup_worker_sandbox_permissions
+
     sandbox = Sandbox(
         root_directory=str(working_dir),
-        mode=SandboxMode.ALLOW_ALL,
-        permission_check_callback=user_interface.permission_callback,
+        mode=SandboxMode.REQUEST_EVERY_TIME,  # Ask permission for each operation
+        permission_check_callback=user_interface.permission_callback,  # Placeholder
         permission_check_rendering_callback=user_interface.permission_rendering_callback,
     )
+
+    # Replace sandbox permissions with coordinator-routed ones
+    setup_worker_sandbox_permissions(
+        sandbox=sandbox,
+        context=coord_context,
+        agent_id=agent_id,
+        timeout=120.0,  # 2 minute timeout for permission responses
+    )
+
+    # Set worker context for worker coordination tools
+    from silica.developer.tools.worker_coordination import set_worker_context
+
+    set_worker_context(coord_context, agent_id)
 
     # Create persona directory for history
     persona_dir = Path.home() / ".silica" / "personas" / "worker" / agent_id
@@ -111,7 +130,9 @@ def _run_worker_agent(
         cli_args=None,
         history_base_dir=persona_dir,
     )
-    # Workers use DWR mode to bypass permissions
+    # Workers need dwr_mode=True to have tools available
+    # (PermissionsManager filters all tools when dwr_mode=False and no permissions file)
+    # But sandbox permissions still route to coordinator via setup_worker_sandbox_permissions
     context.dwr_mode = True
 
     # Store coordination info on context for tools to access
@@ -225,6 +246,7 @@ Execute this task now. When complete, clearly state "TASK COMPLETE" followed by 
                                 system_prompt=wrap_text_as_content_block(
                                     WORKER_PERSONA
                                 ),
+                                tools=ALL_TOOLS,  # Workers get all standard tools
                                 single_response=False,  # Allow multi-turn for complex tasks
                             )
                         )
