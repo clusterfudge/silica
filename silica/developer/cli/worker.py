@@ -79,29 +79,19 @@ def _run_worker_agent(
     from silica.developer.coordination import Idle, Progress
     from uuid import uuid4
 
-    # Create user interface (used for local rendering, not permissions)
-    user_interface = CLIUserInterface(console, SandboxMode.REQUEST_EVERY_TIME)
+    # Create user interface
+    user_interface = CLIUserInterface(console, SandboxMode.ALLOW_ALL)
 
     # Get model spec
     model_spec = get_model(MODEL)
 
-    # Create sandbox with coordination-based permissions
-    # Workers route permission requests to the coordinator
-    from silica.developer.coordination import setup_worker_sandbox_permissions
-
+    # Create sandbox - workers run with ALLOW_ALL for now
+    # TODO: Implement coordinator-routed permissions when deaddrop is more reliable
     sandbox = Sandbox(
         root_directory=str(working_dir),
-        mode=SandboxMode.REQUEST_EVERY_TIME,  # Ask permission for each operation
-        permission_check_callback=user_interface.permission_callback,  # Placeholder
+        mode=SandboxMode.ALLOW_ALL,
+        permission_check_callback=user_interface.permission_callback,
         permission_check_rendering_callback=user_interface.permission_rendering_callback,
-    )
-
-    # Replace sandbox permissions with coordinator-routed ones
-    setup_worker_sandbox_permissions(
-        sandbox=sandbox,
-        context=coord_context,
-        agent_id=agent_id,
-        timeout=120.0,  # 2 minute timeout for permission responses
     )
 
     # Set worker context for worker coordination tools
