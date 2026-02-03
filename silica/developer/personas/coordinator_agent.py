@@ -132,6 +132,7 @@ TOOL_GROUPS = [
     "memory",  # For context persistence
     "web",  # For research (but prefer delegating to workers)
     "coordination",  # The core coordination tools
+    "planning",  # For structured planning of complex multi-agent work
 ]
 
 # Coordinator uses a lighter model since it's coordination, not deep execution

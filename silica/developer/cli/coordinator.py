@@ -382,6 +382,53 @@ def _run_coordinator_agent(session: CoordinationSession):
         MODEL,
     )
     from silica.developer.tools.coordination_tools import COORDINATION_TOOLS
+    from silica.developer.tools.planning import (
+        enter_plan_mode,
+        ask_clarifications,
+        update_plan,
+        add_plan_tasks,
+        add_milestone,
+        move_tasks_to_milestone,
+        add_task_dependency,
+        get_ready_tasks,
+        expand_task,
+        add_plan_metrics,
+        define_metric_capture,
+        capture_plan_metrics,
+        read_plan,
+        list_plans,
+        exit_plan_mode,
+        submit_for_approval,
+        request_plan_approval,
+        approve_plan,
+        complete_plan_task,
+        verify_plan_task,
+        complete_plan,
+    )
+
+    PLANNING_TOOLS = [
+        enter_plan_mode,
+        ask_clarifications,
+        update_plan,
+        add_plan_tasks,
+        add_milestone,
+        move_tasks_to_milestone,
+        add_task_dependency,
+        get_ready_tasks,
+        expand_task,
+        add_plan_metrics,
+        define_metric_capture,
+        capture_plan_metrics,
+        read_plan,
+        list_plans,
+        exit_plan_mode,
+        submit_for_approval,
+        request_plan_approval,
+        approve_plan,
+        complete_plan_task,
+        verify_plan_task,
+        complete_plan,
+    ]
     from silica.developer.utils import wrap_text_as_content_block
     from uuid import uuid4
 
@@ -467,7 +514,8 @@ I'm ready to help orchestrate your multi-agent workflow."""
                 agent_context=context,
                 initial_prompt=initial_prompt,
                 system_prompt=wrap_text_as_content_block(COORDINATOR_PERSONA),
-                tools=COORDINATION_TOOLS,  # Pass actual tool functions
+                tools=COORDINATION_TOOLS
+                + PLANNING_TOOLS,  # Coordination + planning tools
             )
         )
     except KeyboardInterrupt:
