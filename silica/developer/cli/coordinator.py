@@ -382,6 +382,12 @@ def _run_coordinator_agent(session: CoordinationSession):
         MODEL,
     )
     from silica.developer.tools.coordination_tools import COORDINATION_TOOLS
+    from silica.developer.tools.files import (
+        read_file,
+        write_file,
+        list_directory,
+        edit_file,
+    )
     from silica.developer.tools.planning import (
         enter_plan_mode,
         ask_clarifications,
@@ -405,6 +411,13 @@ def _run_coordinator_agent(session: CoordinationSession):
         verify_plan_task,
         complete_plan,
     )
+
+    FILE_TOOLS = [
+        read_file,
+        write_file,
+        list_directory,
+        edit_file,
+    ]
 
     PLANNING_TOOLS = [
         enter_plan_mode,
@@ -515,7 +528,8 @@ I'm ready to help orchestrate your multi-agent workflow."""
                 initial_prompt=initial_prompt,
                 system_prompt=wrap_text_as_content_block(COORDINATOR_PERSONA),
                 tools=COORDINATION_TOOLS
-                + PLANNING_TOOLS,  # Coordination + planning tools
+                + PLANNING_TOOLS
+                + FILE_TOOLS,  # Coordination + planning + file tools
             )
         )
     except KeyboardInterrupt:
