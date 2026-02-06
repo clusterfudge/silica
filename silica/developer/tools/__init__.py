@@ -2,6 +2,23 @@ from .subagent import agent
 from .files import read_file, write_file, list_directory, edit_file
 from .sandbox_debug import sandbox_debug
 from .repl import python_repl
+
+# Worker coordination tools (for agents spawned by a coordinator)
+from .worker_coordination import (
+    check_inbox,
+    send_to_coordinator,
+    broadcast_status,
+    mark_idle,
+    request_permission,
+    request_permission_async,
+    list_workers,
+    send_to_worker,
+    create_collaboration_room,
+    invite_to_room,
+    send_to_room,
+    list_my_rooms,
+    get_room_messages,
+)
 from .shell import (
     shell_execute,
     shell_session_create,
@@ -218,3 +235,21 @@ except Exception:
 #     ALL_TOOLS += [basic_agent, coding_agent, deep_research_agent]
 # except Exception as e:
 #     print(f"Error importing personas: {repr(e)}")
+
+# Coordination tools for multi-agent orchestration
+
+WORKER_COORDINATION_TOOLS = [
+    check_inbox,
+    send_to_coordinator,
+    broadcast_status,
+    mark_idle,
+    request_permission,
+    request_permission_async,
+    list_workers,
+    send_to_worker,
+    create_collaboration_room,
+    invite_to_room,
+    send_to_room,
+    list_my_rooms,
+    get_room_messages,
+]
