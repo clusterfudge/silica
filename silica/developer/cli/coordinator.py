@@ -30,8 +30,24 @@ coordinator_app = cyclopts.App(
 )
 
 
-def _ensure_deaddrop_configured():
-    """Ensure deaddrop is configured, running init wizard if needed.
+def _get_deaddrop_client(
+    local: bool = False,
+    remote: bool = False,
+    local_path: Optional[str] = None,
+    remote_url: Optional[str] = None,
+):
+    """Get a deaddrop client based on CLI flags.
+
+    Priority:
+    1. --local with optional --local-path -> LocalBackend
+    2. --remote with optional --remote-url -> RemoteBackend
+    3. Neither flag -> auto-discover from config
+
+    Args:
+        local: Use local .deaddrop backend
+        remote: Use remote server backend
+        local_path: Path to .deaddrop directory (optional, auto-discovers if not provided)
+        remote_url: Remote server URL (optional, uses config if not provided)
 
     Returns:
         Configured Deaddrop client
@@ -39,13 +55,80 @@ def _ensure_deaddrop_configured():
     from deadrop import Deaddrop
     from deadrop.config import GlobalConfig, init_wizard
 
+    # Explicit local mode
+    if local:
+        if local_path:
+            console.print(f"[dim]Using local deaddrop: {local_path}[/dim]")
+            return Deaddrop.local(path=local_path)
+        else:
+            # Try to discover local .deaddrop
+            try:
+                client = Deaddrop.local()
+                console.print(f"[dim]Using local deaddrop: {client.location}[/dim]")
+                return client
+            except Exception:
+                # Create one in current directory
+                console.print(
+                    "[yellow]No local .deaddrop found. Creating one...[/yellow]"
+                )
+                client = Deaddrop.create_local()
+                console.print(f"[green]Created: {client.location}[/green]")
+                return client
+
+    # Explicit remote mode
+    if remote:
+        if remote_url:
+            # Use provided URL, still need token from config
+            config = GlobalConfig.load() if GlobalConfig.exists() else None
+            bearer_token = config.bearer_token if config else None
+            console.print(f"[dim]Using remote deaddrop: {remote_url}[/dim]")
+            return Deaddrop.remote(url=remote_url, bearer_token=bearer_token)
+        else:
+            # Use config
+            if not GlobalConfig.exists():
+                console.print("[yellow]Deaddrop not configured.[/yellow]")
+                console.print("Let's set it up first.\n")
+                init_wizard()
+                console.print()
+            config = GlobalConfig.load()
+            console.print(f"[dim]Using remote deaddrop: {config.url}[/dim]")
+            return Deaddrop.remote(url=config.url, bearer_token=config.bearer_token)
+
+    # Auto-discover mode (default)
+    # First check if there's a local .deaddrop in the project
+    try:
+        client = Deaddrop.local()
+        console.print(f"[dim]Auto-discovered local deaddrop: {client.location}[/dim]")
+        return client
+    except Exception:
+        pass
+
+    # Fall back to remote config
     if not GlobalConfig.exists():
-        console.print("[yellow]Deaddrop not configured.[/yellow]")
-        console.print("Let's set it up first.\n")
-        init_wizard()
+        console.print("[yellow]No deaddrop configuration found.[/yellow]")
+        console.print()
+        console.print("Options:")
+        console.print("  1. Use --local to create a local .deaddrop in this directory")
+        console.print("  2. Use --remote to configure a remote server")
         console.print()
 
+        choice = Prompt.ask(
+            "Setup mode",
+            choices=["local", "remote"],
+            default="local",
+        )
+
+        if choice == "local":
+            client = Deaddrop.create_local()
+            console.print(f"[green]Created local deaddrop: {client.location}[/green]")
+            return client
+        else:
+            init_wizard()
+            config = GlobalConfig.load()
+            return Deaddrop.remote(url=config.url, bearer_token=config.bearer_token)
+
     config = GlobalConfig.load()
+    console.print(f"[dim]Using remote deaddrop: {config.url}[/dim]")
     return Deaddrop.remote(url=config.url, bearer_token=config.bearer_token)
 
 
@@ -55,16 +138,55 @@ def coordinator_new(
         Optional[str],
         cyclopts.Parameter(help="Display name for the coordination session"),
     ] = None,
+    local: Annotated[
+        bool,
+        cyclopts.Parameter(
+            "--local", "-l", help="Use local .deaddrop backend (no network)"
+        ),
+    ] = False,
+    remote: Annotated[
+        bool,
+        cyclopts.Parameter("--remote", "-r", help="Use remote deaddrop server"),
+    ] = False,
+    local_path: Annotated[
+        Optional[str],
+        cyclopts.Parameter("--local-path", help="Path to local .deaddrop directory"),
+    ] = None,
+    remote_url: Annotated[
+        Optional[str],
+        cyclopts.Parameter("--remote-url", help="Remote deaddrop server URL"),
+    ] = None,
 ):
     """Create a new coordination session.
 
     Creates a new deaddrop namespace and starts the coordinator agent.
+
+    Backend options:
+      --local, -l       Use local .deaddrop (no network, single machine)
+      --remote, -r      Use remote deaddrop server (distributed workers)
+      --local-path      Specify local .deaddrop location
+      --remote-url      Specify remote server URL
+
+    If neither --local nor --remote is specified, auto-discovers based on:
+    1. Local .deaddrop in current/parent directories
+    2. Remote config from ~/.config/deadrop/config.yaml
+    3. Interactive setup if nothing found
     """
     console.print("\n[bold cyan]🤝 Creating Coordination Session[/bold cyan]\n")
 
-    # Ensure deaddrop is configured
-    deaddrop = _ensure_deaddrop_configured()
-    console.print(f"[dim]Using deaddrop: {deaddrop.location}[/dim]\n")
+    # Validate mutually exclusive flags
+    if local and remote:
+        console.print("[red]Cannot specify both --local and --remote[/red]")
+        return
+
+    # Get deaddrop client based on flags
+    deaddrop = _get_deaddrop_client(
+        local=local,
+        remote=remote,
+        local_path=local_path,
+        remote_url=remote_url,
+    )
+    console.print()
 
     # Prompt for name if not provided
     if not name:
@@ -82,6 +204,7 @@ def coordinator_new(
 
     console.print(f"\n[green]✓ Session created: {session.session_id}[/green]")
     console.print(f"[dim]Namespace: {session.namespace_id}[/dim]")
+    console.print(f"[dim]Backend: {deaddrop.backend} ({deaddrop.location})[/dim]")
     console.print(
         f"[dim]Session saved to: ~/.silica/coordination/{session.session_id}.json[/dim]"
     )
@@ -97,16 +220,45 @@ def coordinator_resume(
         Optional[str],
         cyclopts.Parameter(help="Session ID to resume (interactive if not provided)"),
     ] = None,
+    local: Annotated[
+        bool,
+        cyclopts.Parameter("--local", "-l", help="Use local .deaddrop backend"),
+    ] = False,
+    remote: Annotated[
+        bool,
+        cyclopts.Parameter("--remote", "-r", help="Use remote deaddrop server"),
+    ] = False,
+    local_path: Annotated[
+        Optional[str],
+        cyclopts.Parameter("--local-path", help="Path to local .deaddrop directory"),
+    ] = None,
+    remote_url: Annotated[
+        Optional[str],
+        cyclopts.Parameter("--remote-url", help="Remote deaddrop server URL"),
+    ] = None,
 ):
     """Resume an existing coordination session.
 
     Reconnects to a previously created session and restarts the coordinator agent.
     If no session_id is provided, lists available sessions for selection.
+
+    Note: You should use the same backend (local/remote) that was used when
+    the session was created, otherwise the namespace may not be accessible.
     """
     console.print("\n[bold cyan]🤝 Resuming Coordination Session[/bold cyan]\n")
 
-    # Ensure deaddrop is configured
-    deaddrop = _ensure_deaddrop_configured()
+    # Validate mutually exclusive flags
+    if local and remote:
+        console.print("[red]Cannot specify both --local and --remote[/red]")
+        return
+
+    # Get deaddrop client
+    deaddrop = _get_deaddrop_client(
+        local=local,
+        remote=remote,
+        local_path=local_path,
+        remote_url=remote_url,
+    )
 
     # If no session_id provided, show interactive selection
     if not session_id:
@@ -174,6 +326,7 @@ def coordinator_resume(
     state = session.get_state()
     console.print(f"[green]✓ Session resumed: {state['display_name']}[/green]")
     console.print(f"[dim]Session ID: {state['session_id']}[/dim]")
+    console.print(f"[dim]Backend: {deaddrop.backend} ({deaddrop.location})[/dim]")
     console.print(f"[dim]Agents: {len(state.get('agents', {}))}[/dim]")
     console.print()
 
@@ -269,6 +422,22 @@ def coordinator_info(
         Optional[str],
         cyclopts.Parameter(help="Session ID to inspect"),
     ] = None,
+    local: Annotated[
+        bool,
+        cyclopts.Parameter("--local", "-l", help="Use local .deaddrop backend"),
+    ] = False,
+    remote: Annotated[
+        bool,
+        cyclopts.Parameter("--remote", "-r", help="Use remote deaddrop server"),
+    ] = False,
+    local_path: Annotated[
+        Optional[str],
+        cyclopts.Parameter("--local-path", help="Path to local .deaddrop directory"),
+    ] = None,
+    remote_url: Annotated[
+        Optional[str],
+        cyclopts.Parameter("--remote-url", help="Remote deaddrop server URL"),
+    ] = None,
 ):
     """Show detailed information about a coordination session."""
     # Interactive selection if no session_id
@@ -299,7 +468,17 @@ def coordinator_info(
             except (ValueError, IndexError):
                 session_id = choice
 
-    deaddrop = _ensure_deaddrop_configured()
+    # Validate mutually exclusive flags
+    if local and remote:
+        console.print("[red]Cannot specify both --local and --remote[/red]")
+        return
+
+    deaddrop = _get_deaddrop_client(
+        local=local,
+        remote=remote,
+        local_path=local_path,
+        remote_url=remote_url,
+    )
 
     try:
         session = CoordinationSession.resume_session(deaddrop, session_id=session_id)
@@ -317,7 +496,8 @@ def coordinator_info(
             f"[bold]{state['display_name']}[/bold]\n"
             f"Session ID: {state['session_id']}\n"
             f"Created: {state['created_at']}\n"
-            f"Namespace: {state['namespace_id']}",
+            f"Namespace: {state['namespace_id']}\n"
+            f"Backend: {deaddrop.backend} ({deaddrop.location})",
             title="Session Info",
         )
     )
@@ -363,6 +543,41 @@ def coordinator_info(
         pending_count = sum(1 for p in pending.values() if p.get("status") == "pending")
         if pending_count:
             console.print(f"\n[yellow]⚠ Pending permissions: {pending_count}[/yellow]")
+
+
+@coordinator_app.command(name="init-local")
+def coordinator_init_local(
+    path: Annotated[
+        Optional[str],
+        cyclopts.Parameter(
+            help="Directory to create .deaddrop in (default: current dir)"
+        ),
+    ] = None,
+):
+    """Initialize a local .deaddrop directory for coordination.
+
+    Creates a .deaddrop directory with SQLite database for local-only
+    coordination. Useful for development and single-machine workflows.
+    """
+    from deadrop import Deaddrop
+
+    target_path = Path(path) if path else Path.cwd()
+
+    # Check if already exists
+    deaddrop_path = target_path / ".deaddrop"
+    if deaddrop_path.exists():
+        console.print(f"[yellow]Already exists: {deaddrop_path}[/yellow]")
+        return
+
+    try:
+        client = Deaddrop.create_local(path=target_path)
+        console.print(f"[green]✓ Created local deaddrop: {client.location}[/green]")
+        console.print()
+        console.print("[dim]Usage:[/dim]")
+        console.print("  silica coordinator new --local")
+        console.print("  silica coordinator resume --local")
+    except Exception as e:
+        console.print(f"[red]Failed to create local deaddrop: {e}[/red]")
 
 
 def _run_coordinator_agent(session: CoordinationSession):
@@ -488,7 +703,10 @@ def _run_coordinator_agent(session: CoordinationSession):
 
     # Build initial prompt
     state = session.get_state()
+    backend_info = f"{session.deaddrop.backend} ({session.deaddrop.location})"
     initial_prompt = f"""You are now running as a **Coordinator Agent** for session "{state['display_name']}" (ID: {session.session_id}).
+
+**Backend:** {backend_info}
 
 **Your coordination tools are ready:**
 - `spawn_agent` - Create new worker agents
@@ -514,6 +732,7 @@ I'm ready to help orchestrate your multi-agent workflow."""
         Panel(
             f"[bold green]Coordinator Agent Active[/bold green]\n\n"
             f"Session: {session.session_id}\n"
+            f"Backend: {backend_info}\n"
             f"Model: {MODEL}\n"
             f"Tools: {', '.join(TOOL_GROUPS)}",
             title="🤝 Coordination Mode",
