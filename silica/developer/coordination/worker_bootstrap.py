@@ -283,3 +283,99 @@ def handle_worker_termination(
         )
     except Exception as e:
         logger.warning(f"Failed to send termination acknowledgment: {e}")
+
+
+def create_remote_worker_bootstrap_message(
+    invite_url: str,
+    agent_id: str,
+    display_name: str,
+    task_description: Optional[str] = None,
+) -> str:
+    """Create a bootstrap message to send to a remote workspace to start a worker.
+
+    This message is sent via the antennae tell() endpoint to transform a regular
+    workspace agent into a coordinated worker.
+
+    Args:
+        invite_url: Full deaddrop invite URL with coordination metadata
+        agent_id: Assigned agent ID for this worker
+        display_name: Human-readable name for the worker
+        task_description: Optional initial task to assign
+
+    Returns:
+        Message string to send to the workspace agent
+    """
+    message = f"""**COORDINATION MODE ACTIVATION**
+
+You are being activated as a **Coordinated Worker Agent**.
+
+**Coordination Configuration:**
+- Invite URL: {invite_url}
+- Agent ID: {agent_id}
+- Display Name: {display_name}
+
+**IMPORTANT: Execute these steps immediately:**
+
+1. **Set environment variables** (mentally note these for coordination tools):
+   - DEADDROP_INVITE_URL = "{invite_url}"
+   - COORDINATION_AGENT_ID = "{agent_id}"
+
+2. **Connect to the coordination namespace** by calling the worker bootstrap:
+   - Claim the invite URL to get your identity credentials
+   - Join the coordination room
+   - Signal that you're ready for tasks
+
+3. **Enter the worker task loop:**
+   - Check inbox for task assignments
+   - Execute assigned tasks using your full tool capabilities
+   - Report progress and results back to coordinator
+   - Mark yourself idle when ready for new tasks
+
+**Worker Persona:**
+You are now a worker agent under coordinator supervision. Your job is to:
+- Execute tasks assigned by the coordinator efficiently
+- Report progress and blockers promptly  
+- Request permissions when needed for shell commands or file operations
+- Complete work and report results accurately
+
+**Begin by connecting to the coordination namespace using the invite URL above.**
+"""
+
+    if task_description:
+        message += f"""
+**Initial Task:**
+{task_description}
+
+After connecting, immediately begin working on this task.
+"""
+
+    return message
+
+
+def create_worker_termination_message(
+    agent_id: str, reason: Optional[str] = None
+) -> str:
+    """Create a termination message to send to a remote worker.
+
+    Args:
+        agent_id: The agent ID of the worker to terminate
+        reason: Optional reason for termination
+
+    Returns:
+        Message string to send to the workspace agent
+    """
+    reason_text = reason or "Coordination session ending"
+
+    return f"""**WORKER TERMINATION REQUEST**
+
+Agent ID: {agent_id}
+Reason: {reason_text}
+
+**Required Actions:**
+1. Complete any in-progress work or save state
+2. Send a final status update to the coordinator
+3. Acknowledge termination
+4. Shut down gracefully
+
+This coordination session is ending. Thank you for your work.
+"""

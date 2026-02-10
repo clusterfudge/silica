@@ -462,6 +462,291 @@ def escalate_to_user(
 # === Agent Spawning ===
 
 
+def _get_project_repo_url() -> Optional[str]:
+    """Get the repository URL for the current project.
+
+    Returns:
+        Git remote URL if available, None otherwise
+    """
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["git", "config", "--get", "remote.origin.url"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return result.stdout.strip()
+    except subprocess.CalledProcessError:
+        return None
+
+
+def _get_project_git_root() -> Optional[str]:
+    """Get the git root directory for the current project.
+
+    Returns:
+        Path to git root if in a repository, None otherwise
+    """
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return result.stdout.strip()
+    except subprocess.CalledProcessError:
+        return None
+
+
+def _spawn_remote_worker(
+    session: CoordinationSession,
+    agent_id: str,
+    workspace_name: str,
+    display_name: str,
+    invite_url: str,
+    env_vars: dict,
+    lines: list,
+) -> str:
+    """Spawn a worker in a remote silica workspace.
+
+    Args:
+        session: The coordination session
+        agent_id: Assigned agent ID
+        workspace_name: Name for the workspace
+        display_name: Human-readable name for the worker
+        invite_url: Deaddrop invite URL with coordination metadata
+        env_vars: Environment variables for the worker
+        lines: Output lines to append to
+
+    Returns:
+        Status message
+    """
+    import time
+    from pathlib import Path
+
+    lines.append("- Mode: REMOTE")
+
+    # Get project info
+    repo_url = _get_project_repo_url()
+    git_root = _get_project_git_root()
+
+    if not git_root:
+        lines.extend(
+            [
+                "- State: FAILED",
+                "",
+                "**Failed:** Not in a git repository.",
+                "Remote workers require a git repository to clone.",
+            ]
+        )
+        session.update_agent_state(agent_id, AgentState.TERMINATED)
+        return "\n".join(lines)
+
+    if not repo_url:
+        lines.extend(
+            [
+                "- State: FAILED",
+                "",
+                "**Failed:** No git remote 'origin' found.",
+                "Remote workers require a repository URL to clone.",
+            ]
+        )
+        session.update_agent_state(agent_id, AgentState.TERMINATED)
+        return "\n".join(lines)
+
+    # Find or create .silica directory
+    silica_dir = Path(git_root) / ".silica"
+    silica_dir.mkdir(exist_ok=True)
+
+    # Check if workspace already exists and is healthy
+    from silica.remote.config.multi_workspace import get_workspace_config
+
+    existing_config = get_workspace_config(silica_dir, workspace_name)
+    workspace_ready = False
+
+    if existing_config and existing_config.get("url"):
+        # Workspace exists, check if healthy
+        lines.append(f"- Found existing workspace config: {workspace_name}")
+        try:
+            from silica.remote.utils.antennae_client import get_antennae_client
+
+            client = get_antennae_client(silica_dir, workspace_name)
+            success, _ = client.health_check()
+            if success:
+                workspace_ready = True
+                lines.append("- Existing workspace is healthy, reusing")
+        except Exception as e:
+            lines.append(f"- Existing workspace unhealthy: {e}")
+
+    if not workspace_ready:
+        # Create the workspace
+        lines.append(f"- Creating workspace: {workspace_name}")
+
+        try:
+            # Use silica remote create programmatically
+            # For now, create a local workspace (--local 0 picks a free port)
+            import subprocess
+
+            # Find a free port
+            import socket
+
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("", 0))
+                port = s.getsockname()[1]
+
+            lines.append(f"- Using port: {port}")
+
+            # Run silica remote create
+            create_result = subprocess.run(
+                [
+                    "uv",
+                    "run",
+                    "silica",
+                    "remote",
+                    "create",
+                    "-w",
+                    workspace_name,
+                    "--local",
+                    str(port),
+                    "--no-tools",  # Skip tool selection wizard
+                ],
+                cwd=git_root,
+                capture_output=True,
+                text=True,
+                timeout=120,  # Workspace creation can take a while
+            )
+
+            if create_result.returncode != 0:
+                lines.extend(
+                    [
+                        "- State: FAILED",
+                        "",
+                        f"**Failed to create workspace:** {create_result.stderr or create_result.stdout}",
+                    ]
+                )
+                session.update_agent_state(agent_id, AgentState.TERMINATED)
+                return "\n".join(lines)
+
+            lines.append("- ✓ Workspace created")
+
+            # Wait for antennae to be ready
+            lines.append("- Waiting for antennae server...")
+
+            from silica.remote.utils.antennae_client import get_antennae_client
+
+            client = get_antennae_client(silica_dir, workspace_name)
+
+            # Poll for health with retries
+            for attempt in range(10):
+                time.sleep(2)
+                try:
+                    success, _ = client.health_check()
+                    if success:
+                        workspace_ready = True
+                        lines.append("- ✓ Antennae server ready")
+                        break
+                except Exception:
+                    pass
+
+            if not workspace_ready:
+                lines.extend(
+                    [
+                        "- State: FAILED",
+                        "",
+                        "**Failed:** Antennae server did not become ready in time.",
+                    ]
+                )
+                session.update_agent_state(agent_id, AgentState.TERMINATED)
+                return "\n".join(lines)
+
+        except subprocess.TimeoutExpired:
+            lines.extend(
+                [
+                    "- State: FAILED",
+                    "",
+                    "**Failed:** Workspace creation timed out.",
+                ]
+            )
+            session.update_agent_state(agent_id, AgentState.TERMINATED)
+            return "\n".join(lines)
+        except Exception as e:
+            lines.extend(
+                [
+                    "- State: FAILED",
+                    "",
+                    f"**Failed to create workspace:** {e}",
+                ]
+            )
+            session.update_agent_state(agent_id, AgentState.TERMINATED)
+            return "\n".join(lines)
+
+    # Store workspace info in agent metadata
+    session.update_agent_state(
+        agent_id,
+        AgentState.SPAWNING,
+        remote_workspace=workspace_name,
+    )
+
+    # Now send the bootstrap message to the workspace
+    from silica.developer.coordination.worker_bootstrap import (
+        create_remote_worker_bootstrap_message,
+    )
+
+    bootstrap_message = create_remote_worker_bootstrap_message(
+        invite_url=invite_url,
+        agent_id=agent_id,
+        display_name=display_name,
+    )
+
+    try:
+        from silica.remote.utils.antennae_client import get_antennae_client
+
+        client = get_antennae_client(silica_dir, workspace_name)
+
+        success, response = client.tell(bootstrap_message)
+
+        if success:
+            lines.extend(
+                [
+                    "- ✓ Bootstrap message sent",
+                    f"- Remote workspace: {workspace_name}",
+                    "- State: SPAWNING → waiting for worker to connect",
+                    "",
+                    "**Worker launched in remote workspace!**",
+                    "",
+                    f"Workspace: {workspace_name}",
+                    "",
+                    "The worker should announce itself shortly. Use `list_agents` to check status.",
+                ]
+            )
+        else:
+            error_msg = response.get("error", "Unknown error")
+            lines.extend(
+                [
+                    "- State: FAILED",
+                    "",
+                    f"**Failed to send bootstrap:** {error_msg}",
+                ]
+            )
+            session.update_agent_state(agent_id, AgentState.TERMINATED)
+
+    except Exception as e:
+        lines.extend(
+            [
+                "- State: FAILED",
+                "",
+                f"**Failed to send bootstrap message:** {e}",
+            ]
+        )
+        session.update_agent_state(agent_id, AgentState.TERMINATED)
+
+    return "\n".join(lines)
+
+
 def spawn_agent(
     workspace_name: str = None,
     display_name: str = None,
@@ -562,16 +847,15 @@ def spawn_agent(
 
     if remote:
         # Remote mode - use silica remote infrastructure
-        # TODO: Implement remote worker spawning via Piku
-        lines.extend(
-            [
-                "- Mode: REMOTE (not yet implemented)",
-                "",
-                "Remote worker spawning via Piku is not yet implemented.",
-                "Please use local mode (remote=False) for now.",
-            ]
+        return _spawn_remote_worker(
+            session=session,
+            agent_id=agent_id,
+            workspace_name=workspace_name,
+            display_name=display_name,
+            invite_url=invite_url,
+            env_vars=env_vars,
+            lines=lines,
         )
-        return "\n".join(lines)
 
     # Local mode - spawn worker directly in tmux
     tmux_session = f"worker-{agent_id}"
@@ -681,20 +965,23 @@ def spawn_agent(
 def terminate_agent(
     agent_id: str,
     reason: str = None,
+    destroy_workspace: bool = False,
 ) -> str:
     """Terminate a worker agent.
 
-    Sends a termination message to the agent, kills its tmux session (if local),
-    and updates its state.
+    Sends a termination message to the agent, kills its tmux session (if local)
+    or sends termination to remote workspace, and updates its state.
 
     Args:
         agent_id: The agent to terminate
         reason: Optional reason for termination
+        destroy_workspace: If True, destroy the remote workspace after termination
 
     Returns:
         Status message
     """
     import subprocess
+    from pathlib import Path
 
     session = get_current_session()
     agent = session.get_agent(agent_id)
@@ -708,11 +995,11 @@ def terminate_agent(
     try:
         msg = Terminate(reason=reason or "Terminated by coordinator")
         session.context.send_message(agent.identity_id, msg)
-        lines.append("- ✓ Sent termination message")
+        lines.append("- ✓ Sent termination message via deaddrop")
     except Exception as e:
         lines.append(f"- ⚠ Could not send termination message: {e}")
 
-    # Kill tmux session if this is a local worker
+    # Handle local worker (tmux session)
     tmux_session = getattr(agent, "tmux_session", None)
     if tmux_session:
         try:
@@ -727,8 +1014,67 @@ def terminate_agent(
             lines.append(f"- ⚠ Could not kill tmux session: {error_msg}")
         except FileNotFoundError:
             lines.append("- ⚠ tmux not available for session cleanup")
-    else:
-        lines.append("- No tmux session to clean up (remote worker?)")
+
+    # Handle remote worker (silica workspace)
+    remote_workspace = getattr(agent, "remote_workspace", None)
+    if remote_workspace:
+        lines.append(f"- Remote workspace: {remote_workspace}")
+
+        # Send termination message via antennae
+        try:
+            git_root = _get_project_git_root()
+            if git_root:
+                from silica.remote.utils.antennae_client import get_antennae_client
+                from silica.developer.coordination.worker_bootstrap import (
+                    create_worker_termination_message,
+                )
+
+                silica_dir = Path(git_root) / ".silica"
+                client = get_antennae_client(silica_dir, remote_workspace)
+
+                termination_msg = create_worker_termination_message(
+                    agent_id=agent_id,
+                    reason=reason,
+                )
+
+                success, _ = client.tell(termination_msg)
+                if success:
+                    lines.append("- ✓ Sent termination message to remote workspace")
+                else:
+                    lines.append("- ⚠ Could not send termination to workspace")
+        except Exception as e:
+            lines.append(f"- ⚠ Error sending termination to workspace: {e}")
+
+        # Optionally destroy the workspace
+        if destroy_workspace:
+            try:
+                result = subprocess.run(
+                    [
+                        "uv",
+                        "run",
+                        "silica",
+                        "remote",
+                        "destroy",
+                        "-w",
+                        remote_workspace,
+                        "--force",
+                    ],
+                    cwd=git_root,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                if result.returncode == 0:
+                    lines.append(f"- ✓ Destroyed workspace: {remote_workspace}")
+                else:
+                    lines.append(f"- ⚠ Could not destroy workspace: {result.stderr}")
+            except Exception as e:
+                lines.append(f"- ⚠ Error destroying workspace: {e}")
+        else:
+            lines.append("- Workspace preserved (use destroy_workspace=True to remove)")
+
+    if not tmux_session and not remote_workspace:
+        lines.append("- No local or remote session to clean up")
 
     # Update state
     session.update_agent_state(agent_id, AgentState.TERMINATED)

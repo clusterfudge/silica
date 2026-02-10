@@ -380,9 +380,8 @@ class TestTerminateAgent:
         result = terminate_agent("agent-1", reason="Job done")
 
         assert "✓" in result
-        assert "Terminated" in result
+        assert "TERMINATED" in result
         assert "Worker-1" in result
-        assert "silica remote destroy" in result
 
         # Agent should be TERMINATED
         agent = session.get_agent("agent-1")

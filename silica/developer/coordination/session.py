@@ -48,6 +48,9 @@ class AgentInfo:
     last_seen: Optional[str] = None
     created_by: str = "coordinator"  # Track creator for cleanup
     tmux_session: Optional[str] = None  # For local workers, the tmux session name
+    remote_workspace: Optional[str] = (
+        None  # For remote workers, the silica workspace name
+    )
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -528,6 +531,7 @@ class CoordinationSession:
         state: AgentState,
         task_id: str = None,
         tmux_session: str = None,
+        remote_workspace: str = None,
     ) -> AgentInfo:
         """Update an agent's state.
 
@@ -536,6 +540,7 @@ class CoordinationSession:
             state: New state
             task_id: Associated task ID (for WORKING state)
             tmux_session: tmux session name (for local workers)
+            remote_workspace: silica workspace name (for remote workers)
 
         Returns:
             Updated AgentInfo
@@ -552,6 +557,8 @@ class CoordinationSession:
             agent.current_task_id = None
         if tmux_session is not None:
             agent.tmux_session = tmux_session
+        if remote_workspace is not None:
+            agent.remote_workspace = remote_workspace
         self.save_state()
         return agent
 
