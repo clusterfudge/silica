@@ -20,20 +20,26 @@ def spawn_agent(
     display_name: str = None,
     remote: bool = False,
 ) -> str:
-    """Create a new worker agent identity and prepare for spawning.
+    """Create a new worker agent and launch it.
 
     This tool:
     1. Creates a deaddrop identity for the worker
-    2. Registers the agent in the session
-    3. Launches the worker in a tmux session
+    2. Registers the agent in the coordination session
+    3. Launches the worker:
+       - Local mode (remote=False): Worker runs in tmux session on same machine
+       - Remote mode (remote=True): Worker runs in silica workspace (separate process)
 
     Args:
         workspace_name: Name for the worker's workspace (auto-generated if not provided)
         display_name: Human-readable name for the agent
-        remote: Whether this will be a remote workspace (vs local)
+        remote: If True, spawn worker in a silica workspace (provides process isolation).
+                If False (default), spawn in a local tmux session.
 
     Returns:
-        Status message about the spawned agent
+        Status message about the spawned agent including:
+        - Agent ID and workspace name
+        - Spawning mode (LOCAL or REMOTE)
+        - Connection status
     """
     from .coordination import spawn_agent as _spawn_agent
 
