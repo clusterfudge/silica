@@ -663,6 +663,26 @@ def _spawn_remote_worker(
                 session.update_agent_state(agent_id, AgentState.TERMINATED)
                 return "\n".join(lines)
 
+            # Initialize the workspace (clone repo and start agent session)
+            lines.append(f"- Initializing workspace with repo: {repo_url}")
+            success, response = client.initialize(repo_url=repo_url, retries=3)
+
+            if not success:
+                error_msg = response.get(
+                    "error", response.get("detail", "Unknown error")
+                )
+                lines.extend(
+                    [
+                        "- State: FAILED",
+                        "",
+                        f"**Failed to initialize workspace:** {error_msg}",
+                    ]
+                )
+                session.update_agent_state(agent_id, AgentState.TERMINATED)
+                return "\n".join(lines)
+
+            lines.append("- ✓ Workspace initialized")
+
         except subprocess.TimeoutExpired:
             lines.extend(
                 [
