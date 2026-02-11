@@ -10,6 +10,8 @@ from silica.developer.hdev import (
 )
 from silica.developer.cli.memory_sync import memory_sync_app
 from silica.developer.cli.history_sync import history_sync_app
+from silica.developer.cli.coordinator import coordinator_app
+from silica.developer.cli.worker import worker_app
 from silica.cron.app import entrypoint as cron_serve
 from silica.cron.cli import cron as cron_commands
 
@@ -19,6 +21,8 @@ app.command(cron_serve, name="cron-serve")
 app.command(cron_commands, name="cron")
 app.command(memory_sync_app, name="memory-sync")
 app.command(history_sync_app, name="history-sync")
+app.command(coordinator_app, name="coordinator")
+app.command(worker_app, name="worker")
 app.command(view_session, name="view")
 attach_tools(app)
 app.default(developer_app)

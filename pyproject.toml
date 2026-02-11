@@ -50,6 +50,7 @@ dependencies = [
     "bashlex>=0.18",
     "mcp>=1.0.0",
     "keyring>=24.0.0",
+    "deaddrop>=0.1.0",
 ]
 
 [project.optional-dependencies]
@@ -59,7 +60,7 @@ dev = [
     "pytest-asyncio>=1.1.0",
     "pytest-cov>=6.0.0",
     "ruff>=0.13.0",
-    "moto[s3]>=5.0.0",
+    "moto[s3]>=5.0.0,<5.1.20",
     "pytest-mock>=3.15.1",
 ]
 
@@ -94,11 +95,12 @@ dev = [
     "pytest-asyncio>=1.1.0",
     "pytest-cov>=6.0.0",
     "ruff>=0.13.0",
-    "moto[s3]>=5.0.0",
+    "moto[s3]>=5.0.0,<5.1.20",
     "pytest-mock>=3.15.1",
 ]
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 markers = [
     "integration: marks tests as integration tests that may require external resources",
     "slow: marks tests as slow running",
@@ -107,3 +109,7 @@ markers = [
 asyncio_mode = "auto"
 
 
+
+[tool.uv.sources]
+# For local development, override with: UV_SOURCES_DEADDROP='{"path": "../deaddrop", "editable": true}'
+deaddrop = { git = "https://github.com/clusterfudge/deaddrop", tag = "v0.4.0" }
