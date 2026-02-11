@@ -83,12 +83,19 @@ class TestCoordinatorInfo:
 
     def test_info_nonexistent_session(self, capsys):
         """Should show error for nonexistent session."""
+        from deadrop import Deaddrop
+
+        mock_deaddrop = Deaddrop.in_memory()
 
         with patch(
-            "silica.developer.cli.coordinator.CoordinationSession.resume_session",
-            side_effect=FileNotFoundError("Session not found"),
+            "silica.developer.cli.coordinator._get_deaddrop_client",
+            return_value=mock_deaddrop,
         ):
-            coordinator_info("nonexistent")
+            with patch(
+                "silica.developer.cli.coordinator.CoordinationSession.resume_session",
+                side_effect=FileNotFoundError("Session not found"),
+            ):
+                coordinator_info("nonexistent")
 
         captured = capsys.readouterr()
         assert "not found" in captured.out
@@ -109,12 +116,16 @@ class TestCoordinatorInfo:
             # Add an agent
             session.register_agent("agent-1", "id-1", "Worker 1", "ws-1")
 
-            # Mock resume to return our session
+            # Mock deaddrop client and resume to return our session
             with patch(
-                "silica.developer.cli.coordinator.CoordinationSession.resume_session",
-                return_value=session,
+                "silica.developer.cli.coordinator._get_deaddrop_client",
+                return_value=deaddrop,
             ):
-                coordinator_info(session.session_id)
+                with patch(
+                    "silica.developer.cli.coordinator.CoordinationSession.resume_session",
+                    return_value=session,
+                ):
+                    coordinator_info(session.session_id)
 
         captured = capsys.readouterr()
         assert "Test Info Session" in captured.out
