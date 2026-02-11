@@ -46,3 +46,7 @@ history/
 .persona
 .agent-scratchpad/
 .agent-scratchpad
+
+# Agent workspace files (plans, etc.)
+.agent/
+.agents/
