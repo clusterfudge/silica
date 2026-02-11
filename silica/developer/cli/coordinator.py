@@ -141,7 +141,7 @@ def coordinator_new(
     local: Annotated[
         bool,
         cyclopts.Parameter(
-            "--local", "-l", help="Use local .deaddrop backend (no network)"
+            name=["--local", "-l"], help="Use local .deaddrop backend (no network)"
         ),
     ] = False,
     remote: Annotated[
