@@ -112,5 +112,4 @@ asyncio_mode = "auto"
 
 [tool.uv.sources]
 # For local development, override with: UV_SOURCES_DEADDROP='{"path": "../deaddrop", "editable": true}'
-# Using feature/local-invites branch until merged to main and tagged
-deaddrop = { git = "https://github.com/clusterfudge/deaddrop", branch = "feature/local-invites" }
+deaddrop = { git = "https://github.com/clusterfudge/deaddrop", tag = "v0.4.0" }

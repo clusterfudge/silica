@@ -518,8 +518,8 @@ wheels = [
 
 [[package]]
 name = "deaddrop"
-version = "0.3.1.dev1+g62cd47427"
-source = { git = "https://github.com/clusterfudge/deaddrop?branch=feature%2Flocal-invites#62cd47427630031ead39d1aa40857f25ee644e4a" }
+version = "0.4.0"
+source = { git = "https://github.com/clusterfudge/deaddrop?tag=v0.4.0#dcdabec91eee99171daf4635b735335f2dda75f0" }
 dependencies = [
     { name = "cryptography" },
     { name = "cyclopts" },
@@ -1728,7 +1728,7 @@ requires-dist = [
     { name = "bs4", specifier = ">=0.0.2" },
     { name = "croniter", specifier = ">=6.0.0" },
     { name = "cyclopts", specifier = ">=2.0.0" },
-    { name = "deaddrop", git = "https://github.com/clusterfudge/deaddrop?branch=feature%2Flocal-invites" },
+    { name = "deaddrop", git = "https://github.com/clusterfudge/deaddrop?tag=v0.4.0" },
     { name = "dotenv", specifier = ">=0.9.9" },
     { name = "fastapi", specifier = ">=0.116.1" },
     { name = "filelock", specifier = ">=3.13.1" },
