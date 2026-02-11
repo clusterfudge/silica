@@ -146,15 +146,17 @@ def coordinator_new(
     ] = False,
     remote: Annotated[
         bool,
-        cyclopts.Parameter("--remote", "-r", help="Use remote deaddrop server"),
+        cyclopts.Parameter(name=["--remote", "-r"], help="Use remote deaddrop server"),
     ] = False,
     local_path: Annotated[
         Optional[str],
-        cyclopts.Parameter("--local-path", help="Path to local .deaddrop directory"),
+        cyclopts.Parameter(
+            name=["--local-path"], help="Path to local .deaddrop directory"
+        ),
     ] = None,
     remote_url: Annotated[
         Optional[str],
-        cyclopts.Parameter("--remote-url", help="Remote deaddrop server URL"),
+        cyclopts.Parameter(name=["--remote-url"], help="Remote deaddrop server URL"),
     ] = None,
 ):
     """Create a new coordination session.
@@ -222,19 +224,21 @@ def coordinator_resume(
     ] = None,
     local: Annotated[
         bool,
-        cyclopts.Parameter("--local", "-l", help="Use local .deaddrop backend"),
+        cyclopts.Parameter(name=["--local", "-l"], help="Use local .deaddrop backend"),
     ] = False,
     remote: Annotated[
         bool,
-        cyclopts.Parameter("--remote", "-r", help="Use remote deaddrop server"),
+        cyclopts.Parameter(name=["--remote", "-r"], help="Use remote deaddrop server"),
     ] = False,
     local_path: Annotated[
         Optional[str],
-        cyclopts.Parameter("--local-path", help="Path to local .deaddrop directory"),
+        cyclopts.Parameter(
+            name=["--local-path"], help="Path to local .deaddrop directory"
+        ),
     ] = None,
     remote_url: Annotated[
         Optional[str],
-        cyclopts.Parameter("--remote-url", help="Remote deaddrop server URL"),
+        cyclopts.Parameter(name=["--remote-url"], help="Remote deaddrop server URL"),
     ] = None,
 ):
     """Resume an existing coordination session.
@@ -369,7 +373,7 @@ def coordinator_delete(
     ] = None,
     force: Annotated[
         bool,
-        cyclopts.Parameter("--force", "-f", help="Skip confirmation"),
+        cyclopts.Parameter(name=["--force", "-f"], help="Skip confirmation"),
     ] = False,
 ):
     """Delete a saved coordination session."""
@@ -424,19 +428,21 @@ def coordinator_info(
     ] = None,
     local: Annotated[
         bool,
-        cyclopts.Parameter("--local", "-l", help="Use local .deaddrop backend"),
+        cyclopts.Parameter(name=["--local", "-l"], help="Use local .deaddrop backend"),
     ] = False,
     remote: Annotated[
         bool,
-        cyclopts.Parameter("--remote", "-r", help="Use remote deaddrop server"),
+        cyclopts.Parameter(name=["--remote", "-r"], help="Use remote deaddrop server"),
     ] = False,
     local_path: Annotated[
         Optional[str],
-        cyclopts.Parameter("--local-path", help="Path to local .deaddrop directory"),
+        cyclopts.Parameter(
+            name=["--local-path"], help="Path to local .deaddrop directory"
+        ),
     ] = None,
     remote_url: Annotated[
         Optional[str],
-        cyclopts.Parameter("--remote-url", help="Remote deaddrop server URL"),
+        cyclopts.Parameter(name=["--remote-url"], help="Remote deaddrop server URL"),
     ] = None,
 ):
     """Show detailed information about a coordination session."""
