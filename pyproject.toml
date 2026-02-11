@@ -110,4 +110,5 @@ asyncio_mode = "auto"
 
 
 [tool.uv.sources]
-deaddrop = { path = "../deaddrop", editable = true }
+# For local development, override with: UV_SOURCES_DEADDROP='{"path": "../deaddrop", "editable": true}'
+deaddrop = { git = "https://github.com/clusterfudge/deaddrop", tag = "v0.3.0" }
