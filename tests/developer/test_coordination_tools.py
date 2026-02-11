@@ -319,14 +319,8 @@ class TestEscalateToUser:
 
 
 class TestSpawnAgent:
-    """Test spawn_agent tool.
+    """Test spawn_agent tool."""
 
-    Note: These tests are skipped because spawn_agent uses deaddrop invites
-    which are not supported by the local/in-memory backend used in tests.
-    Use integration tests with a real deaddrop server for full testing.
-    """
-
-    @pytest.mark.skip(reason="Local backend doesn't support invites")
     def test_spawn_agent_basic(self, session):
         from silica.developer.tools.coordination import spawn_agent
 
@@ -334,8 +328,9 @@ class TestSpawnAgent:
 
         assert "Agent Created" in result
         assert "test-worker" in result
-        assert "DEADDROP_INVITE_URL" in result
-        assert "COORDINATION_AGENT_ID" in result
+        # Local mode output shows workspace and agent ID, not env vars
+        assert "Agent ID:" in result
+        assert "Workspace:" in result
 
         # Agent should be registered
         agents = session.list_agents()
@@ -343,7 +338,6 @@ class TestSpawnAgent:
         assert agents[0].workspace_name == "test-worker"
         assert agents[0].state == AgentState.SPAWNING
 
-    @pytest.mark.skip(reason="Local backend doesn't support invites")
     def test_spawn_agent_auto_names(self, session):
         from silica.developer.tools.coordination import spawn_agent
 
@@ -353,7 +347,6 @@ class TestSpawnAgent:
         # Should have generated names
         assert "worker-" in result.lower()
 
-    @pytest.mark.skip(reason="Local backend doesn't support invites")
     def test_spawn_agent_with_display_name(self, session):
         from silica.developer.tools.coordination import spawn_agent
 
@@ -367,7 +360,6 @@ class TestSpawnAgent:
         agents = session.list_agents()
         assert agents[0].display_name == "Research Bot"
 
-    @pytest.mark.skip(reason="Local backend doesn't support invites")
     def test_spawn_multiple_agents(self, session):
         from silica.developer.tools.coordination import spawn_agent
 
