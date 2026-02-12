@@ -136,7 +136,7 @@ def test_compaction_disables_thinking_mode_when_normal(
         # Perform compaction
         metadata = compacter.compact_conversation(
             agent_context_with_thinking_enabled,
-            model="claude-opus-4-5-20251101",
+            model="claude-opus-4-6",
             force=True,
         )
 
@@ -166,7 +166,7 @@ def test_compaction_disables_thinking_mode_when_ultra(
         # Perform compaction
         metadata = compacter.compact_conversation(
             agent_context_with_ultra_thinking,
-            model="claude-opus-4-5-20251101",
+            model="claude-opus-4-6",
             force=True,
         )
 
@@ -195,7 +195,8 @@ def test_compaction_leaves_thinking_off_when_already_off(
         persona_base_directory=persona_base_dir,
     )
 
-    # Thinking mode is off by default
+    # Explicitly set thinking mode to off (default is now "max")
+    context.thinking_mode = "off"
     assert context.thinking_mode == "off"
 
     # Add messages without thinking blocks (need at least 3 for micro-compaction)
@@ -219,7 +220,7 @@ def test_compaction_leaves_thinking_off_when_already_off(
 
         # Perform compaction
         metadata = compacter.compact_conversation(
-            context, model="claude-opus-4-5-20251101", force=True
+            context, model="claude-opus-4-6", force=True
         )
 
     # Verify compaction occurred
@@ -246,7 +247,7 @@ def test_compaction_thinking_mode_prevents_api_error(
         # Perform compaction
         metadata = compacter.compact_conversation(
             agent_context_with_thinking_enabled,
-            model="claude-opus-4-5-20251101",
+            model="claude-opus-4-6",
             force=True,
         )
 

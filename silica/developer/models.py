@@ -13,7 +13,7 @@ class ModelSpec(TypedDict):
 
 MODEL_MAP: dict[str, ModelSpec] = {
     "opus": {
-        "title": "claude-opus-4-5-20251101",
+        "title": "claude-opus-4-6",
         "pricing": {"input": 5.00, "output": 25.00},
         "cache_pricing": {"write": 6.25, "read": 0.50},
         "max_tokens": 8192,

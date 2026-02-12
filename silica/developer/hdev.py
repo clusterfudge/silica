@@ -232,7 +232,7 @@ class CLIUserInterface(UserInterface):
 
         @kb.add("c-t")
         def _(event):
-            """Cycle through thinking modes: off -> normal -> ultra -> off
+            """Cycle through thinking modes: off -> normal -> ultra -> max -> off
 
             This handler cycles the thinking mode and preserves the current input.
             The prompt will be re-rendered with the new mode icon.
@@ -250,7 +250,9 @@ class CLIUserInterface(UserInterface):
                     self.agent_context.thinking_mode = "normal"
                 elif current_mode == "normal":
                     self.agent_context.thinking_mode = "ultra"
-                else:  # ultra
+                elif current_mode == "ultra":
+                    self.agent_context.thinking_mode = "max"
+                else:  # max
                     self.agent_context.thinking_mode = "off"
 
                 # Mark that we have a pending mode switch

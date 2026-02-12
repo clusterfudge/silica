@@ -30,7 +30,7 @@ class TestSmartCompaction(unittest.TestCase):
         """Set up test environment."""
         self.test_dir = tempfile.mkdtemp()
         self.model_spec = {
-            "title": "claude-opus-4-5-20251101",
+            "title": "claude-opus-4-6",
             "pricing": {"input": 3.00, "output": 15.00},
             "cache_pricing": {"write": 3.75, "read": 0.30},
             "max_tokens": 8192,
@@ -235,7 +235,7 @@ class TestSmartCompaction(unittest.TestCase):
         compacter = ConversationCompacter(client=mock_client, threshold_ratio=0.8)
 
         # Override context window for predictable behavior
-        compacter.model_context_windows = {"claude-opus-4-5-20251101": 100000}
+        compacter.model_context_windows = {"claude-opus-4-6": 100000}
 
         messages = [
             {"role": "user", "content": "Hello " * 100},
@@ -250,7 +250,7 @@ class TestSmartCompaction(unittest.TestCase):
 
         with mock.patch("pathlib.Path.home", return_value=Path(self.test_dir)):
             updated_context, compaction_applied = compacter.check_and_apply_compaction(
-                context, "claude-opus-4-5-20251101", ui, enable_compaction=True
+                context, "claude-opus-4-6", ui, enable_compaction=True
             )
 
         # Should have compacted
@@ -268,7 +268,7 @@ class TestSmartCompactionDebugOutput(unittest.TestCase):
     def setUp(self):
         self.test_dir = tempfile.mkdtemp()
         self.model_spec = {
-            "title": "claude-opus-4-5-20251101",
+            "title": "claude-opus-4-6",
             "pricing": {"input": 3.00, "output": 15.00},
             "cache_pricing": {"write": 3.75, "read": 0.30},
             "max_tokens": 8192,
