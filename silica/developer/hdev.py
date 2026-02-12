@@ -45,6 +45,33 @@ SANDBOX_MODE_MAP = {mode.name.lower(): mode for mode in SandboxMode}
 SANDBOX_MODE_MAP["dwr"] = SandboxMode.ALLOW_ALL
 
 
+def _get_or_create_event_loop() -> asyncio.AbstractEventLoop:
+    """Get the current event loop or create a new one if none exists.
+
+    This handles the Python 3.10+ deprecation of get_event_loop() when no
+    loop is running in the current thread. It creates a new loop and sets
+    it as the current event loop if needed.
+
+    Returns:
+        The current or newly created event loop.
+    """
+    try:
+        # First try to get a running loop (we're inside an async context)
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        # No running loop - try to get the current thread's loop
+        try:
+            loop = asyncio.get_event_loop_policy().get_event_loop()
+            if loop.is_closed():
+                raise RuntimeError("Event loop is closed")
+            return loop
+        except RuntimeError:
+            # No loop exists for this thread, create one
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            return loop
+
+
 def parse_sandbox_mode(value: str) -> SandboxMode:
     canonicalized = value.lower().replace("-", "_")
     if canonicalized in SANDBOX_MODE_MAP:
@@ -1447,7 +1474,7 @@ def _run_agent_loop(
     # (the Island client was connected on the previous/default loop)
     if hybrid_interface is not None:
         try:
-            old_loop = asyncio.get_event_loop()
+            old_loop = _get_or_create_event_loop()
             old_loop.run_until_complete(hybrid_interface.disconnect_from_island())
         except Exception:
             pass
@@ -1811,7 +1838,7 @@ def cyclopts_main(
     user_interface = HybridUserInterface(cli_interface)
 
     # Try to connect to Agent Island (non-blocking, will fall back to CLI if unavailable)
-    asyncio.get_event_loop().run_until_complete(user_interface.connect_to_island())
+    _get_or_create_event_loop().run_until_complete(user_interface.connect_to_island())
     if user_interface.hybrid_mode:
         console.print(
             "[dim]Connected to Agent Island - dialogs will appear in both terminal and app[/dim]"
@@ -1829,7 +1856,7 @@ def cyclopts_main(
         elif resume_all:
             # Show all sessions without filtering
             console.print(f"[dim]Showing all {len(all_sessions)} sessions.[/dim]\n")
-            selected_id = asyncio.get_event_loop().run_until_complete(
+            selected_id = _get_or_create_event_loop().run_until_complete(
                 interactive_resume(
                     user_interface=user_interface,
                     history_base_dir=persona_obj.base_directory,
@@ -1852,7 +1879,7 @@ def cyclopts_main(
                     f"[dim]Showing {len(local_sessions)} session(s) from current directory. "
                     f"Use --resume-all to see all {len(all_sessions)} sessions.[/dim]\n"
                 )
-                selected_id = asyncio.get_event_loop().run_until_complete(
+                selected_id = _get_or_create_event_loop().run_until_complete(
                     interactive_resume(
                         user_interface=user_interface,
                         workdir=cwd,
@@ -1870,7 +1897,7 @@ def cyclopts_main(
                     f"[dim]No sessions from current directory. "
                     f"Showing all {len(all_sessions)} sessions.[/dim]\n"
                 )
-                selected_id = asyncio.get_event_loop().run_until_complete(
+                selected_id = _get_or_create_event_loop().run_until_complete(
                     interactive_resume(
                         user_interface=user_interface,
                         history_base_dir=persona_obj.base_directory,
@@ -1944,7 +1971,7 @@ def cyclopts_main(
 
     # Register session with Agent Island if connected
     if user_interface.hybrid_mode:
-        asyncio.get_event_loop().run_until_complete(
+        _get_or_create_event_loop().run_until_complete(
             user_interface.register_session(
                 session_id=context.session_id,
                 working_directory=os.getcwd(),

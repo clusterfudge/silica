@@ -387,7 +387,7 @@ class TestSandboxFileOperationsWithGroup:
 
         import asyncio
 
-        asyncio.get_event_loop().run_until_complete(sandbox.read_file("test.txt"))
+        asyncio.run(sandbox.read_file("test.txt"))
 
         # Verify group was passed
         sandbox.check_permissions.assert_called()
