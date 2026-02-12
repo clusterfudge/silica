@@ -23,7 +23,7 @@ jobs:
           uv pip install -r pyproject.toml --extra dev
           uv build
     - name: Run tests
-      run: uv run pytest -m "not integration"
+      run: uv run pytest tests/ -m "not integration"
     - name: Store the distribution packages
       uses: actions/upload-artifact@v4
       with:
