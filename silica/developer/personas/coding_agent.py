@@ -39,9 +39,10 @@ Fetch the current state of any pull request that exists (including build state, 
    - Track pull request comments using `github_list_pr_comments`
    - Get detailed comment information with `github_get_comment`
    - Monitor new comments since your last check via `github_list_new_comments`
-2. Respond to feedback directly through the tools:
-   - Reply to comments using `github_add_pr_comment`
-   - Add inline code comments where appropriate
+2. **IMPORTANT: Do NOT post comments on GitHub PRs unless explicitly instructed to do so.**
+   - Reading and monitoring PR comments is fine
+   - Only use `github_add_pr_comment` when the user specifically asks you to comment
+   - When in doubt, implement changes locally rather than commenting on the PR
 
 ### Implementation Process
 1. Break down the work into logical units

@@ -101,7 +101,7 @@ def test_compaction_strips_thinking_blocks(
 
         # Perform compaction
         metadata = compacter.compact_conversation(
-            agent_context_with_thinking, model="claude-opus-4-5-20251101", force=True
+            agent_context_with_thinking, model="claude-opus-4-6", force=True
         )
 
     # Verify compaction occurred
@@ -135,7 +135,7 @@ def test_compaction_preserves_text_content(
 
         # Perform compaction
         metadata = compacter.compact_conversation(
-            agent_context_with_thinking, model="claude-opus-4-5-20251101", force=True
+            agent_context_with_thinking, model="claude-opus-4-6", force=True
         )
 
     # Verify compaction occurred
@@ -248,7 +248,7 @@ def test_compaction_with_no_thinking_blocks(mock_client, persona_base_dir, tmp_p
 
         # Perform compaction
         metadata = compacter.compact_conversation(
-            context, model="claude-opus-4-5-20251101", force=True
+            context, model="claude-opus-4-6", force=True
         )
 
     # Verify compaction occurred

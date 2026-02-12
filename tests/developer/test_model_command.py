@@ -76,15 +76,15 @@ def test_model_command_change_model_by_full_name(mock_context):
     result = toolbox._model(
         user_interface=mock_context.user_interface,
         sandbox=mock_context.sandbox,
-        user_input="claude-opus-4-5-20251101",
+        user_input="claude-opus-4-6",
     )
 
     assert "Model changed to:" in result
-    assert "claude-opus-4-5-20251101" in result
+    assert "claude-opus-4-6" in result
     assert "opus" in result
 
     # Verify the context was updated
-    assert mock_context.model_spec["title"] == "claude-opus-4-5-20251101"
+    assert mock_context.model_spec["title"] == "claude-opus-4-6"
 
 
 def test_model_command_invalid_model_name(mock_context):

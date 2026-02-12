@@ -33,7 +33,7 @@ def get_thinking_config(thinking_mode: str, model_spec: ModelSpec) -> dict | Non
     """Get the thinking configuration for the API call based on the current mode.
 
     Args:
-        thinking_mode: One of "off", "normal", or "ultra"
+        thinking_mode: One of "off", "normal", "ultra", or "max"
         model_spec: The model specification dict
 
     Returns:
@@ -49,6 +49,8 @@ def get_thinking_config(thinking_mode: str, model_spec: ModelSpec) -> dict | Non
         return {"type": "enabled", "budget_tokens": 8000}
     elif thinking_mode == "ultra":
         return {"type": "enabled", "budget_tokens": 20000}
+    elif thinking_mode == "max":
+        return {"type": "enabled", "budget_tokens": 128000}
     else:
         return {"type": "disabled"}
 
@@ -538,6 +540,8 @@ async def run(
                         prompt = f"💭 {cost} > "
                     elif agent_context.thinking_mode == "ultra":
                         prompt = f"🧠 {cost} > "
+                    elif agent_context.thinking_mode == "max":
+                        prompt = f"🔮 {cost} > "
 
                     # Add plan mode indicator if active
                     try:

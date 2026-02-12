@@ -70,6 +70,14 @@ class TestThinkingConfiguration:
         assert config["type"] == "enabled"
         assert config["budget_tokens"] == 20000
 
+    def test_thinking_config_max_mode(self):
+        """Max mode should return 128k budget config."""
+        model = get_model("opus")
+        config = get_thinking_config("max", model)
+        assert config is not None
+        assert config["type"] == "enabled"
+        assert config["budget_tokens"] == 128000
+
     def test_thinking_config_unsupported_model(self):
         """Unsupported model should return disabled config."""
         model = get_model("sonnet-3.5")
@@ -86,8 +94,8 @@ class TestThinkingConfiguration:
 class TestAgentContextThinkingMode:
     """Test AgentContext thinking mode management."""
 
-    def test_default_thinking_mode_is_off(self, persona_base_dir):
-        """New context should default to thinking mode off."""
+    def test_default_thinking_mode_is_max(self, persona_base_dir):
+        """New context should default to thinking mode max."""
         mock_ui = Mock()
         mock_ui.permission_callback = Mock(return_value=True)
         mock_ui.permission_rendering_callback = Mock()
@@ -100,10 +108,10 @@ class TestAgentContextThinkingMode:
             persona_base_directory=persona_base_dir,
         )
 
-        assert context.thinking_mode == "off"
+        assert context.thinking_mode == "max"
 
     def test_thinking_mode_cycles_correctly(self, persona_base_dir):
-        """Thinking mode should cycle: off -> normal -> ultra -> off."""
+        """Thinking mode should cycle: off -> normal -> ultra -> max -> off."""
         mock_ui = Mock()
         mock_ui.permission_callback = Mock(return_value=True)
         mock_ui.permission_rendering_callback = Mock()
@@ -116,7 +124,11 @@ class TestAgentContextThinkingMode:
             persona_base_directory=persona_base_dir,
         )
 
-        # Start at off
+        # Start at max (new default)
+        assert context.thinking_mode == "max"
+
+        # Set to off to test cycle
+        context.thinking_mode = "off"
         assert context.thinking_mode == "off"
 
         # Cycle to normal
@@ -126,6 +138,10 @@ class TestAgentContextThinkingMode:
         # Cycle to ultra
         context.thinking_mode = "ultra"
         assert context.thinking_mode == "ultra"
+
+        # Cycle to max
+        context.thinking_mode = "max"
+        assert context.thinking_mode == "max"
 
         # Cycle back to off
         context.thinking_mode = "off"

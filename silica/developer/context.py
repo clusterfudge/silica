@@ -36,7 +36,7 @@ class AgentContext:
     usage: list[tuple[Any, Any]]
     memory_manager: "MemoryManager"
     cli_args: list[str] = None
-    thinking_mode: str = "off"  # "off", "normal", or "ultra"
+    thinking_mode: str = "max"  # "off", "normal", "ultra", or "max"
     history_base_dir: Path | None = (
         None  # Base directory for history (defaults to ~/.silica/personas/default)
     )
@@ -521,7 +521,7 @@ def load_session_data(
         model_spec = session_data.get("model_spec", base_context.model_spec)
         parent_id = session_data.get("parent_session_id")
         cli_args = session_data.get("metadata", {}).get("cli_args")
-        thinking_mode = session_data.get("thinking_mode", "off")
+        thinking_mode = session_data.get("thinking_mode", "max")
         active_plan_id = session_data.get("active_plan_id")
 
         # Clean up any orphaned tool blocks in the loaded history
