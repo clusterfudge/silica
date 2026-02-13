@@ -50,7 +50,8 @@ def get_thinking_config(thinking_mode: str, model_spec: ModelSpec) -> dict | Non
     elif thinking_mode == "ultra":
         return {"type": "enabled", "budget_tokens": 20000}
     elif thinking_mode == "max":
-        return {"type": "enabled", "budget_tokens": 128000}
+        # Max thinking budget that leaves room for output tokens (128k limit - 8k output = 120k)
+        return {"type": "enabled", "budget_tokens": 120000}
     else:
         return {"type": "disabled"}
 
