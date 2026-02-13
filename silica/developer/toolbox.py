@@ -747,7 +747,7 @@ class Toolbox:
 * Use `/add` and `/remove` to manage which files are in the sandbox context
 
 **Thinking Mode (Extended Thinking API):**
-* Press **Ctrl+T** to cycle through thinking modes: off → 💭 normal (8k) → 🧠 ultra (20k) → 🔮 max (128k) → off
+* Press **Ctrl+T** to cycle through thinking modes: off → 💭 normal (8k) → 🧠 ultra (20k) → 🔮 max (120k) → off
 * When enabled, the AI thinks deeply before responding (costs 3x input pricing)
 * The prompt shows the current mode: `💭 $0.00 >` (normal) or `🧠 $0.00 >` (ultra)
 * Thinking content is displayed in a collapsible panel after responses
@@ -1295,7 +1295,7 @@ class Toolbox:
             "off": "Off",
             "normal": "💭 Normal (8k tokens)",
             "ultra": "🧠 Ultra (20k tokens)",
-            "max": "🔮 Max (128k tokens)",
+            "max": "🔮 Max (120k tokens)",
         }.get(thinking_mode, thinking_mode)
 
         # Get usage summary

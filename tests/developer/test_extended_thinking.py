@@ -71,12 +71,12 @@ class TestThinkingConfiguration:
         assert config["budget_tokens"] == 20000
 
     def test_thinking_config_max_mode(self):
-        """Max mode should return 128k budget config."""
+        """Max mode should return 120k budget config (leaving room for 8k output)."""
         model = get_model("opus")
         config = get_thinking_config("max", model)
         assert config is not None
         assert config["type"] == "enabled"
-        assert config["budget_tokens"] == 128000
+        assert config["budget_tokens"] == 120000
 
     def test_thinking_config_unsupported_model(self):
         """Unsupported model should return disabled config."""
