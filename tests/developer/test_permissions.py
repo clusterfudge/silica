@@ -339,8 +339,8 @@ class TestPermissionsManagerFilterTools:
         result = manager.filter_tools(tools)
         assert len(result) == 2
 
-    def test_no_config_file_returns_empty_list(self, tmp_path):
-        """Test that missing config file returns empty list."""
+    def test_no_config_file_returns_all_tools(self, tmp_path):
+        """Test that missing config file returns all tools (permissive default)."""
         persona_dir = tmp_path / "test_persona"
         persona_dir.mkdir()
         # No permissions file created
@@ -353,7 +353,8 @@ class TestPermissionsManagerFilterTools:
         ]
 
         result = manager.filter_tools(tools)
-        assert len(result) == 0
+        # No permissions file = allow all tools (permissive default for custom personas)
+        assert len(result) == 2
 
     def test_allowlist_config_filters_correctly(self, tmp_path):
         """Test that allowlist mode filters tools correctly."""
@@ -410,8 +411,8 @@ class TestPermissionsManagerFilterUserTools:
         result = manager.filter_user_tools(tools)
         assert len(result) == 2
 
-    def test_no_config_returns_empty_dict(self, tmp_path):
-        """Test that missing config returns empty dict."""
+    def test_no_config_returns_all_tools(self, tmp_path):
+        """Test that missing config returns all tools (permissive default)."""
         persona_dir = tmp_path / "test_persona"
         persona_dir.mkdir()
 
@@ -422,7 +423,8 @@ class TestPermissionsManagerFilterUserTools:
         }
 
         result = manager.filter_user_tools(tools)
-        assert len(result) == 0
+        # No permissions file = allow all tools (permissive default for custom personas)
+        assert len(result) == 1
 
     def test_filters_user_tools_by_name_and_group(self, tmp_path):
         """Test filtering user tools by name and group."""
