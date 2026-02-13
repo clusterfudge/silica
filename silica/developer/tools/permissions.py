@@ -301,13 +301,14 @@ class PermissionsManager:
         Returns:
             Filtered list of tools that are allowed.
             If dwr_mode is True, returns all tools.
-            If no permissions file exists, returns empty list.
+            If no permissions file exists, returns all tools (permissive default).
         """
         if self.dwr_mode:
             return tools
 
         if self.permissions is None:
-            return []
+            # No permissions file = allow all tools (permissive default for custom personas)
+            return tools
 
         from .framework import get_tool_group
 
@@ -328,13 +329,14 @@ class PermissionsManager:
         Returns:
             Filtered dictionary of tools that are allowed.
             If dwr_mode is True, returns all tools.
-            If no permissions file exists, returns empty dict.
+            If no permissions file exists, returns all tools (permissive default).
         """
         if self.dwr_mode:
             return tools
 
         if self.permissions is None:
-            return {}
+            # No permissions file = allow all tools (permissive default for custom personas)
+            return tools
 
         return {
             name: tool
@@ -475,13 +477,14 @@ class PermissionsManager:
         Returns:
             Filtered list of tool schemas that are allowed.
             If dwr_mode is True, returns all tools.
-            If no permissions file exists, returns empty list.
+            If no permissions file exists, returns all tools (permissive default).
         """
         if self.dwr_mode:
             return tools
 
         if self.permissions is None:
-            return []
+            # No permissions file = allow all tools (permissive default for custom personas)
+            return tools
 
         from silica.developer.mcp.schema import unprefix_tool_name
 
