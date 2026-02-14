@@ -22,6 +22,23 @@ from .user_tools import (
 )
 
 
+def _append_spec_summary(output: list[str], spec: dict, indent: str = "  ") -> None:
+    """Append a formatted summary of a single tool spec to the output list."""
+    output.append(f"{indent}Name: {spec.get('name')}")
+    output.append(f"{indent}Description: {spec.get('description', 'N/A')}")
+    params = spec.get("input_schema", {}).get("properties", {})
+    if params:
+        output.append(f"{indent}Parameters:")
+        for param_name, param_info in params.items():
+            required = param_name in spec.get("input_schema", {}).get(
+                "required", []
+            )
+            req_str = " (required)" if required else ""
+            output.append(
+                f"{indent}  - {param_name}: {param_info.get('type', 'string')}{req_str}"
+            )
+
+
 @tool(group="Toolbox")
 def toolbox_list(context: AgentContext, category: str = None) -> str:
     """List all tools in the user toolbox.
@@ -132,22 +149,17 @@ def toolbox_create(
     action = "updated" if is_update else "created"
     output.append(f"Tool '{name}' {action} successfully at: {tool_path}")
 
-    # Show the generated spec
+    # Show the generated spec(s)
     if validation.spec:
-        output.append("\nTool specification:")
-        output.append(f"  Name: {validation.spec.get('name')}")
-        output.append(f"  Description: {validation.spec.get('description', 'N/A')}")
-        params = validation.spec.get("input_schema", {}).get("properties", {})
-        if params:
-            output.append("  Parameters:")
-            for param_name, param_info in params.items():
-                required = param_name in validation.spec.get("input_schema", {}).get(
-                    "required", []
-                )
-                req_str = " (required)" if required else ""
-                output.append(
-                    f"    - {param_name}: {param_info.get('type', 'string')}{req_str}"
-                )
+        specs = validation.specs
+        if len(specs) == 1:
+            output.append("\nTool specification:")
+            _append_spec_summary(output, specs[0], indent="  ")
+        else:
+            output.append(f"\nMulti-tool file with {len(specs)} tools:")
+            for spec in specs:
+                output.append(f"\n  **{spec.get('name', 'unnamed')}**:")
+                _append_spec_summary(output, spec, indent="    ")
 
     # Test the tool if test_input provided
     if test_input:
@@ -168,7 +180,13 @@ def toolbox_create(
         except json.JSONDecodeError as e:
             output.append(f"Test skipped: Invalid JSON in test_input: {e}")
 
-    output.append(f"\nThe tool is now available for use. Call it as: {name}()")
+    if validation.is_multi_tool:
+        tool_names = [s.get("name", "unknown") for s in validation.specs]
+        output.append("\nThe following tools are now available:")
+        for tn in tool_names:
+            output.append(f"  - {tn}()")
+    else:
+        output.append(f"\nThe tool is now available for use. Call it as: {name}()")
 
     return "\n".join(output)
 
@@ -235,7 +253,13 @@ def toolbox_inspect(context: AgentContext, name: str) -> str:
 
     if validation.spec:
         output.append("\n## Tool Specification")
-        output.append(f"```json\n{json.dumps(validation.spec, indent=2)}\n```")
+        if validation.is_multi_tool:
+            output.append(f"*Multi-tool file with {len(validation.specs)} tools:*\n")
+            for spec in validation.specs:
+                output.append(f"### {spec.get('name', 'unnamed')}")
+                output.append(f"```json\n{json.dumps(spec, indent=2)}\n```")
+        else:
+            output.append(f"```json\n{json.dumps(validation.spec, indent=2)}\n```")
 
     output.append("\n## Source Code")
     output.append(f"```python\n{source}\n```")

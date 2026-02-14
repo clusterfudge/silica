@@ -4290,7 +4290,11 @@ Let's collaborate on creating a solid plan before implementation."""
         # User-created tools (only include those with valid schemas)
         for name, tool in self.user_tools.items():
             if tool.spec and tool.schema_valid:
-                schemas.append(tool.spec)
+                # Strip internal metadata fields (prefixed with _) before sending to API
+                api_spec = {
+                    k: v for k, v in tool.spec.items() if not k.startswith("_")
+                }
+                schemas.append(api_spec)
             # Silently skip invalid tools - they will be shown in /tools with errors
 
         # MCP server tools (if manager is configured)

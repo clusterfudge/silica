@@ -176,6 +176,9 @@ def generate_schemas_for_commands(
     """Generate schemas for multiple command functions.
 
     Use this for multi-tool files where you have several commands.
+    Each schema includes a '_subcommand' metadata field containing the
+    function name, which is used by the invocation layer to determine
+    the correct cyclopts subcommand.
 
     Args:
         commands: List of (function, name) tuples. If name is None, uses function name.
@@ -197,7 +200,11 @@ def generate_schemas_for_commands(
         tool_name = name or func.__name__
         if prefix and not tool_name.startswith(prefix):
             tool_name = prefix + tool_name
-        schemas.append(generate_schema(func, name=tool_name))
+        schema = generate_schema(func, name=tool_name)
+        # Include the actual function name as subcommand metadata
+        # so the invocation layer knows which cyclopts command to call
+        schema["_subcommand"] = func.__name__
+        schemas.append(schema)
     return schemas
 '''
 
@@ -638,12 +645,30 @@ def validate_tool_schema(spec: dict) -> tuple[bool, list[str]]:
 
 @dataclass
 class ValidationResult:
-    """Result of validating a tool."""
+    """Result of validating a tool.
+
+    The spec field can be either a single tool spec dict or a list of tool spec dicts
+    for multi-tool files (e.g., gcal.py which exposes calendar_list_events, calendar_create_event, etc.).
+    """
 
     valid: bool
     errors: list[str]
     warnings: list[str]
-    spec: dict = None
+    spec: dict | list[dict] = None
+
+    @property
+    def is_multi_tool(self) -> bool:
+        """Whether this validation result represents a multi-tool file."""
+        return isinstance(self.spec, list)
+
+    @property
+    def specs(self) -> list[dict]:
+        """Return specs as a list, whether single or multi-tool."""
+        if self.spec is None:
+            return []
+        if isinstance(self.spec, list):
+            return self.spec
+        return [self.spec]
 
 
 def validate_tool(path: Path) -> ValidationResult:
@@ -707,10 +732,32 @@ def validate_tool(path: Path) -> ValidationResult:
                 spec = json.loads(result.stdout)
 
                 # 3. Validate spec against Anthropic API schema requirements
-                # This replaces the basic field checks with comprehensive validation
-                schema_valid, schema_errors = validate_tool_schema(spec)
-                if not schema_valid:
-                    errors.extend(schema_errors)
+                # Handle both single spec (dict) and multi-tool spec (list of dicts)
+                if isinstance(spec, list):
+                    # Multi-tool file: validate each spec individually
+                    for i, single_spec in enumerate(spec):
+                        if not isinstance(single_spec, dict):
+                            errors.append(
+                                f"--toolspec array item {i} is not a dict"
+                            )
+                            continue
+                        schema_valid, schema_errors = validate_tool_schema(
+                            single_spec
+                        )
+                        if not schema_valid:
+                            tool_name = single_spec.get("name", f"item[{i}]")
+                            errors.extend(
+                                f"{tool_name}: {e}" for e in schema_errors
+                            )
+                elif isinstance(spec, dict):
+                    # Single tool file
+                    schema_valid, schema_errors = validate_tool_schema(spec)
+                    if not schema_valid:
+                        errors.extend(schema_errors)
+                else:
+                    errors.append(
+                        "--toolspec must return a JSON object or array of objects"
+                    )
 
             except json.JSONDecodeError as e:
                 errors.append(f"--toolspec returned invalid JSON: {e}")
@@ -795,10 +842,12 @@ def invoke_user_tool(
     # If the tool name differs from the file stem, it's a multi-tool file
     subcommand = None
     if tool.name != tool.file_stem:
-        # Extract subcommand: if tool is 'gmail_search' and file is 'gmail',
-        # subcommand might be 'search' (strip prefix) or 'gmail_search' (full name)
-        # We'll try the suffix first, then the full name
-        if tool.name.startswith(tool.file_stem + "_"):
+        # First check if the spec includes an explicit _subcommand field
+        # (set by generate_schemas_for_commands with the actual function name)
+        if tool.spec and "_subcommand" in tool.spec:
+            subcommand = tool.spec["_subcommand"]
+        # Fall back to stripping the file stem prefix
+        elif tool.name.startswith(tool.file_stem + "_"):
             subcommand = tool.name[len(tool.file_stem) + 1 :]
         else:
             subcommand = tool.name
