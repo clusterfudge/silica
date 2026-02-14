@@ -806,6 +806,9 @@ def _run_coordinator_agent(
     )
     # Coordinator uses DWR mode to bypass permissions for coordination tools
     context.dwr_mode = True
+    # Use "off" thinking for coordinator — saves tokens, sonnet max_output is 64K
+    # which conflicts with max thinking budget (119K + 8K = 127K).
+    context.thinking_mode = "off"
 
     # Build initial prompt
     state = session.get_state()
