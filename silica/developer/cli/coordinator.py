@@ -751,7 +751,9 @@ def _run_coordinator_agent(
             if prompt_path.exists():
                 heartbeat_prompt_text = prompt_path.read_text().strip()
             else:
-                console.print(f"[red]Heartbeat prompt file not found: {prompt_path}[/red]")
+                console.print(
+                    f"[red]Heartbeat prompt file not found: {prompt_path}[/red]"
+                )
                 return
         else:
             heartbeat_prompt_text = heartbeat_prompt
@@ -761,6 +763,7 @@ def _run_coordinator_agent(
     persona_dir_path = None
     if persona:
         from silica.developer.personas import for_name as get_persona
+
         persona_obj = get_persona(persona)
         persona_system_prompt = persona_obj.system_block
         persona_dir_path = Path.home() / ".silica" / "personas" / persona
@@ -784,7 +787,11 @@ def _run_coordinator_agent(
     )
 
     # Create persona directory for history (use specified persona or coordinator default)
-    persona_dir = persona_dir_path if persona_dir_path else (Path.home() / ".silica" / "personas" / "coordinator")
+    persona_dir = (
+        persona_dir_path
+        if persona_dir_path
+        else (Path.home() / ".silica" / "personas" / "coordinator")
+    )
     persona_dir.mkdir(parents=True, exist_ok=True)
 
     # Memory manager
@@ -813,7 +820,7 @@ def _run_coordinator_agent(
     # Build initial prompt
     state = session.get_state()
     backend_info = f"{session.deaddrop.backend} ({session.deaddrop.location})"
-    initial_prompt = f"""You are now running as a **Coordinator Agent** for session "{state['display_name']}" (ID: {session.session_id}).
+    initial_prompt = f"""You are now running as a **Coordinator Agent** for session "{state["display_name"]}" (ID: {session.session_id}).
 
 **Backend:** {backend_info}
 
@@ -826,8 +833,8 @@ def _run_coordinator_agent(
 - And more...
 
 **Session State:**
-- Agents: {len(state.get('agents', {}))}
-- Humans: {len(state.get('humans', {}))}
+- Agents: {len(state.get("agents", {}))}
+- Humans: {len(state.get("humans", {}))}
 
 What would you like to coordinate? You can:
 1. Spawn workers to execute tasks
