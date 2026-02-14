@@ -638,12 +638,30 @@ def validate_tool_schema(spec: dict) -> tuple[bool, list[str]]:
 
 @dataclass
 class ValidationResult:
-    """Result of validating a tool."""
+    """Result of validating a tool.
+
+    The spec field can be either a single tool spec dict or a list of tool spec dicts
+    for multi-tool files (e.g., gcal.py which exposes calendar_list_events, calendar_create_event, etc.).
+    """
 
     valid: bool
     errors: list[str]
     warnings: list[str]
-    spec: dict = None
+    spec: dict | list[dict] = None
+
+    @property
+    def is_multi_tool(self) -> bool:
+        """Whether this validation result represents a multi-tool file."""
+        return isinstance(self.spec, list)
+
+    @property
+    def specs(self) -> list[dict]:
+        """Return specs as a list, whether single or multi-tool."""
+        if self.spec is None:
+            return []
+        if isinstance(self.spec, list):
+            return self.spec
+        return [self.spec]
 
 
 def validate_tool(path: Path) -> ValidationResult:
@@ -707,10 +725,32 @@ def validate_tool(path: Path) -> ValidationResult:
                 spec = json.loads(result.stdout)
 
                 # 3. Validate spec against Anthropic API schema requirements
-                # This replaces the basic field checks with comprehensive validation
-                schema_valid, schema_errors = validate_tool_schema(spec)
-                if not schema_valid:
-                    errors.extend(schema_errors)
+                # Handle both single spec (dict) and multi-tool spec (list of dicts)
+                if isinstance(spec, list):
+                    # Multi-tool file: validate each spec individually
+                    for i, single_spec in enumerate(spec):
+                        if not isinstance(single_spec, dict):
+                            errors.append(
+                                f"--toolspec array item {i} is not a dict"
+                            )
+                            continue
+                        schema_valid, schema_errors = validate_tool_schema(
+                            single_spec
+                        )
+                        if not schema_valid:
+                            tool_name = single_spec.get("name", f"item[{i}]")
+                            errors.extend(
+                                f"{tool_name}: {e}" for e in schema_errors
+                            )
+                elif isinstance(spec, dict):
+                    # Single tool file
+                    schema_valid, schema_errors = validate_tool_schema(spec)
+                    if not schema_valid:
+                        errors.extend(schema_errors)
+                else:
+                    errors.append(
+                        "--toolspec must return a JSON object or array of objects"
+                    )
 
             except json.JSONDecodeError as e:
                 errors.append(f"--toolspec returned invalid JSON: {e}")
