@@ -385,5 +385,172 @@ class TestAgentContextRotate(unittest.TestCase):
         self.assertFalse(hasattr(context, "_compaction_metadata"))
 
 
+class TestAgentContextCompactInPlace(unittest.TestCase):
+    """Tests for AgentContext.compact_in_place() method."""
+
+    def setUp(self):
+        """Set up test environment."""
+        self.test_dir = tempfile.mkdtemp()
+        self.sample_messages = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi there!"},
+            {"role": "user", "content": "How are you?"},
+            {"role": "assistant", "content": "I'm doing well, thank you!"},
+        ]
+        self.model_spec = {
+            "title": "claude-opus-4-6",
+            "pricing": {"input": 3.00, "output": 15.00},
+            "cache_pricing": {"write": 3.75, "read": 0.30},
+            "max_tokens": 8192,
+            "context_window": 200000,
+        }
+
+    def tearDown(self):
+        shutil.rmtree(self.test_dir)
+
+    def _make_context(self, parent_session_id=None, session_id="test-compact"):
+        ui = MockUserInterface()
+        sandbox = Sandbox(self.test_dir, mode=SandboxMode.ALLOW_ALL)
+        memory_manager = MemoryManager()
+        return AgentContext(
+            parent_session_id=parent_session_id,
+            session_id=session_id,
+            model_spec=self.model_spec,
+            sandbox=sandbox,
+            user_interface=ui,
+            usage=[],
+            memory_manager=memory_manager,
+            history_base_dir=Path(self.test_dir) / ".silica" / "personas" / "default",
+        )
+
+    def test_compact_in_place_replaces_history(self):
+        """compact_in_place should replace chat history with new messages."""
+        context = self._make_context()
+        context._chat_history = self.sample_messages.copy()
+
+        new_messages = [
+            {"role": "user", "content": "Compacted summary"},
+            {"role": "assistant", "content": "Continuing..."},
+        ]
+        context.compact_in_place(new_messages)
+
+        self.assertEqual(context.chat_history, new_messages)
+
+    def test_compact_in_place_clears_tool_buffer(self):
+        """compact_in_place should clear the tool result buffer."""
+        context = self._make_context()
+        context._chat_history = self.sample_messages.copy()
+        context._tool_result_buffer = [{"type": "tool_result", "content": "something"}]
+
+        context.compact_in_place([{"role": "user", "content": "Summary"}])
+
+        self.assertEqual(len(context.tool_result_buffer), 0)
+
+    def test_compact_in_place_stores_metadata(self):
+        """compact_in_place should store compaction metadata."""
+        from silica.developer.compacter import CompactionMetadata
+
+        context = self._make_context()
+        context._chat_history = self.sample_messages.copy()
+
+        metadata = CompactionMetadata(
+            archive_name="n/a",
+            original_message_count=4,
+            compacted_message_count=1,
+            original_token_count=500,
+            summary_token_count=100,
+            compaction_ratio=0.2,
+        )
+
+        context.compact_in_place(
+            [{"role": "user", "content": "Summary"}],
+            compaction_metadata=metadata,
+        )
+
+        self.assertEqual(context._compaction_metadata, metadata)
+
+    def test_compact_in_place_works_on_sub_agent(self):
+        """compact_in_place should work on sub-agent contexts (unlike rotate)."""
+        context = self._make_context(
+            parent_session_id="parent-123",
+            session_id="sub-agent-456",
+        )
+        context._chat_history = self.sample_messages.copy()
+
+        new_messages = [
+            {"role": "user", "content": "Compacted sub-agent history"},
+        ]
+        # Should NOT raise ValueError
+        context.compact_in_place(new_messages)
+
+        self.assertEqual(context.chat_history, new_messages)
+        self.assertEqual(len(context.tool_result_buffer), 0)
+
+    def test_compact_in_place_works_on_root_context(self):
+        """compact_in_place should also work on root contexts."""
+        context = self._make_context(parent_session_id=None)
+        context._chat_history = self.sample_messages.copy()
+
+        new_messages = [{"role": "user", "content": "Compacted root history"}]
+        context.compact_in_place(new_messages)
+
+        self.assertEqual(context.chat_history, new_messages)
+
+    def test_compact_in_place_does_not_create_archive(self):
+        """compact_in_place should NOT create any archive files."""
+        context = self._make_context(
+            parent_session_id="parent-123",
+            session_id="sub-agent-789",
+        )
+        context._chat_history = self.sample_messages.copy()
+        context.flush(context.chat_history, compact=False)
+
+        # Get the history dir for this sub-agent (inside parent's dir)
+        history_dir = (
+            Path(self.test_dir)
+            / ".silica"
+            / "personas"
+            / "default"
+            / "history"
+            / "parent-123"
+        )
+
+        # Count files before compaction
+        files_before = set(history_dir.iterdir()) if history_dir.exists() else set()
+
+        context.compact_in_place([{"role": "user", "content": "Compacted"}])
+
+        # Count files after — should be the same (just the session file, updated in place)
+        files_after = set(history_dir.iterdir()) if history_dir.exists() else set()
+        self.assertEqual(files_before, files_after)
+
+    def test_compact_in_place_flushes_to_disk(self):
+        """compact_in_place should persist the compacted state."""
+        context = self._make_context(
+            parent_session_id="parent-123",
+            session_id="sub-agent-flush-test",
+        )
+        context._chat_history = self.sample_messages.copy()
+
+        new_messages = [{"role": "user", "content": "Compacted"}]
+        context.compact_in_place(new_messages)
+
+        # Read back the persisted file
+        history_dir = (
+            Path(self.test_dir)
+            / ".silica"
+            / "personas"
+            / "default"
+            / "history"
+            / "parent-123"
+        )
+        session_file = history_dir / "sub-agent-flush-test.json"
+        self.assertTrue(session_file.exists())
+
+        with open(session_file, "r") as f:
+            data = json.load(f)
+        self.assertEqual(data["messages"], new_messages)
+
+
 if __name__ == "__main__":
     unittest.main()

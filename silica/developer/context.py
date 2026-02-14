@@ -346,6 +346,34 @@ class AgentContext:
 
         return f"{archive_suffix}.json"
 
+    def compact_in_place(
+        self,
+        new_messages: list[MessageParam],
+        compaction_metadata: dict | None = None,
+    ) -> None:
+        """Replace the conversation history with compacted messages in place.
+
+        Unlike rotate(), this does NOT archive the previous conversation.
+        Designed for sub-agent contexts where archival isn't needed, but also
+        works for root contexts.
+
+        This method mutates the context in place:
+        1. Replaces chat history with the provided (compacted) messages
+        2. Clears the tool result buffer
+        3. Optionally stores compaction metadata
+        4. Flushes the updated state to disk
+
+        Args:
+            new_messages: The new compacted messages to replace the current history
+            compaction_metadata: Optional metadata about compaction (stored for next flush())
+        """
+        self._chat_history = new_messages
+        self._tool_result_buffer.clear()
+        self.flush(new_messages, compact=False)
+
+        if compaction_metadata:
+            self._compaction_metadata = compaction_metadata
+
     def flush(self, chat_history, compact=True):
         """Save the agent context and chat history to a file.
 

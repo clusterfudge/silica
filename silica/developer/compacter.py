@@ -962,7 +962,10 @@ Focus on preserving what the guidance identifies as important. Be comprehensive 
     ) -> str:
         """Archive the current conversation and update the context with new messages.
 
-        Uses AgentContext.rotate() to maintain consistent file path conventions.
+        For root contexts, archives the conversation to a timestamped file and rotates.
+        For sub-agent contexts, compacts in place without archiving (sub-agents are
+        ephemeral and don't need conversation archives).
+
         This mutates the agent_context in place, including setting compaction metadata.
 
         Args:
@@ -971,8 +974,14 @@ Focus on preserving what the guidance identifies as important. Be comprehensive 
             metadata: Compaction metadata to store in the context
 
         Returns:
-            str: Archive filename
+            str: Archive filename (or "compact-in-place" for sub-agents)
         """
+        # Sub-agent contexts can't rotate (no root.json to archive).
+        # Compact in place instead — the summary is what matters, not the archive.
+        if agent_context.parent_session_id is not None:
+            agent_context.compact_in_place(new_messages, metadata)
+            return "compact-in-place"
+
         from datetime import datetime, timezone
 
         # Generate timestamp-based archive name
