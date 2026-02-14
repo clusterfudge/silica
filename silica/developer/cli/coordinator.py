@@ -158,6 +158,24 @@ def coordinator_new(
         Optional[str],
         cyclopts.Parameter(name=["--remote-url"], help="Remote deaddrop server URL"),
     ] = None,
+    persona: Annotated[
+        Optional[str],
+        cyclopts.Parameter(help="Persona to overlay on coordinator (e.g., twin)"),
+    ] = None,
+    heartbeat_prompt: Annotated[
+        Optional[str],
+        cyclopts.Parameter(
+            name=["--heartbeat-prompt"],
+            help="Heartbeat prompt file or text. Supports @file syntax. Enables daemon mode.",
+        ),
+    ] = None,
+    heartbeat_interval: Annotated[
+        int,
+        cyclopts.Parameter(
+            name=["--heartbeat-interval"],
+            help="Seconds of idle before heartbeat fires (default: 300)",
+        ),
+    ] = 300,
 ):
     """Create a new coordination session.
 
@@ -213,7 +231,12 @@ def coordinator_new(
     console.print()
 
     # Start the coordinator agent loop
-    _run_coordinator_agent(session)
+    _run_coordinator_agent(
+        session,
+        persona=persona,
+        heartbeat_prompt=heartbeat_prompt,
+        heartbeat_interval=heartbeat_interval,
+    )
 
 
 @coordinator_app.command(name="resume")
@@ -240,6 +263,24 @@ def coordinator_resume(
         Optional[str],
         cyclopts.Parameter(name=["--remote-url"], help="Remote deaddrop server URL"),
     ] = None,
+    persona: Annotated[
+        Optional[str],
+        cyclopts.Parameter(help="Persona to overlay on coordinator (e.g., twin)"),
+    ] = None,
+    heartbeat_prompt: Annotated[
+        Optional[str],
+        cyclopts.Parameter(
+            name=["--heartbeat-prompt"],
+            help="Heartbeat prompt file or text. Supports @file syntax. Enables daemon mode.",
+        ),
+    ] = None,
+    heartbeat_interval: Annotated[
+        int,
+        cyclopts.Parameter(
+            name=["--heartbeat-interval"],
+            help="Seconds of idle before heartbeat fires (default: 300)",
+        ),
+    ] = 300,
 ):
     """Resume an existing coordination session.
 
@@ -335,7 +376,12 @@ def coordinator_resume(
     console.print()
 
     # Start the coordinator agent loop
-    _run_coordinator_agent(session)
+    _run_coordinator_agent(
+        session,
+        persona=persona,
+        heartbeat_prompt=heartbeat_prompt,
+        heartbeat_interval=heartbeat_interval,
+    )
 
 
 @coordinator_app.command(name="list")
@@ -586,7 +632,12 @@ def coordinator_init_local(
         console.print(f"[red]Failed to create local deaddrop: {e}[/red]")
 
 
-def _run_coordinator_agent(session: CoordinationSession):
+def _run_coordinator_agent(
+    session: CoordinationSession,
+    persona: str | None = None,
+    heartbeat_prompt: str | None = None,
+    heartbeat_interval: int = 300,
+):
     """Run the coordinator agent loop.
 
     Sets up the coordinator persona and runs the agent loop with
@@ -632,6 +683,18 @@ def _run_coordinator_agent(session: CoordinationSession):
         verify_plan_task,
         complete_plan,
     )
+    from silica.developer.tools.memory import (
+        get_memory_tree,
+        search_memory,
+        read_memory_entry,
+        write_memory_entry,
+        critique_memory,
+        delete_memory_entry,
+    )
+    from silica.developer.tools.web import (
+        web_search,
+        safe_curl,
+    )
 
     FILE_TOOLS = [
         read_file,
@@ -663,8 +726,45 @@ def _run_coordinator_agent(session: CoordinationSession):
         verify_plan_task,
         complete_plan,
     ]
+
+    MEMORY_TOOLS = [
+        get_memory_tree,
+        search_memory,
+        read_memory_entry,
+        write_memory_entry,
+        critique_memory,
+        delete_memory_entry,
+    ]
+
+    WEB_TOOLS = [
+        web_search,
+        safe_curl,
+    ]
     from silica.developer.utils import wrap_text_as_content_block
     from uuid import uuid4
+
+    # Load heartbeat prompt from file if @file syntax
+    heartbeat_prompt_text = None
+    if heartbeat_prompt:
+        if heartbeat_prompt.startswith("@"):
+            prompt_path = Path(heartbeat_prompt[1:]).expanduser()
+            if prompt_path.exists():
+                heartbeat_prompt_text = prompt_path.read_text().strip()
+            else:
+                console.print(f"[red]Heartbeat prompt file not found: {prompt_path}[/red]")
+                return
+        else:
+            heartbeat_prompt_text = heartbeat_prompt
+
+    # Load persona if specified, otherwise use coordinator default
+    persona_system_prompt = None
+    persona_dir_path = None
+    if persona:
+        from silica.developer.personas import for_name as get_persona
+        persona_obj = get_persona(persona)
+        persona_system_prompt = persona_obj.system_block
+        persona_dir_path = Path.home() / ".silica" / "personas" / persona
+        persona_dir_path.mkdir(parents=True, exist_ok=True)
 
     # Set as current session for tools
     set_current_session(session)
@@ -683,8 +783,8 @@ def _run_coordinator_agent(session: CoordinationSession):
         permission_check_rendering_callback=user_interface.permission_rendering_callback,
     )
 
-    # Create persona directory for history
-    persona_dir = Path.home() / ".silica" / "personas" / "coordinator"
+    # Create persona directory for history (use specified persona or coordinator default)
+    persona_dir = persona_dir_path if persona_dir_path else (Path.home() / ".silica" / "personas" / "coordinator")
     persona_dir.mkdir(parents=True, exist_ok=True)
 
     # Memory manager
@@ -734,16 +834,27 @@ What would you like to coordinate? You can:
 I'm ready to help orchestrate your multi-agent workflow."""
 
     # Display welcome
+    persona_label = persona if persona else "coordinator"
+    heartbeat_label = f"{heartbeat_interval}s" if heartbeat_prompt_text else "off"
     console.print(
         Panel(
             f"[bold green]Coordinator Agent Active[/bold green]\n\n"
             f"Session: {session.session_id}\n"
             f"Backend: {backend_info}\n"
+            f"Persona: {persona_label}\n"
             f"Model: {MODEL}\n"
+            f"Heartbeat: {heartbeat_label}\n"
             f"Tools: {', '.join(TOOL_GROUPS)}",
             title="🤝 Coordination Mode",
         )
     )
+
+    # Build system prompt: persona + coordinator capability overlay
+    if persona_system_prompt:
+        # Compose: persona identity + coordinator tools/protocol
+        system_prompt = persona_system_prompt
+    else:
+        system_prompt = wrap_text_as_content_block(COORDINATOR_PERSONA)
 
     # Run the agent loop
     try:
@@ -751,10 +862,15 @@ I'm ready to help orchestrate your multi-agent workflow."""
             run(
                 agent_context=context,
                 initial_prompt=initial_prompt,
-                system_prompt=wrap_text_as_content_block(COORDINATOR_PERSONA),
+                single_response=False,  # Coordinator runs indefinitely
+                system_prompt=system_prompt,
                 tools=COORDINATION_TOOLS
                 + PLANNING_TOOLS
-                + FILE_TOOLS,  # Coordination + planning + file tools
+                + FILE_TOOLS
+                + MEMORY_TOOLS
+                + WEB_TOOLS,
+                heartbeat_prompt=heartbeat_prompt_text,
+                heartbeat_idle_seconds=heartbeat_interval,
             )
         )
     except KeyboardInterrupt:
