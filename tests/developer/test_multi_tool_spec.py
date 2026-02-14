@@ -410,6 +410,25 @@ class TestRealMultiToolDiscovery:
         for t in tools:
             assert t.file_stem == "gcal"
 
+    def test_subcommand_metadata_in_specs(self):
+        """Multi-tool specs should include _subcommand metadata from generate_schemas_for_commands."""
+        from silica.developer.tools.user_tools import get_tools_dir
+
+        gcal_path = get_tools_dir() / "gcal.py"
+        if not gcal_path.exists():
+            pytest.skip("gcal.py not found in tools directory")
+
+        tools = _discover_tools_from_file(gcal_path, check_auth=False)
+
+        # At minimum, tools from generate_schemas_for_commands should have _subcommand
+        # (Only present if the helper has been updated with _subcommand support)
+        for t in tools:
+            if "_subcommand" in t.spec:
+                # The subcommand should be the function name, not the tool name
+                assert t.spec["_subcommand"] != t.name, (
+                    "_subcommand should be the function name, not the tool name"
+                )
+
     def test_discover_gmail_if_exists(self):
         """If gmail.py exists in tools dir, it should produce multiple tools."""
         from silica.developer.tools.user_tools import get_tools_dir
@@ -425,3 +444,158 @@ class TestRealMultiToolDiscovery:
         # All should share the same file_stem
         for t in tools:
             assert t.file_stem == "gmail"
+
+
+# ---- Invocation subcommand derivation ----
+
+
+class TestMultiToolInvocationSubcommand:
+    """Tests for subcommand derivation when invoking multi-tool files."""
+
+    def test_subcommand_from_spec_metadata(self):
+        """When spec has _subcommand, it should be used for invocation."""
+        from silica.developer.tools.user_tools import (
+            DiscoveredTool,
+            ToolMetadata,
+            invoke_user_tool,
+        )
+        from unittest.mock import patch
+
+        tool = DiscoveredTool(
+            name="calendar_list_events",
+            path=Path("/fake/gcal.py"),
+            spec={
+                "name": "calendar_list_events",
+                "description": "List events",
+                "input_schema": {"type": "object", "properties": {}, "required": []},
+                "_subcommand": "list_events",
+            },
+            metadata=ToolMetadata(),
+            file_stem="gcal",
+        )
+
+        with patch(
+            "silica.developer.tools.user_tools.find_tool", return_value=tool
+        ), patch(
+            "silica.developer.tools.user_tools._invoke_tool_file"
+        ) as mock_invoke:
+            mock_invoke.return_value = MagicMock(success=True, output="ok")
+            invoke_user_tool("calendar_list_events", {"days": 1})
+
+            # Should invoke with subcommand "list_events" (from _subcommand),
+            # not "calendar_list_events" (the tool name)
+            mock_invoke.assert_called_once_with(
+                Path("/fake/gcal.py"), "list_events", {"days": 1}, 60
+            )
+
+    def test_subcommand_fallback_prefix_strip(self):
+        """Without _subcommand metadata, should strip file_stem prefix."""
+        from silica.developer.tools.user_tools import (
+            DiscoveredTool,
+            ToolMetadata,
+            invoke_user_tool,
+        )
+        from unittest.mock import patch
+
+        tool = DiscoveredTool(
+            name="gmail_search",
+            path=Path("/fake/gmail.py"),
+            spec={
+                "name": "gmail_search",
+                "description": "Search",
+                "input_schema": {"type": "object", "properties": {}, "required": []},
+                # No _subcommand field
+            },
+            metadata=ToolMetadata(),
+            file_stem="gmail",
+        )
+
+        with patch(
+            "silica.developer.tools.user_tools.find_tool", return_value=tool
+        ), patch(
+            "silica.developer.tools.user_tools._invoke_tool_file"
+        ) as mock_invoke:
+            mock_invoke.return_value = MagicMock(success=True, output="ok")
+            invoke_user_tool("gmail_search", {"query": "test"})
+
+            # Should strip "gmail_" prefix -> subcommand "search"
+            mock_invoke.assert_called_once_with(
+                Path("/fake/gmail.py"), "search", {"query": "test"}, 60
+            )
+
+    def test_single_tool_no_subcommand(self):
+        """Single-tool files should not use a subcommand."""
+        from silica.developer.tools.user_tools import (
+            DiscoveredTool,
+            ToolMetadata,
+            invoke_user_tool,
+        )
+        from unittest.mock import patch
+
+        tool = DiscoveredTool(
+            name="hello_world",
+            path=Path("/fake/hello_world.py"),
+            spec={
+                "name": "hello_world",
+                "description": "Say hello",
+                "input_schema": {"type": "object", "properties": {}, "required": []},
+            },
+            metadata=ToolMetadata(),
+            file_stem="hello_world",
+        )
+
+        with patch(
+            "silica.developer.tools.user_tools.find_tool", return_value=tool
+        ), patch(
+            "silica.developer.tools.user_tools._invoke_tool_file"
+        ) as mock_invoke:
+            mock_invoke.return_value = MagicMock(success=True, output="ok")
+            invoke_user_tool("hello_world", {"name": "World"})
+
+            # name == file_stem -> no subcommand
+            mock_invoke.assert_called_once_with(
+                Path("/fake/hello_world.py"), None, {"name": "World"}, 60
+            )
+
+
+# ---- API schema stripping ----
+
+
+class TestApiSchemaStripping:
+    """Tests that internal metadata fields are stripped from API schemas."""
+
+    def test_subcommand_stripped_from_api_schema(self):
+        """_subcommand field should not appear in schemas sent to the API."""
+        from silica.developer.toolbox import Toolbox
+        from silica.developer.tools.user_tools import DiscoveredTool, ToolMetadata
+
+        context = MagicMock()
+        context.user_interface = MagicMock()
+
+        toolbox = Toolbox(context, tool_names=[])
+        toolbox.user_tools.clear()
+
+        spec_with_metadata = {
+            "name": "calendar_list_events",
+            "description": "List events",
+            "input_schema": {"type": "object", "properties": {}, "required": []},
+            "_subcommand": "list_events",
+        }
+        toolbox.user_tools["calendar_list_events"] = DiscoveredTool(
+            name="calendar_list_events",
+            path=Path("/tmp/gcal.py"),
+            spec=spec_with_metadata,
+            metadata=ToolMetadata(),
+            schema_valid=True,
+            schema_errors=[],
+        )
+
+        schemas = toolbox.schemas(enable_caching=False)
+        cal_schema = next(s for s in schemas if s["name"] == "calendar_list_events")
+
+        # _subcommand should be stripped
+        assert "_subcommand" not in cal_schema
+        # But the real fields should still be there
+        assert "name" in cal_schema
+        assert "description" in cal_schema
+        assert "input_schema" in cal_schema

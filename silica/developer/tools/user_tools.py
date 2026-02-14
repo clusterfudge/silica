@@ -176,6 +176,9 @@ def generate_schemas_for_commands(
     """Generate schemas for multiple command functions.
 
     Use this for multi-tool files where you have several commands.
+    Each schema includes a '_subcommand' metadata field containing the
+    function name, which is used by the invocation layer to determine
+    the correct cyclopts subcommand.
 
     Args:
         commands: List of (function, name) tuples. If name is None, uses function name.
@@ -197,7 +200,11 @@ def generate_schemas_for_commands(
         tool_name = name or func.__name__
         if prefix and not tool_name.startswith(prefix):
             tool_name = prefix + tool_name
-        schemas.append(generate_schema(func, name=tool_name))
+        schema = generate_schema(func, name=tool_name)
+        # Include the actual function name as subcommand metadata
+        # so the invocation layer knows which cyclopts command to call
+        schema["_subcommand"] = func.__name__
+        schemas.append(schema)
     return schemas
 '''
 
@@ -835,10 +842,12 @@ def invoke_user_tool(
     # If the tool name differs from the file stem, it's a multi-tool file
     subcommand = None
     if tool.name != tool.file_stem:
-        # Extract subcommand: if tool is 'gmail_search' and file is 'gmail',
-        # subcommand might be 'search' (strip prefix) or 'gmail_search' (full name)
-        # We'll try the suffix first, then the full name
-        if tool.name.startswith(tool.file_stem + "_"):
+        # First check if the spec includes an explicit _subcommand field
+        # (set by generate_schemas_for_commands with the actual function name)
+        if tool.spec and "_subcommand" in tool.spec:
+            subcommand = tool.spec["_subcommand"]
+        # Fall back to stripping the file stem prefix
+        elif tool.name.startswith(tool.file_stem + "_"):
             subcommand = tool.name[len(tool.file_stem) + 1 :]
         else:
             subcommand = tool.name
