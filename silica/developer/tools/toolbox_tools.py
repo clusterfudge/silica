@@ -30,9 +30,7 @@ def _append_spec_summary(output: list[str], spec: dict, indent: str = "  ") -> N
     if params:
         output.append(f"{indent}Parameters:")
         for param_name, param_info in params.items():
-            required = param_name in spec.get("input_schema", {}).get(
-                "required", []
-            )
+            required = param_name in spec.get("input_schema", {}).get("required", [])
             req_str = " (required)" if required else ""
             output.append(
                 f"{indent}  - {param_name}: {param_info.get('type', 'string')}{req_str}"

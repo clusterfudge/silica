@@ -737,18 +737,12 @@ def validate_tool(path: Path) -> ValidationResult:
                     # Multi-tool file: validate each spec individually
                     for i, single_spec in enumerate(spec):
                         if not isinstance(single_spec, dict):
-                            errors.append(
-                                f"--toolspec array item {i} is not a dict"
-                            )
+                            errors.append(f"--toolspec array item {i} is not a dict")
                             continue
-                        schema_valid, schema_errors = validate_tool_schema(
-                            single_spec
-                        )
+                        schema_valid, schema_errors = validate_tool_schema(single_spec)
                         if not schema_valid:
                             tool_name = single_spec.get("name", f"item[{i}]")
-                            errors.extend(
-                                f"{tool_name}: {e}" for e in schema_errors
-                            )
+                            errors.extend(f"{tool_name}: {e}" for e in schema_errors)
                 elif isinstance(spec, dict):
                     # Single tool file
                     schema_valid, schema_errors = validate_tool_schema(spec)
