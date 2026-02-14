@@ -218,13 +218,14 @@ class TestPermissionsManagerMCP:
         assert len(result) == 2
 
     def test_filter_mcp_tools_no_permissions(self, tmp_path):
-        """Test filter_mcp_tools with no permissions returns empty."""
+        """Test filter_mcp_tools with no permissions file returns all tools (permissive default)."""
         manager = PermissionsManager(tmp_path, dwr_mode=False)
 
         tools = [{"name": "mcp_sqlite_query", "description": "Query"}]
 
         result = manager.filter_mcp_tools(tools, "sqlite")
-        assert len(result) == 0
+        # No permissions file = allow all tools (permissive default for custom personas)
+        assert len(result) == 1
 
     def test_filter_mcp_tools_allowlist(self, tmp_path):
         """Test filter_mcp_tools with allowlist permissions."""

@@ -10,7 +10,11 @@ import tempfile
 import shutil
 
 
-from silica.developer.compacter import ConversationCompacter, CompactionSummary
+from silica.developer.compacter import (
+    ConversationCompacter,
+    CompactionMetadata,
+    CompactionSummary,
+)
 from silica.developer.context import AgentContext
 from silica.developer.sandbox import Sandbox, SandboxMode
 from silica.developer.memory import MemoryManager
@@ -291,6 +295,128 @@ class TestConversationCompaction(unittest.TestCase):
             else:
                 content_str = content
             self.assertIn("Compacted Summary", content_str)
+
+    def test_subagent_archive_and_rotate_uses_compact_in_place(self):
+        """Test that _archive_and_rotate uses compact_in_place for sub-agents."""
+        # Create a sub-agent context (with parent_session_id)
+        ui = MockUserInterface()
+        sandbox = Sandbox(self.test_dir, mode=SandboxMode.ALLOW_ALL)
+        memory_manager = MemoryManager()
+        sub_context = AgentContext(
+            parent_session_id="parent-session-123",
+            session_id="sub-agent-456",
+            model_spec=self.model_spec,
+            sandbox=sandbox,
+            user_interface=ui,
+            usage=[],
+            memory_manager=memory_manager,
+            history_base_dir=Path(self.test_dir) / ".silica" / "personas" / "default",
+        )
+        sub_context._chat_history = self.sample_messages.copy()
+
+        compacter = ConversationCompacter(client=self.mock_client)
+
+        new_messages = [{"role": "user", "content": "Compacted summary"}]
+        metadata = CompactionMetadata(
+            archive_name="n/a",
+            original_message_count=4,
+            compacted_message_count=1,
+            original_token_count=500,
+            summary_token_count=100,
+            compaction_ratio=0.2,
+        )
+
+        # This should NOT raise ValueError - it should use compact_in_place
+        result = compacter._archive_and_rotate(sub_context, new_messages, metadata)
+
+        self.assertEqual(result, "compact-in-place")
+        self.assertEqual(sub_context.chat_history, new_messages)
+        self.assertEqual(len(sub_context.tool_result_buffer), 0)
+
+    def test_subagent_compact_conversation_succeeds(self):
+        """Test that compact_conversation works end-to-end for sub-agent contexts."""
+        # Create a sub-agent context with enough messages to compact
+        messages = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi there!"},
+            {"role": "user", "content": "Tell me about something"},
+        ]
+
+        ui = MockUserInterface()
+        sandbox = Sandbox(self.test_dir, mode=SandboxMode.ALLOW_ALL)
+        memory_manager = MemoryManager()
+        sub_context = AgentContext(
+            parent_session_id="parent-session-789",
+            session_id="sub-agent-compact-test",
+            model_spec=self.model_spec,
+            sandbox=sandbox,
+            user_interface=ui,
+            usage=[],
+            memory_manager=memory_manager,
+            history_base_dir=Path(self.test_dir) / ".silica" / "personas" / "default",
+        )
+        sub_context._chat_history = messages.copy()
+
+        compacter = ConversationCompacter(client=self.mock_client)
+
+        # Force compaction (conversation is small, but we want to test the path)
+        metadata = compacter.compact_conversation(
+            sub_context, "claude-3-5-sonnet-20241022", turns=1, force=True
+        )
+
+        # Should succeed without ValueError
+        self.assertIsNotNone(metadata)
+        # Context should have been mutated
+        self.assertGreater(len(sub_context.chat_history), 0)
+
+    def test_root_context_still_archives(self):
+        """Test that _archive_and_rotate still archives for root contexts."""
+        ui = MockUserInterface()
+        sandbox = Sandbox(self.test_dir, mode=SandboxMode.ALLOW_ALL)
+        memory_manager = MemoryManager()
+        root_context = AgentContext(
+            parent_session_id=None,  # Root context
+            session_id="root-archive-test",
+            model_spec=self.model_spec,
+            sandbox=sandbox,
+            user_interface=ui,
+            usage=[],
+            memory_manager=memory_manager,
+            history_base_dir=Path(self.test_dir) / ".silica" / "personas" / "default",
+        )
+        root_context._chat_history = self.sample_messages.copy()
+        root_context.flush(root_context.chat_history, compact=False)
+
+        compacter = ConversationCompacter(client=self.mock_client)
+
+        new_messages = [{"role": "user", "content": "Compacted"}]
+        metadata = CompactionMetadata(
+            archive_name="n/a",
+            original_message_count=4,
+            compacted_message_count=1,
+            original_token_count=500,
+            summary_token_count=100,
+            compaction_ratio=0.2,
+        )
+
+        result = compacter._archive_and_rotate(root_context, new_messages, metadata)
+
+        # Should return an archive filename (not "compact-in-place")
+        self.assertNotEqual(result, "compact-in-place")
+        self.assertIn("pre-compaction-", result)
+        self.assertTrue(result.endswith(".json"))
+
+        # Archive file should exist
+        history_dir = (
+            Path(self.test_dir)
+            / ".silica"
+            / "personas"
+            / "default"
+            / "history"
+            / "root-archive-test"
+        )
+        archive_file = history_dir / result
+        self.assertTrue(archive_file.exists())
 
 
 if __name__ == "__main__":

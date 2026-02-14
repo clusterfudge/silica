@@ -367,9 +367,7 @@ class TestToolboxInspectMultiTool:
         if result.spec:
             output.append("## Tool Specification")
             if result.is_multi_tool:
-                output.append(
-                    f"*Multi-tool file with {len(result.specs)} tools:*"
-                )
+                output.append(f"*Multi-tool file with {len(result.specs)} tools:*")
                 for spec in result.specs:
                     output.append(f"### {spec.get('name', 'unnamed')}")
                     output.append(json.dumps(spec, indent=2))
@@ -425,9 +423,9 @@ class TestRealMultiToolDiscovery:
         for t in tools:
             if "_subcommand" in t.spec:
                 # The subcommand should be the function name, not the tool name
-                assert t.spec["_subcommand"] != t.name, (
-                    "_subcommand should be the function name, not the tool name"
-                )
+                assert (
+                    t.spec["_subcommand"] != t.name
+                ), "_subcommand should be the function name, not the tool name"
 
     def test_discover_gmail_if_exists(self):
         """If gmail.py exists in tools dir, it should produce multiple tools."""
@@ -476,9 +474,7 @@ class TestMultiToolInvocationSubcommand:
 
         with patch(
             "silica.developer.tools.user_tools.find_tool", return_value=tool
-        ), patch(
-            "silica.developer.tools.user_tools._invoke_tool_file"
-        ) as mock_invoke:
+        ), patch("silica.developer.tools.user_tools._invoke_tool_file") as mock_invoke:
             mock_invoke.return_value = MagicMock(success=True, output="ok")
             invoke_user_tool("calendar_list_events", {"days": 1})
 
@@ -512,9 +508,7 @@ class TestMultiToolInvocationSubcommand:
 
         with patch(
             "silica.developer.tools.user_tools.find_tool", return_value=tool
-        ), patch(
-            "silica.developer.tools.user_tools._invoke_tool_file"
-        ) as mock_invoke:
+        ), patch("silica.developer.tools.user_tools._invoke_tool_file") as mock_invoke:
             mock_invoke.return_value = MagicMock(success=True, output="ok")
             invoke_user_tool("gmail_search", {"query": "test"})
 
@@ -546,9 +540,7 @@ class TestMultiToolInvocationSubcommand:
 
         with patch(
             "silica.developer.tools.user_tools.find_tool", return_value=tool
-        ), patch(
-            "silica.developer.tools.user_tools._invoke_tool_file"
-        ) as mock_invoke:
+        ), patch("silica.developer.tools.user_tools._invoke_tool_file") as mock_invoke:
             mock_invoke.return_value = MagicMock(success=True, output="ok")
             invoke_user_tool("hello_world", {"name": "World"})
 
