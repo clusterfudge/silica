@@ -176,6 +176,13 @@ def coordinator_new(
             help="Seconds of idle before heartbeat fires (default: 300)",
         ),
     ] = 300,
+    session_id: Annotated[
+        Optional[str],
+        cyclopts.Parameter(
+            name=["--session-id"],
+            help="Stable session ID for persistence across restarts (generates uuid if not provided)",
+        ),
+    ] = None,
 ):
     """Create a new coordination session.
 
