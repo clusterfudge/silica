@@ -176,13 +176,6 @@ def coordinator_new(
             help="Seconds of idle before heartbeat fires (default: 300)",
         ),
     ] = 300,
-    chat_session_id: Annotated[
-        Optional[str],
-        cyclopts.Parameter(
-            name=["--chat-session-id"],
-            help="Stable chat session ID for conversation persistence across restarts",
-        ),
-    ] = None,
 ):
     """Create a new coordination session.
 
@@ -222,9 +215,16 @@ def coordinator_new(
             default="Coordination Session",
         )
 
+    # Generate session ID upfront — this will be both the coordinator and silica session ID
+    from uuid import uuid4 as _uuid4
+
+    new_session_id = str(_uuid4())
+
     # Create the session
     try:
-        session = CoordinationSession.create_session(deaddrop, name)
+        session = CoordinationSession.create_session(
+            deaddrop, name, session_id=new_session_id
+        )
     except Exception as e:
         console.print(f"[red]Failed to create session: {e}[/red]")
         raise
@@ -232,9 +232,6 @@ def coordinator_new(
     console.print(f"\n[green]✓ Session created: {session.session_id}[/green]")
     console.print(f"[dim]Namespace: {session.namespace_id}[/dim]")
     console.print(f"[dim]Backend: {deaddrop.backend} ({deaddrop.location})[/dim]")
-    console.print(
-        f"[dim]Session saved to: ~/.silica/coordination/{session.session_id}.json[/dim]"
-    )
     console.print()
 
     # Start the coordinator agent loop
@@ -243,7 +240,6 @@ def coordinator_new(
         persona=persona,
         heartbeat_prompt=heartbeat_prompt,
         heartbeat_interval=heartbeat_interval,
-        chat_session_id=chat_session_id,
     )
 
 
@@ -289,13 +285,6 @@ def coordinator_resume(
             help="Seconds of idle before heartbeat fires (default: 300)",
         ),
     ] = 300,
-    chat_session_id: Annotated[
-        Optional[str],
-        cyclopts.Parameter(
-            name=["--chat-session-id"],
-            help="Stable chat session ID for conversation persistence across restarts",
-        ),
-    ] = None,
 ):
     """Resume an existing coordination session.
 
@@ -370,9 +359,27 @@ def coordinator_resume(
             # Maybe they typed the session ID directly
             session_id = choice
 
-    # Resume the session
+    # Compute history dir from persona for session lookup
+    if persona:
+        from silica.developer.personas import for_name as _get_persona
+
+        _persona_obj = _get_persona(persona)
+        _history_dir = _persona_obj.base_directory / "history" / session_id
+    else:
+        _history_dir = (
+            Path.home()
+            / ".silica"
+            / "personas"
+            / "coordinator"
+            / "history"
+            / session_id
+        )
+
+    # Resume the session (looks in history dir first, then legacy coordination dir)
     try:
-        session = CoordinationSession.resume_session(deaddrop, session_id=session_id)
+        session = CoordinationSession.resume_session(
+            deaddrop, session_id=session_id, history_dir=_history_dir
+        )
     except FileNotFoundError:
         console.print(f"[red]Session not found: {session_id}[/red]")
         console.print(
@@ -396,7 +403,6 @@ def coordinator_resume(
         persona=persona,
         heartbeat_prompt=heartbeat_prompt,
         heartbeat_interval=heartbeat_interval,
-        chat_session_id=chat_session_id,
     )
 
 
@@ -653,7 +659,6 @@ def _run_coordinator_agent(
     persona: str | None = None,
     heartbeat_prompt: str | None = None,
     heartbeat_interval: int = 300,
-    chat_session_id: str | None = None,
 ):
     """Run the coordinator agent loop.
 
@@ -663,7 +668,7 @@ def _run_coordinator_agent(
     from silica.developer.agent_loop import run
     from silica.developer.context import AgentContext
     from silica.developer.models import get_model
-    from silica.developer.sandbox import SandboxMode, Sandbox
+    from silica.developer.sandbox import SandboxMode
     from silica.developer.hdev import CLIUserInterface
     from silica.developer.personas.coordinator_agent import (
         PERSONA as COORDINATOR_PERSONA,
@@ -758,7 +763,6 @@ def _run_coordinator_agent(
         safe_curl,
     ]
     from silica.developer.utils import wrap_text_as_content_block
-    from uuid import uuid4
 
     # Load heartbeat prompt from file if @file syntax
     heartbeat_prompt_text = None
@@ -795,14 +799,6 @@ def _run_coordinator_agent(
     # Get model spec (coordinator uses specified model, typically sonnet)
     model_spec = get_model(MODEL)
 
-    # Create sandbox (coordinator has limited permissions)
-    sandbox = Sandbox(
-        root_directory=str(Path.cwd()),
-        mode=SandboxMode.ALLOW_ALL,  # Coordinator doesn't do file ops
-        permission_check_callback=user_interface.permission_callback,
-        permission_check_rendering_callback=user_interface.permission_rendering_callback,
-    )
-
     # Create persona directory for history (use specified persona or coordinator default)
     persona_dir = (
         persona_dir_path
@@ -811,31 +807,26 @@ def _run_coordinator_agent(
     )
     persona_dir.mkdir(parents=True, exist_ok=True)
 
-    # Memory manager
-    from silica.developer.memory import MemoryManager
+    # Use the coordination session ID as the silica session ID
+    # This unifies coordinator sessions with silica sessions — one ID, one history
+    session_id = session.session_id
 
-    memory_manager = MemoryManager(base_dir=persona_dir / "memory")
-
-    # Create context with optional session resumption
-    resolved_session_id = chat_session_id or str(uuid4())
-    context = AgentContext(
-        session_id=resolved_session_id,
-        parent_session_id=None,
+    # Create context using standard AgentContext.create()
+    # This handles session loading, history persistence, etc.
+    context = AgentContext.create(
         model_spec=model_spec,
-        sandbox=sandbox,
+        sandbox_mode=SandboxMode.ALLOW_ALL,
+        sandbox_contents=[],
         user_interface=user_interface,
-        usage=[],
-        memory_manager=memory_manager,
-        cli_args=None,
-        history_base_dir=persona_dir,
+        session_id=session_id,
+        persona_base_directory=persona_dir,
     )
 
-    # If resuming a chat session, load existing history
-    if chat_session_id and context.chat_history:
-        console.print(
-            f"[dim]Resumed chat session {chat_session_id} "
-            f"with {len(context.chat_history)} messages[/dim]"
-        )
+    # Point the coordination session at the chat history directory
+    # so coordination.json lives alongside the conversation
+    session.history_dir = context._get_history_dir()
+    session.save_state()
+
     # Coordinator uses DWR mode to bypass permissions for coordination tools
     context.dwr_mode = True
     # Use "off" thinking for coordinator — saves tokens, sonnet max_output is 64K

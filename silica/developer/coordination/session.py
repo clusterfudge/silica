@@ -160,8 +160,15 @@ def get_sessions_dir() -> Path:
     return sessions_dir
 
 
-def get_session_file(session_id: str) -> Path:
-    """Get the file path for a session's state."""
+def get_session_file(session_id: str, history_dir: Path | None = None) -> Path:
+    """Get the file path for a session's state.
+
+    If history_dir is provided, stores coordination state alongside chat history.
+    Otherwise falls back to the legacy ~/.silica/coordination/ directory.
+    """
+    if history_dir:
+        history_dir.mkdir(parents=True, exist_ok=True)
+        return history_dir / "coordination.json"
     return get_sessions_dir() / f"{session_id}.json"
 
 
@@ -180,13 +187,20 @@ class CoordinationSession:
         self,
         deaddrop: Deaddrop,
         state: SessionState,
+        history_dir: Path | None = None,
     ):
         """Initialize with existing state.
 
         Use create_session() or resume_session() to construct.
+
+        Args:
+            deaddrop: Deaddrop client
+            state: Session state
+            history_dir: If provided, store coordination state alongside chat history
         """
         self.deaddrop = deaddrop
         self.state = state
+        self.history_dir = history_dir
 
         # Create coordination context for the coordinator
         self._context = CoordinationContext(
@@ -220,6 +234,8 @@ class CoordinationSession:
         cls,
         deaddrop: Deaddrop,
         display_name: str = "Coordination Session",
+        session_id: str | None = None,
+        history_dir: Path | None = None,
     ) -> "CoordinationSession":
         """Create a new coordination session.
 
@@ -231,6 +247,8 @@ class CoordinationSession:
         Args:
             deaddrop: Deaddrop client
             display_name: Human-readable session name
+            session_id: Override session ID (default: derived from namespace)
+            history_dir: Store state alongside chat history instead of legacy dir
 
         Returns:
             New CoordinationSession instance
@@ -255,7 +273,7 @@ class CoordinationSession:
 
         # Build state
         state = SessionState(
-            session_id=ns["ns"][:8],  # Use first 8 chars of namespace as session ID
+            session_id=session_id or ns["ns"][:8],
             namespace_id=ns["ns"],
             namespace_secret=ns["secret"],
             coordinator_id=coordinator["id"],
@@ -264,7 +282,7 @@ class CoordinationSession:
             display_name=display_name,
         )
 
-        session = cls(deaddrop, state)
+        session = cls(deaddrop, state, history_dir=history_dir)
 
         # Persist state
         session.save_state()
@@ -278,11 +296,12 @@ class CoordinationSession:
         session_id: str = None,
         namespace_secret: str = None,
         sync_from_room: bool = True,
+        history_dir: Path | None = None,
     ) -> "CoordinationSession":
         """Resume an existing coordination session.
 
         Can resume by either:
-        - session_id: Loads from ~/.silica/coordination/{session_id}.json
+        - session_id: Loads from file (history_dir or legacy coordination dir)
         - namespace_secret: Reconstructs state from deaddrop
 
         If sync_from_room is True, reads recent room history to update
@@ -293,6 +312,7 @@ class CoordinationSession:
             session_id: Session ID to load from file
             namespace_secret: Namespace secret to reconstruct from
             sync_from_room: Whether to sync agent states from room history
+            history_dir: Load state from alongside chat history
 
         Returns:
             Resumed CoordinationSession instance
@@ -302,8 +322,8 @@ class CoordinationSession:
             FileNotFoundError: If session file doesn't exist
         """
         if session_id:
-            # Load from file
-            session_file = get_session_file(session_id)
+            # Load from file (try history_dir first, then legacy)
+            session_file = get_session_file(session_id, history_dir)
             if not session_file.exists():
                 raise FileNotFoundError(f"Session file not found: {session_file}")
 
@@ -311,7 +331,7 @@ class CoordinationSession:
                 data = json.load(f)
 
             state = SessionState.from_dict(data)
-            session = cls(deaddrop, state)
+            session = cls(deaddrop, state, history_dir=history_dir)
 
             # Sync agent states from room history
             if sync_from_room:
@@ -485,7 +505,7 @@ class CoordinationSession:
         Returns:
             Path to the saved state file
         """
-        session_file = get_session_file(self.session_id)
+        session_file = get_session_file(self.session_id, self.history_dir)
         with open(session_file, "w") as f:
             json.dump(self.state.to_dict(), f, indent=2)
         return session_file
@@ -819,29 +839,58 @@ class CoordinationSession:
         return len(to_remove)
 
 
-def list_sessions() -> list[dict[str, Any]]:
+def list_sessions(history_base_dir: Path | None = None) -> list[dict[str, Any]]:
     """List all saved coordination sessions.
+
+    Scans both legacy coordination dir and session history directories.
 
     Returns:
         List of session info dicts (session_id, display_name, created_at)
     """
-    sessions_dir = get_sessions_dir()
     sessions = []
+    seen_ids = set()
 
+    # Scan legacy coordination dir
+    sessions_dir = get_sessions_dir()
     for path in sessions_dir.glob("*.json"):
         try:
             with open(path, "r") as f:
                 data = json.load(f)
-            sessions.append(
-                {
-                    "session_id": data.get("session_id"),
-                    "display_name": data.get("display_name"),
-                    "created_at": data.get("created_at"),
-                    "agent_count": len(data.get("agents", {})),
-                }
-            )
+            sid = data.get("session_id")
+            if sid:
+                seen_ids.add(sid)
+                sessions.append(
+                    {
+                        "session_id": sid,
+                        "display_name": data.get("display_name"),
+                        "created_at": data.get("created_at"),
+                        "agent_count": len(data.get("agents", {})),
+                    }
+                )
         except (json.JSONDecodeError, IOError):
             continue
+
+    # Scan session history directories for coordination.json files
+    if history_base_dir:
+        history_dir = history_base_dir / "history"
+        if history_dir.exists():
+            for coord_file in history_dir.glob("*/coordination.json"):
+                try:
+                    with open(coord_file, "r") as f:
+                        data = json.load(f)
+                    sid = data.get("session_id")
+                    if sid and sid not in seen_ids:
+                        seen_ids.add(sid)
+                        sessions.append(
+                            {
+                                "session_id": sid,
+                                "display_name": data.get("display_name"),
+                                "created_at": data.get("created_at"),
+                                "agent_count": len(data.get("agents", {})),
+                            }
+                        )
+                except (json.JSONDecodeError, IOError):
+                    continue
 
     return sorted(sessions, key=lambda s: s.get("created_at", ""), reverse=True)
 
