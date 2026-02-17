@@ -176,6 +176,13 @@ def coordinator_new(
             help="Seconds of idle before heartbeat fires (default: 300)",
         ),
     ] = 300,
+    chat_session_id: Annotated[
+        Optional[str],
+        cyclopts.Parameter(
+            name=["--chat-session-id"],
+            help="Stable chat session ID for conversation persistence across restarts",
+        ),
+    ] = None,
 ):
     """Create a new coordination session.
 
@@ -236,6 +243,7 @@ def coordinator_new(
         persona=persona,
         heartbeat_prompt=heartbeat_prompt,
         heartbeat_interval=heartbeat_interval,
+        chat_session_id=chat_session_id,
     )
 
 
@@ -281,6 +289,13 @@ def coordinator_resume(
             help="Seconds of idle before heartbeat fires (default: 300)",
         ),
     ] = 300,
+    chat_session_id: Annotated[
+        Optional[str],
+        cyclopts.Parameter(
+            name=["--chat-session-id"],
+            help="Stable chat session ID for conversation persistence across restarts",
+        ),
+    ] = None,
 ):
     """Resume an existing coordination session.
 
@@ -381,6 +396,7 @@ def coordinator_resume(
         persona=persona,
         heartbeat_prompt=heartbeat_prompt,
         heartbeat_interval=heartbeat_interval,
+        chat_session_id=chat_session_id,
     )
 
 
@@ -637,6 +653,7 @@ def _run_coordinator_agent(
     persona: str | None = None,
     heartbeat_prompt: str | None = None,
     heartbeat_interval: int = 300,
+    chat_session_id: str | None = None,
 ):
     """Run the coordinator agent loop.
 
@@ -799,9 +816,10 @@ def _run_coordinator_agent(
 
     memory_manager = MemoryManager(base_dir=persona_dir / "memory")
 
-    # Create context
+    # Create context with optional session resumption
+    resolved_session_id = chat_session_id or str(uuid4())
     context = AgentContext(
-        session_id=str(uuid4()),
+        session_id=resolved_session_id,
         parent_session_id=None,
         model_spec=model_spec,
         sandbox=sandbox,
@@ -811,6 +829,13 @@ def _run_coordinator_agent(
         cli_args=None,
         history_base_dir=persona_dir,
     )
+
+    # If resuming a chat session, load existing history
+    if chat_session_id and context.chat_history:
+        console.print(
+            f"[dim]Resumed chat session {chat_session_id} "
+            f"with {len(context.chat_history)} messages[/dim]"
+        )
     # Coordinator uses DWR mode to bypass permissions for coordination tools
     context.dwr_mode = True
     # Use "off" thinking for coordinator — saves tokens, sonnet max_output is 64K
