@@ -1,3 +1,4 @@
+import asyncio
 import copy
 import os
 import time
@@ -473,6 +474,8 @@ async def run(
     enable_compaction: bool = True,
     log_file_path: str | None = None,
     mcp_manager: "MCPToolManager | None" = None,
+    heartbeat_prompt: str | None = None,
+    heartbeat_idle_seconds: int = 300,
 ) -> list[MessageParam]:
     load_dotenv()
     user_interface, model = (
@@ -580,7 +583,21 @@ async def run(
                     except Exception:
                         pass  # Don't fail if planning module has issues
 
-                    user_input = await user_interface.get_user_input(prompt)
+                    # Heartbeat mode: inject heartbeat prompt after idle timeout
+                    if heartbeat_prompt:
+                        try:
+                            user_input = await asyncio.wait_for(
+                                user_interface.get_user_input(prompt),
+                                timeout=heartbeat_idle_seconds,
+                            )
+                        except asyncio.TimeoutError:
+                            user_input = heartbeat_prompt
+                            user_interface.handle_system_message(
+                                f"[dim]💓 Heartbeat ({heartbeat_idle_seconds}s idle)[/dim]",
+                                markdown=False,
+                            )
+                    else:
+                        user_input = await user_interface.get_user_input(prompt)
 
                 # Track when user input was received to measure agent work duration
                 agent_work_start_time = time.time()
