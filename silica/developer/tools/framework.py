@@ -379,15 +379,9 @@ def _call_anthropic_with_retry(
 
             # Report usage if context is provided
             if context:
-                context.report_usage(
-                    message.usage,
-                    {
-                        "title": model,
-                        "pricing": {"input": 0.80, "output": 4.00},
-                        "cache_pricing": {"write": 1.00, "read": 0.08},
-                        "max_tokens": 8192,
-                    },
-                )
+                from silica.developer.models import get_model
+
+                context.report_usage(message.usage, get_model(model))
 
             return message
         except (

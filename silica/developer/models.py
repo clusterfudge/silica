@@ -6,6 +6,7 @@ class ModelSpec(TypedDict):
     pricing: dict[str, float]
     cache_pricing: dict[str, float]
     max_tokens: int
+    max_output_tokens: int  # Hard limit on total output (thinking + completion)
     context_window: int
     thinking_support: bool
     thinking_pricing: dict[str, float]
@@ -17,6 +18,7 @@ MODEL_MAP: dict[str, ModelSpec] = {
         "pricing": {"input": 5.00, "output": 25.00},
         "cache_pricing": {"write": 6.25, "read": 0.50},
         "max_tokens": 8192,
+        "max_output_tokens": 128000,  # 128k total output window
         "context_window": 200000,  # 200k tokens context window
         "thinking_support": True,
         "thinking_pricing": {"thinking": 25.00},  # Same as output tokens
@@ -26,6 +28,7 @@ MODEL_MAP: dict[str, ModelSpec] = {
         "pricing": {"input": 3.00, "output": 15.00},
         "cache_pricing": {"write": 3.75, "read": 0.30},
         "max_tokens": 8192,
+        "max_output_tokens": 64000,  # 64k total output window
         "context_window": 200000,  # 200k tokens context window
         "thinking_support": True,
         "thinking_pricing": {"thinking": 15.00},  # Same as output tokens
@@ -35,6 +38,7 @@ MODEL_MAP: dict[str, ModelSpec] = {
         "pricing": {"input": 1.00, "output": 5.00},
         "cache_pricing": {"write": 1.25, "read": 0.10},
         "max_tokens": 8192,
+        "max_output_tokens": 64000,  # 64k total output window
         "context_window": 200000,  # 200k tokens context window
         "thinking_support": True,
         "thinking_pricing": {"thinking": 5.00},  # Same as output tokens
@@ -45,6 +49,7 @@ MODEL_MAP: dict[str, ModelSpec] = {
         "pricing": {"input": 3.00, "output": 15.00},
         "cache_pricing": {"write": 3.75, "read": 0.30},
         "max_tokens": 8192,
+        "max_output_tokens": 8192,  # No extended output for legacy models
         "context_window": 200000,
         "thinking_support": False,
         "thinking_pricing": {"thinking": 0.00},  # Not supported
@@ -54,6 +59,7 @@ MODEL_MAP: dict[str, ModelSpec] = {
         "pricing": {"input": 3.00, "output": 15.00},
         "cache_pricing": {"write": 3.75, "read": 0.30},
         "max_tokens": 8192,
+        "max_output_tokens": 64000,  # 64k total output window
         "context_window": 200000,
         "thinking_support": True,
         "thinking_pricing": {"thinking": 15.00},  # Same as output tokens
@@ -83,6 +89,8 @@ def get_model(model_name: str) -> ModelSpec:
 
     # If model not found, use Opus ModelSpec but with the custom model name
     # This allows using any model that follows the Anthropic API
+    # Use conservative output limit (64k) for unknown models
     opus_spec = MODEL_MAP["opus"].copy()
     opus_spec["title"] = model_name
+    opus_spec["max_output_tokens"] = 64000
     return opus_spec

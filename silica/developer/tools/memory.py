@@ -391,8 +391,11 @@ def _should_generate_summary(path: str) -> bool:
 async def _generate_content_summary(context: "AgentContext", content: str) -> str:
     """Generate a concise summary of memory content.
 
+    Uses a direct lightweight API call (haiku, no thinking) instead of spawning
+    a full sub-agent — a 2-sentence summary doesn't need tools or extended thinking.
+
     Args:
-        context: Agent context
+        context: Agent context (used for usage reporting)
         content: Content to summarize
 
     Returns:
@@ -401,30 +404,33 @@ async def _generate_content_summary(context: "AgentContext", content: str) -> st
     Raises:
         Exception: When unable to generate summary
     """
-    user_prompt = f"""Please create a concise summary of this content:
+    from silica.developer.tools.framework import _call_anthropic_with_retry
+    from silica.developer.models import MODEL_MAP
 
-=== CONTENT TO SUMMARIZE ===
-{content}
-=== END CONTENT ===
+    system_prompt = (
+        "You are a concise summarizer. Create a clear 1-2 sentence summary "
+        "that captures the main topic and key points of the provided content. "
+        "Return only the summary, nothing else."
+    )
 
-Create a clear, concise 1-2 sentence summary that captures the main topic and key points of this content. 
-The summary will be stored as metadata alongside the content for quick reference.
+    user_prompt = f"""Please summarize this content:
 
-Return only the summary, nothing else."""
+{content}"""
 
     try:
-        from silica.developer.tools.subagent import agent
-
-        result = await agent(
+        haiku = MODEL_MAP["haiku"]
+        message = _call_anthropic_with_retry(
             context=context,
-            prompt=user_prompt,
-            model="smart",
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            max_tokens=256,
+            model=haiku["title"],
         )
 
-        # Clean up the result in case agent added extra formatting
-        summary = result.strip().strip('"').strip("'")
+        # Extract text from API response
+        summary = message.content[0].text.strip().strip('"').strip("'")
         if not summary:
-            raise Exception("Agent returned empty summary")
+            raise Exception("API returned empty summary")
 
         return summary
 

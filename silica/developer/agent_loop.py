@@ -32,6 +32,10 @@ except ImportError:
 def get_thinking_config(thinking_mode: str, model_spec: ModelSpec) -> dict | None:
     """Get the thinking configuration for the API call based on the current mode.
 
+    Thinking budgets are computed relative to the model's max_output_tokens limit,
+    since max_tokens sent to the API must be <= max_output_tokens and must include
+    both thinking budget and completion tokens.
+
     Args:
         thinking_mode: One of "off", "normal", "ultra", or "max"
         model_spec: The model specification dict
@@ -45,15 +49,26 @@ def get_thinking_config(thinking_mode: str, model_spec: ModelSpec) -> dict | Non
 
     if thinking_mode == "off":
         return None
-    elif thinking_mode == "normal":
-        return {"type": "enabled", "budget_tokens": 8000}
+
+    # Get the model's output limit to compute safe thinking budgets
+    max_output = model_spec.get("max_output_tokens", 64000)
+    completion_tokens = model_spec.get("max_tokens", 8192)
+
+    if thinking_mode == "normal":
+        budget = min(8000, max_output - completion_tokens)
     elif thinking_mode == "ultra":
-        return {"type": "enabled", "budget_tokens": 20000}
+        budget = min(20000, max_output - completion_tokens)
     elif thinking_mode == "max":
-        # Max thinking budget that leaves room for output tokens (128k limit - 8192 output = 119808)
-        return {"type": "enabled", "budget_tokens": 119000}
+        # Use all available output capacity for thinking
+        budget = max_output - completion_tokens
     else:
         return {"type": "disabled"}
+
+    # Safety: ensure budget is positive
+    if budget <= 0:
+        return {"type": "disabled"}
+
+    return {"type": "enabled", "budget_tokens": budget}
 
 
 def retry_with_exponential_backoff(func, max_retries=5, base_delay=1, max_delay=60):

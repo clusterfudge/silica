@@ -71,12 +71,15 @@ class TestThinkingConfiguration:
         assert config["budget_tokens"] == 20000
 
     def test_thinking_config_max_mode(self):
-        """Max mode should return 119k budget config (leaving room for 8192 output)."""
+        """Max mode should use all available output capacity for thinking."""
         model = get_model("opus")
         config = get_thinking_config("max", model)
         assert config is not None
         assert config["type"] == "enabled"
-        assert config["budget_tokens"] == 119000
+        # Opus: 128000 max_output - 8192 completion = 119808
+        assert (
+            config["budget_tokens"] == model["max_output_tokens"] - model["max_tokens"]
+        )
 
     def test_thinking_config_unsupported_model(self):
         """Unsupported model should return disabled config."""
@@ -89,6 +92,120 @@ class TestThinkingConfiguration:
         model = get_model("opus")
         config = get_thinking_config("invalid", model)
         assert config == {"type": "disabled"}
+
+
+class TestPerModelThinkingBudgets:
+    """Test that thinking budgets respect per-model output limits."""
+
+    def test_max_output_tokens_in_model_specs(self):
+        """All model specs should have max_output_tokens."""
+        from silica.developer.models import MODEL_MAP
+
+        for alias, spec in MODEL_MAP.items():
+            assert "max_output_tokens" in spec, f"{alias} missing max_output_tokens"
+            assert (
+                spec["max_output_tokens"] > 0
+            ), f"{alias} has invalid max_output_tokens"
+
+    def test_opus_has_128k_output(self):
+        """Opus should have 128k max output tokens."""
+        model = get_model("opus")
+        assert model["max_output_tokens"] == 128000
+
+    def test_sonnet_has_64k_output(self):
+        """Sonnet should have 64k max output tokens."""
+        model = get_model("sonnet")
+        assert model["max_output_tokens"] == 64000
+
+    def test_haiku_has_64k_output(self):
+        """Haiku should have 64k max output tokens."""
+        model = get_model("haiku")
+        assert model["max_output_tokens"] == 64000
+
+    def test_sonnet_max_budget_fits_within_64k(self):
+        """Sonnet max thinking budget + completion must not exceed 64k."""
+        model = get_model("sonnet")
+        config = get_thinking_config("max", model)
+        assert config is not None
+        assert config["type"] == "enabled"
+        total = config["budget_tokens"] + model["max_tokens"]
+        assert total <= model["max_output_tokens"]
+        # Specifically: 64000 - 8192 = 55808
+        assert config["budget_tokens"] == 55808
+
+    def test_haiku_max_budget_fits_within_64k(self):
+        """Haiku max thinking budget + completion must not exceed 64k."""
+        model = get_model("haiku")
+        config = get_thinking_config("max", model)
+        assert config is not None
+        total = config["budget_tokens"] + model["max_tokens"]
+        assert total <= model["max_output_tokens"]
+
+    def test_opus_max_budget_fits_within_128k(self):
+        """Opus max thinking budget + completion must not exceed 128k."""
+        model = get_model("opus")
+        config = get_thinking_config("max", model)
+        assert config is not None
+        total = config["budget_tokens"] + model["max_tokens"]
+        assert total <= model["max_output_tokens"]
+        # Specifically: 128000 - 8192 = 119808
+        assert config["budget_tokens"] == 119808
+
+    def test_normal_budget_capped_by_model(self):
+        """Normal mode budget should be capped if model output is too small."""
+        # Create a hypothetical model with tiny output window
+        tiny_model = {
+            "thinking_support": True,
+            "max_output_tokens": 10000,
+            "max_tokens": 4096,
+        }
+        config = get_thinking_config("normal", tiny_model)
+        assert config is not None
+        # 8000 fits within 10000 - 4096 = 5904? No, 8000 > 5904
+        assert config["budget_tokens"] == 5904
+        assert (
+            config["budget_tokens"] + tiny_model["max_tokens"]
+            <= tiny_model["max_output_tokens"]
+        )
+
+    def test_ultra_budget_capped_by_model(self):
+        """Ultra mode budget should be capped for models with smaller output."""
+        model = get_model("sonnet")
+        config = get_thinking_config("ultra", model)
+        assert config is not None
+        # 20000 fits within 64000 - 8192 = 55808, so no capping needed
+        assert config["budget_tokens"] == 20000
+        assert (
+            config["budget_tokens"] + model["max_tokens"] <= model["max_output_tokens"]
+        )
+
+    def test_budget_disabled_when_no_room(self):
+        """Thinking should be disabled if there's no room after completion tokens."""
+        no_room_model = {
+            "thinking_support": True,
+            "max_output_tokens": 4096,
+            "max_tokens": 4096,
+        }
+        config = get_thinking_config("normal", no_room_model)
+        assert config == {"type": "disabled"}
+
+    def test_unknown_model_gets_conservative_output_limit(self):
+        """Unknown models should get 64k output limit (conservative default)."""
+        model = get_model("claude-experimental-2099")
+        assert model["max_output_tokens"] == 64000
+        config = get_thinking_config("max", model)
+        assert config is not None
+        total = config["budget_tokens"] + model["max_tokens"]
+        assert total <= 64000
+
+    def test_sonnet37_max_budget(self):
+        """Sonnet 3.7 should also respect 64k output limit."""
+        model = get_model("sonnet-3.7")
+        assert model["max_output_tokens"] == 64000
+        config = get_thinking_config("max", model)
+        assert config is not None
+        total = config["budget_tokens"] + model["max_tokens"]
+        assert total <= 64000
 
 
 class TestAgentContextThinkingMode:

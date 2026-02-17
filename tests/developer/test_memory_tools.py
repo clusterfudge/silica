@@ -1,5 +1,5 @@
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
@@ -112,11 +112,19 @@ def test_get_memory_tree(mock_context):
     assert len(tree["project1"]) == 0
 
 
-@patch("silica.developer.tools.subagent.agent")
-async def test_write_memory_entry_with_summary_integration(mock_agent, mock_context):
+@patch("silica.developer.tools.framework._call_anthropic_with_retry")
+async def test_write_memory_entry_with_summary_integration(mock_api, mock_context):
     """Test that write_memory_entry generates and includes summaries properly."""
-    # Configure the mock to return a summary
-    mock_agent.return_value = "An important note for testing purposes."
+    # Configure the mock to return a summary (mimicking Anthropic API response)
+    mock_message = Mock()
+    mock_message.content = [Mock(text="An important note for testing purposes.")]
+    mock_message.usage = Mock(
+        input_tokens=100,
+        output_tokens=20,
+        cache_creation_input_tokens=0,
+        cache_read_input_tokens=0,
+    )
+    mock_api.return_value = mock_message
 
     # Test writing a new entry with explicit path
     result = await write_memory_entry(
@@ -139,7 +147,15 @@ async def test_write_memory_entry_with_summary_integration(mock_agent, mock_cont
 
     # Reset the mock for second test
     mock_context.memory_manager.write_entry.reset_mock()
-    mock_agent.return_value = "Updated note content for testing."
+    mock_message_2 = Mock()
+    mock_message_2.content = [Mock(text="Updated note content for testing.")]
+    mock_message_2.usage = Mock(
+        input_tokens=100,
+        output_tokens=20,
+        cache_creation_input_tokens=0,
+        cache_read_input_tokens=0,
+    )
+    mock_api.return_value = mock_message_2
 
     # Test overwriting an existing entry
     result = await write_memory_entry(
@@ -296,22 +312,29 @@ REASONING: This content is very similar to the existing project1 entry and shoul
     assert "Updated project information" in metadata["summary"]
 
 
-@patch("silica.developer.tools.subagent.agent")
-async def test_write_memory_entry_explicit_path_with_summary(mock_agent, mock_context):
+@patch("silica.developer.tools.framework._call_anthropic_with_retry")
+async def test_write_memory_entry_explicit_path_with_summary(mock_api, mock_context):
     """Test that write_memory_entry generates summary when path is explicitly provided."""
-    # Configure the mock to return a summary
-    mock_agent.return_value = "A simple test content entry for verification purposes."
+    # Configure the mock to return a summary (mimicking Anthropic API response)
+    mock_message = Mock()
+    mock_message.content = [
+        Mock(text="A simple test content entry for verification purposes.")
+    ]
+    mock_message.usage = Mock(
+        input_tokens=100,
+        output_tokens=20,
+        cache_creation_input_tokens=0,
+        cache_read_input_tokens=0,
+    )
+    mock_api.return_value = mock_message
 
     # Test with explicit path (should generate summary)
     result = await write_memory_entry(
         mock_context, "Test content for memory", path="explicit/path"
     )
 
-    # Verify the agent was called for summary generation
-    mock_agent.assert_called_once()
-    prompt = mock_agent.call_args[1]["prompt"]
-    assert "Test content for memory" in prompt
-    assert "concise summary" in prompt
+    # Verify the API was called for summary generation
+    mock_api.assert_called_once()
 
     # Should work and include summary
     assert "successfully" in result.lower()
@@ -410,11 +433,11 @@ REASONING: This seems like good content but I forgot to provide a summary."""
     assert "Agent did not provide a valid summary" in result
 
 
-@patch("silica.developer.tools.subagent.agent")
-async def test_explicit_path_summary_generation_error(mock_agent, mock_context):
+@patch("silica.developer.tools.framework._call_anthropic_with_retry")
+async def test_explicit_path_summary_generation_error(mock_api, mock_context):
     """Test explicit path handling when summary generation fails."""
     # Configure the mock to raise an exception for summary generation
-    mock_agent.side_effect = Exception("Summary generation failed")
+    mock_api.side_effect = Exception("Summary generation failed")
 
     # Test content to place
     test_content = "# Test Content\n\nSome test content."
