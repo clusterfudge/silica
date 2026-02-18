@@ -284,3 +284,231 @@ class SessionStore:
         with open(path, "w", encoding="utf-8") as f:
             for record in records:
                 f.write(json.dumps(record, cls=PydanticJSONEncoder) + "\n")
+
+
+# ------------------------------------------------------------------
+# Migration: legacy root.json → v2 split files
+# ------------------------------------------------------------------
+
+
+def migrate_session(session_dir: Path, dry_run: bool = False) -> dict[str, Any]:
+    """Migrate a legacy session (root.json) to the v2 split-file format.
+
+    Steps:
+    1. Read root.json
+    2. Write session.json (metadata)
+    3. Write root.history.jsonl (all messages with msg_ids)
+    4. Write root.metadata.jsonl (usage paired with assistant msg_ids)
+    5. Write root.context.jsonl (same as history — no compaction yet)
+    6. Rename root.json → root.json.legacy
+    7. Migrate pre-compaction-*.json → pre-compaction-*.context.jsonl
+    8. Migrate sub-agent *.json → *.history.jsonl + *.context.jsonl
+
+    Args:
+        session_dir: Path to the session directory containing root.json.
+        dry_run: If True, report what would happen but don't write files.
+
+    Returns:
+        Dict with migration stats: message_count, usage_count, files_created, etc.
+
+    Raises:
+        FileNotFoundError: If root.json doesn't exist.
+        ValueError: If session is already in v2 format.
+    """
+    session_dir = Path(session_dir)
+    root_file = session_dir / "root.json"
+    session_json = session_dir / "session.json"
+
+    if session_json.exists():
+        raise ValueError(
+            f"Session already in v2 format (session.json exists): {session_dir}"
+        )
+
+    if not root_file.exists():
+        raise FileNotFoundError(f"No root.json found in {session_dir}")
+
+    # Read legacy data
+    with open(root_file, "r", encoding="utf-8") as f:
+        legacy_data = json.load(f)
+
+    messages = legacy_data.get("messages", [])
+    usage_data = legacy_data.get("usage", [])
+
+    stats = {
+        "session_dir": str(session_dir),
+        "message_count": len(messages),
+        "usage_count": len(usage_data),
+        "files_created": [],
+        "files_renamed": [],
+        "dry_run": dry_run,
+    }
+
+    if dry_run:
+        stats["files_created"] = [
+            "session.json",
+            "root.history.jsonl",
+            "root.metadata.jsonl",
+            "root.context.jsonl",
+        ]
+        stats["files_renamed"] = [("root.json", "root.json.legacy")]
+        # Check for pre-compaction archives
+        for f in session_dir.iterdir():
+            if f.name.startswith("pre-compaction-") and f.suffix == ".json":
+                stats["files_created"].append(f.stem + ".context.jsonl")
+                stats["files_renamed"].append((f.name, f.name + ".legacy"))
+        return stats
+
+    # Create store for root agent
+    store = SessionStore(session_dir, agent_name="root")
+
+    # 1. Write history.jsonl with msg_ids
+    msg_ids = store.append_messages(messages, prev_msg_id=None)
+    stats["files_created"].append("root.history.jsonl")
+
+    # 2. Write metadata.jsonl — pair usage with assistant msg_ids
+    if usage_data:
+        metadata_entries = []
+        # Find assistant message msg_ids for pairing
+        assistant_msg_ids = [
+            mid for mid, msg in zip(msg_ids, messages) if msg.get("role") == "assistant"
+        ]
+        for i, (usage_entry, model_spec_entry) in enumerate(usage_data):
+            entry = {}
+            if isinstance(usage_entry, dict):
+                entry["usage"] = usage_entry
+            else:
+                entry["usage"] = {"raw": str(usage_entry)}
+            if isinstance(model_spec_entry, dict):
+                entry["model"] = model_spec_entry.get("title", "unknown")
+                entry["model_spec"] = model_spec_entry
+            else:
+                entry["model"] = "unknown"
+                entry["model_spec"] = model_spec_entry
+            # Pair with assistant msg_id if available
+            if i < len(assistant_msg_ids):
+                entry["msg_id"] = assistant_msg_ids[i]
+            metadata_entries.append(entry)
+        store.append_metadata(metadata_entries)
+    stats["files_created"].append("root.metadata.jsonl")
+
+    # 3. Write context.jsonl (same as messages for un-compacted, or just messages for compacted)
+    store.write_context(messages)
+    stats["files_created"].append("root.context.jsonl")
+
+    # 4. Write session.json
+    session_meta = {
+        "session_id": legacy_data.get("session_id", session_dir.name),
+        "parent_session_id": legacy_data.get("parent_session_id"),
+        "model_spec": legacy_data.get("model_spec"),
+        "thinking_mode": legacy_data.get("thinking_mode", "max"),
+        "active_plan_id": legacy_data.get("active_plan_id"),
+        "root_dir": legacy_data.get("metadata", {}).get("root_dir"),
+        "cli_args": legacy_data.get("metadata", {}).get("cli_args"),
+        "migrated_from": "root.json",
+    }
+    # Preserve compaction info
+    if "compaction" in legacy_data:
+        session_meta["compaction"] = legacy_data["compaction"]
+    # Preserve created_at
+    if "metadata" in legacy_data and "created_at" in legacy_data["metadata"]:
+        session_meta["created_at"] = legacy_data["metadata"]["created_at"]
+    store.write_session_meta(session_meta)
+    stats["files_created"].append("session.json")
+
+    # 5. Rename root.json → root.json.legacy
+    root_file.rename(session_dir / "root.json.legacy")
+    stats["files_renamed"].append(("root.json", "root.json.legacy"))
+
+    # 6. Migrate pre-compaction archives
+    for f in sorted(session_dir.iterdir()):
+        if f.name.startswith("pre-compaction-") and f.suffix == ".json":
+            try:
+                with open(f, "r", encoding="utf-8") as fh:
+                    archive_data = json.load(fh)
+                archive_messages = archive_data.get("messages", [])
+                # Write as context.jsonl
+                new_name = f.stem + ".context.jsonl"
+                SessionStore._write_jsonl(session_dir / new_name, archive_messages)
+                stats["files_created"].append(new_name)
+                # Rename original
+                f.rename(session_dir / (f.name + ".legacy"))
+                stats["files_renamed"].append((f.name, f.name + ".legacy"))
+            except (json.JSONDecodeError, OSError):
+                continue  # skip corrupted archives
+
+    # 7. Migrate sub-agent files (*.json that aren't root.json or pre-compaction)
+    for f in sorted(session_dir.iterdir()):
+        if (
+            f.suffix == ".json"
+            and f.name != "session.json"
+            and not f.name.startswith("pre-compaction-")
+            and f.name != "root.json.legacy"
+        ):
+            try:
+                with open(f, "r", encoding="utf-8") as fh:
+                    sub_data = json.load(fh)
+                sub_messages = sub_data.get("messages", [])
+                sub_id = f.stem  # e.g., "abc-123-def"
+                sub_store = SessionStore(session_dir, agent_name=sub_id)
+                sub_store.append_messages(sub_messages, prev_msg_id=None)
+                sub_store.write_context(sub_messages)
+                stats["files_created"].extend(
+                    [
+                        f"{sub_id}.history.jsonl",
+                        f"{sub_id}.context.jsonl",
+                    ]
+                )
+                f.rename(session_dir / (f.name + ".legacy"))
+                stats["files_renamed"].append((f.name, f.name + ".legacy"))
+            except (json.JSONDecodeError, OSError):
+                continue
+
+    return stats
+
+
+def migrate_all_sessions(
+    history_base_dir: Path,
+    dry_run: bool = False,
+    progress_callback=None,
+) -> list[dict[str, Any]]:
+    """Migrate all legacy sessions under a base directory.
+
+    Args:
+        history_base_dir: Base dir containing history/ subdirectory.
+        dry_run: If True, report what would happen.
+        progress_callback: Optional callable(session_dir, index, total) for progress.
+
+    Returns:
+        List of migration stats dicts (one per session).
+    """
+    history_dir = history_base_dir / "history"
+    if not history_dir.exists():
+        return []
+
+    # Find all sessions that need migration
+    sessions_to_migrate = []
+    for session_dir in sorted(history_dir.iterdir()):
+        if not session_dir.is_dir():
+            continue
+        root_file = session_dir / "root.json"
+        session_json = session_dir / "session.json"
+        if root_file.exists() and not session_json.exists():
+            sessions_to_migrate.append(session_dir)
+
+    results = []
+    total = len(sessions_to_migrate)
+    for i, session_dir in enumerate(sessions_to_migrate):
+        if progress_callback:
+            progress_callback(session_dir, i, total)
+        try:
+            stats = migrate_session(session_dir, dry_run=dry_run)
+            stats["status"] = "ok"
+        except Exception as e:
+            stats = {
+                "session_dir": str(session_dir),
+                "status": "error",
+                "error": str(e),
+            }
+        results.append(stats)
+
+    return results

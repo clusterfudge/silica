@@ -1642,6 +1642,81 @@ def view_session(
         print("\nSession viewer stopped")
 
 
+def migrate(
+    *,
+    session: Annotated[
+        Optional[str], cyclopts.Parameter(help="Specific session ID to migrate")
+    ] = None,
+    all: Annotated[
+        bool, cyclopts.Parameter(help="Migrate all legacy sessions")
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        cyclopts.Parameter(help="Show what would be migrated without making changes"),
+    ] = False,
+    persona: Annotated[
+        Optional[str], cyclopts.Parameter(help="Persona to migrate sessions for")
+    ] = None,
+):
+    """Migrate legacy session files (root.json) to v2 split-file format.
+
+    Args:
+        session: Specific session ID to migrate
+        all: Migrate all legacy sessions under the persona's history dir
+        dry_run: Report what would happen without writing files
+        persona: Persona name (defaults to 'default')
+    """
+    from silica.developer.session_store import migrate_session, migrate_all_sessions
+
+    # Determine base directory
+    if persona:
+        persona_obj = personas.get_or_create(persona, interactive=False)
+        base_dir = persona_obj.base_directory
+    else:
+        base_dir = Path.home() / ".silica" / "personas" / "default"
+
+    if session:
+        session_dir = base_dir / "history" / session
+        try:
+            stats = migrate_session(session_dir, dry_run=dry_run)
+            prefix = "[DRY RUN] " if dry_run else ""
+            print(
+                f"{prefix}Migrated session {session}: "
+                f"{stats['message_count']} messages, {stats['usage_count']} usage entries"
+            )
+            if stats.get("files_created"):
+                print(f"  Files created: {', '.join(stats['files_created'])}")
+            if stats.get("files_renamed"):
+                for old, new in stats["files_renamed"]:
+                    print(f"  Renamed: {old} → {new}")
+        except FileNotFoundError:
+            print(f"Error: No root.json found for session {session}")
+        except ValueError as e:
+            print(f"Skip: {e}")
+    elif all:
+
+        def progress(sd, i, total):
+            print(f"  [{i+1}/{total}] {sd.name}...")
+
+        results = migrate_all_sessions(
+            base_dir, dry_run=dry_run, progress_callback=progress
+        )
+        ok = sum(1 for r in results if r.get("status") == "ok")
+        errors = sum(1 for r in results if r.get("status") == "error")
+        prefix = "[DRY RUN] " if dry_run else ""
+        print(
+            f"\n{prefix}Migration complete: {ok} migrated, {errors} errors, "
+            f"{len(results)} total"
+        )
+        for r in results:
+            if r.get("status") == "error":
+                print(f"  ERROR: {r['session_dir']}: {r.get('error')}")
+    else:
+        print("Error: Specify --session <id> or --all")
+        print("Usage: silica migrate --session <session-id> [--dry-run]")
+        print("       silica migrate --all [--dry-run]")
+
+
 def attach_tools(app):
     console = Console()
     sandbox = Sandbox(".", SandboxMode.ALLOW_ALL)

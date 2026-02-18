@@ -7,6 +7,7 @@ from silica.developer.hdev import (
     cyclopts_main as developer_app,
     attach_tools,
     view_session,
+    migrate,
 )
 from silica.developer.cli.memory_sync import memory_sync_app
 from silica.developer.cli.history_sync import history_sync_app
@@ -24,6 +25,7 @@ app.command(history_sync_app, name="history-sync")
 app.command(coordinator_app, name="coordinator")
 app.command(worker_app, name="worker")
 app.command(view_session, name="view")
+app.command(migrate, name="migrate")
 attach_tools(app)
 app.default(developer_app)
 

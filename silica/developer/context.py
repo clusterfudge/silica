@@ -495,6 +495,28 @@ def load_session_data(
             session_id, store, session_meta, base_context, history_base_dir
         )
 
+    # Auto-migrate legacy sessions on resume
+    root_file = history_dir / "root.json"
+    if root_file.exists() and not (history_dir / "session.json").exists():
+        try:
+            from silica.developer.session_store import migrate_session
+
+            migrate_session(history_dir)
+            print(f"Auto-migrated session {session_id} to v2 format")
+            # Now load as v2
+            store = SessionStore(history_dir, agent_name="root")
+            session_meta = store.read_session_meta()
+            if session_meta:
+                return _load_v2_session(
+                    session_id,
+                    store,
+                    session_meta,
+                    base_context,
+                    history_base_dir,
+                )
+        except Exception as e:
+            print(f"Auto-migration failed, falling back to legacy: {e}")
+
     # Fall back to legacy format
     return _load_legacy_session(session_id, history_dir, base_context, history_base_dir)
 
