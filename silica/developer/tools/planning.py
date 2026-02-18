@@ -26,6 +26,20 @@ if TYPE_CHECKING:
     from silica.developer.context import AgentContext
 
 
+def _normalize_files(files) -> list[str]:
+    """Normalize a files value to a list of strings.
+
+    Handles both:
+    - list: ["file1.py", "file2.py"] -> returned as-is
+    - string: "file1.py, file2.py" -> split on commas
+    """
+    if isinstance(files, list):
+        return files
+    if isinstance(files, str):
+        return [f.strip() for f in files.split(",") if f.strip()]
+    return []
+
+
 def get_active_plan_status(context: "AgentContext") -> dict | None:
     """Get the status of the active plan for this session.
 
@@ -1327,7 +1341,7 @@ def add_plan_tasks(
         task = plan.add_task(
             description=task_data["description"],
             details=task_data.get("details", ""),
-            files=task_data.get("files", []),
+            files=_normalize_files(task_data.get("files", [])),
             tests=task_data.get("tests", ""),
             dependencies=task_data.get("dependencies", []),
             category=category,
@@ -2487,7 +2501,7 @@ def replace_plan_tasks(
         task = plan.add_task(
             description=task_data["description"],
             details=task_data.get("details", ""),
-            files=task_data.get("files", []),
+            files=_normalize_files(task_data.get("files", [])),
             tests=task_data.get("tests", ""),
             dependencies=task_data.get("dependencies", []),
         )
