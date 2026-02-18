@@ -136,6 +136,12 @@ def _load_persona_from_disk(agent_context: AgentContext) -> dict[str, Any] | Non
         if not persona_content:
             return None
 
+        # Resolve @path/to/entry references against memory
+        if agent_context.memory_manager:
+            persona_content = agent_context.memory_manager.render_content(
+                persona_content
+            )
+
         # Get persona name from directory
         persona_name = agent_context.history_base_dir.name
 

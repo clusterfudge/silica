@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -405,3 +406,77 @@ class MemoryManager:
                 "message": None,
                 "error": f"Error deleting memory entry: {str(e)}",
             }
+
+    # --- Reference resolution ---
+
+    # Matches a line containing only an @reference, e.g. "  @knowledge/patterns/foo  "
+    _REFERENCE_RE = re.compile(r"^\s*@([\w/._-]+)\s*$", re.MULTILINE)
+
+    def render_content(
+        self, content: str, max_depth: int = 3, _visited: set | None = None
+    ) -> str:
+        """Resolve @path/to/entry references in text content.
+
+        Lines matching ``@some/memory/path`` are replaced with the content of
+        that memory entry.  References are resolved recursively up to
+        *max_depth* levels.  Circular references and missing entries produce
+        inline HTML comments so they are visible but harmless.
+
+        Args:
+            content: Text that may contain @references (one per line).
+            max_depth: Maximum nesting depth (default 3).
+            _visited: Paths already on the resolution stack (internal).
+
+        Returns:
+            Content with references replaced by entry contents.
+        """
+        if _visited is None:
+            _visited = set()
+
+        def _replace(match: re.Match) -> str:
+            ref_path = match.group(1)
+
+            if ref_path in _visited:
+                return f"<!-- @{ref_path}: circular reference -->"
+
+            if max_depth <= 0:
+                return f"<!-- @{ref_path}: max depth exceeded -->"
+
+            entry = self.read_entry(ref_path)
+            if not entry.get("success") or entry.get("type") != "file":
+                return f"<!-- @{ref_path}: not found -->"
+
+            entry_content = (entry.get("content") or "").strip()
+            if not entry_content:
+                return ""
+
+            # Recurse into the referenced content
+            return self.render_content(
+                entry_content,
+                max_depth=max_depth - 1,
+                _visited=_visited | {ref_path},
+            )
+
+        return self._REFERENCE_RE.sub(_replace, content)
+
+    def render_entry(self, path: str, max_depth: int = 3) -> str | None:
+        """Read a memory entry and resolve any @references in its content.
+
+        Convenience method combining read_entry + render_content.
+
+        Args:
+            path: Path to the memory entry.
+            max_depth: Maximum reference nesting depth.
+
+        Returns:
+            Rendered content string, or None if the entry doesn't exist.
+        """
+        entry = self.read_entry(path)
+        if not entry.get("success") or entry.get("type") != "file":
+            return None
+
+        content = (entry.get("content") or "").strip()
+        if not content:
+            return ""
+
+        return self.render_content(content, max_depth=max_depth)
