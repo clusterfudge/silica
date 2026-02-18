@@ -914,41 +914,147 @@ I'm ready to help orchestrate your multi-agent workflow."""
 
 # Default command shows help and options
 @coordinator_app.default
-def coordinator_default():
-    """Interactive coordinator mode."""
-    console.print("\n[bold cyan]🤝 Silica Coordinator[/bold cyan]\n")
+def coordinator_default(
+    name: Annotated[
+        Optional[str],
+        cyclopts.Parameter(help="Display name for the coordination session"),
+    ] = None,
+    session_id: Annotated[
+        Optional[str],
+        cyclopts.Parameter(
+            name=["--session-id"],
+            help="Session ID to resume (creates new if not found)",
+        ),
+    ] = None,
+    local: Annotated[
+        bool,
+        cyclopts.Parameter(
+            name=["--local", "-l"], help="Use local .deaddrop backend (no network)"
+        ),
+    ] = False,
+    remote: Annotated[
+        bool,
+        cyclopts.Parameter(name=["--remote", "-r"], help="Use remote deaddrop server"),
+    ] = False,
+    local_path: Annotated[
+        Optional[str],
+        cyclopts.Parameter(
+            name=["--local-path"], help="Path to local .deaddrop directory"
+        ),
+    ] = None,
+    remote_url: Annotated[
+        Optional[str],
+        cyclopts.Parameter(name=["--remote-url"], help="Remote deaddrop server URL"),
+    ] = None,
+    persona: Annotated[
+        Optional[str],
+        cyclopts.Parameter(help="Persona to overlay on coordinator (e.g., twin)"),
+    ] = None,
+    heartbeat_prompt: Annotated[
+        Optional[str],
+        cyclopts.Parameter(
+            name=["--heartbeat-prompt"],
+            help="Heartbeat prompt file or text. Supports @file syntax. Enables daemon mode.",
+        ),
+    ] = None,
+    heartbeat_interval: Annotated[
+        int,
+        cyclopts.Parameter(
+            name=["--heartbeat-interval"],
+            help="Seconds of idle before heartbeat fires (default: 300)",
+        ),
+    ] = 300,
+):
+    """Start or resume a coordination session.
 
-    sessions = list_sessions()
+    If --session-id is provided, resumes that session (or creates it if new).
+    If no --session-id, creates a fresh session.
 
-    options = []
-    if sessions:
-        options.append(
-            ("resume", f"Resume existing session ({len(sessions)} available)")
-        )
-    options.append(("new", "Create new coordination session"))
-    options.append(("list", "List all sessions"))
-    options.append(("quit", "Exit"))
+    Backend options:
+      --local, -l       Use local .deaddrop (no network, single machine)
+      --remote, -r      Use remote deaddrop server (distributed workers)
+    """
+    if local and remote:
+        console.print("[red]Cannot specify both --local and --remote[/red]")
+        return
 
-    for i, (key, desc) in enumerate(options, 1):
-        console.print(f"  [cyan]{i}[/cyan]. {desc}")
-
+    deaddrop = _get_deaddrop_client(
+        local=local,
+        remote=remote,
+        local_path=local_path,
+        remote_url=remote_url,
+    )
     console.print()
-    choice = Prompt.ask("Select option", default="1" if sessions else "2")
+
+    # Compute history dir for session lookup
+    if persona:
+        from silica.developer.personas import for_name as _get_persona_default
+
+        _p = _get_persona_default(persona)
+        _persona_dir = _p.base_directory
+    else:
+        _persona_dir = Path.home() / ".silica" / "personas" / "coordinator"
+
+    # If session_id provided, try to resume
+    if session_id:
+        _hdir = _persona_dir / "history" / session_id
+        _coord_file = _hdir / "coordination.json"
+        from silica.developer.coordination.session import get_sessions_dir
+
+        _legacy_file = get_sessions_dir() / f"{session_id}.json"
+
+        if _coord_file.exists() or _legacy_file.exists():
+            console.print("[bold cyan]🤝 Resuming Coordination Session[/bold cyan]\n")
+            try:
+                session = CoordinationSession.resume_session(
+                    deaddrop, session_id=session_id, history_dir=_hdir
+                )
+            except Exception as e:
+                console.print(f"[red]Failed to resume session: {e}[/red]")
+                raise
+
+            state = session.get_state()
+            console.print(f"[green]✓ Session resumed: {state['display_name']}[/green]")
+            console.print(f"[dim]Session ID: {session_id}[/dim]")
+            console.print(
+                f"[dim]Backend: {deaddrop.backend} ({deaddrop.location})[/dim]"
+            )
+            console.print()
+
+            _run_coordinator_agent(
+                session,
+                persona=persona,
+                heartbeat_prompt=heartbeat_prompt,
+                heartbeat_interval=heartbeat_interval,
+            )
+            return
+
+    # Create new session
+    console.print("[bold cyan]🤝 Creating Coordination Session[/bold cyan]\n")
+
+    if not name:
+        name = session_id or "Coordination Session"
+
+    from uuid import uuid4 as _uuid4
+
+    new_session_id = session_id or str(_uuid4())
 
     try:
-        idx = int(choice) - 1
-        if 0 <= idx < len(options):
-            action = options[idx][0]
-        else:
-            return
-    except ValueError:
-        action = choice.lower()
+        session = CoordinationSession.create_session(
+            deaddrop, name, session_id=new_session_id
+        )
+    except Exception as e:
+        console.print(f"[red]Failed to create session: {e}[/red]")
+        raise
 
-    if action == "resume":
-        coordinator_resume()
-    elif action == "new":
-        coordinator_new()
-    elif action == "list":
-        coordinator_list()
-    elif action == "quit":
-        return
+    console.print(f"[green]✓ Session created: {session.session_id}[/green]")
+    console.print(f"[dim]Namespace: {session.namespace_id}[/dim]")
+    console.print(f"[dim]Backend: {deaddrop.backend} ({deaddrop.location})[/dim]")
+    console.print()
+
+    _run_coordinator_agent(
+        session,
+        persona=persona,
+        heartbeat_prompt=heartbeat_prompt,
+        heartbeat_interval=heartbeat_interval,
+    )
