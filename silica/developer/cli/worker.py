@@ -206,7 +206,6 @@ def _run_worker_agent(
                             Progress(
                                 task_id=task_id,
                                 agent_id=agent_id,
-                                status="working",
                                 message="Starting task execution",
                                 progress=0.0,
                             )
