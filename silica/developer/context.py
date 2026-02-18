@@ -138,7 +138,12 @@ class AgentContext:
     def with_user_interface(
         self, user_interface: UserInterface, keep_history=False, session_id: str = None
     ) -> "AgentContext":
-        return AgentContext(
+        # Capture parent's last msg_id for sub-agent prev_msg_id linking
+        parent_last_msg_id = None
+        if self._session_store is not None:
+            parent_last_msg_id = self._session_store.last_msg_id
+
+        child = AgentContext(
             session_id=session_id if session_id else str(uuid4()),
             parent_session_id=self.session_id,
             model_spec=self.model_spec,
@@ -151,6 +156,9 @@ class AgentContext:
             _chat_history=self.chat_history.copy() if keep_history else [],
             _tool_result_buffer=self.tool_result_buffer.copy() if keep_history else [],
         )
+        # Store parent's msg_id so the sub-agent's first message can link back
+        child._parent_msg_id = parent_last_msg_id
+        return child
 
     def _report_usage(self, usage: Usage, model_spec: ModelSpec):
         self.usage.append((usage, model_spec))
@@ -345,7 +353,10 @@ class AgentContext:
         new_msg_count = len(chat_history)
         if new_msg_count > self._last_flushed_msg_count:
             new_messages = chat_history[self._last_flushed_msg_count :]
-            prev_id = store.last_msg_id  # chain from last written msg
+            # Chain from last written msg, or parent's msg_id for first sub-agent flush
+            prev_id = store.last_msg_id
+            if prev_id is None and hasattr(self, "_parent_msg_id"):
+                prev_id = self._parent_msg_id
             store.append_messages(new_messages, prev_msg_id=prev_id)
 
         # 2. Append NEW usage entries to metadata.jsonl
