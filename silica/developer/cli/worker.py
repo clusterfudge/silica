@@ -21,6 +21,9 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from silica.developer.coordination import CoordinationContext
 
+# Environment variable name for agent ID (matching worker_bootstrap)
+COORDINATION_AGENT_ID_ENV = "COORDINATION_AGENT_ID"
+
 console = Console()
 
 # Create the worker app
@@ -361,39 +364,28 @@ def worker_main(
         console.print("[dim]Set COORDINATION_AGENT_ID or use --agent-id[/dim]")
         return
 
-    # Parse invite URL
+    # Parse invite URL for display
     invite_info = _parse_invite_url(invite_url)
 
-    console.print(f"[dim]Server: {invite_info['server_url']}[/dim]")
     console.print(f"[dim]Agent ID: {agent_id}[/dim]")
     console.print(f"[dim]Room: {invite_info['room_id']}[/dim]")
 
-    # Claim the invite to get credentials, then create context
+    # Set agent ID in env for bootstrap to pick up
+    os.environ[COORDINATION_AGENT_ID_ENV] = agent_id
+
+    # Claim the invite and connect using the bootstrap module
+    # This handles both local:// and https:// invite URLs
     try:
-        from silica.developer.coordination import CoordinationContext
-        from urllib.parse import urlparse
-
-        parsed = urlparse(invite_url)
-        server_url = f"{parsed.scheme}://{parsed.netloc}"
-
-        # Create a client to claim the invite
-        deaddrop = Deaddrop.remote(url=server_url)
-        creds = deaddrop.claim_invite(invite_url)
-
-        console.print(f"[dim]Claimed invite for identity: {creds['identity_id']}[/dim]")
-
-        # Create coordination context with the credentials
-        # Workers don't have namespace_secret (that's coordinator-only)
-        coord_context = CoordinationContext(
-            deaddrop=deaddrop,
-            namespace_id=creds["ns"],
-            namespace_secret="",  # Workers don't have ns secret
-            identity_id=creds["identity_id"],
-            identity_secret=creds["secret"],
-            room_id=invite_info["room_id"],
-            coordinator_id=invite_info["coordinator_id"],
+        from silica.developer.coordination.worker_bootstrap import (
+            claim_invite_and_connect,
         )
 
+        bootstrap_result = claim_invite_and_connect(invite_url=invite_url)
+        coord_context = bootstrap_result.context
+
+        console.print(
+            f"[dim]Connected as identity: {coord_context.identity_id}[/dim]"
+        )
         console.print("[green]✓ Connected to coordination session[/green]")
     except Exception as e:
         console.print(f"[red]Failed to connect to deaddrop: {e}[/red]")
