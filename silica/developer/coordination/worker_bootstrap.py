@@ -50,15 +50,68 @@ def is_coordinated_worker() -> bool:
     return get_invite_from_env() is not None
 
 
+def _create_deaddrop_for_invite(invite_url: str) -> Deaddrop:
+    """Create the appropriate Deaddrop client based on the invite URL scheme.
+
+    Supports:
+    - http:// / https:// -> Deaddrop.remote()
+    - local:// -> Deaddrop.local() using the path embedded in the URL
+
+    Args:
+        invite_url: The full invite URL
+
+    Returns:
+        Configured Deaddrop client
+
+    Raises:
+        RuntimeError: If the URL scheme is not supported
+    """
+    parsed = urlparse(invite_url)
+
+    if parsed.scheme in ("http", "https"):
+        server_url = f"{parsed.scheme}://{parsed.netloc}"
+        logger.info(f"Using remote deaddrop: {server_url}")
+        return Deaddrop.remote(url=server_url)
+
+    if parsed.scheme == "local":
+        # Local deaddrop invite URLs have the format:
+        #   local://<path>/join/<invite_id>#<key>
+        # For file-based: local:///path/to/deaddrop_dir/join/...
+        #   -> netloc is empty, path contains deaddrop dir + /join/...
+        # For in-memory: local://:memory:/join/...
+        #   -> netloc is ":memory:", path is /join/...
+        if parsed.netloc == ":memory:":
+            raise RuntimeError(
+                "In-memory deaddrop cannot be shared between processes. "
+                "Use a file-based local deaddrop (--local) or remote deaddrop "
+                "(--remote) for multi-process coordination."
+            )
+
+        # Extract the deaddrop directory path from the URL
+        # The path is: /path/to/deaddrop_dir/join/<invite_id>
+        deaddrop_path = parsed.path.split("/join/")[0]
+        if not deaddrop_path:
+            raise RuntimeError(
+                f"Could not extract deaddrop path from local invite URL: "
+                f"{invite_url[:80]}..."
+            )
+        logger.info(f"Using local deaddrop: {deaddrop_path}")
+        return Deaddrop.local(path=deaddrop_path)
+
+    raise RuntimeError(
+        f"Unsupported invite URL scheme: {parsed.scheme}. "
+        f"Expected http://, https://, or local:// but got: {invite_url[:50]}..."
+    )
+
+
 def claim_invite_and_connect(
     invite_url: Optional[str] = None,
 ) -> WorkerBootstrapResult:
     """Claim a deaddrop invite and connect to the coordination namespace.
 
-    The invite URL format is: https://server/join/{invite_id}#{key}?room=...&coordinator=...
-    - Server domain is extracted from the URL itself
-    - Encryption key is in the fragment
-    - Coordination metadata (room, coordinator) is in query params
+    Supports both remote and local deaddrop backends:
+    - Remote: https://server/join/{invite_id}#{key}?room=...&coordinator=...
+    - Local:  local:///path/to/.deaddrop/join/{invite_id}#{key}?room=...&coordinator=...
 
     Args:
         invite_url: Invite URL (defaults to DEADDROP_INVITE_URL env var)
@@ -77,21 +130,14 @@ def claim_invite_and_connect(
             "or pass invite_url parameter."
         )
 
-    # Parse invite URL
-    if not (invite_url.startswith("http://") or invite_url.startswith("https://")):
-        raise RuntimeError(f"Invalid invite URL format: {invite_url[:50]}...")
-
+    # Parse invite URL and extract coordination metadata
     parsed = urlparse(invite_url)
-    server_url = f"{parsed.scheme}://{parsed.netloc}"
-
-    # Extract coordination metadata from query params
     query_params = parse_qs(parsed.query)
     room_id = query_params.get("room", [None])[0]
     coordinator_id = query_params.get("coordinator", [None])[0]
 
-    # Connect and claim
-    deaddrop = Deaddrop.remote(url=server_url)
-    logger.info(f"Claiming invite from server: {server_url}...")
+    # Create the appropriate deaddrop client based on URL scheme
+    deaddrop = _create_deaddrop_for_invite(invite_url)
 
     try:
         claim_result = deaddrop.claim_invite(invite_url)
