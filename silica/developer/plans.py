@@ -196,6 +196,21 @@ CATEGORY_EXPLORATION = "exploration"
 CATEGORY_IMPLEMENTATION = "implementation"
 
 
+def _normalize_files(files) -> list[str]:
+    """Normalize a files value to a list of strings.
+
+    Handles both:
+    - list: ["file1.py", "file2.py"] -> returned as-is
+    - string: "file1.py, file2.py" -> split on commas
+    """
+    if isinstance(files, list):
+        return files
+    if isinstance(files, str):
+        return [f.strip() for f in files.split(",") if f.strip()]
+    return []
+
+
+
 @dataclass
 class PlanTask:
     """A single task within a plan.
@@ -302,7 +317,7 @@ class PlanTask:
             id=data.get("id", str(uuid.uuid4())[:8]),
             description=data.get("description", ""),
             details=data.get("details", ""),
-            files=data.get("files", []),
+            files=_normalize_files(data.get("files", [])),
             tests=data.get("tests", ""),
             dependencies=data.get("dependencies", []),
             completed=data.get("completed", False),
