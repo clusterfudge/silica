@@ -76,6 +76,64 @@ def _truncate_message(message: Optional[str], max_length: int = 60) -> str:
     return message[: max_length - 3] + "..."
 
 
+def _read_session_info(session_dir: Path) -> Optional[Dict]:
+    """Read session info from v2 format or legacy root.json.
+
+    Returns:
+        Session info dict, or None if the session can't be read.
+    """
+    session_json = session_dir / "session.json"
+
+    # Try v2 format first
+    if session_json.exists():
+        try:
+            meta = json.loads(session_json.read_text())
+            if meta.get("version", 0) >= 2:
+                # Read context for message count and first message
+                from silica.developer.session_store import SessionStore
+
+                store = SessionStore(session_dir, agent_name="root")
+                context_msgs = store.read_context()
+                first_message = _extract_first_user_message(context_msgs)
+
+                return {
+                    "session_id": meta.get("session_id", session_dir.name),
+                    "created_at": meta.get("created_at"),
+                    "last_updated": meta.get("last_updated"),
+                    "root_dir": meta.get("root_dir"),
+                    "message_count": len(context_msgs),
+                    "model": meta.get("model_spec", {}).get("title", "Unknown"),
+                    "first_message": first_message,
+                }
+        except (json.JSONDecodeError, IOError):
+            pass
+
+    # Fall back to legacy root.json
+    root_file = session_dir / "root.json"
+    if not root_file.exists():
+        return None
+
+    with open(root_file, "r") as f:
+        session_data = json.load(f)
+
+    if "metadata" not in session_data:
+        return None
+
+    metadata = session_data["metadata"]
+    messages = session_data.get("messages", [])
+    first_message = _extract_first_user_message(messages)
+
+    return {
+        "session_id": session_data.get("session_id", session_dir.name),
+        "created_at": metadata.get("created_at"),
+        "last_updated": metadata.get("last_updated"),
+        "root_dir": metadata.get("root_dir"),
+        "message_count": len(messages),
+        "model": session_data.get("model_spec", {}).get("title", "Unknown"),
+        "first_message": first_message,
+    }
+
+
 def list_sessions(
     workdir: Optional[str] = None, history_base_dir: Optional[Path] = None
 ) -> List[Dict]:
@@ -101,43 +159,17 @@ def list_sessions(
         if not session_dir.is_dir():
             continue
 
-        root_file = session_dir / "root.json"
-        if not root_file.exists():
-            continue
-
         try:
-            with open(root_file, "r") as f:
-                session_data = json.load(f)
-
-            # Skip if no metadata (pre-HDEV-58 sessions)
-            if "metadata" not in session_data:
+            session_info = _read_session_info(session_dir)
+            if session_info is None:
                 continue
-
-            metadata = session_data["metadata"]
 
             # Filter by root directory if workdir is specified
             if workdir:
-                # Normalize paths for comparison
-                session_root = os.path.normpath(metadata.get("root_dir", ""))
+                session_root = os.path.normpath(session_info.get("root_dir", ""))
                 workdir_norm = os.path.normpath(workdir)
-
                 if session_root != workdir_norm:
                     continue
-
-            # Extract the first user message for context hint
-            messages = session_data.get("messages", [])
-            first_message = _extract_first_user_message(messages)
-
-            # Extract relevant information
-            session_info = {
-                "session_id": session_data.get("session_id", session_dir.name),
-                "created_at": metadata.get("created_at"),
-                "last_updated": metadata.get("last_updated"),
-                "root_dir": metadata.get("root_dir"),
-                "message_count": len(messages),
-                "model": session_data.get("model_spec", {}).get("title", "Unknown"),
-                "first_message": first_message,
-            }
 
             sessions.append(session_info)
 
@@ -177,8 +209,31 @@ def get_session_data(
         return None
 
     session_dir = history_dir / matching_ids[0]
-    root_file = session_dir / "root.json"
 
+    # Try v2 format first
+    session_json = session_dir / "session.json"
+    if session_json.exists():
+        try:
+            from silica.developer.session_store import SessionStore
+
+            store = SessionStore(session_dir, agent_name="root")
+            meta = store.read_session_meta()
+            if meta and meta.get("version", 0) >= 2:
+                context_msgs = store.read_context()
+                history_msgs = store.read_history()
+                metadata_entries = store.read_metadata()
+                return {
+                    **meta,
+                    "messages": context_msgs,
+                    "history_message_count": len(history_msgs),
+                    "context_message_count": len(context_msgs),
+                    "usage_count": len(metadata_entries),
+                }
+        except (json.JSONDecodeError, IOError):
+            pass
+
+    # Fall back to legacy root.json
+    root_file = session_dir / "root.json"
     if not root_file.exists():
         return None
 
