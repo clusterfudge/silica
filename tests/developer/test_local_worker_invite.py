@@ -329,8 +329,6 @@ class TestRemoteInviteStillWorks:
             }
 
             # Patch claim_invite to return our data
-            original_claim = mock_dd.claim_invite
-
             def mock_claim(url):
                 return mock_dd_claim
 

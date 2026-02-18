@@ -14,8 +14,6 @@ import cyclopts
 from rich.console import Console
 from rich.panel import Panel
 
-from deadrop import Deaddrop
-
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -383,9 +381,7 @@ def worker_main(
         bootstrap_result = claim_invite_and_connect(invite_url=invite_url)
         coord_context = bootstrap_result.context
 
-        console.print(
-            f"[dim]Connected as identity: {coord_context.identity_id}[/dim]"
-        )
+        console.print(f"[dim]Connected as identity: {coord_context.identity_id}[/dim]")
         console.print("[green]✓ Connected to coordination session[/green]")
     except Exception as e:
         console.print(f"[red]Failed to connect to deaddrop: {e}[/red]")
