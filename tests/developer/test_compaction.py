@@ -404,7 +404,7 @@ class TestConversationCompaction(unittest.TestCase):
         # Should return an archive filename (not "compact-in-place")
         self.assertNotEqual(result, "compact-in-place")
         self.assertIn("pre-compaction-", result)
-        self.assertTrue(result.endswith(".json"))
+        self.assertTrue(result.endswith(".context.jsonl") or result.endswith(".json"))
 
         # Archive file should exist
         history_dir = (

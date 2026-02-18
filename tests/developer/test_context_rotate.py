@@ -160,17 +160,22 @@ class TestAgentContextRotate(unittest.TestCase):
             "archive-test-20250112_140530", new_messages, None
         )
 
-        # Verify the archive was created with the correct name
-        expected_archive = "archive-test-20250112_140530.json"
+        # Verify the archive was created with the correct name (v2 format)
+        expected_archive = "archive-test-20250112_140530.context.jsonl"
         self.assertEqual(archive_name, expected_archive)
 
-        archive_file = history_dir / expected_archive
+        # v2: context.jsonl archive should exist
+        archive_ctx = history_dir / expected_archive
+        self.assertTrue(archive_ctx.exists(), f"Archive file not found: {archive_ctx}")
+
+        # Legacy .json archive should also exist during transition
+        legacy_archive = history_dir / "archive-test-20250112_140530.json"
         self.assertTrue(
-            archive_file.exists(), f"Archive file not found: {archive_file}"
+            legacy_archive.exists(), f"Legacy archive not found: {legacy_archive}"
         )
 
-        # Read the archive and verify it contains the original conversation
-        with open(archive_file, "r") as f:
+        # Read the legacy archive and verify it contains the original conversation
+        with open(legacy_archive, "r") as f:
             archived_data = json.load(f)
         self.assertEqual(len(archived_data["messages"]), 4)
         self.assertEqual(archived_data["messages"], self.sample_messages)
@@ -243,8 +248,11 @@ class TestAgentContextRotate(unittest.TestCase):
         # First rotation (mutates context in place)
         new_messages1 = [{"role": "user", "content": "Rotated 1"}]
         archive1 = context.rotate("first-archive-20250112_140000", new_messages1, None)
-        archive1_file = history_dir / archive1
-        self.assertTrue(archive1_file.exists())
+        # v2 returns .context.jsonl; legacy .json also created
+        archive1_ctx = history_dir / archive1
+        self.assertTrue(archive1_ctx.exists())
+        legacy1 = history_dir / "first-archive-20250112_140000.json"
+        self.assertTrue(legacy1.exists())
 
         # Modify the conversation (add a message to the context)
         context._chat_history.append({"role": "user", "content": "New message"})
@@ -253,21 +261,23 @@ class TestAgentContextRotate(unittest.TestCase):
         # Second rotation (mutates context in place again)
         new_messages2 = [{"role": "user", "content": "Rotated 2"}]
         archive2 = context.rotate("second-archive-20250112_150000", new_messages2, None)
-        archive2_file = history_dir / archive2
-        self.assertTrue(archive2_file.exists())
+        archive2_ctx = history_dir / archive2
+        self.assertTrue(archive2_ctx.exists())
+        legacy2 = history_dir / "second-archive-20250112_150000.json"
+        self.assertTrue(legacy2.exists())
 
         # Both archives should exist
-        self.assertTrue(archive1_file.exists())
-        self.assertTrue(archive2_file.exists())
+        self.assertTrue(archive1_ctx.exists())
+        self.assertTrue(archive2_ctx.exists())
         self.assertTrue(root_file.exists())
 
-        # Verify first archive has 4 messages
-        with open(archive1_file, "r") as f:
+        # Verify first legacy archive has 4 messages
+        with open(legacy1, "r") as f:
             archive1_data = json.load(f)
         self.assertEqual(len(archive1_data["messages"]), 4)
 
-        # Verify second archive has 2 messages (from the rotated context)
-        with open(archive2_file, "r") as f:
+        # Verify second legacy archive has messages from the rotated+extended context
+        with open(legacy2, "r") as f:
             archive2_data = json.load(f)
         self.assertEqual(len(archive2_data["messages"]), 2)
 
@@ -295,9 +305,9 @@ class TestAgentContextRotate(unittest.TestCase):
             "test-archive-20250112_140530", new_messages, None
         )
 
-        self.assertEqual(archive_name, "test-archive-20250112_140530.json")
+        self.assertEqual(archive_name, "test-archive-20250112_140530.context.jsonl")
 
-        # Verify no archive was created (since there was nothing to archive)
+        # Verify no context.jsonl archive was created (since there was no prior context)
         history_dir = (
             Path(self.test_dir)
             / ".silica"
@@ -497,7 +507,7 @@ class TestAgentContextCompactInPlace(unittest.TestCase):
         self.assertEqual(context.chat_history, new_messages)
 
     def test_compact_in_place_does_not_create_archive(self):
-        """compact_in_place should NOT create any archive files."""
+        """compact_in_place should NOT create any pre-compaction archive files."""
         context = self._make_context(
             parent_session_id="parent-123",
             session_id="sub-agent-789",
@@ -515,14 +525,11 @@ class TestAgentContextCompactInPlace(unittest.TestCase):
             / "parent-123"
         )
 
-        # Count files before compaction
-        files_before = set(history_dir.iterdir()) if history_dir.exists() else set()
-
         context.compact_in_place([{"role": "user", "content": "Compacted"}])
 
-        # Count files after — should be the same (just the session file, updated in place)
-        files_after = set(history_dir.iterdir()) if history_dir.exists() else set()
-        self.assertEqual(files_before, files_after)
+        # Verify no pre-compaction archive files were created
+        archive_files = [f for f in history_dir.iterdir() if "pre-compaction" in f.name]
+        self.assertEqual(len(archive_files), 0)
 
     def test_compact_in_place_flushes_to_disk(self):
         """compact_in_place should persist the compacted state."""
