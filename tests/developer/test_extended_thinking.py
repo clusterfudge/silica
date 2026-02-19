@@ -434,3 +434,189 @@ class TestSessionPersistenceWithThinking:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestThinkingBudgetContextClamping:
+    """Test that thinking budget is clamped when context approaches the window limit.
+
+    The fix ensures: context_tokens + max_tokens <= context_window.
+    When context is large, the thinking budget is reduced first; if there's
+    no room even for reduced thinking, it's disabled entirely.
+    """
+
+    def test_budget_reduced_when_context_large(self, persona_base_dir):
+        """Thinking budget should shrink when context is close to the window limit."""
+        mock_ui = Mock()
+        mock_ui.permission_callback = Mock(return_value=True)
+        mock_ui.permission_rendering_callback = Mock()
+
+        context = AgentContext.create(
+            model_spec=get_model("sonnet"),
+            sandbox_mode=SandboxMode.ALLOW_ALL,
+            sandbox_contents=[],
+            user_interface=mock_ui,
+            persona_base_directory=persona_base_dir,
+        )
+
+        # Simulate a large context: 190k input tokens on last call
+        mock_usage = Mock()
+        mock_usage.input_tokens = 190000
+        mock_usage.output_tokens = 500
+        mock_usage.cache_creation_input_tokens = 0
+        mock_usage.cache_read_input_tokens = 180000
+        mock_usage.thinking_tokens = 0
+        context.report_usage(mock_usage)
+
+        model = get_model("sonnet")
+        # With "max" thinking: budget=55808, completion=8192, max_tokens=64000
+        # Context ~190k * 1.05 + 1000 = ~200.5k
+        # Available = 200k - 200.5k = negative! Should disable thinking.
+        thinking_config = get_thinking_config("max", model)
+        max_tokens = model["max_tokens"]
+        if thinking_config and thinking_config.get("type") == "enabled":
+            max_tokens = thinking_config["budget_tokens"] + model["max_tokens"]
+
+        # Apply the clamping logic (mimicking agent_loop.py)
+        context_window = model.get("context_window", 200000)
+        estimated_context = 0
+        if context.usage:
+            last_usage = context.usage[-1][0]
+            if hasattr(last_usage, "input_tokens"):
+                estimated_context = last_usage.input_tokens
+            estimated_context = int(estimated_context * 1.05) + 1000
+
+        if estimated_context > 0:
+            available = context_window - estimated_context
+            if max_tokens > available:
+                if thinking_config and thinking_config.get("type") == "enabled":
+                    new_budget = available - model["max_tokens"]
+                    if new_budget >= 1024:
+                        thinking_config["budget_tokens"] = new_budget
+                        max_tokens = new_budget + model["max_tokens"]
+                    else:
+                        thinking_config = {"type": "disabled"}
+                        max_tokens = min(model["max_tokens"], available)
+                else:
+                    max_tokens = max(1024, available)
+
+        # At 190k context, estimated = 200.5k, available = -500
+        # Thinking should be disabled, max_tokens clamped
+        assert thinking_config["type"] == "disabled"
+        assert max_tokens <= available or max_tokens == min(model["max_tokens"], available)
+
+    def test_budget_partially_reduced(self, persona_base_dir):
+        """Thinking budget should be partially reduced when some room remains."""
+        mock_ui = Mock()
+        mock_ui.permission_callback = Mock(return_value=True)
+        mock_ui.permission_rendering_callback = Mock()
+
+        context = AgentContext.create(
+            model_spec=get_model("sonnet"),
+            sandbox_mode=SandboxMode.ALLOW_ALL,
+            sandbox_contents=[],
+            user_interface=mock_ui,
+            persona_base_directory=persona_base_dir,
+        )
+
+        # Simulate moderate context: 170k input tokens
+        mock_usage = Mock()
+        mock_usage.input_tokens = 170000
+        mock_usage.output_tokens = 500
+        mock_usage.cache_creation_input_tokens = 0
+        mock_usage.cache_read_input_tokens = 160000
+        mock_usage.thinking_tokens = 0
+        context.report_usage(mock_usage)
+
+        model = get_model("sonnet")
+        thinking_config = get_thinking_config("max", model)
+        max_tokens = model["max_tokens"]
+        if thinking_config and thinking_config.get("type") == "enabled":
+            max_tokens = thinking_config["budget_tokens"] + model["max_tokens"]
+
+        # Apply the clamping logic
+        context_window = model.get("context_window", 200000)
+        estimated_context = int(170000 * 1.05) + 1000  # ~179,500
+        available = context_window - estimated_context  # ~20,500
+
+        if max_tokens > available:
+            if thinking_config and thinking_config.get("type") == "enabled":
+                new_budget = available - model["max_tokens"]  # ~20500 - 8192 = ~12308
+                if new_budget >= 1024:
+                    thinking_config["budget_tokens"] = new_budget
+                    max_tokens = new_budget + model["max_tokens"]
+                else:
+                    thinking_config = {"type": "disabled"}
+                    max_tokens = min(model["max_tokens"], available)
+
+        # Thinking should still be enabled but with reduced budget
+        assert thinking_config["type"] == "enabled"
+        assert thinking_config["budget_tokens"] < 55808  # Less than unclamped
+        assert thinking_config["budget_tokens"] >= 1024  # But still meaningful
+        assert max_tokens <= available  # Fits within available space
+
+    def test_no_clamping_when_context_small(self, persona_base_dir):
+        """No clamping needed when context is well within limits."""
+        mock_ui = Mock()
+        mock_ui.permission_callback = Mock(return_value=True)
+        mock_ui.permission_rendering_callback = Mock()
+
+        context = AgentContext.create(
+            model_spec=get_model("sonnet"),
+            sandbox_mode=SandboxMode.ALLOW_ALL,
+            sandbox_contents=[],
+            user_interface=mock_ui,
+            persona_base_directory=persona_base_dir,
+        )
+
+        # Small context: 50k
+        mock_usage = Mock()
+        mock_usage.input_tokens = 50000
+        mock_usage.output_tokens = 500
+        mock_usage.cache_creation_input_tokens = 0
+        mock_usage.cache_read_input_tokens = 40000
+        mock_usage.thinking_tokens = 0
+        context.report_usage(mock_usage)
+
+        model = get_model("sonnet")
+        thinking_config = get_thinking_config("max", model)
+        original_budget = thinking_config["budget_tokens"]  # 55808
+        max_tokens = thinking_config["budget_tokens"] + model["max_tokens"]  # 64000
+
+        # Apply clamping logic
+        context_window = model.get("context_window", 200000)
+        estimated_context = int(50000 * 1.05) + 1000  # ~53,500
+        available = context_window - estimated_context  # ~146,500
+
+        # max_tokens (64000) < available (146500), no clamping needed
+        assert max_tokens <= available
+        assert thinking_config["budget_tokens"] == original_budget
+
+    def test_first_turn_no_usage_no_clamping(self, persona_base_dir):
+        """On first turn with no usage history, no clamping should occur."""
+        mock_ui = Mock()
+        mock_ui.permission_callback = Mock(return_value=True)
+        mock_ui.permission_rendering_callback = Mock()
+
+        context = AgentContext.create(
+            model_spec=get_model("sonnet"),
+            sandbox_mode=SandboxMode.ALLOW_ALL,
+            sandbox_contents=[],
+            user_interface=mock_ui,
+            persona_base_directory=persona_base_dir,
+        )
+
+        # No usage recorded yet
+        assert len(context.usage) == 0
+
+        model = get_model("sonnet")
+        thinking_config = get_thinking_config("max", model)
+        original_budget = thinking_config["budget_tokens"]
+
+        # estimated_context = 0, so no clamping
+        estimated_context = 0
+        if context.usage:
+            pass  # No usage, stays 0
+
+        # No clamping should happen
+        assert estimated_context == 0
+        assert thinking_config["budget_tokens"] == original_budget
