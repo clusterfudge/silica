@@ -291,6 +291,26 @@ class SessionStore:
 # ------------------------------------------------------------------
 
 
+def _normalize_messages(messages: list) -> list[dict]:
+    """Normalize a list of messages, fixing common legacy data issues.
+
+    Handles:
+    - Messages wrapped in an extra list layer: ``[{...}]`` → ``{...}``
+    - Non-dict entries are skipped with a warning.
+    """
+    normalized = []
+    for msg in messages:
+        if isinstance(msg, dict):
+            normalized.append(msg)
+        elif isinstance(msg, list):
+            # Unwrap: treat each element of the inner list as a message
+            for inner in msg:
+                if isinstance(inner, dict):
+                    normalized.append(inner)
+        # Skip anything else (strings, None, etc.)
+    return normalized
+
+
 def migrate_session(
     session_dir: Path, dry_run: bool = False, preview_dir: Path | None = None
 ) -> dict[str, Any]:
@@ -340,7 +360,7 @@ def migrate_session(
     with open(root_file, "r", encoding="utf-8") as f:
         legacy_data = json.load(f)
 
-    messages = legacy_data.get("messages", [])
+    messages = _normalize_messages(legacy_data.get("messages", []))
     usage_data = legacy_data.get("usage", [])
 
     # For dry-run: copy the source directory into a temp location and run
@@ -402,7 +422,7 @@ def migrate_session(
             try:
                 with open(archive_file, "r", encoding="utf-8") as fh:
                     archive_data = json.load(fh)
-                archive_messages = archive_data.get("messages", [])
+                archive_messages = _normalize_messages(archive_data.get("messages", []))
                 prev_id = store.last_msg_id
                 archive_msg_ids = store.append_messages(
                     archive_messages, prev_msg_id=prev_id
@@ -478,7 +498,7 @@ def migrate_session(
                 # Convert to context.jsonl format for reference
                 with open(f, "r", encoding="utf-8") as fh:
                     archive_data = json.load(fh)
-                archive_messages = archive_data.get("messages", [])
+                archive_messages = _normalize_messages(archive_data.get("messages", []))
                 new_name = f.stem + ".context.jsonl"
                 SessionStore._write_jsonl(session_dir / new_name, archive_messages)
                 stats["files_created"].append(new_name)
@@ -494,12 +514,13 @@ def migrate_session(
             f.suffix == ".json"
             and f.name != "session.json"
             and not f.name.startswith("pre-compaction-")
+            and not f.name.startswith(".")  # skip .sync-index-history.json etc.
             and f.name != "root.json.legacy"
         ):
             try:
                 with open(f, "r", encoding="utf-8") as fh:
                     sub_data = json.load(fh)
-                sub_messages = sub_data.get("messages", [])
+                sub_messages = _normalize_messages(sub_data.get("messages", []))
                 sub_id = f.stem  # e.g., "abc-123-def"
                 sub_store = SessionStore(session_dir, agent_name=sub_id)
                 sub_store.append_messages(sub_messages, prev_msg_id=None)
