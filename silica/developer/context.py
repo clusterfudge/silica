@@ -16,7 +16,9 @@ from silica.developer.memory import MemoryManager
 
 # Keys added by SessionStore or the agent loop that must be stripped before
 # sending messages to the Anthropic API (which rejects extra fields).
-_INTERNAL_MSG_KEYS = frozenset({"msg_id", "prev_msg_id", "timestamp", "anthropic_id"})
+_INTERNAL_MSG_KEYS = frozenset(
+    {"msg_id", "prev_msg_id", "timestamp", "anthropic_id", "request_id"}
+)
 from silica.developer.session_store import SessionStore, PydanticJSONEncoder
 
 
