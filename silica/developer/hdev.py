@@ -1684,7 +1684,7 @@ def migrate(
                 f"{prefix}Migrated session {session}: "
                 f"{stats['message_count']} messages, {stats['usage_count']} usage entries"
             )
-            if stats.get("is_compacted"):
+            if stats.get("is_compacted") or stats.get("archive_count", 0) > 0:
                 print(
                     f"  Compacted session: {stats.get('archive_count', 0)} "
                     f"pre-compaction archive(s) merged into history"
