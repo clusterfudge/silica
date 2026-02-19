@@ -61,7 +61,8 @@ class TestSubAgentFileCreation:
         assert (hdir / "sub-abc123.history.jsonl").exists()
         assert (hdir / "sub-abc123.context.jsonl").exists()
         # Sub-agent also writes a legacy .json file
-        assert (hdir / "sub-abc123.json").exists()
+        # Legacy dual-write removed
+        assert not (hdir / "sub-abc123.json").exists()
 
     def test_sub_agent_msg_ids_use_prefix(self, test_dir):
         root = _make_root_context(test_dir)

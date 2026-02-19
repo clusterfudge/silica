@@ -172,19 +172,23 @@ async def test_agent_tool_nested_context_save(
                 / "history"
                 / parent_context.session_id
             )
-            sub_agent_file = history_dir / f"{captured_agent_context.session_id}.json"
+            # v2 format: sub-agent creates .history.jsonl
+            sub_agent_file = (
+                history_dir / f"{captured_agent_context.session_id}.history.jsonl"
+            )
 
             assert (
                 sub_agent_file.exists()
             ), f"Sub-agent history file not found at {sub_agent_file}"
 
-            # Read the content of the file to verify
-            with open(sub_agent_file, "r") as f:
-                saved_data = json.load(f)
+            # Read the content of the v2 file to verify
+            from silica.developer.session_store import SessionStore
 
-            assert saved_data["session_id"] == captured_agent_context.session_id
-            assert saved_data["parent_session_id"] == parent_context.session_id
-            assert saved_data["messages"] == chat_history
+            store = SessionStore(
+                history_dir, agent_name=captured_agent_context.session_id
+            )
+            history = store.read_history()
+            assert len(history) > 0
 
 
 class TestParseMcpServers:

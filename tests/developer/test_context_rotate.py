@@ -110,9 +110,8 @@ class TestAgentContextRotate(unittest.TestCase):
         """Clean up test environment."""
         shutil.rmtree(self.test_dir)
 
-    def test_rotate_archives_root_json(self):
-        """Test that rotate() archives the current root.json and returns new context."""
-        # Create agent context with history_base_dir parameter
+    def test_rotate_archives_context(self):
+        """Test that rotate() archives the current context and returns new context."""
         ui = MockUserInterface()
         sandbox = Sandbox(self.test_dir, mode=SandboxMode.ALLOW_ALL)
         memory_manager = MemoryManager()
@@ -128,10 +127,9 @@ class TestAgentContextRotate(unittest.TestCase):
         )
         context._chat_history = self.sample_messages.copy()
 
-        # First, flush to create the root.json
+        # First, flush to create v2 files
         context.flush(context.chat_history, compact=False)
 
-        # Verify root.json was created
         history_dir = (
             Path(self.test_dir)
             / ".silica"
@@ -140,13 +138,16 @@ class TestAgentContextRotate(unittest.TestCase):
             / "history"
             / "test-rotate-session"
         )
-        root_file = history_dir / "root.json"
-        self.assertTrue(root_file.exists())
+        # v2 files should exist
+        self.assertTrue((history_dir / "session.json").exists())
+        self.assertTrue((history_dir / "root.context.jsonl").exists())
 
-        # Read the original root.json
-        with open(root_file, "r") as f:
-            original_data = json.load(f)
-        self.assertEqual(len(original_data["messages"]), 4)
+        # Read context before rotation
+        from silica.developer.session_store import SessionStore
+
+        store = SessionStore(history_dir)
+        ctx_before = store.read_context()
+        self.assertEqual(len(ctx_before), 4)
 
         # Define new messages for the rotated context
         new_messages = [
@@ -154,8 +155,7 @@ class TestAgentContextRotate(unittest.TestCase):
             {"role": "assistant", "content": "Yes, this is rotated!"},
         ]
 
-        # Now rotate with a custom suffix and new messages (mutates context in place)
-        # No metadata provided in this test
+        # Now rotate with a custom suffix and new messages
         archive_name = context.rotate(
             "archive-test-20250112_140530", new_messages, None
         )
@@ -164,24 +164,9 @@ class TestAgentContextRotate(unittest.TestCase):
         expected_archive = "archive-test-20250112_140530.context.jsonl"
         self.assertEqual(archive_name, expected_archive)
 
-        # v2: context.jsonl archive should exist
+        # Context archive should exist
         archive_ctx = history_dir / expected_archive
         self.assertTrue(archive_ctx.exists(), f"Archive file not found: {archive_ctx}")
-
-        # Legacy .json archive should also exist during transition
-        legacy_archive = history_dir / "archive-test-20250112_140530.json"
-        self.assertTrue(
-            legacy_archive.exists(), f"Legacy archive not found: {legacy_archive}"
-        )
-
-        # Read the legacy archive and verify it contains the original conversation
-        with open(legacy_archive, "r") as f:
-            archived_data = json.load(f)
-        self.assertEqual(len(archived_data["messages"]), 4)
-        self.assertEqual(archived_data["messages"], self.sample_messages)
-
-        # Verify root.json still exists (rotate doesn't delete it)
-        self.assertTrue(root_file.exists())
 
         # Verify context was mutated in place to have the new messages
         self.assertEqual(len(context.chat_history), 2)
@@ -189,6 +174,12 @@ class TestAgentContextRotate(unittest.TestCase):
 
         # Verify tool buffer was cleared
         self.assertEqual(len(context.tool_result_buffer), 0)
+
+        # Verify current context.jsonl has the new messages
+        store2 = SessionStore(history_dir)
+        ctx_after = store2.read_context()
+        self.assertEqual(len(ctx_after), 2)
+        self.assertEqual(ctx_after[0]["content"], "This is a new conversation")
 
     def test_rotate_on_sub_agent_raises_error(self):
         """Test that rotate() raises ValueError on sub-agent contexts."""
@@ -216,7 +207,6 @@ class TestAgentContextRotate(unittest.TestCase):
 
     def test_rotate_multiple_times(self):
         """Test that rotate() can be called multiple times with different archives."""
-        # Create agent context with history_base_dir parameter
         ui = MockUserInterface()
         sandbox = Sandbox(self.test_dir, mode=SandboxMode.ALLOW_ALL)
         memory_manager = MemoryManager()
@@ -243,43 +233,26 @@ class TestAgentContextRotate(unittest.TestCase):
             / "history"
             / "test-multi-rotate"
         )
-        root_file = history_dir / "root.json"
 
-        # First rotation (mutates context in place)
+        # First rotation
         new_messages1 = [{"role": "user", "content": "Rotated 1"}]
         archive1 = context.rotate("first-archive-20250112_140000", new_messages1, None)
-        # v2 returns .context.jsonl; legacy .json also created
         archive1_ctx = history_dir / archive1
         self.assertTrue(archive1_ctx.exists())
-        legacy1 = history_dir / "first-archive-20250112_140000.json"
-        self.assertTrue(legacy1.exists())
 
         # Modify the conversation (add a message to the context)
         context._chat_history.append({"role": "user", "content": "New message"})
         context.flush(context.chat_history, compact=False)
 
-        # Second rotation (mutates context in place again)
+        # Second rotation
         new_messages2 = [{"role": "user", "content": "Rotated 2"}]
         archive2 = context.rotate("second-archive-20250112_150000", new_messages2, None)
         archive2_ctx = history_dir / archive2
         self.assertTrue(archive2_ctx.exists())
-        legacy2 = history_dir / "second-archive-20250112_150000.json"
-        self.assertTrue(legacy2.exists())
 
         # Both archives should exist
         self.assertTrue(archive1_ctx.exists())
         self.assertTrue(archive2_ctx.exists())
-        self.assertTrue(root_file.exists())
-
-        # Verify first legacy archive has 4 messages
-        with open(legacy1, "r") as f:
-            archive1_data = json.load(f)
-        self.assertEqual(len(archive1_data["messages"]), 4)
-
-        # Verify second legacy archive has messages from the rotated+extended context
-        with open(legacy2, "r") as f:
-            archive2_data = json.load(f)
-        self.assertEqual(len(archive2_data["messages"]), 2)
 
     def test_rotate_when_root_json_missing(self):
         """Test that rotate() handles the case when root.json doesn't exist yet."""
@@ -366,10 +339,10 @@ class TestAgentContextRotate(unittest.TestCase):
         self.assertTrue(hasattr(context, "_compaction_metadata"))
         self.assertEqual(context._compaction_metadata, metadata)
 
-        # Flush the context - this should include the metadata in root.json
+        # Flush the context - this should include the metadata in session.json
         context.flush(context.chat_history, compact=False)
 
-        # Read the root.json and verify metadata is present
+        # Read session.json and verify metadata is present
         history_dir = (
             Path(self.test_dir)
             / ".silica"
@@ -378,18 +351,18 @@ class TestAgentContextRotate(unittest.TestCase):
             / "history"
             / "test-metadata-storage"
         )
-        root_file = history_dir / "root.json"
+        from silica.developer.session_store import SessionStore
 
-        with open(root_file, "r") as f:
-            root_data = json.load(f)
+        store = SessionStore(history_dir)
+        session_meta = store.read_session_meta()
 
-        self.assertIn("compaction", root_data)
-        self.assertEqual(root_data["compaction"]["is_compacted"], True)
-        self.assertEqual(root_data["compaction"]["original_message_count"], 4)
-        self.assertEqual(root_data["compaction"]["compacted_message_count"], 2)
-        self.assertEqual(root_data["compaction"]["original_token_count"], 1000)
-        self.assertEqual(root_data["compaction"]["summary_token_count"], 200)
-        self.assertEqual(root_data["compaction"]["compaction_ratio"], 0.2)
+        self.assertIn("compaction", session_meta)
+        self.assertEqual(session_meta["compaction"]["is_compacted"], True)
+        self.assertEqual(session_meta["compaction"]["original_message_count"], 4)
+        self.assertEqual(session_meta["compaction"]["compacted_message_count"], 2)
+        self.assertEqual(session_meta["compaction"]["original_token_count"], 1000)
+        self.assertEqual(session_meta["compaction"]["summary_token_count"], 200)
+        self.assertEqual(session_meta["compaction"]["compaction_ratio"], 0.2)
 
         # Verify metadata was cleared after flush
         self.assertFalse(hasattr(context, "_compaction_metadata"))
@@ -542,7 +515,7 @@ class TestAgentContextCompactInPlace(unittest.TestCase):
         new_messages = [{"role": "user", "content": "Compacted"}]
         context.compact_in_place(new_messages)
 
-        # Read back the persisted file
+        # Read back the persisted v2 files
         history_dir = (
             Path(self.test_dir)
             / ".silica"
@@ -551,12 +524,12 @@ class TestAgentContextCompactInPlace(unittest.TestCase):
             / "history"
             / "parent-123"
         )
-        session_file = history_dir / "sub-agent-flush-test.json"
-        self.assertTrue(session_file.exists())
+        from silica.developer.session_store import SessionStore
 
-        with open(session_file, "r") as f:
-            data = json.load(f)
-        self.assertEqual(data["messages"], new_messages)
+        store = SessionStore(history_dir, agent_name="sub-agent-flush-test")
+        ctx_msgs = store.read_context()
+        self.assertEqual(len(ctx_msgs), 1)
+        self.assertEqual(ctx_msgs[0]["content"], "Compacted")
 
 
 if __name__ == "__main__":

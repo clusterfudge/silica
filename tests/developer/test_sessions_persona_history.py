@@ -159,17 +159,22 @@ class TestPersonaBasedSessionManagement(unittest.TestCase):
         # Flush the context (save history)
         context.flush(chat_history)
 
-        # Verify the history file was created in the persona directory
-        history_file = (
-            self.persona_base_dir / "history" / context.session_id / "root.json"
-        )
-        self.assertTrue(history_file.exists())
+        # Verify the v2 session files were created in the persona directory
+        session_dir = self.persona_base_dir / "history" / context.session_id
+        session_file = session_dir / "session.json"
+        self.assertTrue(session_file.exists())
 
-        # Verify the content
-        with open(history_file, "r") as f:
+        # Verify the content via session.json
+        with open(session_file, "r") as f:
             data = json.load(f)
         self.assertEqual(data["session_id"], context.session_id)
-        self.assertEqual(len(data["messages"]), 2)
+
+        # Verify context.jsonl has the messages
+        from silica.developer.session_store import SessionStore
+
+        store = SessionStore(session_dir)
+        ctx_msgs = store.read_context()
+        self.assertEqual(len(ctx_msgs), 2)
 
     def test_list_sessions_tool_backward_compatible(self):
         """Test that list_sessions_tool works when context has no history_base_dir."""

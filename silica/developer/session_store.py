@@ -361,14 +361,47 @@ def migrate_session(session_dir: Path, dry_run: bool = False) -> dict[str, Any]:
     # Create store for root agent
     store = SessionStore(session_dir, agent_name="root")
 
-    # 1. Write history.jsonl with msg_ids
-    msg_ids = store.append_messages(messages, prev_msg_id=None)
+    # Detect compaction: find pre-compaction archives (oldest first)
+    is_compacted = "compaction" in legacy_data
+    pre_compaction_archives = sorted(
+        [
+            f
+            for f in session_dir.iterdir()
+            if f.name.startswith("pre-compaction-") and f.suffix == ".json"
+        ],
+        key=lambda f: f.name,
+    )
+    stats["is_compacted"] = is_compacted
+    stats["archive_count"] = len(pre_compaction_archives)
+
+    # 1. Write history.jsonl — full audit trail
+    # For compacted sessions: pre-compaction messages first, then current (compacted) messages
+    # This avoids duplicates: archives have the originals, root.json has the summary
+    all_history_msg_ids = []
+    if pre_compaction_archives:
+        for archive_file in pre_compaction_archives:
+            try:
+                with open(archive_file, "r", encoding="utf-8") as fh:
+                    archive_data = json.load(fh)
+                archive_messages = archive_data.get("messages", [])
+                prev_id = store.last_msg_id
+                archive_msg_ids = store.append_messages(
+                    archive_messages, prev_msg_id=prev_id
+                )
+                all_history_msg_ids.extend(archive_msg_ids)
+            except (json.JSONDecodeError, OSError):
+                continue
+
+    # Append current messages (may be compacted summary + post-compaction messages)
+    prev_id = store.last_msg_id
+    msg_ids = store.append_messages(messages, prev_msg_id=prev_id)
+    all_history_msg_ids.extend(msg_ids)
     stats["files_created"].append("root.history.jsonl")
 
-    # 2. Write metadata.jsonl — pair usage with assistant msg_ids
+    # 2. Write metadata.jsonl — pair usage with assistant msg_ids from current messages
     if usage_data:
         metadata_entries = []
-        # Find assistant message msg_ids for pairing
+        # Find assistant message msg_ids (from current messages only, not archives)
         assistant_msg_ids = [
             mid for mid, msg in zip(msg_ids, messages) if msg.get("role") == "assistant"
         ]
@@ -391,7 +424,7 @@ def migrate_session(session_dir: Path, dry_run: bool = False) -> dict[str, Any]:
         store.append_metadata(metadata_entries)
     stats["files_created"].append("root.metadata.jsonl")
 
-    # 3. Write context.jsonl (same as messages for un-compacted, or just messages for compacted)
+    # 3. Write context.jsonl — only current messages (the working context window)
     store.write_context(messages)
     stats["files_created"].append("root.context.jsonl")
 
@@ -419,14 +452,14 @@ def migrate_session(session_dir: Path, dry_run: bool = False) -> dict[str, Any]:
     root_file.rename(session_dir / "root.json.legacy")
     stats["files_renamed"].append(("root.json", "root.json.legacy"))
 
-    # 6. Migrate pre-compaction archives
+    # 6. Rename pre-compaction archives (already consumed into history.jsonl above)
     for f in sorted(session_dir.iterdir()):
         if f.name.startswith("pre-compaction-") and f.suffix == ".json":
             try:
+                # Convert to context.jsonl format for reference
                 with open(f, "r", encoding="utf-8") as fh:
                     archive_data = json.load(fh)
                 archive_messages = archive_data.get("messages", [])
-                # Write as context.jsonl
                 new_name = f.stem + ".context.jsonl"
                 SessionStore._write_jsonl(session_dir / new_name, archive_messages)
                 stats["files_created"].append(new_name)
@@ -434,7 +467,7 @@ def migrate_session(session_dir: Path, dry_run: bool = False) -> dict[str, Any]:
                 f.rename(session_dir / (f.name + ".legacy"))
                 stats["files_renamed"].append((f.name, f.name + ".legacy"))
             except (json.JSONDecodeError, OSError):
-                continue  # skip corrupted archives
+                continue
 
     # 7. Migrate sub-agent files (*.json that aren't root.json or pre-compaction)
     for f in sorted(session_dir.iterdir()):

@@ -134,8 +134,8 @@ class TestFlushCreatesV2Files:
         assert (hdir / "root.history.jsonl").exists()
         assert (hdir / "root.metadata.jsonl").exists()
         assert (hdir / "root.context.jsonl").exists()
-        # Legacy file also created
-        assert (hdir / "root.json").exists()
+        # Legacy dual-write removed — root.json no longer created by flush
+        assert not (hdir / "root.json").exists()
 
     def test_session_json_has_correct_fields(self, test_dir):
         ctx = _make_context(test_dir, session_id="sid-123")

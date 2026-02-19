@@ -251,6 +251,120 @@ class TestMigrateSession:
         assert meta["compaction"]["is_compacted"] is True
         assert meta["compaction"]["original_message_count"] == 100
 
+    def test_compacted_session_no_duplicate_messages(self, session_dir):
+        """Compacted sessions: history has archives + current, no duplicates."""
+        # Original pre-compaction messages (interleaved user/assistant)
+        original_messages = []
+        for i in range(10):
+            original_messages.append({"role": "user", "content": f"orig_q{i}"})
+            original_messages.append({"role": "assistant", "content": f"orig_a{i}"})
+
+        # Write pre-compaction archive
+        archive_data = {
+            "messages": original_messages,
+            "metadata": {"created_at": "2025-06-01T00:00:00Z"},
+        }
+        (session_dir / "pre-compaction-20250615_100000.json").write_text(
+            json.dumps(archive_data)
+        )
+
+        # Write root.json with compacted summary + 2 new messages post-compaction
+        compacted_messages = [
+            {"role": "user", "content": "Summary of 20 original messages"},
+            {"role": "assistant", "content": "Understood, continuing from summary"},
+            {"role": "user", "content": "new question after compaction"},
+            {"role": "assistant", "content": "new answer after compaction"},
+        ]
+        _write_legacy_root(
+            session_dir,
+            messages=compacted_messages,
+            extras={
+                "compaction": {
+                    "is_compacted": True,
+                    "original_message_count": 20,
+                    "compacted_message_count": 2,
+                }
+            },
+        )
+
+        stats = migrate_session(session_dir)
+        assert stats["is_compacted"] is True
+        assert stats["archive_count"] == 1
+
+        store = SessionStore(session_dir)
+
+        # History should have: 20 original + 4 compacted/post-compaction = 24 total
+        history = store.read_history()
+        assert len(history) == 24
+
+        # First 20 are from the archive
+        assert history[0]["content"] == "orig_q0"
+        assert history[19]["content"] == "orig_a9"
+
+        # Next 4 are the compacted summary + post-compaction
+        assert history[20]["content"] == "Summary of 20 original messages"
+        assert history[23]["content"] == "new answer after compaction"
+
+        # msg_ids are sequential across the boundary
+        assert history[19]["msg_id"] == "m_0020"
+        assert history[20]["msg_id"] == "m_0021"
+        assert history[20]["prev_msg_id"] == "m_0020"
+
+        # Context has only the current 4 messages
+        context = store.read_context()
+        assert len(context) == 4
+        assert context[0]["content"] == "Summary of 20 original messages"
+
+    def test_multiple_compaction_archives(self, session_dir):
+        """Multiple compaction rounds: all archives incorporated in order."""
+        # First archive (earliest)
+        archive1 = {
+            "messages": [
+                {"role": "user", "content": "round1_q"},
+                {"role": "assistant", "content": "round1_a"},
+            ]
+        }
+        (session_dir / "pre-compaction-20250601_100000.json").write_text(
+            json.dumps(archive1)
+        )
+
+        # Second archive (later)
+        archive2 = {
+            "messages": [
+                {"role": "user", "content": "round2_q"},
+                {"role": "assistant", "content": "round2_a"},
+            ]
+        }
+        (session_dir / "pre-compaction-20250610_100000.json").write_text(
+            json.dumps(archive2)
+        )
+
+        # Current root.json (after 2nd compaction)
+        _write_legacy_root(
+            session_dir,
+            messages=[
+                {"role": "user", "content": "final_summary"},
+                {"role": "assistant", "content": "continuing"},
+            ],
+            extras={"compaction": {"is_compacted": True}},
+        )
+
+        stats = migrate_session(session_dir)
+        assert stats["archive_count"] == 2
+
+        store = SessionStore(session_dir)
+        history = store.read_history()
+
+        # 2 from archive1 + 2 from archive2 + 2 from root = 6
+        assert len(history) == 6
+        assert history[0]["content"] == "round1_q"
+        assert history[2]["content"] == "round2_q"
+        assert history[4]["content"] == "final_summary"
+
+        # All msg_ids sequential
+        for i, msg in enumerate(history):
+            assert msg["msg_id"] == f"m_{i+1:04d}"
+
 
 class TestMigrateAllSessions:
     """Tests for migrate_all_sessions()."""

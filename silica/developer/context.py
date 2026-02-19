@@ -420,62 +420,7 @@ class AgentContext:
         self._last_flushed_msg_count = new_msg_count
         self._last_flushed_usage_count = new_usage_count
 
-        # --- Legacy format: root.json for backward compatibility ---
-        # Note: compaction_metadata was already consumed above (and deleted),
-        # so we pass the serialized dict if it was present
-        legacy_compaction = session_meta.get("compaction")
-        self._write_legacy_root_json(chat_history, history_dir, legacy_compaction)
-
-    def _write_legacy_root_json(
-        self, chat_history, history_dir: Path, compaction_dict=None
-    ):
-        """Write legacy root.json for backward compatibility with older tooling."""
-        filename = (
-            "root.json" if self.parent_session_id is None else f"{self.session_id}.json"
-        )
-        history_file = history_dir / filename
-        current_time = datetime.now(timezone.utc).isoformat()
-
-        context_data = {
-            "session_id": self.session_id,
-            "parent_session_id": self.parent_session_id,
-            "model_spec": self.model_spec,
-            "usage": self.usage,
-            "messages": chat_history,
-            "thinking_mode": self.thinking_mode,
-            "active_plan_id": self.active_plan_id,
-            "metadata": {
-                "created_at": current_time,
-                "last_updated": current_time,
-                "root_dir": _find_root_dir(),
-                "cli_args": self.cli_args.copy() if self.cli_args else None,
-            },
-        }
-
-        if compaction_dict:
-            context_data["compaction"] = {
-                **compaction_dict,
-                "timestamp": current_time,
-            }
-
-        # Preserve original created_at
-        if os.path.exists(history_file):
-            try:
-                with open(history_file, "r") as f:
-                    existing = json.load(f)
-                    if "metadata" in existing and "created_at" in existing["metadata"]:
-                        context_data["metadata"]["created_at"] = existing["metadata"][
-                            "created_at"
-                        ]
-            except (json.JSONDecodeError, FileNotFoundError, KeyError):
-                pass
-
-        context_data["metadata"]["last_updated"] = datetime.now(
-            timezone.utc
-        ).isoformat()
-
-        with open(history_file, "w") as f:
-            json.dump(context_data, f, indent=2, cls=PydanticJSONEncoder)
+        # Legacy root.json dual-write removed — all consumers now read v2 format.
 
 
 def load_session_data(

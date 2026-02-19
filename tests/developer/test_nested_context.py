@@ -115,15 +115,18 @@ class TestNestedContextFlush(unittest.TestCase):
             / "history"
             / root_context.session_id
         )
-        root_file = root_dir / "root.json"
+        # v2: check session.json instead of root.json
+        session_file = root_dir / "session.json"
         self.assertTrue(
-            root_file.exists(), f"Root history file not found at {root_file}"
+            session_file.exists(),
+            f"Session file not found at {session_file}",
         )
 
-        # Check that the level1 context saved to the root context's directory
-        level1_file = root_dir / f"{level1_context.session_id}.json"
+        # Check that the level1 context saved to the root context's directory (v2 format)
+        level1_file = root_dir / f"{level1_context.session_id}.history.jsonl"
         self.assertTrue(
-            level1_file.exists(), f"Level 1 history file not found at {level1_file}"
+            level1_file.exists(),
+            f"Level 1 history file not found at {level1_file}",
         )
 
         # Check that the level2 context saved correctly
@@ -136,9 +139,10 @@ class TestNestedContextFlush(unittest.TestCase):
             / "history"
             / level1_context.session_id
         )
-        level2_file = level1_dir / f"{level2_context.session_id}.json"
+        level2_file = level1_dir / f"{level2_context.session_id}.history.jsonl"
 
         # THIS TEST SHOULD FAIL with the current implementation
         self.assertTrue(
-            level2_file.exists(), f"Level 2 history file not found at {level2_file}"
+            level2_file.exists(),
+            f"Level 2 history file not found at {level2_file}",
         )

@@ -190,9 +190,8 @@ class TestConversationCompaction(unittest.TestCase):
         )
         history_dir.mkdir(parents=True, exist_ok=True)
 
-        # Create the root.json file to ensure the directory exists
-        with open(history_dir / "root.json", "w") as f:
-            f.write("{}")
+        # Create the session directory
+        history_dir.mkdir(parents=True, exist_ok=True)
 
         # Create a CompactionSummary mock
         compaction_summary = CompactionSummary(
@@ -222,9 +221,12 @@ class TestConversationCompaction(unittest.TestCase):
             # Flush with compaction
             context.flush(self.sample_messages, compact=True)
 
-            # Check that the file was created
-            history_file = history_dir / "root.json"
-            self.assertTrue(history_file.exists(), "History file wasn't created")
+            # Check that v2 files were created
+            self.assertTrue(
+                (history_dir / "session.json").exists()
+                or (history_dir / "root.context.jsonl").exists(),
+                "History files weren't created",
+            )
 
     def test_compact_conversation_force_flag(self):
         """Test that force parameter bypasses should_compact check."""

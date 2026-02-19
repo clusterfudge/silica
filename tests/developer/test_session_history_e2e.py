@@ -84,7 +84,8 @@ class TestE2ELifecycle:
         assert (hdir / "root.history.jsonl").exists()
         assert (hdir / "root.metadata.jsonl").exists()
         assert (hdir / "root.context.jsonl").exists()
-        assert (hdir / "root.json").exists()  # legacy
+        # Legacy dual-write removed — root.json no longer created
+        assert not (hdir / "root.json").exists()
 
         meta = json.loads((hdir / "session.json").read_text())
         assert meta["version"] == SESSION_FORMAT_VERSION

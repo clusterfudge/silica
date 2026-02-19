@@ -68,18 +68,42 @@ class ConversationViewer:
 
         for conversation_dir in self.history_dir.iterdir():
             if conversation_dir.is_dir():
-                root_file = conversation_dir / "root.json"
-                if root_file.exists():
-                    try:
-                        with open(root_file, "r") as f:
-                            conversation_data = json.load(f)
-                            self.conversations[conversation_dir.name] = (
-                                conversation_data
-                            )
-                    except (json.JSONDecodeError, IOError) as e:
-                        self.console.print(
-                            f"Error loading {root_file}: {e}", style="bold red"
-                        )
+                conversation_data = self._load_conversation(conversation_dir)
+                if conversation_data:
+                    self.conversations[conversation_dir.name] = conversation_data
+
+    def _load_conversation(self, conversation_dir):
+        """Load conversation data from v2 or legacy format."""
+        # Try v2 format first
+        session_json = conversation_dir / "session.json"
+        if session_json.exists():
+            try:
+                import json as _json
+                from silica.developer.session_store import SessionStore
+
+                meta = _json.loads(session_json.read_text())
+                if meta.get("version", 0) >= 2:
+                    store = SessionStore(conversation_dir, agent_name="root")
+                    return {
+                        **meta,
+                        "messages": store.read_context(),
+                        "history": store.read_history(),
+                    }
+            except (json.JSONDecodeError, IOError) as e:
+                self.console.print(
+                    f"Error loading {session_json}: {e}", style="bold red"
+                )
+
+        # Fall back to legacy
+        root_file = conversation_dir / "root.json"
+        if root_file.exists():
+            try:
+                with open(root_file, "r") as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, IOError) as e:
+                self.console.print(f"Error loading {root_file}: {e}", style="bold red")
+
+        return None
 
     def list_conversations(self) -> None:
         """Display a list of available conversations."""

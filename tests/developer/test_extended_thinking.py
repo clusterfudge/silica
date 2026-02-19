@@ -413,18 +413,18 @@ class TestSessionPersistenceWithThinking:
                 # Save the context
                 context.flush(context.chat_history)
 
-                # Read the saved data
-                history_file = (
+                # Read the saved data from session.json (v2 format)
+                session_file = (
                     Path(tmpdir)
                     / ".silica"
                     / "personas"
                     / "default"
                     / "history"
                     / context.session_id
-                    / "root.json"
+                    / "session.json"
                 )
-                if history_file.exists():
-                    with open(history_file, "r") as f:
+                if session_file.exists():
+                    with open(session_file, "r") as f:
                         saved_data = json.load(f)
 
                     # Verify thinking mode was saved
