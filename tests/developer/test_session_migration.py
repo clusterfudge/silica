@@ -85,7 +85,7 @@ class TestMigrateSession:
     """Tests for migrate_session()."""
 
     def test_basic_migration(self, session_dir):
-        """root.json → 4 new files + root.json.legacy."""
+        """root.json → v2 files, originals backed up."""
         _write_legacy_root(session_dir)
         stats = migrate_session(session_dir)
 
@@ -95,8 +95,25 @@ class TestMigrateSession:
         assert (session_dir / "root.history.jsonl").exists()
         assert (session_dir / "root.metadata.jsonl").exists()
         assert (session_dir / "root.context.jsonl").exists()
-        assert (session_dir / "root.json.legacy").exists()
+        # Original removed from session dir, safe in .backup
         assert not (session_dir / "root.json").exists()
+        assert (session_dir / ".backup" / "root.json").exists()
+
+    def test_backup_contains_all_originals(self, session_dir):
+        """The .backup/ dir has exact copies of all original files."""
+        _write_legacy_root(session_dir)
+        original_root = (session_dir / "root.json").read_text()
+        migrate_session(session_dir)
+
+        backup_root = (session_dir / ".backup" / "root.json").read_text()
+        assert backup_root == original_root
+
+    def test_backup_prevents_double_migration(self, session_dir):
+        """If .backup/ exists, migration refuses to overwrite it."""
+        _write_legacy_root(session_dir)
+        (session_dir / ".backup").mkdir()
+        with pytest.raises(ValueError, match="Backup already exists"):
+            migrate_session(session_dir)
 
     def test_message_count_preserved(self, session_dir):
         """history.jsonl should have same number of messages as original."""
@@ -131,7 +148,6 @@ class TestMigrateSession:
         store = SessionStore(session_dir)
         metadata = store.read_metadata()
         assert len(metadata) == 2
-        # Assistant messages are m_0002 and m_0004
         assert metadata[0]["msg_id"] == "m_0002"
         assert metadata[1]["msg_id"] == "m_0004"
         assert metadata[0]["usage"]["input_tokens"] == 100
@@ -178,7 +194,7 @@ class TestMigrateSession:
         assert "session.json" in stats["files_created"]
         # Original files should NOT be modified
         assert not (session_dir / "session.json").exists()
-        assert (session_dir / "root.json").exists()  # still there
+        assert (session_dir / "root.json").exists()
 
         # Preview directory should have the migrated files
         preview = Path(stats["preview_dir"])
@@ -186,8 +202,8 @@ class TestMigrateSession:
         assert (preview / "session.json").exists()
         assert (preview / "root.history.jsonl").exists()
         assert (preview / "root.context.jsonl").exists()
-        # Original renamed to .legacy in preview
-        assert (preview / "root.json.legacy").exists()
+        # Original backed up in preview
+        assert (preview / ".backup" / "root.json").exists()
 
     def test_dry_run_with_explicit_preview_dir(self, session_dir, tmp_path):
         """Dry-run writes to a caller-specified preview directory."""
@@ -217,7 +233,6 @@ class TestMigrateSession:
         stats = migrate_session(session_dir, dry_run=True)
         preview = Path(stats["preview_dir"])
 
-        # History should have archive + current messages
         store = SessionStore(preview)
         history = store.read_history()
         assert len(history) == 7  # 5 from archive + 2 from root
@@ -226,8 +241,8 @@ class TestMigrateSession:
         with pytest.raises(FileNotFoundError):
             migrate_session(session_dir)
 
-    def test_pre_compaction_archives_migrated(self, session_dir):
-        """pre-compaction-*.json archived correctly."""
+    def test_pre_compaction_archives_in_backup(self, session_dir):
+        """pre-compaction archives are backed up and removed."""
         _write_legacy_root(session_dir)
         archive_data = {
             "messages": [
@@ -242,21 +257,14 @@ class TestMigrateSession:
 
         migrate_session(session_dir)
 
-        # JSONL archive exists
-        assert (session_dir / "pre-compaction-20250615_100000.context.jsonl").exists()
-        # Original renamed to .legacy
-        assert (session_dir / "pre-compaction-20250615_100000.json.legacy").exists()
+        # Original removed, backup has it
         assert not (session_dir / "pre-compaction-20250615_100000.json").exists()
-
-        # Read the JSONL archive
-        records = SessionStore._read_jsonl(
-            session_dir / "pre-compaction-20250615_100000.context.jsonl"
-        )
-        assert len(records) == 2
-        assert records[0]["content"] == "old1"
+        assert (
+            session_dir / ".backup" / "pre-compaction-20250615_100000.json"
+        ).exists()
 
     def test_sub_agent_files_migrated(self, session_dir):
-        """Sub-agent *.json → *.history.jsonl + *.context.jsonl."""
+        """Sub-agent *.json → *.history.jsonl + *.context.jsonl, original backed up."""
         _write_legacy_root(session_dir)
         sub_data = {
             "session_id": "sub-abc123",
@@ -271,8 +279,9 @@ class TestMigrateSession:
 
         assert (session_dir / "sub-abc123.history.jsonl").exists()
         assert (session_dir / "sub-abc123.context.jsonl").exists()
-        assert (session_dir / "sub-abc123.json.legacy").exists()
+        # Original removed, backup has it
         assert not (session_dir / "sub-abc123.json").exists()
+        assert (session_dir / ".backup" / "sub-abc123.json").exists()
 
     def test_preserves_compaction_info(self, session_dir):
         """Compaction metadata from root.json preserved in session.json."""
@@ -295,13 +304,11 @@ class TestMigrateSession:
 
     def test_compacted_session_no_duplicate_messages(self, session_dir):
         """Compacted sessions: history has archives + current, no duplicates."""
-        # Original pre-compaction messages (interleaved user/assistant)
         original_messages = []
         for i in range(10):
             original_messages.append({"role": "user", "content": f"orig_q{i}"})
             original_messages.append({"role": "assistant", "content": f"orig_a{i}"})
 
-        # Write pre-compaction archive
         archive_data = {
             "messages": original_messages,
             "metadata": {"created_at": "2025-06-01T00:00:00Z"},
@@ -310,7 +317,6 @@ class TestMigrateSession:
             json.dumps(archive_data)
         )
 
-        # Write root.json with compacted summary + 2 new messages post-compaction
         compacted_messages = [
             {"role": "user", "content": "Summary of 20 original messages"},
             {"role": "assistant", "content": "Understood, continuing from summary"},
@@ -334,32 +340,24 @@ class TestMigrateSession:
         assert stats["archive_count"] == 1
 
         store = SessionStore(session_dir)
-
-        # History should have: 20 original + 4 compacted/post-compaction = 24 total
         history = store.read_history()
         assert len(history) == 24
 
-        # First 20 are from the archive
         assert history[0]["content"] == "orig_q0"
         assert history[19]["content"] == "orig_a9"
-
-        # Next 4 are the compacted summary + post-compaction
         assert history[20]["content"] == "Summary of 20 original messages"
         assert history[23]["content"] == "new answer after compaction"
 
-        # msg_ids are sequential across the boundary
         assert history[19]["msg_id"] == "m_0020"
         assert history[20]["msg_id"] == "m_0021"
         assert history[20]["prev_msg_id"] == "m_0020"
 
-        # Context has only the current 4 messages
         context = store.read_context()
         assert len(context) == 4
         assert context[0]["content"] == "Summary of 20 original messages"
 
     def test_multiple_compaction_archives(self, session_dir):
         """Multiple compaction rounds: all archives incorporated in order."""
-        # First archive (earliest)
         archive1 = {
             "messages": [
                 {"role": "user", "content": "round1_q"},
@@ -370,7 +368,6 @@ class TestMigrateSession:
             json.dumps(archive1)
         )
 
-        # Second archive (later)
         archive2 = {
             "messages": [
                 {"role": "user", "content": "round2_q"},
@@ -381,7 +378,6 @@ class TestMigrateSession:
             json.dumps(archive2)
         )
 
-        # Current root.json (after 2nd compaction)
         _write_legacy_root(
             session_dir,
             messages=[
@@ -397,15 +393,40 @@ class TestMigrateSession:
         store = SessionStore(session_dir)
         history = store.read_history()
 
-        # 2 from archive1 + 2 from archive2 + 2 from root = 6
         assert len(history) == 6
         assert history[0]["content"] == "round1_q"
         assert history[2]["content"] == "round2_q"
         assert history[4]["content"] == "final_summary"
 
-        # All msg_ids sequential
         for i, msg in enumerate(history):
             assert msg["msg_id"] == f"m_{i+1:04d}"
+
+    def test_rollback_from_backup(self, session_dir):
+        """After migration, .backup/ can restore the original state."""
+        _write_legacy_root(session_dir)
+        original_root = (session_dir / "root.json").read_text()
+
+        migrate_session(session_dir)
+
+        # Verify v2 state
+        assert (session_dir / "session.json").exists()
+        assert not (session_dir / "root.json").exists()
+
+        # Simulate rollback: remove v2 files, restore from backup
+        import shutil
+
+        for f in session_dir.iterdir():
+            if f.name == ".backup":
+                continue
+            f.unlink()
+        for f in (session_dir / ".backup").iterdir():
+            shutil.copy2(f, session_dir / f.name)
+        shutil.rmtree(session_dir / ".backup")
+
+        # Original state restored
+        assert (session_dir / "root.json").exists()
+        assert (session_dir / "root.json").read_text() == original_root
+        assert not (session_dir / "session.json").exists()
 
 
 class TestMigrateAllSessions:
@@ -416,7 +437,6 @@ class TestMigrateAllSessions:
         base = tmp_path / "personas" / "default"
         history_dir = base / "history"
 
-        # Create 3 legacy sessions
         for name in ["sess-1", "sess-2", "sess-3"]:
             d = history_dir / name
             d.mkdir(parents=True)
@@ -427,13 +447,15 @@ class TestMigrateAllSessions:
         for r in results:
             assert r["status"] == "ok"
             assert r["message_count"] == 4
+            # Each has a backup
+            sd = Path(r["session_dir"])
+            assert (sd / ".backup" / "root.json").exists()
 
     def test_skips_already_migrated(self, tmp_path):
         """Already-migrated sessions are skipped."""
         base = tmp_path / "personas" / "default"
         history_dir = base / "history"
 
-        # One legacy, one already v2
         d1 = history_dir / "legacy-sess"
         d1.mkdir(parents=True)
         _write_legacy_root(d1)
@@ -444,7 +466,7 @@ class TestMigrateAllSessions:
         (d2 / "root.json").write_text("{}")
 
         results = migrate_all_sessions(base)
-        assert len(results) == 1  # only legacy session
+        assert len(results) == 1
 
     def test_progress_callback(self, tmp_path):
         base = tmp_path / "personas" / "default"
@@ -459,6 +481,26 @@ class TestMigrateAllSessions:
         )
         assert len(calls) == 1
         assert calls[0] == (0, 1)
+
+    def test_rollback_script_generated(self, tmp_path):
+        """Real migration generates a rollback script."""
+        base = tmp_path / "personas" / "default"
+        history_dir = base / "history"
+        d = history_dir / "sess-1"
+        d.mkdir(parents=True)
+        _write_legacy_root(d)
+
+        # Ensure ~/.silica exists for the script
+        silica_dir = Path.home() / ".silica"
+        silica_dir.mkdir(exist_ok=True)
+
+        migrate_all_sessions(base)
+
+        script = Path.home() / ".silica" / "rollback-v2-migration.sh"
+        assert script.exists()
+        content = script.read_text()
+        assert "rollback_session" in content
+        assert str(d) in content
 
 
 class TestMigratedSessionLoadable:
@@ -476,7 +518,6 @@ class TestMigratedSessionLoadable:
 
         migrate_session(session_dir)
 
-        # Create a base context for loading
         from tests.developer.test_context_flush_v2 import MockUI, MODEL_SPEC
 
         base_ctx = AgentContext(

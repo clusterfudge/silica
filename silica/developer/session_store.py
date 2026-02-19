@@ -316,34 +316,37 @@ def migrate_session(
 ) -> dict[str, Any]:
     """Migrate a legacy session (root.json) to the v2 split-file format.
 
+    The migration is non-destructive: all original files are copied into
+    a ``.backup/`` subdirectory *before* any changes are made.  To roll
+    back, delete the v2 files and move ``.backup/*`` back up (or use the
+    generated rollback script).
+
     Steps:
-    1. Read root.json
-    2. Write session.json (metadata)
-    3. Write root.history.jsonl (all messages with msg_ids)
-    4. Write root.metadata.jsonl (usage paired with assistant msg_ids)
-    5. Write root.context.jsonl (same as history — no compaction yet)
-    6. Rename root.json → root.json.legacy
-    7. Migrate pre-compaction-*.json → pre-compaction-*.context.jsonl
-    8. Migrate sub-agent *.json → *.history.jsonl + *.context.jsonl
+    1. Copy all existing files to ``<session>/.backup/``
+    2. Read root.json and pre-compaction archives
+    3. Write session.json, root.history.jsonl, root.metadata.jsonl,
+       root.context.jsonl
+    4. Migrate sub-agent ``*.json`` → ``*.history.jsonl`` + ``*.context.jsonl``
+    5. Remove legacy files from the session dir (originals safe in .backup)
 
     Args:
         session_dir: Path to the session directory containing root.json.
         dry_run: If True, run the full migration into a temp directory
-            instead of modifying the original. The preview_dir (or an
-            auto-created temp dir) will contain the output files for
-            inspection.  Original files are never modified.
+            instead of modifying the original.  Original files are never
+            touched.
         preview_dir: When dry_run is True, write output here instead of
             creating a new temp directory.  Ignored when dry_run is False.
 
     Returns:
-        Dict with migration stats: message_count, usage_count, files_created,
-        etc.  When dry_run is True the stats also include a ``preview_dir``
-        key pointing to the directory containing the generated files.
+        Dict with migration stats.  When dry_run is True the stats also
+        include a ``preview_dir`` key.
 
     Raises:
         FileNotFoundError: If root.json doesn't exist.
         ValueError: If session is already in v2 format.
     """
+    import shutil
+
     session_dir = Path(session_dir)
     root_file = session_dir / "root.json"
     session_json = session_dir / "session.json"
@@ -363,11 +366,8 @@ def migrate_session(
     messages = _normalize_messages(legacy_data.get("messages", []))
     usage_data = legacy_data.get("usage", [])
 
-    # For dry-run: copy the source directory into a temp location and run
-    # the full migration there so every code path is exercised and the
-    # caller can inspect the output files.
+    # --- dry-run: copy to temp dir, migrate there, return ---
     if dry_run:
-        import shutil
         import tempfile
 
         if preview_dir is None:
@@ -375,25 +375,47 @@ def migrate_session(
         else:
             preview_dir = Path(preview_dir)
 
-        # Copy the session directory into the preview location.
         preview_session = preview_dir / session_dir.name
         if preview_session.exists():
             shutil.rmtree(preview_session)
         shutil.copytree(session_dir, preview_session)
 
-        # Run the real migration on the copy.
         stats = migrate_session(preview_session, dry_run=False)
         stats["dry_run"] = True
         stats["preview_dir"] = str(preview_session)
-        stats["session_dir"] = str(session_dir)  # report the original
+        stats["session_dir"] = str(session_dir)
         return stats
+
+    # ------------------------------------------------------------------
+    # 0. Back up all existing files to .backup/
+    # ------------------------------------------------------------------
+    backup_dir = session_dir / ".backup"
+    if backup_dir.exists():
+        # Already backed up (interrupted previous run?) — don't overwrite
+        raise ValueError(
+            f"Backup already exists at {backup_dir}. "
+            "Resolve manually or delete .backup/ to retry."
+        )
+
+    backup_dir.mkdir()
+    backed_up_files = []
+    for f in sorted(session_dir.iterdir()):
+        if f.name == ".backup":
+            continue
+        if f.is_file():
+            shutil.copy2(f, backup_dir / f.name)
+            backed_up_files.append(f.name)
+    # For directories (shouldn't normally exist, but be safe)
+    # We skip subdirectories — .backup is the only one we create.
 
     stats = {
         "session_dir": str(session_dir),
         "message_count": len(messages),
         "usage_count": len(usage_data),
         "files_created": [],
-        "files_renamed": [],
+        "files_removed": [],
+        "backup_dir": str(backup_dir),
+        "backed_up_files": backed_up_files,
         "dry_run": False,
     }
 
@@ -413,9 +435,9 @@ def migrate_session(
     stats["is_compacted"] = is_compacted
     stats["archive_count"] = len(pre_compaction_archives)
 
+    # ------------------------------------------------------------------
     # 1. Write history.jsonl — full audit trail
-    # For compacted sessions: pre-compaction messages first, then current (compacted) messages
-    # This avoids duplicates: archives have the originals, root.json has the summary
+    # ------------------------------------------------------------------
     all_history_msg_ids = []
     if pre_compaction_archives:
         for archive_file in pre_compaction_archives:
@@ -431,16 +453,16 @@ def migrate_session(
             except (json.JSONDecodeError, OSError):
                 continue
 
-    # Append current messages (may be compacted summary + post-compaction messages)
     prev_id = store.last_msg_id
     msg_ids = store.append_messages(messages, prev_msg_id=prev_id)
     all_history_msg_ids.extend(msg_ids)
     stats["files_created"].append("root.history.jsonl")
 
-    # 2. Write metadata.jsonl — pair usage with assistant msg_ids from current messages
+    # ------------------------------------------------------------------
+    # 2. Write metadata.jsonl
+    # ------------------------------------------------------------------
     if usage_data:
         metadata_entries = []
-        # Find assistant message msg_ids (from current messages only, not archives)
         assistant_msg_ids = [
             mid for mid, msg in zip(msg_ids, messages) if msg.get("role") == "assistant"
         ]
@@ -456,18 +478,21 @@ def migrate_session(
             else:
                 entry["model"] = "unknown"
                 entry["model_spec"] = model_spec_entry
-            # Pair with assistant msg_id if available
             if i < len(assistant_msg_ids):
                 entry["msg_id"] = assistant_msg_ids[i]
             metadata_entries.append(entry)
         store.append_metadata(metadata_entries)
     stats["files_created"].append("root.metadata.jsonl")
 
-    # 3. Write context.jsonl — only current messages (the working context window)
+    # ------------------------------------------------------------------
+    # 3. Write context.jsonl (current working context window)
+    # ------------------------------------------------------------------
     store.write_context(messages)
     stats["files_created"].append("root.context.jsonl")
 
+    # ------------------------------------------------------------------
     # 4. Write session.json
+    # ------------------------------------------------------------------
     session_meta = {
         "session_id": legacy_data.get("session_id", session_dir.name),
         "parent_session_id": legacy_data.get("parent_session_id"),
@@ -478,50 +503,29 @@ def migrate_session(
         "cli_args": legacy_data.get("metadata", {}).get("cli_args"),
         "migrated_from": "root.json",
     }
-    # Preserve compaction info
     if "compaction" in legacy_data:
         session_meta["compaction"] = legacy_data["compaction"]
-    # Preserve created_at
     if "metadata" in legacy_data and "created_at" in legacy_data["metadata"]:
         session_meta["created_at"] = legacy_data["metadata"]["created_at"]
     store.write_session_meta(session_meta)
     stats["files_created"].append("session.json")
 
-    # 5. Rename root.json → root.json.legacy
-    root_file.rename(session_dir / "root.json.legacy")
-    stats["files_renamed"].append(("root.json", "root.json.legacy"))
-
-    # 6. Rename pre-compaction archives (already consumed into history.jsonl above)
-    for f in sorted(session_dir.iterdir()):
-        if f.name.startswith("pre-compaction-") and f.suffix == ".json":
-            try:
-                # Convert to context.jsonl format for reference
-                with open(f, "r", encoding="utf-8") as fh:
-                    archive_data = json.load(fh)
-                archive_messages = _normalize_messages(archive_data.get("messages", []))
-                new_name = f.stem + ".context.jsonl"
-                SessionStore._write_jsonl(session_dir / new_name, archive_messages)
-                stats["files_created"].append(new_name)
-                # Rename original
-                f.rename(session_dir / (f.name + ".legacy"))
-                stats["files_renamed"].append((f.name, f.name + ".legacy"))
-            except (json.JSONDecodeError, OSError):
-                continue
-
-    # 7. Migrate sub-agent files (*.json that aren't root.json or pre-compaction)
+    # ------------------------------------------------------------------
+    # 5. Migrate sub-agent files
+    # ------------------------------------------------------------------
     for f in sorted(session_dir.iterdir()):
         if (
             f.suffix == ".json"
-            and f.name != "session.json"
+            and f.name not in ("session.json",)
             and not f.name.startswith("pre-compaction-")
-            and not f.name.startswith(".")  # skip .sync-index-history.json etc.
-            and f.name != "root.json.legacy"
+            and not f.name.startswith(".")
+            and f.name != "root.json"
         ):
             try:
                 with open(f, "r", encoding="utf-8") as fh:
                     sub_data = json.load(fh)
                 sub_messages = _normalize_messages(sub_data.get("messages", []))
-                sub_id = f.stem  # e.g., "abc-123-def"
+                sub_id = f.stem
                 sub_store = SessionStore(session_dir, agent_name=sub_id)
                 sub_store.append_messages(sub_messages, prev_msg_id=None)
                 sub_store.write_context(sub_messages)
@@ -531,10 +535,21 @@ def migrate_session(
                         f"{sub_id}.context.jsonl",
                     ]
                 )
-                f.rename(session_dir / (f.name + ".legacy"))
-                stats["files_renamed"].append((f.name, f.name + ".legacy"))
             except (json.JSONDecodeError, OSError):
                 continue
+
+    # ------------------------------------------------------------------
+    # 6. Remove legacy files (safe — originals are in .backup/)
+    # ------------------------------------------------------------------
+    for f in sorted(session_dir.iterdir()):
+        if f.name == ".backup" or f.is_dir():
+            continue
+        # Keep v2 files and dotfiles
+        if f.suffix == ".jsonl" or f.name == "session.json" or f.name.startswith("."):
+            continue
+        # Remove legacy files: root.json, pre-compaction-*.json, sub-agent *.json
+        f.unlink()
+        stats["files_removed"].append(f.name)
 
     return stats
 
@@ -546,6 +561,10 @@ def migrate_all_sessions(
     preview_dir: Path | None = None,
 ) -> list[dict[str, Any]]:
     """Migrate all legacy sessions under a base directory.
+
+    For real (non-dry-run) migrations, also writes a rollback script
+    to ``~/.silica/rollback-v2-migration.sh`` that restores all
+    migrated sessions from their ``.backup/`` directories.
 
     Args:
         history_base_dir: Base dir containing history/ subdirectory.
@@ -588,4 +607,98 @@ def migrate_all_sessions(
             }
         results.append(stats)
 
+    # Write rollback script for real migrations
+    if not dry_run:
+        migrated = [r for r in results if r.get("status") == "ok"]
+        if migrated:
+            _write_rollback_script(history_base_dir, migrated)
+
     return results
+
+
+def _write_rollback_script(
+    history_base_dir: Path, migrated_stats: list[dict[str, Any]]
+) -> Path:
+    """Write a shell script that rolls back all migrated sessions.
+
+    The script restores .backup/ contents and removes v2 files for
+    each session that was migrated.
+    """
+    script_path = Path.home() / ".silica" / "rollback-v2-migration.sh"
+    now = datetime.now(timezone.utc).isoformat()
+
+    lines = [
+        "#!/usr/bin/env bash",
+        f"# V2 migration rollback script — generated {now}",
+        f"# Restores {len(migrated_stats)} session(s) from .backup/ directories",
+        "#",
+        "# Usage:  bash ~/.silica/rollback-v2-migration.sh",
+        "#         bash ~/.silica/rollback-v2-migration.sh <session-id>",
+        "#",
+        "set -euo pipefail",
+        "",
+        "restored=0",
+        "skipped=0",
+        "",
+        "rollback_session() {",
+        '  local session_dir="$1"',
+        '  local backup_dir="$session_dir/.backup"',
+        "",
+        '  if [ ! -d "$backup_dir" ]; then',
+        '    echo "  SKIP (no .backup/): $(basename "$session_dir")"',
+        "    skipped=$((skipped + 1))",
+        "    return",
+        "  fi",
+        "",
+        "  # Remove v2 files",
+        '  rm -f "$session_dir"/session.json',
+        '  rm -f "$session_dir"/*.history.jsonl',
+        '  rm -f "$session_dir"/*.metadata.jsonl',
+        '  rm -f "$session_dir"/*.context.jsonl',
+        "",
+        "  # Restore originals from backup",
+        '  cp -a "$backup_dir"/* "$session_dir"/  2>/dev/null || true',
+        "",
+        "  # Remove backup dir",
+        '  rm -rf "$backup_dir"',
+        "",
+        '  echo "  OK: $(basename "$session_dir")"',
+        "  restored=$((restored + 1))",
+        "}",
+        "",
+        "# Single session mode",
+        'if [ "${1:-}" != "" ]; then',
+    ]
+
+    # Add the session dirs for single-session lookup
+    history_dir = history_base_dir / "history"
+    lines.append(f'  session_dir="{history_dir}/$1"')
+    lines.append('  if [ -d "$session_dir" ]; then')
+    lines.append('    rollback_session "$session_dir"')
+    lines.append("  else")
+    lines.append('    echo "Session directory not found: $session_dir"')
+    lines.append("    exit 1")
+    lines.append("  fi")
+    lines.append('  echo ""')
+    lines.append('  echo "Restored: $restored, Skipped: $skipped"')
+    lines.append("  exit 0")
+    lines.append("fi")
+    lines.append("")
+    lines.append('echo "Rolling back v2 migration..."')
+    lines.append("")
+
+    for stat in migrated_stats:
+        sd = stat["session_dir"]
+        lines.append(f'rollback_session "{sd}"')
+
+    lines.extend(
+        [
+            "",
+            'echo ""',
+            'echo "Rollback complete: $restored restored, $skipped skipped"',
+        ]
+    )
+
+    script_path.write_text("\n".join(lines) + "\n")
+    script_path.chmod(0o755)
+    return script_path

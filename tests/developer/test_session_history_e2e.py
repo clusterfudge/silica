@@ -290,7 +290,8 @@ class TestE2ELifecycle:
         stats = migrate_session(session_dir)
         assert stats["message_count"] == 2
         assert (session_dir / "session.json").exists()
-        assert (session_dir / "root.json.legacy").exists()
+        assert (session_dir / ".backup" / "root.json").exists()
+        assert not (session_dir / "root.json").exists()
 
         # Load the migrated session
         base_ctx = _make_context(base_dir, sandbox, "e2e-legacy")
