@@ -13,6 +13,10 @@ from silica.developer.sandbox import Sandbox, SandboxMode
 from silica.developer.user_interface import UserInterface
 from pydantic import BaseModel
 from silica.developer.memory import MemoryManager
+
+# Keys added by SessionStore or the agent loop that must be stripped before
+# sending messages to the Anthropic API (which rejects extra fields).
+_INTERNAL_MSG_KEYS = frozenset({"msg_id", "prev_msg_id", "timestamp", "anthropic_id"})
 from silica.developer.session_store import SessionStore, PydanticJSONEncoder
 
 
@@ -491,22 +495,14 @@ def _load_v2_session(
         if not chat_history:
             # Context might be empty if session just started — try history
             chat_history = [
-                {
-                    k: v
-                    for k, v in msg.items()
-                    if k not in ("msg_id", "prev_msg_id", "timestamp")
-                }
+                {k: v for k, v in msg.items() if k not in _INTERNAL_MSG_KEYS}
                 for msg in store.read_history()
             ]
 
-        # Strip msg_id/prev_msg_id/timestamp from context messages for API compat
+        # Strip internal fields from context messages for API compat
         clean_history = []
         for msg in chat_history:
-            clean = {
-                k: v
-                for k, v in msg.items()
-                if k not in ("msg_id", "prev_msg_id", "timestamp")
-            }
+            clean = {k: v for k, v in msg.items() if k not in _INTERNAL_MSG_KEYS}
             clean_history.append(clean)
 
         # Read usage from metadata.jsonl — reconstruct (usage, model_spec) tuples
