@@ -1684,22 +1684,39 @@ def migrate(
                 f"{prefix}Migrated session {session}: "
                 f"{stats['message_count']} messages, {stats['usage_count']} usage entries"
             )
+            if stats.get("is_compacted"):
+                print(
+                    f"  Compacted session: {stats.get('archive_count', 0)} "
+                    f"pre-compaction archive(s) merged into history"
+                )
             if stats.get("files_created"):
                 print(f"  Files created: {', '.join(stats['files_created'])}")
             if stats.get("files_renamed"):
                 for old, new in stats["files_renamed"]:
                     print(f"  Renamed: {old} → {new}")
+            if stats.get("preview_dir"):
+                print(f"\n  Preview output written to:\n    {stats['preview_dir']}")
+                print("  Inspect the files, then re-run without --dry-run to apply.")
         except FileNotFoundError:
             print(f"Error: No root.json found for session {session}")
         except ValueError as e:
             print(f"Skip: {e}")
     elif all:
+        # For dry-run --all, use a shared preview directory
+        preview_base = None
+        if dry_run:
+            import tempfile
+
+            preview_base = Path(tempfile.mkdtemp(prefix="silica-migrate-preview-"))
 
         def progress(sd, i, total):
             print(f"  [{i+1}/{total}] {sd.name}...")
 
         results = migrate_all_sessions(
-            base_dir, dry_run=dry_run, progress_callback=progress
+            base_dir,
+            dry_run=dry_run,
+            progress_callback=progress,
+            preview_dir=preview_base,
         )
         ok = sum(1 for r in results if r.get("status") == "ok")
         errors = sum(1 for r in results if r.get("status") == "error")
@@ -1711,6 +1728,9 @@ def migrate(
         for r in results:
             if r.get("status") == "error":
                 print(f"  ERROR: {r['session_dir']}: {r.get('error')}")
+        if dry_run and preview_base:
+            print(f"\n  Preview output written to:\n    {preview_base}")
+            print("  Inspect the files, then re-run without --dry-run to apply.")
     else:
         print("Error: Specify --session <id> or --all")
         print("Usage: silica migrate --session <session-id> [--dry-run]")

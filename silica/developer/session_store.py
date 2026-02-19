@@ -291,7 +291,9 @@ class SessionStore:
 # ------------------------------------------------------------------
 
 
-def migrate_session(session_dir: Path, dry_run: bool = False) -> dict[str, Any]:
+def migrate_session(
+    session_dir: Path, dry_run: bool = False, preview_dir: Path | None = None
+) -> dict[str, Any]:
     """Migrate a legacy session (root.json) to the v2 split-file format.
 
     Steps:
@@ -306,10 +308,17 @@ def migrate_session(session_dir: Path, dry_run: bool = False) -> dict[str, Any]:
 
     Args:
         session_dir: Path to the session directory containing root.json.
-        dry_run: If True, report what would happen but don't write files.
+        dry_run: If True, run the full migration into a temp directory
+            instead of modifying the original. The preview_dir (or an
+            auto-created temp dir) will contain the output files for
+            inspection.  Original files are never modified.
+        preview_dir: When dry_run is True, write output here instead of
+            creating a new temp directory.  Ignored when dry_run is False.
 
     Returns:
-        Dict with migration stats: message_count, usage_count, files_created, etc.
+        Dict with migration stats: message_count, usage_count, files_created,
+        etc.  When dry_run is True the stats also include a ``preview_dir``
+        key pointing to the directory containing the generated files.
 
     Raises:
         FileNotFoundError: If root.json doesn't exist.
@@ -334,29 +343,39 @@ def migrate_session(session_dir: Path, dry_run: bool = False) -> dict[str, Any]:
     messages = legacy_data.get("messages", [])
     usage_data = legacy_data.get("usage", [])
 
+    # For dry-run: copy the source directory into a temp location and run
+    # the full migration there so every code path is exercised and the
+    # caller can inspect the output files.
+    if dry_run:
+        import shutil
+        import tempfile
+
+        if preview_dir is None:
+            preview_dir = Path(tempfile.mkdtemp(prefix="silica-migrate-preview-"))
+        else:
+            preview_dir = Path(preview_dir)
+
+        # Copy the session directory into the preview location.
+        preview_session = preview_dir / session_dir.name
+        if preview_session.exists():
+            shutil.rmtree(preview_session)
+        shutil.copytree(session_dir, preview_session)
+
+        # Run the real migration on the copy.
+        stats = migrate_session(preview_session, dry_run=False)
+        stats["dry_run"] = True
+        stats["preview_dir"] = str(preview_session)
+        stats["session_dir"] = str(session_dir)  # report the original
+        return stats
+
     stats = {
         "session_dir": str(session_dir),
         "message_count": len(messages),
         "usage_count": len(usage_data),
         "files_created": [],
         "files_renamed": [],
-        "dry_run": dry_run,
+        "dry_run": False,
     }
-
-    if dry_run:
-        stats["files_created"] = [
-            "session.json",
-            "root.history.jsonl",
-            "root.metadata.jsonl",
-            "root.context.jsonl",
-        ]
-        stats["files_renamed"] = [("root.json", "root.json.legacy")]
-        # Check for pre-compaction archives
-        for f in session_dir.iterdir():
-            if f.name.startswith("pre-compaction-") and f.suffix == ".json":
-                stats["files_created"].append(f.stem + ".context.jsonl")
-                stats["files_renamed"].append((f.name, f.name + ".legacy"))
-        return stats
 
     # Create store for root agent
     store = SessionStore(session_dir, agent_name="root")
@@ -503,13 +522,15 @@ def migrate_all_sessions(
     history_base_dir: Path,
     dry_run: bool = False,
     progress_callback=None,
+    preview_dir: Path | None = None,
 ) -> list[dict[str, Any]]:
     """Migrate all legacy sessions under a base directory.
 
     Args:
         history_base_dir: Base dir containing history/ subdirectory.
-        dry_run: If True, report what would happen.
+        dry_run: If True, run migrations into preview_dir for inspection.
         progress_callback: Optional callable(session_dir, index, total) for progress.
+        preview_dir: When dry_run is True, write all preview output here.
 
     Returns:
         List of migration stats dicts (one per session).
@@ -534,7 +555,9 @@ def migrate_all_sessions(
         if progress_callback:
             progress_callback(session_dir, i, total)
         try:
-            stats = migrate_session(session_dir, dry_run=dry_run)
+            stats = migrate_session(
+                session_dir, dry_run=dry_run, preview_dir=preview_dir
+            )
             stats["status"] = "ok"
         except Exception as e:
             stats = {

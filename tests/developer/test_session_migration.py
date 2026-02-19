@@ -170,15 +170,57 @@ class TestMigrateSession:
             migrate_session(session_dir)
 
     def test_dry_run(self, session_dir):
-        """Dry-run mode: no files created or modified."""
+        """Dry-run mode: original untouched, preview dir has output."""
         _write_legacy_root(session_dir)
         stats = migrate_session(session_dir, dry_run=True)
 
         assert stats["dry_run"] is True
         assert "session.json" in stats["files_created"]
-        # Nothing should actually be created
+        # Original files should NOT be modified
         assert not (session_dir / "session.json").exists()
         assert (session_dir / "root.json").exists()  # still there
+
+        # Preview directory should have the migrated files
+        preview = Path(stats["preview_dir"])
+        assert preview.exists()
+        assert (preview / "session.json").exists()
+        assert (preview / "root.history.jsonl").exists()
+        assert (preview / "root.context.jsonl").exists()
+        # Original renamed to .legacy in preview
+        assert (preview / "root.json.legacy").exists()
+
+    def test_dry_run_with_explicit_preview_dir(self, session_dir, tmp_path):
+        """Dry-run writes to a caller-specified preview directory."""
+        _write_legacy_root(session_dir)
+        preview = tmp_path / "my-preview"
+        stats = migrate_session(session_dir, dry_run=True, preview_dir=preview)
+
+        assert stats["preview_dir"] == str(preview / session_dir.name)
+        assert (preview / session_dir.name / "session.json").exists()
+
+    def test_dry_run_compacted_session_preview(self, session_dir):
+        """Dry-run on compacted session shows archive merge in preview."""
+        original_messages = [{"role": "user", "content": f"q{i}"} for i in range(5)]
+        archive = {"messages": original_messages}
+        (session_dir / "pre-compaction-20250601_100000.json").write_text(
+            json.dumps(archive)
+        )
+        _write_legacy_root(
+            session_dir,
+            messages=[
+                {"role": "user", "content": "summary"},
+                {"role": "assistant", "content": "ok"},
+            ],
+            extras={"compaction": {"is_compacted": True}},
+        )
+
+        stats = migrate_session(session_dir, dry_run=True)
+        preview = Path(stats["preview_dir"])
+
+        # History should have archive + current messages
+        store = SessionStore(preview)
+        history = store.read_history()
+        assert len(history) == 7  # 5 from archive + 2 from root
 
     def test_nonexistent_root_json_raises(self, session_dir):
         with pytest.raises(FileNotFoundError):
