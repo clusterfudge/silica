@@ -239,7 +239,7 @@ Execute this task now. When complete, clearly state "TASK COMPLETE" followed by 
                                     WORKER_PERSONA
                                 ),
                                 tools=ALL_TOOLS,  # Workers get all standard tools
-                                single_response=False,  # Allow multi-turn for complex tasks
+                                single_response=True,  # Exit after final response (tool calls still multi-turn)
                             )
                         )
 
