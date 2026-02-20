@@ -1384,7 +1384,7 @@ class Toolbox:
             info += f"**Parent Session ID:** `{parent_session_id}`\n\n"
 
         # Session file path
-        info += f"**Session File:** `{history_file}`\n\n"
+        info += f"**Session Directory:** `{session_dir}`\n\n"
 
         # Current working directory
         import os
