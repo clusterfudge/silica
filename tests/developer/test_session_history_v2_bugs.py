@@ -614,6 +614,125 @@ class TestContextStripping:
         ), f"Found {cache_count} cache_control markers in context.jsonl"
 
 
+# ===========================================================================
+# Bug #3: Usage entries all get same msg_id
+# ===========================================================================
+
+
+class TestUsageMsgIdCorrelation:
+    """Each usage entry should be associated with the specific assistant
+    message that generated it, not just the latest msg_id."""
+
+    def test_usage_entries_get_distinct_msg_ids(self, history_dir):
+        """When multiple assistant messages are flushed, each usage
+        entry should reference its own assistant's msg_id."""
+        ctx = _make_context(history_dir)
+
+        # Simulate two full request/response cycles
+        ctx.chat_history.append({"role": "user", "content": "first question"})
+        ctx.chat_history.append({"role": "assistant", "content": "first answer"})
+        ctx.usage.append(({"input_tokens": 100, "output_tokens": 50}, MODEL_SPEC))
+
+        ctx.chat_history.append({"role": "user", "content": "second question"})
+        ctx.chat_history.append({"role": "assistant", "content": "second answer"})
+        ctx.usage.append(({"input_tokens": 200, "output_tokens": 80}, MODEL_SPEC))
+
+        ctx.flush(ctx.chat_history)
+
+        store = ctx._get_or_create_store()
+        metadata = store.read_metadata()
+        assert len(metadata) == 2
+
+        # Each usage entry should have a DIFFERENT msg_id
+        msg_ids = [m.get("msg_id") for m in metadata]
+        assert (
+            msg_ids[0] != msg_ids[1]
+        ), f"Both usage entries got the same msg_id: {msg_ids}"
+
+        # They should correspond to the two assistant messages
+        history = store.read_history()
+        assistant_ids = [m["msg_id"] for m in history if m.get("role") == "assistant"]
+        assert len(assistant_ids) == 2
+        assert msg_ids[0] == assistant_ids[0]
+        assert msg_ids[1] == assistant_ids[1]
+
+    def test_usage_with_no_new_messages_falls_back(self, history_dir):
+        """If usage entries exist but no new messages were written (e.g.
+        usage flushed separately), fall back to last_msg_id."""
+        ctx = _make_context(history_dir)
+
+        # Flush messages first
+        ctx.chat_history.append({"role": "user", "content": "hello"})
+        ctx.chat_history.append({"role": "assistant", "content": "hi"})
+        ctx.flush(ctx.chat_history)
+
+        # Now add usage without new messages
+        ctx.usage.append(({"input_tokens": 50, "output_tokens": 20}, MODEL_SPEC))
+        ctx.flush(ctx.chat_history)
+
+        store = ctx._get_or_create_store()
+        metadata = store.read_metadata()
+        assert len(metadata) == 1
+        # Should have some msg_id (fallback to last_msg_id)
+        assert metadata[0].get("msg_id") is not None
+
+
+# ===========================================================================
+# Bug #12: Internal keys leak to get_session_data / cron consumers
+# ===========================================================================
+
+
+class TestConsumerStripping:
+    """get_session_data and cron dashboard should not expose internal keys."""
+
+    def test_get_session_data_strips_internal_keys(self, tmp_path):
+        """get_session_data should return messages without internal keys."""
+        from silica.developer.tools.sessions import get_session_data
+
+        session_dir = tmp_path / "history" / "test-session"
+        session_dir.mkdir(parents=True)
+
+        store = SessionStore(session_dir)
+        # Write context with internal keys (as would exist on disk)
+        store.write_context(
+            [
+                {
+                    "role": "user",
+                    "content": "hello",
+                    "msg_id": "m_0001",
+                    "prev_msg_id": None,
+                    "timestamp": "2025-01-01T00:00:00Z",
+                },
+                {
+                    "role": "assistant",
+                    "content": "hi",
+                    "msg_id": "m_0002",
+                    "prev_msg_id": "m_0001",
+                    "anthropic_id": "msg_abc123",
+                    "request_id": "req_xyz",
+                },
+            ]
+        )
+        store.write_session_meta(
+            {"session_id": "test-session", "model_spec": MODEL_SPEC}
+        )
+
+        result = get_session_data("test-session", history_base_dir=tmp_path)
+
+        assert result is not None
+        for msg in result["messages"]:
+            for key in (
+                "msg_id",
+                "prev_msg_id",
+                "timestamp",
+                "anthropic_id",
+                "request_id",
+            ):
+                assert (
+                    key not in msg
+                ), f"Internal key '{key}' leaked to get_session_data consumer"
+
+
 class TestCorruptionLogging:
     """Corrupted JSONL lines should be logged, not silently swallowed."""
 

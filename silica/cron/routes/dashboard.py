@@ -90,7 +90,19 @@ async def view_session_history(session_id: str, request: Request):
             store = SessionStore(session_dir, agent_name="root")
             meta = store.read_session_meta()
             if meta:
-                session_data = {**meta, "messages": store.read_context()}
+                # Strip internal keys from context messages
+                _internal = {
+                    "msg_id",
+                    "prev_msg_id",
+                    "timestamp",
+                    "anthropic_id",
+                    "request_id",
+                }
+                clean_msgs = [
+                    {k: v for k, v in m.items() if k not in _internal}
+                    for m in store.read_context()
+                ]
+                session_data = {**meta, "messages": clean_msgs}
         except Exception:
             pass
 

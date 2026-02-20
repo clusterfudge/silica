@@ -220,11 +220,23 @@ def get_session_data(
             meta = store.read_session_meta()
             if meta and meta.get("version", 0) >= 2:
                 context_msgs = store.read_context()
+                # Strip internal keys that shouldn't leak to consumers
+                _internal = {
+                    "msg_id",
+                    "prev_msg_id",
+                    "timestamp",
+                    "anthropic_id",
+                    "request_id",
+                }
+                clean_msgs = [
+                    {k: v for k, v in m.items() if k not in _internal}
+                    for m in context_msgs
+                ]
                 history_msgs = store.read_history()
                 metadata_entries = store.read_metadata()
                 return {
                     **meta,
-                    "messages": context_msgs,
+                    "messages": clean_msgs,
                     "history_message_count": len(history_msgs),
                     "context_message_count": len(context_msgs),
                     "usage_count": len(metadata_entries),

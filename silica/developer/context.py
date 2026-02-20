@@ -369,20 +369,31 @@ class AgentContext:
             # We hold a strong reference to prevent GC/address reuse.
             if chat_history[flushed - 1] is not self._last_flushed_boundary_msg:
                 flushed = 0  # list was mutated
+        newly_written_ids = []
         if new_msg_count > flushed:
             new_messages = chat_history[flushed:]
             # Chain from last written msg, or parent's msg_id for first sub-agent flush
             prev_id = store.last_msg_id
             if prev_id is None and hasattr(self, "_parent_msg_id"):
                 prev_id = self._parent_msg_id
-            store.append_messages(new_messages, prev_msg_id=prev_id)
+            newly_written_ids = store.append_messages(new_messages, prev_msg_id=prev_id)
 
         # 2. Append NEW usage entries to metadata.jsonl
         new_usage_count = len(self.usage)
         if new_usage_count > self._last_flushed_usage_count:
             new_usage = self.usage[self._last_flushed_usage_count :]
+
+            # Correlate usage entries with assistant msg_ids.
+            # Each usage entry corresponds to one API call → one assistant message.
+            new_messages_for_ids = chat_history[flushed:]
+            assistant_msg_ids = [
+                mid
+                for mid, msg in zip(newly_written_ids, new_messages_for_ids)
+                if msg.get("role") == "assistant"
+            ]
+
             metadata_entries = []
-            for usage_entry, model_spec_entry in new_usage:
+            for idx, (usage_entry, model_spec_entry) in enumerate(new_usage):
                 entry = {"model": model_spec_entry.get("title", "unknown")}
                 # Serialize usage — handle both SDK objects and dicts
                 if hasattr(usage_entry, "model_dump"):
@@ -401,8 +412,10 @@ class AgentContext:
                         ),
                     }
                 entry["model_spec"] = model_spec_entry
-                # Try to associate with the latest assistant msg_id
-                if store.last_msg_id:
+                # Associate with the specific assistant msg_id, not just the latest
+                if idx < len(assistant_msg_ids):
+                    entry["msg_id"] = assistant_msg_ids[idx]
+                elif store.last_msg_id:
                     entry["msg_id"] = store.last_msg_id
                 metadata_entries.append(entry)
             store.append_metadata(metadata_entries)
