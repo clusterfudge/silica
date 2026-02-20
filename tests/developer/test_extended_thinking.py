@@ -103,9 +103,9 @@ class TestPerModelThinkingBudgets:
 
         for alias, spec in MODEL_MAP.items():
             assert "max_output_tokens" in spec, f"{alias} missing max_output_tokens"
-            assert (
-                spec["max_output_tokens"] > 0
-            ), f"{alias} has invalid max_output_tokens"
+            assert spec["max_output_tokens"] > 0, (
+                f"{alias} has invalid max_output_tokens"
+            )
 
     def test_opus_has_128k_output(self):
         """Opus should have 128k max output tokens."""
@@ -502,7 +502,9 @@ class TestThinkingBudgetContextClamping:
         # At 190k context, estimated = 200.5k, available = -500
         # Thinking should be disabled, max_tokens clamped
         assert thinking_config["type"] == "disabled"
-        assert max_tokens <= available or max_tokens == min(model["max_tokens"], available)
+        assert max_tokens <= available or max_tokens == min(
+            model["max_tokens"], available
+        )
 
     def test_budget_partially_reduced(self, persona_base_dir):
         """Thinking budget should be partially reduced when some room remains."""
