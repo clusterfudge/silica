@@ -154,7 +154,7 @@ class TestPollMessages:
     """Test poll_messages tool."""
 
     def test_poll_no_messages(self, session):
-        result = poll_messages(wait=0)
+        result = poll_messages()
         assert "No new messages" in result
 
     def test_poll_receives_message(self, session_with_agent, deaddrop):
@@ -182,7 +182,7 @@ class TestPollMessages:
         agent_ctx.send_to_coordinator(progress)
 
         # Poll should receive it
-        result = poll_messages(wait=0)
+        result = poll_messages()
 
         assert "1 new message" in result
         assert "Worker-1" in result

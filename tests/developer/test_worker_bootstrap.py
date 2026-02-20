@@ -407,7 +407,7 @@ class TestIntegrateWorkerStartup:
         # (Check by polling coordinator's inbox)
         from silica.developer.coordination import Idle
 
-        messages = session.context.receive_messages(wait=0)
+        messages = session.context.receive_messages()
         # Filter for Idle messages
         idle_messages = [m for m in messages if isinstance(m.message, Idle)]
         assert len(idle_messages) == 1
@@ -519,7 +519,7 @@ class TestTaskExecutionLoop:
         handle_worker_termination(result, mock_ui, reason="Job complete")
 
         # Should have sent termination acknowledgment to coordinator
-        messages = session.context.receive_messages(wait=0)
+        messages = session.context.receive_messages()
         result_messages = [m for m in messages if isinstance(m.message, Result)]
         assert len(result_messages) == 1
         assert result_messages[0].message.status == "terminated"

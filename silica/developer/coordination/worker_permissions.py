@@ -91,17 +91,19 @@ def create_worker_permission_callback(
             # On send failure, deny by default for safety
             return False
 
-        # Poll for response with timeout
+        # Wait for response using subscriptions (wakes instantly on publish)
         import time
 
         start_time = time.time()
-        poll_interval = 2.0  # Poll every 2 seconds
 
         while (time.time() - start_time) < timeout:
+            remaining = timeout - (time.time() - start_time)
+            if remaining <= 0:
+                break
             try:
                 # Only check inbox, not room - permission responses are direct messages
-                messages = context.receive_messages(
-                    wait=poll_interval, include_room=False
+                messages = context.wait_for_messages(
+                    timeout=min(remaining, 30), include_room=False
                 )
 
                 for msg in messages:
@@ -129,8 +131,8 @@ def create_worker_permission_callback(
                                 return False
 
             except Exception as e:
-                logger.warning(f"Error polling for permission response: {e}")
-                # Continue polling on transient errors
+                logger.warning(f"Error waiting for permission response: {e}")
+                # Continue on transient errors
 
         # Timeout - deny by default
         logger.warning(

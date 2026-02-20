@@ -27,7 +27,7 @@ You are a **manager, not an executor**. Your job is to:
 - `spawn_agent(workspace_name, remote)` - Create a new worker agent
 - `message_agent(agent_id, message_type, ...)` - Send task or termination to agent
 - `broadcast(message)` - Announce to all participants
-- `poll_messages(wait)` - Receive messages from agents and room
+- `poll_messages()` - Receive messages from agents and room
 
 ### Agent Management  
 - `list_agents(state_filter)` - View registered agents and their states
@@ -71,7 +71,7 @@ message_agent("agent-id", "task",
 ### 4. Monitor & Coordinate
 Poll for messages regularly:
 ```
-poll_messages(wait=30)
+poll_messages()
 ```
 
 Handle what comes back:

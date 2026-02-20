@@ -50,3 +50,5 @@ history/
 # Agent workspace files (plans, etc.)
 .agent/
 .agents/
+.deaddrop/
+is_prime.py

@@ -124,7 +124,7 @@ class TestCheckInbox:
 
     def test_check_inbox_empty(self, coordination_setup):
         """Should return no messages when inbox empty."""
-        result = check_inbox(wait=0)
+        result = check_inbox()
         assert "No new messages" in result
 
     def test_check_inbox_task_message(self, coordination_setup):
@@ -143,7 +143,7 @@ class TestCheckInbox:
         )
 
         # Worker checks inbox
-        result = check_inbox(wait=0)
+        result = check_inbox()
 
         assert "1 new message" in result
         assert "task_assign" in result
@@ -164,7 +164,7 @@ class TestCheckInbox:
             response,
         )
 
-        result = check_inbox(wait=0)
+        result = check_inbox()
 
         assert "permission_response" in result
         assert "allow" in result
@@ -180,7 +180,7 @@ class TestCheckInbox:
             terminate,
         )
 
-        result = check_inbox(wait=0)
+        result = check_inbox()
 
         assert "TERMINATION" in result
         assert "Shutting down" in result
@@ -200,7 +200,7 @@ class TestSendToCoordinator:
 
         # Coordinator should receive it
         session = coordination_setup["session"]
-        messages = session.context.receive_messages(wait=0, include_room=False)
+        messages = session.context.receive_messages(include_room=False)
         assert len(messages) == 1
         assert messages[0].message.type == "task_ack"
 
@@ -217,7 +217,7 @@ class TestSendToCoordinator:
         assert "✓" in result
 
         session = coordination_setup["session"]
-        messages = session.context.receive_messages(wait=0, include_room=False)
+        messages = session.context.receive_messages(include_room=False)
         assert len(messages) == 1
         assert messages[0].message.type == "progress"
         assert messages[0].message.progress == 0.5
@@ -236,7 +236,7 @@ class TestSendToCoordinator:
         assert "✓" in result
 
         session = coordination_setup["session"]
-        messages = session.context.receive_messages(wait=0, include_room=False)
+        messages = session.context.receive_messages(include_room=False)
         assert len(messages) == 1
         assert messages[0].message.type == "result"
         assert messages[0].message.status == "complete"
@@ -255,7 +255,7 @@ class TestSendToCoordinator:
         assert "✓" in result
 
         session = coordination_setup["session"]
-        messages = session.context.receive_messages(wait=0, include_room=False)
+        messages = session.context.receive_messages(include_room=False)
         assert len(messages) == 1
         assert messages[0].message.type == "question"
         assert "continue" in messages[0].message.question
@@ -323,7 +323,7 @@ class TestRequestPermission:
 
             time.sleep(0.1)  # Small delay
             # Get the request
-            messages = session.context.receive_messages(wait=1, include_room=False)
+            messages = session.context.receive_messages(include_room=False)
             if messages:
                 request = messages[0].message
                 # Send response
@@ -376,6 +376,6 @@ class TestRequestPermission:
 
         # Coordinator should receive request
         session = coordination_setup["session"]
-        messages = session.context.receive_messages(wait=0, include_room=False)
+        messages = session.context.receive_messages(include_room=False)
         assert len(messages) == 1
         assert messages[0].message.type == "permission_request"

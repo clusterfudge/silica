@@ -74,19 +74,16 @@ def get_current_task() -> Optional[str]:
 # === Inbox Tools ===
 
 
-def check_inbox(
-    wait: int = 0,
-) -> str:
+def check_inbox() -> str:
     """Check for new messages from the coordinator.
 
-    Args:
-        wait: Timeout in seconds to wait for messages (0 for immediate)
+    Returns immediately with any new messages since the last check.
 
     Returns:
         Formatted list of messages or "No new messages"
     """
     ctx = get_worker_context()
-    messages = ctx.receive_messages(wait=wait, include_room=False)
+    messages = ctx.receive_messages(include_room=False)
 
     if not messages:
         return "No new messages"
@@ -303,15 +300,14 @@ def request_permission(
 
     ctx.send_to_coordinator(request)
 
-    # Wait for response
+    # Wait for response using subscriptions (wakes instantly on publish)
     start_time = time.time()
-    poll_interval = 2  # seconds
 
     while (time.time() - start_time) < timeout:
-        messages = ctx.receive_messages(
-            wait=min(poll_interval, timeout - int(time.time() - start_time)),
-            include_room=False,
-        )
+        remaining = timeout - (time.time() - start_time)
+        if remaining <= 0:
+            break
+        messages = ctx.wait_for_messages(timeout=min(remaining, 30), include_room=False)
 
         for recv in messages:
             msg = recv.message

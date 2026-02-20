@@ -395,7 +395,7 @@ class TestPolling:
         )
 
         # First poll
-        messages1 = worker_ctx.poll(wait=0, include_room=False)
+        messages1 = worker_ctx.poll(include_room=False)
         assert len(messages1) == 1
         assert messages1[0].message.task_id == "task-1"
 
@@ -406,10 +406,10 @@ class TestPolling:
         )
 
         # Second poll should only get the new message
-        messages2 = worker_ctx.poll(wait=0, include_room=False)
+        messages2 = worker_ctx.poll(include_room=False)
         assert len(messages2) == 1
         assert messages2[0].message.task_id == "task-2"
 
         # Third poll should be empty
-        messages3 = worker_ctx.poll(wait=0, include_room=False)
+        messages3 = worker_ctx.poll(include_room=False)
         assert len(messages3) == 0

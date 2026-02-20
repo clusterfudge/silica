@@ -162,7 +162,7 @@ class TestE2EPermissionFlow:
         time.sleep(0.2)
 
         # Coordinator polls for messages
-        messages = coordinator_session.context.receive_messages(wait=0)
+        messages = coordinator_session.context.receive_messages()
 
         # Find permission request
         permission_requests = [
@@ -218,7 +218,7 @@ class TestE2EPermissionFlow:
         time.sleep(0.2)
 
         # Get request
-        messages = coordinator_session.context.receive_messages(wait=0)
+        messages = coordinator_session.context.receive_messages()
         request = [m for m in messages if isinstance(m.message, PermissionRequest)][
             0
         ].message
@@ -286,7 +286,7 @@ class TestE2EPermissionFlow:
 
         time.sleep(0.2)
 
-        messages = coordinator_session.context.receive_messages(wait=0)
+        messages = coordinator_session.context.receive_messages()
         request = [m for m in messages if isinstance(m.message, PermissionRequest)][
             0
         ].message
@@ -338,7 +338,7 @@ class TestE2EPermissionFlow:
         time.sleep(0.2)
 
         # Coordinator receives and grants
-        messages = coordinator_session.context.receive_messages(wait=0)
+        messages = coordinator_session.context.receive_messages()
         request = [m for m in messages if isinstance(m.message, PermissionRequest)][
             0
         ].message
@@ -385,7 +385,7 @@ class TestE2ECoordinatorTools:
         time.sleep(0.2)
 
         # Get request
-        messages = coordinator_session.context.receive_messages(wait=0)
+        messages = coordinator_session.context.receive_messages()
         request = [m for m in messages if isinstance(m.message, PermissionRequest)][
             0
         ].message
@@ -435,7 +435,7 @@ class TestE2EPermissionQueue:
         assert result is False
 
         # Coordinator should have received the request
-        messages = coordinator_session.context.receive_messages(wait=0)
+        messages = coordinator_session.context.receive_messages()
         requests = [m for m in messages if isinstance(m.message, PermissionRequest)]
         assert len(requests) >= 1
 
@@ -492,7 +492,7 @@ class TestE2EFullWorkflow:
         assert "Sent" in ack_result
 
         # Coordinator receives ack
-        messages = coordinator_session.context.receive_messages(wait=0.5)
+        messages = coordinator_session.context.receive_messages()
         acks = [m for m in messages if isinstance(m.message, TaskAck)]
         assert len(acks) >= 1
 
@@ -520,7 +520,7 @@ class TestE2EFullWorkflow:
         time.sleep(0.2)
 
         # 4. Coordinator grants permission
-        messages = coordinator_session.context.receive_messages(wait=0)
+        messages = coordinator_session.context.receive_messages()
         perm_requests = [
             m for m in messages if isinstance(m.message, PermissionRequest)
         ]
@@ -546,7 +546,7 @@ class TestE2EFullWorkflow:
         assert "Sent" in result
 
         # 6. Coordinator receives result
-        messages = coordinator_session.context.receive_messages(wait=0.5)
+        messages = coordinator_session.context.receive_messages()
         results = [m for m in messages if isinstance(m.message, Result)]
         assert len(results) >= 1
         assert results[0].message.status == "complete"

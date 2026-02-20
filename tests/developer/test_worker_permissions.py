@@ -108,7 +108,7 @@ class TestCreateWorkerPermissionCallback:
         time.sleep(0.1)
 
         # Check coordinator received the request
-        messages = coordinator_session.context.receive_messages(wait=0)
+        messages = coordinator_session.context.receive_messages()
         request_messages = [
             m for m in messages if isinstance(m.message, PermissionRequest)
         ]
@@ -149,7 +149,7 @@ class TestCreateWorkerPermissionCallback:
         time.sleep(0.1)
 
         # Get the request
-        messages = coordinator_session.context.receive_messages(wait=0)
+        messages = coordinator_session.context.receive_messages()
         request_messages = [
             m for m in messages if isinstance(m.message, PermissionRequest)
         ]
@@ -196,7 +196,7 @@ class TestCreateWorkerPermissionCallback:
         time.sleep(0.1)
 
         # Get the request and respond with deny
-        messages = coordinator_session.context.receive_messages(wait=0)
+        messages = coordinator_session.context.receive_messages()
         request_messages = [
             m for m in messages if isinstance(m.message, PermissionRequest)
         ]
@@ -239,7 +239,7 @@ class TestCreateWorkerPermissionCallback:
 
         time.sleep(0.1)
 
-        messages = coordinator_session.context.receive_messages(wait=0)
+        messages = coordinator_session.context.receive_messages()
         request_messages = [
             m for m in messages if isinstance(m.message, PermissionRequest)
         ]
