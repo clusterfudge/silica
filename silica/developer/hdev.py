@@ -1721,7 +1721,7 @@ def migrate(
             preview_base = Path(tempfile.mkdtemp(prefix="silica-migrate-preview-"))
 
         def progress(sd, i, total):
-            print(f"  [{i+1}/{total}] {sd.name}...")
+            print(f"  [{i + 1}/{total}] {sd.name}...")
 
         results = migrate_all_sessions(
             base_dir,

@@ -399,7 +399,7 @@ class TestMigrateSession:
         assert history[4]["content"] == "final_summary"
 
         for i, msg in enumerate(history):
-            assert msg["msg_id"] == f"m_{i+1:04d}"
+            assert msg["msg_id"] == f"m_{i + 1:04d}"
 
     def test_rollback_from_backup(self, session_dir):
         """After migration, .backup/ can restore the original state."""

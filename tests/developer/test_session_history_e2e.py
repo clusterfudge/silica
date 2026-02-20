@@ -114,7 +114,7 @@ class TestE2ELifecycle:
 
         # Verify msg_ids are sequential
         for i, msg in enumerate(history):
-            assert msg["msg_id"] == f"m_{i+1:04d}"
+            assert msg["msg_id"] == f"m_{i + 1:04d}"
 
         # Verify prev_msg_id chain
         assert history[0]["prev_msg_id"] is None
