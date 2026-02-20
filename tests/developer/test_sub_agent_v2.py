@@ -1,6 +1,5 @@
 """Tests for sub-agent v2 file handling."""
 
-import json
 import tempfile
 import shutil
 from pathlib import Path

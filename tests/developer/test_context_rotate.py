@@ -6,7 +6,6 @@ Tests for AgentContext.rotate() method.
 import unittest
 import tempfile
 import shutil
-import json
 from pathlib import Path
 
 from silica.developer.context import AgentContext

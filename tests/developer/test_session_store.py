@@ -1,7 +1,5 @@
 """Tests for the v2 session storage module."""
 
-import json
-
 import pytest
 
 from silica.developer.session_store import SessionStore, SESSION_FORMAT_VERSION

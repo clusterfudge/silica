@@ -1,7 +1,6 @@
 import json
 import os
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 from uuid import uuid4
@@ -11,15 +10,14 @@ from anthropic.types import Usage, MessageParam
 from silica.developer.models import ModelSpec
 from silica.developer.sandbox import Sandbox, SandboxMode
 from silica.developer.user_interface import UserInterface
-from pydantic import BaseModel
 from silica.developer.memory import MemoryManager
+from silica.developer.session_store import SessionStore
 
 # Keys added by SessionStore or the agent loop that must be stripped before
 # sending messages to the Anthropic API (which rejects extra fields).
 _INTERNAL_MSG_KEYS = frozenset(
     {"msg_id", "prev_msg_id", "timestamp", "anthropic_id", "request_id"}
 )
-from silica.developer.session_store import SessionStore, PydanticJSONEncoder
 
 
 def _find_root_dir() -> str:

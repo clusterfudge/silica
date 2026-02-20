@@ -12,9 +12,6 @@ Exercises the full session lifecycle:
 """
 
 import json
-import tempfile
-import shutil
-from pathlib import Path
 
 import pytest
 

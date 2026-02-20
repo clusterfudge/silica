@@ -1766,7 +1766,8 @@ def _verify_migrated_sessions(base_dir: Path, preview_dir: Path | None = None):
     from silica.developer.context import load_session_data, AgentContext
     from silica.developer.sandbox import Sandbox, SandboxMode
     from unittest.mock import MagicMock
-    import tempfile, os
+    import tempfile
+    import os
 
     if preview_dir:
         # Preview dirs have session subdirs directly — create a wrapper
