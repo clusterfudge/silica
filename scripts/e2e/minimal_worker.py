@@ -71,8 +71,10 @@ def main():
     while running:
         try:
             # Poll for messages (5s timeout for faster E2E testing)
-            poll_timeout = int(os.environ.get("WORKER_POLL_TIMEOUT", "5"))
-            messages = context.receive_messages(wait=poll_timeout, include_room=True)
+            int(os.environ.get("WORKER_POLL_TIMEOUT", "5"))
+            messages = context.receive_messages(include_room=True)
+            if not messages:
+                time.sleep(1)
 
             for msg in messages:
                 log(

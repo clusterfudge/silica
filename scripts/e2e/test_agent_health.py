@@ -80,7 +80,7 @@ def main():
             start = time.time()
 
             while time.time() - start < timeout:
-                messages = context.receive_messages(wait=3, include_room=True)
+                messages = context.receive_messages(include_room=True)
                 now = datetime.utcnow()
                 for msg in messages:
                     if isinstance(msg.message, Idle):
@@ -92,6 +92,7 @@ def main():
                 if len(last_seen) == num_workers:
                     log("All workers have reported in")
                     break
+                time.sleep(1)
 
             # Kill one worker to simulate staleness
             killed_agent = agent_ids[0]
@@ -104,10 +105,11 @@ def main():
             log("Checking which workers are still active...")
             active_agents = set()
             for _ in range(5):
-                messages = context.receive_messages(wait=3, include_room=True)
+                messages = context.receive_messages(include_room=True)
                 for msg in messages:
                     if isinstance(msg.message, Idle):
                         active_agents.add(msg.message.agent_id)
+                time.sleep(1)
 
             if killed_agent not in active_agents:
                 log(

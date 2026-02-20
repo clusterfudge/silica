@@ -71,10 +71,11 @@ def main():
             # Wait for initial Idle
             log("Waiting for initial Idle...")
             for _ in range(10):
-                messages = context1.receive_messages(wait=3, include_room=True)
+                messages = context1.receive_messages(include_room=True)
                 if any(isinstance(m.message, Idle) for m in messages):
                     log("✓ Initial Idle received via context1")
                     break
+                time.sleep(1)
             else:
                 log("FAILED: No initial Idle")
                 return False
@@ -106,7 +107,7 @@ def main():
             log("Waiting for TaskAck from worker...")
             received_ack = False
             for _ in range(15):
-                messages = context2.receive_messages(wait=3, include_room=True)
+                messages = context2.receive_messages(include_room=True)
                 for msg in messages:
                     if isinstance(msg.message, TaskAck):
                         if msg.message.task_id == task_id:
@@ -115,6 +116,7 @@ def main():
                             break
                 if received_ack:
                     break
+                time.sleep(1)
 
             if not received_ack:
                 log("FAILED: No TaskAck after restart")

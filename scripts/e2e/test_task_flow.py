@@ -89,7 +89,7 @@ def main():
             log("Waiting for initial Idle...")
             initial_idle = False
             for _ in range(10):
-                messages = context.receive_messages(wait=3, include_room=True)
+                messages = context.receive_messages(include_room=True)
                 for msg in messages:
                     if isinstance(msg.message, Idle):
                         log("✓ Initial Idle received")
@@ -97,6 +97,7 @@ def main():
                         break
                 if initial_idle:
                     break
+                time.sleep(1)
 
             if not initial_idle:
                 log("FAILED: No initial Idle")
@@ -122,7 +123,7 @@ def main():
             start = time.time()
 
             while time.time() - start < timeout:
-                messages = context.receive_messages(wait=3, include_room=True)
+                messages = context.receive_messages(include_room=True)
 
                 for msg in messages:
                     if isinstance(msg.message, TaskAck):
@@ -157,6 +158,7 @@ def main():
                     and final_idle
                 ):
                     break
+                time.sleep(1)
 
             # Verify
             success = True

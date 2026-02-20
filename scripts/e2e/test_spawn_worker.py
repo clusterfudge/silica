@@ -98,7 +98,7 @@ def main():
             received_idle = False
 
             while time.time() - start < timeout:
-                messages = context.receive_messages(wait=5, include_room=True)
+                messages = context.receive_messages(include_room=True)
 
                 for msg in messages:
                     log(f"Received: {msg.message.__class__.__name__}")
@@ -110,6 +110,7 @@ def main():
 
                 if received_idle:
                     break
+                time.sleep(1)
 
             if not received_idle:
                 log(f"FAILED: No Idle message received within {timeout}s")

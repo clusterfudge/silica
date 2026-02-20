@@ -4,6 +4,7 @@
 import os
 import sys
 import json
+import time
 import tempfile
 from datetime import datetime
 
@@ -92,7 +93,7 @@ def main():
                 log("Waiting for Idle from worker...")
                 received_idle = False
                 for _ in range(10):
-                    messages = context.receive_messages(wait=3, include_room=True)
+                    messages = context.receive_messages(include_room=True)
                     for msg in messages:
                         if isinstance(msg.message, Idle):
                             log(f"✓ Received Idle from {msg.message.agent_id}")
@@ -100,6 +101,7 @@ def main():
                             break
                     if received_idle:
                         break
+                    time.sleep(1)
 
                 if not received_idle:
                     log("FAILED: No Idle received")
