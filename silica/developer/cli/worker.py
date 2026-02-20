@@ -6,6 +6,7 @@ that receives tasks from a coordinator via deaddrop.
 
 import asyncio
 import os
+import time
 from pathlib import Path
 from typing import Optional, Annotated
 from urllib.parse import urlparse, parse_qs
@@ -179,10 +180,11 @@ def _run_worker_agent(
         try:
             console.print("\n[dim]Waiting for task from coordinator...[/dim]")
 
-            # Poll for messages (30 second timeout)
-            messages = coord_context.receive_messages(wait=30, include_room=True)
+            # Check for new messages
+            messages = coord_context.receive_messages(include_room=True)
 
             if not messages:
+                time.sleep(2)  # Avoid busy-spin while waiting
                 continue
 
             # Find task assignment messages
@@ -307,8 +309,6 @@ Execute this task now. When complete, clearly state "TASK COMPLETE" followed by 
             import traceback
 
             traceback.print_exc()
-            import time
-
             time.sleep(5)  # Wait before retrying
 
 

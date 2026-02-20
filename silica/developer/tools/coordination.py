@@ -136,16 +136,14 @@ def broadcast(
 
 
 def poll_messages(
-    wait: int = 30,
     include_room: bool = True,
 ) -> str:
-    """Poll for new messages from agents.
+    """Check for new messages from agents.
 
-    Long-polls the coordinator's inbox and optionally the coordination
-    room for new messages.
+    Checks the coordinator's inbox and optionally the coordination
+    room for new messages. Returns immediately.
 
     Args:
-        wait: Timeout in seconds (0 for immediate return)
         include_room: Whether to also check room messages
 
     Returns:
@@ -153,7 +151,6 @@ def poll_messages(
     """
     session = get_current_session()
     messages = session.context.receive_messages(
-        wait=wait,
         include_room=include_room,
     )
 

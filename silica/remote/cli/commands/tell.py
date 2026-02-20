@@ -31,7 +31,7 @@ def _wrap_coordinator_message(goal: str) -> str:
 1. **Use the coordinator tools** to spawn and manage worker agents:
    - `spawn_agent(workspace_name, display_name)` - Create new workers
    - `message_agent(agent_id, message_type, **kwargs)` - Send tasks
-   - `poll_messages(wait)` - Receive updates from workers
+   - `poll_messages()` - Receive updates from workers
    - `list_agents(filter_state)` - Check agent states
    - `terminate_agent(agent_id, reason)` - Clean up workers
 

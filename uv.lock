@@ -518,8 +518,8 @@ wheels = [
 
 [[package]]
 name = "deaddrop"
-version = "0.4.0"
-source = { git = "https://github.com/clusterfudge/deaddrop?tag=v0.4.0#dcdabec91eee99171daf4635b735335f2dda75f0" }
+version = "0.5.1"
+source = { git = "https://github.com/clusterfudge/deaddrop?tag=v0.5.1#2991423e125f1d4e128c4c6d7705854700bad467" }
 dependencies = [
     { name = "cryptography" },
     { name = "cyclopts" },
@@ -1728,7 +1728,7 @@ requires-dist = [
     { name = "bs4", specifier = ">=0.0.2" },
     { name = "croniter", specifier = ">=6.0.0" },
     { name = "cyclopts", specifier = ">=2.0.0" },
-    { name = "deaddrop", git = "https://github.com/clusterfudge/deaddrop?tag=v0.4.0" },
+    { name = "deaddrop", git = "https://github.com/clusterfudge/deaddrop?tag=v0.5.1" },
     { name = "dotenv", specifier = ">=0.9.9" },
     { name = "fastapi", specifier = ">=0.116.1" },
     { name = "filelock", specifier = ">=3.13.1" },

@@ -232,17 +232,16 @@ class CoordinationContext:
 
     def receive_messages(
         self,
-        wait: int = 0,
         include_room: bool = True,
         retry: bool = True,
     ) -> list[ReceivedMessage]:
-        """Receive messages from inbox and optionally room.
+        """Receive new messages from inbox and optionally room.
 
+        Returns immediately with any new messages since the last call.
         Skips messages that fail to parse (logs warning).
         Retries on connection failure if retry=True.
 
         Args:
-            wait: Long-poll timeout in seconds (0 for immediate return)
             include_room: Whether to also check the coordination room
             retry: Whether to retry on connection failure (default True)
 
@@ -260,7 +259,6 @@ class CoordinationContext:
                 identity_id=self.identity_id,
                 secret=self.identity_secret,
                 after_mid=self._last_inbox_mid,
-                wait=wait if not include_room else 0,
             )
 
         # Get inbox messages with optional retry
@@ -301,7 +299,6 @@ class CoordinationContext:
                     room_id=self.room_id,
                     secret=self.identity_secret,
                     after_mid=self._last_room_mid,
-                    wait=wait if not inbox_messages else 0,
                 )
 
             try:
@@ -334,21 +331,19 @@ class CoordinationContext:
 
     def poll(
         self,
-        wait: int = 30,
         include_room: bool = True,
     ) -> list[ReceivedMessage]:
-        """Poll for new messages with long-polling.
+        """Poll for new messages.
 
         Convenience wrapper around receive_messages.
 
         Args:
-            wait: Long-poll timeout in seconds
             include_room: Whether to include room messages
 
         Returns:
             List of received messages
         """
-        return self.receive_messages(wait=wait, include_room=include_room)
+        return self.receive_messages(include_room=include_room)
 
     def _serialize_with_compression(
         self,

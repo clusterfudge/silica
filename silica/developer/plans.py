@@ -210,7 +210,6 @@ def _normalize_files(files) -> list[str]:
     return []
 
 
-
 @dataclass
 class PlanTask:
     """A single task within a plan.

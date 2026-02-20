@@ -100,9 +100,7 @@ def create_worker_permission_callback(
         while (time.time() - start_time) < timeout:
             try:
                 # Only check inbox, not room - permission responses are direct messages
-                messages = context.receive_messages(
-                    wait=poll_interval, include_room=False
-                )
+                messages = context.receive_messages(include_room=False)
 
                 for msg in messages:
                     if isinstance(msg.message, PermissionResponse):
@@ -131,6 +129,11 @@ def create_worker_permission_callback(
             except Exception as e:
                 logger.warning(f"Error polling for permission response: {e}")
                 # Continue polling on transient errors
+
+            # Sleep between polls since receive_messages returns immediately
+            remaining = timeout - (time.time() - start_time)
+            if remaining > 0:
+                time.sleep(min(poll_interval, remaining))
 
         # Timeout - deny by default
         logger.warning(

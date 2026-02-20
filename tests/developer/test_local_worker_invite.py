@@ -217,9 +217,7 @@ class TestLocalInviteEndToEnd:
             result.context.send_to_coordinator(idle_msg)
 
             # Coordinator should receive it
-            coordinator_messages = session.context.receive_messages(
-                wait=0, include_room=False
-            )
+            coordinator_messages = session.context.receive_messages(include_room=False)
 
             # Filter for Idle messages
             idle_received = [
@@ -294,9 +292,7 @@ class TestLocalInviteEndToEnd:
             session.context.send_message(worker_identity["id"], task)
 
             # Worker receives it
-            worker_messages = result.context.receive_messages(
-                wait=0, include_room=False
-            )
+            worker_messages = result.context.receive_messages(include_room=False)
             task_messages = [
                 m for m in worker_messages if isinstance(m.message, TaskAssign)
             ]
