@@ -103,9 +103,9 @@ class TestPerModelThinkingBudgets:
 
         for alias, spec in MODEL_MAP.items():
             assert "max_output_tokens" in spec, f"{alias} missing max_output_tokens"
-            assert spec["max_output_tokens"] > 0, (
-                f"{alias} has invalid max_output_tokens"
-            )
+            assert (
+                spec["max_output_tokens"] > 0
+            ), f"{alias} has invalid max_output_tokens"
 
     def test_opus_has_128k_output(self):
         """Opus should have 128k max output tokens."""
