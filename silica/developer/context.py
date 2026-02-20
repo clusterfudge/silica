@@ -54,6 +54,7 @@ class AgentContext:
     _session_store: SessionStore | None = field(default=None, repr=False)
     _last_flushed_msg_count: int = 0
     _last_flushed_usage_count: int = 0
+    _last_flushed_boundary_msg: object = None  # strong ref to last flushed message dict
 
     def __post_init__(self):
         if self._chat_history is None:
@@ -310,11 +311,12 @@ class AgentContext:
         self._tool_result_buffer.clear()
         # Reset flush counters — compacted context is a fresh start
         self._last_flushed_msg_count = 0
+        self._last_flushed_boundary_msg = None
         self._last_flushed_usage_count = len(self.usage)
-        self.flush(new_messages, compact=False)
 
         if compaction_metadata:
             self._compaction_metadata = compaction_metadata
+        self.flush(new_messages, compact=False)
 
         return f"{archive_suffix}.context.jsonl"
 
@@ -328,11 +330,12 @@ class AgentContext:
         self._tool_result_buffer.clear()
         # Reset flush counters
         self._last_flushed_msg_count = 0
+        self._last_flushed_boundary_msg = None
         self._last_flushed_usage_count = len(self.usage)
-        self.flush(new_messages, compact=False)
 
         if compaction_metadata:
             self._compaction_metadata = compaction_metadata
+        self.flush(new_messages, compact=False)
 
     def flush(self, chat_history, compact=True):
         """Save agent context and chat history using the v2 split-file format.
@@ -355,8 +358,19 @@ class AgentContext:
 
         # 1. Append NEW messages to history.jsonl
         new_msg_count = len(chat_history)
-        if new_msg_count > self._last_flushed_msg_count:
-            new_messages = chat_history[self._last_flushed_msg_count :]
+        # Detect chat_history mutations (pop, splice, replacement).
+        # If the list shrank, or the message at the boundary changed,
+        # reset the counter so new messages get flushed.
+        flushed = self._last_flushed_msg_count
+        if flushed > new_msg_count:
+            flushed = 0  # list shrank
+        elif flushed > 0 and flushed <= new_msg_count:
+            # Check if the message at the boundary is still the same object.
+            # We hold a strong reference to prevent GC/address reuse.
+            if chat_history[flushed - 1] is not self._last_flushed_boundary_msg:
+                flushed = 0  # list was mutated
+        if new_msg_count > flushed:
+            new_messages = chat_history[flushed:]
             # Chain from last written msg, or parent's msg_id for first sub-agent flush
             prev_id = store.last_msg_id
             if prev_id is None and hasattr(self, "_parent_msg_id"):
@@ -394,7 +408,22 @@ class AgentContext:
             store.append_metadata(metadata_entries)
 
         # 3. Overwrite context file with current full context window
-        store.write_context(chat_history)
+        # Strip ephemeral keys (cache_control, inlined file content) that
+        # should never be persisted — they are re-added on each API call
+        # by _process_file_mentions().
+        clean_context = []
+        for msg in chat_history:
+            clean_msg = {k: v for k, v in msg.items() if k not in _INTERNAL_MSG_KEYS}
+            # Strip cache_control from content blocks
+            if isinstance(clean_msg.get("content"), list):
+                clean_msg["content"] = [
+                    {k: v for k, v in block.items() if k != "cache_control"}
+                    if isinstance(block, dict)
+                    else block
+                    for block in clean_msg["content"]
+                ]
+            clean_context.append(clean_msg)
+        store.write_context(clean_context)
 
         # 4. Update session.json
         compaction_metadata = getattr(self, "_compaction_metadata", None)
@@ -423,6 +452,9 @@ class AgentContext:
         # Update flush counters
         self._last_flushed_msg_count = new_msg_count
         self._last_flushed_usage_count = new_usage_count
+        # Hold a strong reference to the last flushed message to detect mutations.
+        # This prevents GC/address reuse that would fool an id()-based check.
+        self._last_flushed_boundary_msg = chat_history[-1] if chat_history else None
 
         # Legacy root.json dual-write removed — all consumers now read v2 format.
 
@@ -457,6 +489,24 @@ def load_session_data(
 
     # Auto-migrate legacy sessions on resume
     root_file = history_dir / "root.json"
+    backup_dir = history_dir / ".backup"
+
+    # Recover from interrupted migration: if .backup/ exists but session.json
+    # doesn't, the previous migration was interrupted. Restore root.json from
+    # backup and clean up so migration can retry.
+    if backup_dir.exists() and not (history_dir / "session.json").exists():
+        backup_root = backup_dir / "root.json"
+        if backup_root.exists() and not root_file.exists():
+            import shutil
+
+            shutil.copy2(backup_root, root_file)
+            print("Restored root.json from interrupted migration backup")
+        # Remove incomplete backup so migration can proceed
+        import shutil
+
+        shutil.rmtree(backup_dir)
+        print(f"Cleaned up interrupted migration backup for {session_id}")
+
     if root_file.exists() and not (history_dir / "session.json").exists():
         try:
             from silica.developer.session_store import migrate_session
@@ -499,10 +549,21 @@ def _load_v2_session(
                 for msg in store.read_history()
             ]
 
-        # Strip internal fields from context messages for API compat
+        # Strip internal fields and stale cache_control markers from context
+        # messages. cache_control is ephemeral — re-added on each API call
+        # by _process_file_mentions(). Older sessions may have them persisted.
         clean_history = []
         for msg in chat_history:
             clean = {k: v for k, v in msg.items() if k not in _INTERNAL_MSG_KEYS}
+            if isinstance(clean.get("content"), list):
+                clean["content"] = [
+                    (
+                        {k: v for k, v in block.items() if k != "cache_control"}
+                        if isinstance(block, dict)
+                        else block
+                    )
+                    for block in clean["content"]
+                ]
             clean_history.append(clean)
 
         # Read usage from metadata.jsonl — reconstruct (usage, model_spec) tuples
@@ -545,6 +606,7 @@ def _load_v2_session(
             _session_store=store,
             _last_flushed_msg_count=len(clean_history),
             _last_flushed_usage_count=len(usage_data),
+            _last_flushed_boundary_msg=(clean_history[-1] if clean_history else None),
         )
 
         if hasattr(base_context.user_interface, "handle_system_message"):

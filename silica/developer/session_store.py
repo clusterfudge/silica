@@ -10,12 +10,16 @@ Provides read/write primitives for the v2 session file layout:
 from __future__ import annotations
 
 import json
+import logging
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 # Format version for session.json
+logger = logging.getLogger(__name__)
+
 SESSION_FORMAT_VERSION = 2
 
 
@@ -141,9 +145,21 @@ class SessionStore:
             except (json.JSONDecodeError, OSError):
                 pass
 
-        self.session_meta_path.write_text(
-            json.dumps(data, indent=2, cls=PydanticJSONEncoder) + "\n"
-        )
+        # Atomic write: temp file + rename
+        tmp_path = self.session_meta_path.with_suffix(".json.tmp")
+        try:
+            content = json.dumps(data, indent=2, cls=PydanticJSONEncoder) + "\n"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                f.write(content)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, self.session_meta_path)
+        except BaseException:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
 
     def read_session_meta(self) -> dict[str, Any] | None:
         """Read session.json, or return None if it doesn't exist."""
@@ -261,29 +277,51 @@ class SessionStore:
     def _read_jsonl(path: Path) -> list[dict[str, Any]]:
         """Read all records from a JSONL file.
 
-        Silently skips blank lines and lines that fail to parse.
+        Skips blank lines. Logs a warning and skips lines that fail to parse.
         """
         if not path.exists():
             return []
         records: list[dict[str, Any]] = []
         with open(path, "r", encoding="utf-8") as f:
-            for line in f:
+            for line_num, line in enumerate(f, 1):
                 line = line.strip()
                 if not line:
                     continue
                 try:
                     records.append(json.loads(line))
                 except json.JSONDecodeError:
-                    continue  # skip corrupted lines gracefully
+                    logger.warning(
+                        "Skipping malformed JSONL at %s:%d: %s",
+                        path.name,
+                        line_num,
+                        line[:120],
+                    )
         return records
 
     @staticmethod
     def _write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
-        """Overwrite a JSONL file with the given records."""
+        """Atomically overwrite a JSONL file with the given records.
+
+        Writes to a temporary file first, then renames into place.
+        On POSIX, ``os.replace()`` is atomic — a crash mid-write leaves
+        the original file intact.
+        """
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            for record in records:
-                f.write(json.dumps(record, cls=PydanticJSONEncoder) + "\n")
+        tmp_path = path.with_suffix(path.suffix + ".tmp")
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                for record in records:
+                    f.write(json.dumps(record, cls=PydanticJSONEncoder) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, path)
+        except BaseException:
+            # Clean up temp file on failure; original is untouched
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
 
 
 # ------------------------------------------------------------------

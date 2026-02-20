@@ -1455,8 +1455,8 @@ async def run(
             # Exit after one response if in single-response mode
             if single_response and not agent_context.tool_result_buffer:
                 agent_context.flush(
-                    _process_file_mentions(agent_context.chat_history, agent_context),
-                    compact=False,  # Compaction handled explicitly above
+                    agent_context.chat_history,
+                    compact=False,
                 )
                 break
 

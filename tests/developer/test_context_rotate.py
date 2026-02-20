@@ -334,14 +334,8 @@ class TestAgentContextRotate(unittest.TestCase):
         ]
         context.rotate("test-archive", new_messages, metadata)
 
-        # Verify metadata was stored in the context
-        self.assertTrue(hasattr(context, "_compaction_metadata"))
-        self.assertEqual(context._compaction_metadata, metadata)
-
-        # Flush the context - this should include the metadata in session.json
-        context.flush(context.chat_history, compact=False)
-
-        # Read session.json and verify metadata is present
+        # After rotate(), metadata should already be written to session.json
+        # (rotate now sets _compaction_metadata before flush, not after)
         history_dir = (
             Path(self.test_dir)
             / ".silica"
@@ -449,7 +443,12 @@ class TestAgentContextCompactInPlace(unittest.TestCase):
             compaction_metadata=metadata,
         )
 
-        self.assertEqual(context._compaction_metadata, metadata)
+        # After compact_in_place(), metadata is already written to session.json
+        # and consumed (deleted from context). Verify via session.json.
+        store = context._get_or_create_store()
+        session_meta = store.read_session_meta()
+        self.assertIn("compaction", session_meta)
+        self.assertTrue(session_meta["compaction"]["is_compacted"])
 
     def test_compact_in_place_works_on_sub_agent(self):
         """compact_in_place should work on sub-agent contexts (unlike rotate)."""
