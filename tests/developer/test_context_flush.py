@@ -1,4 +1,3 @@
-import json
 import pytest
 from unittest.mock import patch, MagicMock
 from pathlib import Path
@@ -8,6 +7,7 @@ from uuid import uuid4
 from anthropic.types import Usage
 
 from silica.developer.context import AgentContext
+from silica.developer.session_store import SessionStore
 from silica.developer.memory import MemoryManager
 
 
@@ -56,7 +56,6 @@ def mock_sandbox():
 def mock_user_interface():
     """Create a mock user interface."""
 
-    # Add a status method that returns a context manager
     class DummyStatus:
         def __enter__(self):
             return self
@@ -130,23 +129,19 @@ def test_flush_root_context(
     model_spec,
     mock_usage,
 ):
-    """Test flushing a root context (parent_session_id is None)"""
-    # Create a root context
+    """Test flushing a root context creates v2 split files."""
     context = create_test_context(
         mock_sandbox, mock_user_interface, mock_memory_manager, model_spec
     )
     context.report_usage(mock_usage, model_spec)
 
-    # Create a simple chat history
     chat_history = [
         {"role": "user", "content": "Hello"},
         {"role": "assistant", "content": "Hi there"},
     ]
 
-    # Flush the context
     context.flush(chat_history)
 
-    # Verify the file was created with correct path and content
     history_dir = (
         Path(temp_dir.name)
         / ".silica"
@@ -155,16 +150,21 @@ def test_flush_root_context(
         / "history"
         / context.session_id
     )
-    history_file = history_dir / "root.json"
 
-    assert history_file.exists(), f"History file not found at {history_file}"
+    # v2 files should exist
+    assert (history_dir / "session.json").exists()
+    assert (history_dir / "root.history.jsonl").exists()
+    assert (history_dir / "root.context.jsonl").exists()
 
-    with open(history_file, "r") as f:
-        saved_data = json.load(f)
+    # Read via SessionStore
+    store = SessionStore(history_dir)
+    ctx_msgs = store.read_context()
+    assert len(ctx_msgs) == 2
+    assert ctx_msgs[0]["content"] == "Hello"
+    assert ctx_msgs[1]["content"] == "Hi there"
 
-    assert saved_data["session_id"] == context.session_id
-    assert saved_data["parent_session_id"] is None
-    assert saved_data["messages"] == chat_history
+    meta = store.read_session_meta()
+    assert meta["session_id"] == context.session_id
 
 
 def test_flush_sub_agent_context(
@@ -176,13 +176,11 @@ def test_flush_sub_agent_context(
     model_spec,
     mock_usage,
 ):
-    """Test flushing a sub-agent context (parent_session_id is set)"""
-    # Create a root context first
+    """Test flushing a sub-agent context creates its own v2 files."""
     root_context = create_test_context(
         mock_sandbox, mock_user_interface, mock_memory_manager, model_spec
     )
 
-    # Create a sub-agent context using with_user_interface
     sub_context = create_test_context(
         mock_sandbox,
         mock_user_interface,
@@ -192,16 +190,13 @@ def test_flush_sub_agent_context(
     )
     sub_context.report_usage(mock_usage, model_spec)
 
-    # Create a simple chat history for the sub-agent
     chat_history = [
         {"role": "user", "content": "Execute this subtask"},
         {"role": "assistant", "content": "Subtask completed"},
     ]
 
-    # Flush the sub-agent context
     sub_context.flush(chat_history)
 
-    # Verify the file was created with correct path and content
     history_dir = (
         Path(temp_dir.name)
         / ".silica"
@@ -210,16 +205,15 @@ def test_flush_sub_agent_context(
         / "history"
         / root_context.session_id
     )
-    history_file = history_dir / f"{sub_context.session_id}.json"
 
-    assert history_file.exists(), f"Sub-agent history file not found at {history_file}"
+    # Sub-agent v2 files
+    assert (history_dir / f"{sub_context.session_id}.history.jsonl").exists()
+    assert (history_dir / f"{sub_context.session_id}.context.jsonl").exists()
 
-    with open(history_file, "r") as f:
-        saved_data = json.load(f)
-
-    assert saved_data["session_id"] == sub_context.session_id
-    assert saved_data["parent_session_id"] == root_context.session_id
-    assert saved_data["messages"] == chat_history
+    store = SessionStore(history_dir, agent_name=sub_context.session_id)
+    ctx_msgs = store.read_context()
+    assert len(ctx_msgs) == 2
+    assert ctx_msgs[0]["content"] == "Execute this subtask"
 
 
 async def test_agent_tool_creates_correct_context(
@@ -229,30 +223,22 @@ async def test_agent_tool_creates_correct_context(
     with patch("silica.developer.agent_loop.run") as mock_run:
         from silica.developer.tools.subagent import agent
 
-        # Create a parent context
         parent_context = create_test_context(
             mock_sandbox, mock_user_interface, mock_memory_manager, model_spec
         )
 
-        # Set up the mock to be async
         async def mock_run_async(*args, **kwargs):
             return []
 
         mock_run.side_effect = mock_run_async
 
-        # We need to patch the CaptureInterface too
         with patch("silica.developer.tools.subagent.CaptureInterface") as mock_capture:
-            # The mock's instance should have a parent attribute
             mock_capture_instance = MagicMock()
             mock_capture.return_value = mock_capture_instance
 
-            # Call the agent tool
             await agent(parent_context, "Do something", "read_file")
 
-            # Verify that run was called with a context that has parent_session_id set
             args, kwargs = mock_run.call_args
-
-            # Extract the agent_context
             agent_context = kwargs.get("agent_context")
 
             assert agent_context is not None
@@ -269,12 +255,10 @@ def test_sub_agent_flush_directory_structure(
     model_spec,
 ):
     """Test that sub-agent contexts flush to the correct directory structure"""
-    # Create a root context
     root_context = create_test_context(
         mock_sandbox, mock_user_interface, mock_memory_manager, model_spec
     )
 
-    # Create a sub-agent context
     sub_context = AgentContext(
         session_id=str(uuid4()),
         parent_session_id=root_context.session_id,
@@ -285,17 +269,15 @@ def test_sub_agent_flush_directory_structure(
         memory_manager=mock_memory_manager,
     )
 
-    # Create a simple chat history
     chat_history = [
         {"role": "user", "content": "Execute subtask"},
         {"role": "assistant", "content": "Done"},
     ]
 
-    # Flush both contexts
     root_context.flush(chat_history)
     sub_context.flush(chat_history)
 
-    # Check that the root context created a root.json file in its own directory
+    # Root's v2 files
     root_dir = (
         Path(temp_dir.name)
         / ".silica"
@@ -304,16 +286,15 @@ def test_sub_agent_flush_directory_structure(
         / "history"
         / root_context.session_id
     )
-    root_file = root_dir / "root.json"
-    assert root_file.exists(), f"Root history file not found at {root_file}"
+    assert (root_dir / "session.json").exists()
+    assert (root_dir / "root.history.jsonl").exists()
 
-    # Check that the sub-agent created a file with its session ID in the parent's directory
-    sub_file = root_dir / f"{sub_context.session_id}.json"
-    assert sub_file.exists(), f"Sub-agent history file not found at {sub_file}"
+    # Sub-agent's v2 files in parent's directory
+    assert (root_dir / f"{sub_context.session_id}.history.jsonl").exists()
+    assert (root_dir / f"{sub_context.session_id}.context.jsonl").exists()
 
-    # Verify the content of the sub-agent file
-    with open(sub_file, "r") as f:
-        saved_data = json.load(f)
-
-    assert saved_data["session_id"] == sub_context.session_id
-    assert saved_data["parent_session_id"] == root_context.session_id
+    # Verify sub-agent content
+    sub_store = SessionStore(root_dir, agent_name=sub_context.session_id)
+    ctx_msgs = sub_store.read_context()
+    assert len(ctx_msgs) == 2
+    assert ctx_msgs[0]["content"] == "Execute subtask"

@@ -81,13 +81,14 @@ def main():
             start = time.time()
 
             while time.time() - start < timeout and len(received_agents) < num_workers:
-                messages = context.receive_messages(wait=3, include_room=True)
+                messages = context.receive_messages(include_room=True)
                 for msg in messages:
                     if isinstance(msg.message, Idle):
                         agent = msg.message.agent_id
                         if agent in expected_agents and agent not in received_agents:
                             received_agents.add(agent)
                             log(f"✓ Received Idle from {agent}")
+                time.sleep(1)
 
             if len(received_agents) < num_workers:
                 log(

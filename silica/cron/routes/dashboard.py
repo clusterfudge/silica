@@ -74,17 +74,56 @@ async def create_job_form(
 @router.get("/sessions/{session_id}", response_class=HTMLResponse)
 async def view_session_history(session_id: str, request: Request):
     """View hdev session history."""
-    # Build path to session file
-    session_file = Path.home() / ".hdev" / "history" / session_id / "root.json"
+    # Build path to session directory
+    session_dir = (
+        Path.home() / ".silica" / "personas" / "default" / "history" / session_id
+    )
 
-    if not session_file.exists():
+    # Try v2 format first
+    session_json = session_dir / "session.json"
+    session_data = None
+
+    if session_json.exists():
+        try:
+            from silica.developer.session_store import SessionStore
+
+            store = SessionStore(session_dir, agent_name="root")
+            meta = store.read_session_meta()
+            if meta:
+                # Strip internal keys from context messages
+                _internal = {
+                    "msg_id",
+                    "prev_msg_id",
+                    "timestamp",
+                    "anthropic_id",
+                    "request_id",
+                }
+                clean_msgs = [
+                    {k: v for k, v in m.items() if k not in _internal}
+                    for m in store.read_context()
+                ]
+                session_data = {**meta, "messages": clean_msgs}
+        except Exception:
+            pass
+
+    # Fall back to legacy paths
+    if session_data is None:
+        for legacy_path in [
+            session_dir / "root.json",
+            Path.home() / ".hdev" / "history" / session_id / "root.json",
+        ]:
+            if legacy_path.exists():
+                try:
+                    with open(legacy_path, "r") as f:
+                        session_data = json.load(f)
+                    break
+                except (json.JSONDecodeError, IOError):
+                    continue
+
+    if session_data is None:
         raise HTTPException(status_code=404, detail="Session not found")
 
     try:
-        # Load session data
-        with open(session_file, "r") as f:
-            session_data = json.load(f)
-
         return templates.TemplateResponse(
             request,
             "session_history.html",

@@ -115,25 +115,25 @@ class TestSessionCliArgs(unittest.TestCase):
             # Flush the context
             context.flush(test_history)
 
-            # Check that the file was created with CLI args
-            session_file = (
+            # Check that v2 files were created with CLI args
+            session_dir = (
                 self.history_dir
                 / ".silica"
                 / "personas"
                 / "default"
                 / "history"
                 / "test-session"
-                / "root.json"
             )
+            session_file = session_dir / "session.json"
             self.assertTrue(session_file.exists())
 
-            # Read and verify the content
+            # Read and verify the content from session.json
             with open(session_file, "r") as f:
                 session_data = json.load(f)
 
-            # Verify CLI args are in metadata
-            self.assertIn("cli_args", session_data["metadata"])
-            self.assertEqual(session_data["metadata"]["cli_args"], test_cli_args)
+            # Verify CLI args are in session metadata
+            self.assertIn("cli_args", session_data)
+            self.assertEqual(session_data["cli_args"], test_cli_args)
 
     def test_reconstruct_command_from_list(self):
         """Test that CLI commands are properly reconstructed from stored arguments."""

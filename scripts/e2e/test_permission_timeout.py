@@ -80,10 +80,11 @@ def main():
 
             # Wait for initial Idle
             for _ in range(10):
-                messages = coord_context.receive_messages(wait=3, include_room=True)
+                messages = coord_context.receive_messages(include_room=True)
                 if any(isinstance(m.message, Idle) for m in messages):
                     log("✓ Initial Idle received")
                     break
+                time.sleep(1)
             else:
                 log("FAILED: No initial Idle")
                 return False
@@ -104,11 +105,12 @@ def main():
             # Coordinator receives but delays response
             log("Coordinator receiving request but delaying response...")
             for _ in range(10):
-                messages = coord_context.receive_messages(wait=3, include_room=True)
+                messages = coord_context.receive_messages(include_room=True)
                 for msg in messages:
                     if isinstance(msg.message, PermissionRequest):
                         log(f"✓ Coordinator received request: {msg.message.request_id}")
                         break
+                time.sleep(1)
 
             log("Simulating coordinator delay (2 seconds)...")
             time.sleep(2)
@@ -124,11 +126,12 @@ def main():
 
             # Verify worker receives it
             for _ in range(10):
-                messages = worker_context.receive_messages(wait=3)
+                messages = worker_context.receive_messages()
                 for msg in messages:
                     if isinstance(msg.message, PermissionResponse):
                         log(f"✓ Worker received late response: {msg.message.decision}")
                         break
+                time.sleep(1)
 
             print()
             print("=" * 60)

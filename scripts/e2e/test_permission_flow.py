@@ -3,6 +3,7 @@
 
 import os
 import sys
+import time
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
@@ -81,10 +82,11 @@ def main():
             # Wait for initial Idle
             log("Waiting for initial Idle...")
             for _ in range(10):
-                messages = coord_context.receive_messages(wait=3, include_room=True)
+                messages = coord_context.receive_messages(include_room=True)
                 if any(isinstance(m.message, Idle) for m in messages):
                     log("✓ Initial Idle received")
                     break
+                time.sleep(1)
             else:
                 log("FAILED: No initial Idle")
                 return False
@@ -107,7 +109,7 @@ def main():
             log("Coordinator waiting for PermissionRequest...")
             received_request = False
             for _ in range(10):
-                messages = coord_context.receive_messages(wait=3, include_room=True)
+                messages = coord_context.receive_messages(include_room=True)
                 for msg in messages:
                     if isinstance(msg.message, PermissionRequest):
                         if msg.message.request_id == request_id:
@@ -116,6 +118,7 @@ def main():
                             break
                 if received_request:
                     break
+                time.sleep(1)
 
             if not received_request:
                 log("FAILED: Coordinator didn't receive PermissionRequest")
@@ -135,7 +138,7 @@ def main():
             log("Worker waiting for PermissionResponse...")
             received_response = False
             for _ in range(10):
-                messages = worker_context.receive_messages(wait=3)
+                messages = worker_context.receive_messages()
                 for msg in messages:
                     if isinstance(msg.message, PermissionResponse):
                         if msg.message.request_id == request_id:
@@ -146,6 +149,7 @@ def main():
                             break
                 if received_response:
                     break
+                time.sleep(1)
 
             if not received_response:
                 log("FAILED: Worker didn't receive PermissionResponse")

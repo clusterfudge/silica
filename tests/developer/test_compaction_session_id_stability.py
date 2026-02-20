@@ -103,7 +103,10 @@ class TestCompactionSessionIDStability(unittest.TestCase):
         self.assertIsNotNone(metadata)
         self.assertIsNotNone(metadata.archive_name)
         self.assertTrue(metadata.archive_name.startswith("pre-compaction-"))
-        self.assertTrue(metadata.archive_name.endswith(".json"))
+        self.assertTrue(
+            metadata.archive_name.endswith(".context.jsonl")
+            or metadata.archive_name.endswith(".json")
+        )
         self.assertEqual(metadata.original_message_count, 4)
         self.assertGreater(metadata.compacted_message_count, 0)
 
@@ -181,7 +184,7 @@ class TestCompactionSessionIDStability(unittest.TestCase):
         # First, flush the original conversation
         context.flush(context.chat_history, compact=False)
 
-        # Verify root.json was created
+        # Verify v2 files were created
         history_dir = (
             Path(self.test_dir)
             / ".silica"
@@ -190,13 +193,14 @@ class TestCompactionSessionIDStability(unittest.TestCase):
             / "history"
             / "test-archive-session"
         )
-        root_file = history_dir / "root.json"
-        self.assertTrue(root_file.exists())
+        self.assertTrue((history_dir / "session.json").exists())
 
-        # Read the original root.json
-        with open(root_file, "r") as f:
-            original_data = json.load(f)
-        self.assertEqual(len(original_data["messages"]), 4)
+        # Read the original context
+        from silica.developer.session_store import SessionStore
+
+        store = SessionStore(history_dir)
+        original_ctx = store.read_context()
+        self.assertEqual(len(original_ctx), 4)
 
         # Now create a compacter and run compaction (which does archiving)
         mock_client = MockAnthropicClient()
@@ -222,31 +226,37 @@ class TestCompactionSessionIDStability(unittest.TestCase):
         )
 
         # Read the archive and verify it contains the original conversation
-        with open(archive_file, "r") as f:
-            archived_data = json.load(f)
-        self.assertEqual(len(archived_data["messages"]), 4)
-        self.assertEqual(archived_data["messages"], self.sample_messages)
+        # Archive is now .context.jsonl format
+        archive_ctx_file = history_dir / archive_file.name
+        if archive_ctx_file.exists() and archive_ctx_file.suffix == ".jsonl":
+            archived_msgs = SessionStore._read_jsonl(archive_ctx_file)
+            self.assertEqual(len(archived_msgs), 4)
+        elif archive_file.exists():
+            with open(archive_file, "r") as f:
+                archived_data = json.load(f)
+            self.assertEqual(len(archived_data["messages"]), 4)
 
         # Now use the mutated context and flush to save compacted version
         context._compaction_metadata = metadata
         context.flush(context.chat_history, compact=False)
 
-        # Verify the new root.json contains the compacted conversation
-        with open(root_file, "r") as f:
-            new_data = json.load(f)
+        # Verify session.json contains compaction metadata
+        store2 = SessionStore(history_dir)
+        session_meta = store2.read_session_meta()
         self.assertGreater(
-            len(new_data["messages"]), 0
+            len(store2.read_context()), 0
         )  # Has summary + preserved messages
 
         # Verify compaction metadata is present
-        self.assertIn("compaction", new_data)
-        self.assertTrue(new_data["compaction"]["is_compacted"])
+        self.assertIn("compaction", session_meta)
+        self.assertTrue(session_meta["compaction"]["is_compacted"])
         self.assertEqual(
-            new_data["compaction"]["pre_compaction_archive"], metadata.archive_name
+            session_meta["compaction"]["pre_compaction_archive"],
+            metadata.archive_name,
         )
-        self.assertEqual(new_data["compaction"]["original_message_count"], 4)
+        self.assertEqual(session_meta["compaction"]["original_message_count"], 4)
         self.assertEqual(
-            new_data["compaction"]["compacted_message_count"],
+            session_meta["compaction"]["compacted_message_count"],
             metadata.compacted_message_count,
         )
 

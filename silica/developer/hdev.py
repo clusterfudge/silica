@@ -1642,6 +1642,221 @@ def view_session(
         print("\nSession viewer stopped")
 
 
+def migrate(
+    *,
+    session: Annotated[
+        Optional[str], cyclopts.Parameter(help="Specific session ID to migrate")
+    ] = None,
+    all: Annotated[
+        bool, cyclopts.Parameter(help="Migrate all legacy sessions")
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        cyclopts.Parameter(help="Run migration into temp dir for preview/inspection"),
+    ] = False,
+    verify: Annotated[
+        bool,
+        cyclopts.Parameter(
+            help="Verify migrated sessions can be loaded by the agent (v2 format only)"
+        ),
+    ] = False,
+    persona: Annotated[
+        Optional[str], cyclopts.Parameter(help="Persona to migrate sessions for")
+    ] = None,
+):
+    """Migrate legacy session files (root.json) to v2 split-file format.
+
+    Args:
+        session: Specific session ID to migrate
+        all: Migrate all legacy sessions under the persona's history dir
+        dry_run: Run full migration into temp dir for preview/inspection
+        verify: Test that migrated v2 sessions can be loaded by the agent
+        persona: Persona name (defaults to 'default')
+    """
+    from silica.developer.session_store import migrate_session, migrate_all_sessions
+
+    # Determine base directory
+    if persona:
+        persona_obj = personas.get_or_create(persona, interactive=False)
+        base_dir = persona_obj.base_directory
+    else:
+        base_dir = Path.home() / ".silica" / "personas" / "default"
+
+    if session:
+        session_dir = base_dir / "history" / session
+        try:
+            stats = migrate_session(session_dir, dry_run=dry_run)
+            prefix = "[DRY RUN] " if dry_run else ""
+            print(
+                f"{prefix}Migrated session {session}: "
+                f"{stats['message_count']} messages, {stats['usage_count']} usage entries"
+            )
+            if stats.get("is_compacted") or stats.get("archive_count", 0) > 0:
+                print(
+                    f"  Compacted session: {stats.get('archive_count', 0)} "
+                    f"pre-compaction archive(s) merged into history"
+                )
+            if stats.get("files_created"):
+                print(f"  Files created: {', '.join(stats['files_created'])}")
+            if stats.get("files_renamed"):
+                for old, new in stats["files_renamed"]:
+                    print(f"  Renamed: {old} → {new}")
+            if stats.get("preview_dir"):
+                preview_path = Path(stats["preview_dir"])
+                print(f"\n  Preview output written to:\n    {preview_path}")
+                print("  Inspect the files, then re-run without --dry-run to apply.")
+                if verify:
+                    print()
+                    _verify_migrated_sessions(base_dir, preview_dir=preview_path.parent)
+        except FileNotFoundError:
+            print(f"Error: No root.json found for session {session}")
+        except ValueError as e:
+            print(f"Skip: {e}")
+    elif all:
+        # For dry-run --all, use a shared preview directory
+        preview_base = None
+        if dry_run:
+            import tempfile
+
+            preview_base = Path(tempfile.mkdtemp(prefix="silica-migrate-preview-"))
+
+        def progress(sd, i, total):
+            print(f"  [{i + 1}/{total}] {sd.name}...")
+
+        results = migrate_all_sessions(
+            base_dir,
+            dry_run=dry_run,
+            progress_callback=progress,
+            preview_dir=preview_base,
+        )
+        ok = sum(1 for r in results if r.get("status") == "ok")
+        errors = sum(1 for r in results if r.get("status") == "error")
+        prefix = "[DRY RUN] " if dry_run else ""
+        print(
+            f"\n{prefix}Migration complete: {ok} migrated, {errors} errors, "
+            f"{len(results)} total"
+        )
+        for r in results:
+            if r.get("status") == "error":
+                print(f"  ERROR: {r['session_dir']}: {r.get('error')}")
+        if dry_run and preview_base:
+            print(f"\n  Preview output written to:\n    {preview_base}")
+            print("  Inspect the files, then re-run without --dry-run to apply.")
+            if verify:
+                print()
+                _verify_migrated_sessions(base_dir, preview_dir=preview_base)
+    elif verify:
+        _verify_migrated_sessions(base_dir)
+    else:
+        print("Error: Specify --session <id> or --all, or use --verify")
+        print("Usage: silica migrate --session <session-id> [--dry-run]")
+        print("       silica migrate --all [--dry-run]")
+        print("       silica migrate --verify")
+
+
+def _verify_migrated_sessions(base_dir: Path, preview_dir: Path | None = None):
+    """Verify that all v2 sessions under base_dir can be loaded by the agent.
+
+    Args:
+        base_dir: The persona base directory (contains history/ subdirectory).
+        preview_dir: If set, verify sessions in this directory instead.
+            The preview dir should contain session subdirs directly
+            (not under a history/ subdirectory).
+    """
+    from silica.developer.context import load_session_data, AgentContext
+    from silica.developer.sandbox import Sandbox, SandboxMode
+    from unittest.mock import MagicMock
+    import tempfile
+    import os
+
+    if preview_dir:
+        # Preview dirs have session subdirs directly — create a wrapper
+        # so load_session_data (which expects base/history/<id>) works.
+        wrapper = Path(tempfile.mkdtemp(prefix="silica-verify-"))
+        history_dir = wrapper / "history"
+        history_dir.mkdir()
+        for d in sorted(preview_dir.iterdir()):
+            if d.is_dir() and (d / "session.json").exists():
+                os.symlink(d, history_dir / d.name)
+        effective_base = wrapper
+    else:
+        history_dir = base_dir / "history"
+        effective_base = base_dir
+
+    if not history_dir.exists():
+        print("No history directory found.")
+        return
+
+    # Find v2 sessions (have session.json)
+    v2_sessions = []
+    for d in sorted(history_dir.iterdir()):
+        if d.is_dir() and (d / "session.json").exists():
+            v2_sessions.append(d.name)
+
+    if not v2_sessions:
+        print("No v2 sessions found. Run migration first.")
+        return
+
+    print(f"Verifying {len(v2_sessions)} v2 sessions can be loaded...")
+
+    sandbox = Sandbox(str(Path.cwd()), SandboxMode.ALLOW_ALL)
+    ui = MagicMock()
+    ui.handle_system_message = MagicMock()
+    mm = MagicMock()
+
+    success = 0
+    failures = []
+    total_msgs = 0
+    total_usage = 0
+
+    for sid in v2_sessions:
+        base_ctx = AgentContext(
+            parent_session_id=None,
+            session_id="verify",
+            model_spec={
+                "title": "verify",
+                "pricing": {"input": 0, "output": 0},
+                "max_tokens": 1000,
+                "context_window": 200000,
+            },
+            sandbox=sandbox,
+            user_interface=ui,
+            usage=[],
+            memory_manager=mm,
+        )
+
+        try:
+            ctx = load_session_data(
+                sid, base_context=base_ctx, history_base_dir=effective_base
+            )
+            if ctx:
+                msgs = len(ctx._chat_history)
+                usage_count = len(ctx.usage)
+                total_msgs += msgs
+                total_usage += usage_count
+                success += 1
+            else:
+                failures.append((sid, "returned None"))
+        except Exception as e:
+            failures.append((sid, str(e)[:120]))
+
+    print(f"\n✅ Loaded: {success}/{len(v2_sessions)}")
+    print(f"   Total messages: {total_msgs:,}")
+    print(f"   Total usage entries: {total_usage:,}")
+    if failures:
+        print(f"\n❌ Failures: {len(failures)}")
+        for sid, err in failures[:10]:
+            print(f"   {sid}: {err}")
+        if len(failures) > 10:
+            print(f"   ... and {len(failures) - 10} more")
+
+    # Clean up temp wrapper if we created one
+    if preview_dir:
+        import shutil
+
+        shutil.rmtree(wrapper, ignore_errors=True)
+
+
 def attach_tools(app):
     console = Console()
     sandbox = Sandbox(".", SandboxMode.ALLOW_ALL)

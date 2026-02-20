@@ -1316,28 +1316,41 @@ class Toolbox:
         # Get session creation and update times if available
         history_dir = history_base_dir / "history"
         context_dir = parent_session_id if parent_session_id else session_id
-        history_file = (
-            history_dir
-            / context_dir
-            / ("root.json" if not parent_session_id else f"{session_id}.json")
-        )
+        session_dir = history_dir / context_dir
 
         created_at = None
         last_updated = None
         root_dir = None
 
-        if history_file.exists():
+        # Try v2 format first (session.json)
+        session_json = session_dir / "session.json"
+        if session_json.exists():
             try:
                 import json
 
-                with open(history_file, "r") as f:
-                    session_data = json.load(f)
-                    metadata = session_data.get("metadata", {})
-                    created_at = metadata.get("created_at")
-                    last_updated = metadata.get("last_updated")
-                    root_dir = metadata.get("root_dir")
+                meta = json.loads(session_json.read_text())
+                created_at = meta.get("created_at")
+                last_updated = meta.get("last_updated")
+                root_dir = meta.get("root_dir")
             except Exception:
                 pass
+        else:
+            # Fall back to legacy root.json
+            history_file = session_dir / (
+                "root.json" if not parent_session_id else f"{session_id}.json"
+            )
+            if history_file.exists():
+                try:
+                    import json
+
+                    with open(history_file, "r") as f:
+                        session_data = json.load(f)
+                        metadata = session_data.get("metadata", {})
+                        created_at = metadata.get("created_at")
+                        last_updated = metadata.get("last_updated")
+                        root_dir = metadata.get("root_dir")
+                except Exception:
+                    pass
 
         # Get git branch name
         branch_name = None

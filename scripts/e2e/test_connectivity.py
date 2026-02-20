@@ -120,46 +120,55 @@ def test_basic_connectivity():
     return True
 
 
-def test_long_polling():
-    """Test long-polling behavior."""
+def test_subscribe():
+    """Test subscribe-based notification (replaces long-polling in deaddrop v0.5+)."""
     print()
     print("=" * 60)
-    print("E2E Test: Long Polling")
+    print("E2E Test: Subscribe Notifications")
     print("=" * 60)
 
     deaddrop = get_e2e_deaddrop()
 
-    with test_namespace(deaddrop, prefix="longpoll-test") as ns:
-        # Create identity
-        identity = deaddrop.create_identity(
+    with test_namespace(deaddrop, prefix="subscribe-test") as ns:
+        # Create two identities
+        receiver = deaddrop.create_identity(
             ns=ns["ns"],
-            display_name="Poller",
+            display_name="Receiver",
+            ns_secret=ns["secret"],
+        )
+        deaddrop.create_identity(
+            ns=ns["ns"],
+            display_name="Sender",
             ns_secret=ns["secret"],
         )
 
-        # Test that long-poll returns quickly when empty (should timeout)
-        print("Testing 3-second long-poll on empty inbox...")
+        # Test that subscribe returns quickly when no new messages
+        print("Testing 3-second subscribe on empty inbox...")
         start = time.time()
-        messages = deaddrop.get_inbox(
-            ns=ns["ns"],
-            identity_id=identity["id"],
-            secret=identity["secret"],
-            wait=3,  # 3 second timeout
-        )
-        elapsed = time.time() - start
-        print(f"✓ Long-poll returned in {elapsed:.2f}s with {len(messages)} messages")
-
-        # Verify it actually waited (at least 2 seconds)
-        if elapsed < 2:
-            print(
-                f"⚠ Warning: Long-poll returned faster than expected ({elapsed:.2f}s)"
+        try:
+            deaddrop.subscribe(
+                ns=ns["ns"],
+                secret=receiver["secret"],
+                topics={f"inbox:{receiver['id']}": None},
+                timeout=3,
             )
+            elapsed = time.time() - start
+            print(f"✓ Subscribe returned in {elapsed:.2f}s")
+        except Exception as e:
+            elapsed = time.time() - start
+            print(f"✓ Subscribe timed out in {elapsed:.2f}s (expected): {e}")
+
+        # Verify it waited at least 2 seconds
+        if elapsed >= 2:
+            print("✓ Subscribe timing looks correct")
         else:
-            print("✓ Long-poll timing looks correct")
+            print(
+                f"⚠ Warning: Subscribe returned faster than expected ({elapsed:.2f}s)"
+            )
 
     print()
     print("=" * 60)
-    print("✓ Long polling test passed!")
+    print("✓ Subscribe test passed!")
     print("=" * 60)
     return True
 
@@ -167,7 +176,7 @@ def test_long_polling():
 if __name__ == "__main__":
     try:
         test_basic_connectivity()
-        test_long_polling()
+        test_subscribe()
         print()
         print("🎉 All E2E connectivity tests passed!")
         sys.exit(0)

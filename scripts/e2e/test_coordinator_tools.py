@@ -105,7 +105,7 @@ def main():
         start = time.time()
 
         while time.time() - start < timeout and len(idle_agents) < 2:
-            poll_result = coord_tools.poll_messages(wait=5, include_room=True)
+            poll_result = coord_tools.poll_messages(include_room=True)
 
             if "No new messages" not in poll_result:
                 # Check for each agent's Idle
@@ -113,6 +113,7 @@ def main():
                     if agent_id in poll_result and agent_id not in idle_agents:
                         idle_agents.add(agent_id)
                         log(f"✓ Got Idle from {agent_id}")
+            time.sleep(1)
 
         if len(idle_agents) < 2:
             log(f"FAILED: Only {len(idle_agents)}/2 workers reported")
@@ -142,10 +143,11 @@ def main():
         start = time.time()
 
         while time.time() - start < timeout:
-            poll_result = coord_tools.poll_messages(wait=5, include_room=True)
+            poll_result = coord_tools.poll_messages(include_room=True)
             result_lower = poll_result.lower()
 
             if "no new messages" in result_lower:
+                time.sleep(1)
                 continue
 
             # Check for task_ack
@@ -165,6 +167,7 @@ def main():
 
             if received_ack and received_result and progress_count >= 2:
                 break
+            time.sleep(1)
 
         if not received_ack or not received_result:
             log(

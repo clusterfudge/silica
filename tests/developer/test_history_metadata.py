@@ -60,58 +60,55 @@ class TestHistoryMetadata(unittest.TestCase):
         # Flush the conversation
         self.agent_context.flush(self.chat_history)
 
-        # Get the path to the saved history file
-        # persona_base_dir is used, and history is stored at persona_base_dir/history
-        history_file = (
+        # Get the path to the session.json (v2 format)
+        session_file = (
             self.persona_base_dir
             / "history"
             / self.agent_context.session_id
-            / "root.json"
+            / "session.json"
         )
 
         # Check if the file exists
-        self.assertTrue(history_file.exists())
+        self.assertTrue(session_file.exists())
 
         # Load the file
-        with open(history_file, "r") as f:
+        with open(session_file, "r") as f:
             data = json.load(f)
 
-        # Verify metadata fields exist
-        self.assertIn("metadata", data)
-        self.assertIn("created_at", data["metadata"])
-        self.assertIn("last_updated", data["metadata"])
-        self.assertIn("root_dir", data["metadata"])
+        # Verify metadata fields exist in session.json
+        self.assertIn("created_at", data)
+        self.assertIn("last_updated", data)
+        self.assertIn("root_dir", data)
 
         # Verify created_at and last_updated are valid ISO format dates
         try:
-            created_at = datetime.fromisoformat(data["metadata"]["created_at"])
-            last_updated = datetime.fromisoformat(data["metadata"]["last_updated"])
+            created_at = datetime.fromisoformat(data["created_at"])
+            last_updated = datetime.fromisoformat(data["last_updated"])
             self.assertIsNotNone(created_at)
             self.assertIsNotNone(last_updated)
         except ValueError:
             self.fail("Dates are not in valid ISO format")
 
         # Verify root_dir is a string and not empty
-        self.assertIsInstance(data["metadata"]["root_dir"], str)
-        self.assertTrue(len(data["metadata"]["root_dir"]) > 0)
+        self.assertIsInstance(data["root_dir"], str)
+        self.assertTrue(len(data["root_dir"]) > 0)
 
     def test_update_preserves_created_at(self):
         # Flush the conversation first time
         self.agent_context.flush(self.chat_history)
 
-        # Get the path to the saved history file
-        # persona_base_dir is used, and history is stored at persona_base_dir/history
-        history_file = (
+        # Get the path to session.json (v2 format)
+        session_file = (
             self.persona_base_dir
             / "history"
             / self.agent_context.session_id
-            / "root.json"
+            / "session.json"
         )
 
         # Load the file to get original created_at
-        with open(history_file, "r") as f:
+        with open(session_file, "r") as f:
             original_data = json.load(f)
-        original_created_at = original_data["metadata"]["created_at"]
+        original_created_at = original_data["created_at"]
 
         # Wait a moment to ensure timestamps would be different
         import time
@@ -124,14 +121,12 @@ class TestHistoryMetadata(unittest.TestCase):
         self.agent_context.flush(updated_chat_history)
 
         # Load the file again
-        with open(history_file, "r") as f:
+        with open(session_file, "r") as f:
             updated_data = json.load(f)
 
         # Verify created_at is preserved but last_updated is changed
-        self.assertEqual(updated_data["metadata"]["created_at"], original_created_at)
-        self.assertNotEqual(
-            updated_data["metadata"]["last_updated"], original_created_at
-        )
+        self.assertEqual(updated_data["created_at"], original_created_at)
+        self.assertNotEqual(updated_data["last_updated"], original_created_at)
 
 
 if __name__ == "__main__":

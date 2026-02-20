@@ -257,9 +257,19 @@ def _process_file_mentions(
     # Make a deep copy of the chat history to ensure we don't modify the original
     results: list[MessageParam] = []
 
-    # First, make a direct deep copy of each message
+    # First, make a direct deep copy of each message, stripping internal fields
+    # that are not part of the Anthropic API message schema.
+    _internal_keys = {
+        "anthropic_id",
+        "request_id",
+        "msg_id",
+        "prev_msg_id",
+        "timestamp",
+    }
     for idx, message in enumerate(chat_history):
-        message_copy = copy.deepcopy(message)
+        message_copy = {
+            k: copy.deepcopy(v) for k, v in message.items() if k not in _internal_keys
+        }
         results.append(message_copy)
 
         if message["role"] == "user":
@@ -591,7 +601,12 @@ async def run(
                                 timeout=heartbeat_idle_seconds,
                             )
                         except asyncio.TimeoutError:
-                            user_input = heartbeat_prompt
+                            # Inject current timestamp so the agent can do time-based scheduling
+                            from datetime import datetime, timezone
+
+                            now = datetime.now(timezone.utc)
+                            ts = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+                            user_input = f"[Heartbeat: {ts}]\n\n{heartbeat_prompt}"
                             user_interface.handle_system_message(
                                 f"[dim]💓 Heartbeat ({heartbeat_idle_seconds}s idle)[/dim]",
                                 markdown=False,
@@ -799,11 +814,45 @@ async def run(
 
                         # Calculate max_tokens based on whether thinking is enabled
                         # When thinking is enabled, max_tokens must be thinking_budget + completion_tokens
+                        # We must also ensure context_tokens + max_tokens <= context_window
                         max_tokens = model["max_tokens"]
                         if thinking_config and thinking_config.get("type") == "enabled":
                             max_tokens = (
                                 thinking_config["budget_tokens"] + model["max_tokens"]
                             )
+
+                        # Clamp max_tokens to fit within the model's context window.
+                        # Use the last API call's input_tokens as an estimate of current
+                        # context size, with a safety margin for the new user message.
+                        context_window = model.get("context_window", 200000)
+                        estimated_context = 0
+                        if agent_context.usage:
+                            last_usage = agent_context.usage[-1][0]
+                            if hasattr(last_usage, "input_tokens"):
+                                estimated_context = last_usage.input_tokens
+                            elif isinstance(last_usage, dict):
+                                estimated_context = last_usage.get("input_tokens", 0)
+                            # Add a margin for the new user message / tool results
+                            estimated_context = int(estimated_context * 1.05) + 1000
+
+                        if estimated_context > 0:
+                            available = context_window - estimated_context
+                            if max_tokens > available:
+                                if (
+                                    thinking_config
+                                    and thinking_config.get("type") == "enabled"
+                                ):
+                                    # Reduce thinking budget first, preserve completion tokens
+                                    new_budget = available - model["max_tokens"]
+                                    if new_budget >= 1024:
+                                        thinking_config["budget_tokens"] = new_budget
+                                        max_tokens = new_budget + model["max_tokens"]
+                                    else:
+                                        # Not enough room for thinking — disable it
+                                        thinking_config = {"type": "disabled"}
+                                        max_tokens = min(model["max_tokens"], available)
+                                else:
+                                    max_tokens = max(1024, available)
 
                         api_kwargs = {
                             "system": system_message,
@@ -828,6 +877,7 @@ async def run(
                         )
 
                         thinking_content = ""
+                        _request_id = None
                         try:
                             with client.messages.stream(**api_kwargs) as stream:
                                 for chunk in stream:
@@ -861,6 +911,8 @@ async def run(
                             )
 
                             rate_limiter.update(stream.response.headers)
+                            # Capture request ID for provenance (used below)
+                            _request_id = getattr(stream, "request_id", None)
                             break
                         except (
                             httpx.RemoteProtocolError,
@@ -911,6 +963,38 @@ async def run(
                                     "during_streaming": True,
                                 },
                             )
+
+                            # Handle "prompt is too long" by disabling thinking and retrying
+                            if status_code == 400 and "prompt is too long" in str(e):
+                                user_interface.handle_system_message(
+                                    "[bold yellow]Context too large for thinking budget. Retrying with thinking disabled...[/bold yellow]",
+                                    markdown=False,
+                                )
+                                # Disable thinking and clamp max_tokens
+                                thinking_config = {"type": "disabled"}
+                                api_kwargs["thinking"] = thinking_config
+                                # Parse actual token count from error message if possible
+                                import re as _re
+
+                                match = _re.search(
+                                    r"(\d+) tokens > (\d+) maximum", str(e)
+                                )
+                                if match:
+                                    actual_tokens = int(match.group(1))
+                                    max_allowed = int(match.group(2))
+                                    available = (
+                                        max_allowed
+                                        - actual_tokens
+                                        + api_kwargs.get("max_tokens", 0)
+                                    )
+                                    api_kwargs["max_tokens"] = max(
+                                        1024, min(model["max_tokens"], available)
+                                    )
+                                else:
+                                    api_kwargs["max_tokens"] = model["max_tokens"]
+                                ai_response = ""
+                                thinking_content = ""
+                                continue
 
                             if attempt == max_retries - 1:
                                 user_interface.handle_system_message(
@@ -1033,9 +1117,13 @@ async def run(
             else:
                 filtered = final_content
 
-            agent_context.chat_history.append(
-                {"role": "assistant", "content": filtered}
-            )
+            assistant_msg = {"role": "assistant", "content": filtered}
+            # Preserve Anthropic IDs for provenance/debugging
+            if hasattr(final_message, "id") and final_message.id:
+                assistant_msg["anthropic_id"] = final_message.id
+            if _request_id:
+                assistant_msg["request_id"] = _request_id
+            agent_context.chat_history.append(assistant_msg)
 
             agent_context.report_usage(final_message.usage)
             usage_summary = agent_context.usage_summary()
@@ -1367,8 +1455,8 @@ async def run(
             # Exit after one response if in single-response mode
             if single_response and not agent_context.tool_result_buffer:
                 agent_context.flush(
-                    _process_file_mentions(agent_context.chat_history, agent_context),
-                    compact=False,  # Compaction handled explicitly above
+                    agent_context.chat_history,
+                    compact=False,
                 )
                 break
 

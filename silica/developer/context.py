@@ -1,7 +1,6 @@
 import json
 import os
-from dataclasses import dataclass
-from datetime import datetime, timezone
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 from uuid import uuid4
@@ -11,19 +10,28 @@ from anthropic.types import Usage, MessageParam
 from silica.developer.models import ModelSpec
 from silica.developer.sandbox import Sandbox, SandboxMode
 from silica.developer.user_interface import UserInterface
-from pydantic import BaseModel
 from silica.developer.memory import MemoryManager
+from silica.developer.session_store import SessionStore
+
+# Keys added by SessionStore or the agent loop that must be stripped before
+# sending messages to the Anthropic API (which rejects extra fields).
+_INTERNAL_MSG_KEYS = frozenset(
+    {"msg_id", "prev_msg_id", "timestamp", "anthropic_id", "request_id"}
+)
 
 
-class PydanticJSONEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, BaseModel):
-            # For Pydantic v2
-            if hasattr(obj, "model_dump"):
-                return obj.model_dump()
-            # For Pydantic v1
-            return obj.dict()
-        return super().default(obj)
+def _find_root_dir() -> str:
+    """Find the git repo root or fall back to cwd."""
+    try:
+        current_dir = os.path.abspath(os.getcwd())
+        d = current_dir
+        while d != os.path.dirname(d):
+            if os.path.isdir(os.path.join(d, ".git")):
+                return d
+            d = os.path.dirname(d)
+        return current_dir
+    except Exception:
+        return os.path.abspath(os.getcwd())
 
 
 @dataclass
@@ -37,32 +45,25 @@ class AgentContext:
     memory_manager: "MemoryManager"
     cli_args: list[str] = None
     thinking_mode: str = "max"  # "off", "normal", "ultra", or "max"
-    history_base_dir: Path | None = (
-        None  # Base directory for history (defaults to ~/.silica/personas/default)
-    )
-    active_plan_id: str | None = None  # Currently active plan for this session
-    toolbox: Any = None  # Toolbox instance, set after context creation
+    history_base_dir: Path | None = None
+    active_plan_id: str | None = None
+    toolbox: Any = None
     _chat_history: list[MessageParam] = None
     _tool_result_buffer: list[dict] = None
+    # v2 storage tracking
+    _session_store: SessionStore | None = field(default=None, repr=False)
+    _last_flushed_msg_count: int = 0
+    _last_flushed_usage_count: int = 0
+    _last_flushed_boundary_msg: object = None  # strong ref to last flushed message dict
 
     def __post_init__(self):
-        """Initialize the chat history and tool result buffer if they are None."""
         if self._chat_history is None:
             self._chat_history = []
         if self._tool_result_buffer is None:
             self._tool_result_buffer = []
 
     def _get_history_dir(self) -> Path:
-        """Get the history directory for this context.
-
-        Uses history_base_dir if provided, otherwise defaults to ~/.silica/personas/default.
-        For root contexts, returns base/history/{session_id}.
-        For sub-agent contexts, returns base/history/{parent_session_id}.
-
-        Returns:
-            Path to the history directory for this context
-        """
-        # Ensure history_base_dir is a Path object
+        """Get the history directory for this context."""
         if self.history_base_dir:
             base = (
                 Path(self.history_base_dir)
@@ -71,20 +72,25 @@ class AgentContext:
             )
         else:
             base = Path.home() / ".silica" / "personas" / "default"
-
         context_dir = (
             self.parent_session_id if self.parent_session_id else self.session_id
         )
         return base / "history" / context_dir
 
+    def _get_or_create_store(self) -> SessionStore:
+        """Get or lazily create the SessionStore for this context."""
+        if self._session_store is None:
+            history_dir = self._get_history_dir()
+            agent_name = "root" if self.parent_session_id is None else self.session_id
+            self._session_store = SessionStore(history_dir, agent_name=agent_name)
+        return self._session_store
+
     @property
     def chat_history(self) -> list[MessageParam]:
-        """Get the chat history."""
         return self._chat_history
 
     @property
     def tool_result_buffer(self) -> list[dict]:
-        """Get the tool result buffer."""
         return self._tool_result_buffer
 
     @staticmethod
@@ -103,10 +109,7 @@ class AgentContext:
             permission_check_callback=user_interface.permission_callback,
             permission_check_rendering_callback=user_interface.permission_rendering_callback,
         )
-
         memory_manager = MemoryManager(base_dir=persona_base_directory / "memory")
-
-        # Use provided session_id or generate a new one
         context_session_id = session_id if session_id else str(uuid4())
 
         context = AgentContext(
@@ -121,14 +124,10 @@ class AgentContext:
             history_base_dir=persona_base_directory,
         )
 
-        # If a session_id was provided, attempt to load that session
         if session_id:
-            # Load the session data - pass persona_base_directory to load from correct location
             loaded_context = load_session_data(
                 session_id, context, history_base_dir=persona_base_directory
             )
-
-            # If loading was successful, update message count for UI feedback
             if loaded_context and loaded_context.chat_history:
                 user_interface.handle_system_message(
                     f"Resumed session {session_id} with {len(loaded_context.chat_history)} messages"
@@ -144,7 +143,12 @@ class AgentContext:
     def with_user_interface(
         self, user_interface: UserInterface, keep_history=False, session_id: str = None
     ) -> "AgentContext":
-        return AgentContext(
+        # Capture parent's last msg_id for sub-agent prev_msg_id linking
+        parent_last_msg_id = None
+        if self._session_store is not None:
+            parent_last_msg_id = self._session_store.last_msg_id
+
+        child = AgentContext(
             session_id=session_id if session_id else str(uuid4()),
             parent_session_id=self.session_id,
             model_spec=self.model_spec,
@@ -153,10 +157,13 @@ class AgentContext:
             usage=self.usage,
             memory_manager=self.memory_manager,
             cli_args=self.cli_args.copy() if self.cli_args else None,
-            history_base_dir=self.history_base_dir,  # Preserve history_base_dir
+            history_base_dir=self.history_base_dir,
             _chat_history=self.chat_history.copy() if keep_history else [],
             _tool_result_buffer=self.tool_result_buffer.copy() if keep_history else [],
         )
+        # Store parent's msg_id so the sub-agent's first message can link back
+        child._parent_msg_id = parent_last_msg_id
+        return child
 
     def _report_usage(self, usage: Usage, model_spec: ModelSpec):
         self.usage.append((usage, model_spec))
@@ -171,37 +178,18 @@ class AgentContext:
             return obj[name]
 
     def get_api_context(self, tool_names: list[str] | None = None) -> dict[str, Any]:
-        """Get the complete context that would be sent to the Anthropic API.
-
-        This includes system message, tools, and processed messages,
-        matching exactly what the agent sends in API calls.
-
-        Args:
-            tool_names: Optional list of tool names to limit tools (for sub-agents)
-
-        Returns:
-            Dict with 'system', 'tools', and 'messages' keys
-        """
+        """Get the complete context that would be sent to the Anthropic API."""
         from silica.developer.prompt import create_system_message
         from silica.developer.toolbox import Toolbox
         from silica.developer.agent_loop import _process_file_mentions
 
-        # Create system message
         system_message = create_system_message(self)
-
-        # Use existing toolbox if available, otherwise create a new one
-        # Suppress warnings since this is just for schema generation
         if hasattr(self, "toolbox") and self.toolbox is not None and tool_names is None:
-            # Use the existing toolbox's schema (already configured with correct tools)
             tools = self.toolbox.agent_schema
         else:
-            # Create a new toolbox for schema generation
             toolbox = Toolbox(self, tool_names=tool_names, show_warnings=False)
             tools = toolbox.agent_schema
-
-        # Process messages with inlined file mentions and ephemeral plan state
         processed_messages = _process_file_mentions(self.chat_history, self)
-
         return {
             "system": system_message,
             "tools": tools,
@@ -218,7 +206,6 @@ class AgentContext:
             "cached_tokens": 0,
             "model_breakdown": {},
         }
-
         for usage_entry, model_spec in self.usage:
             model_name = model_spec["title"]
             pricing = model_spec["pricing"]
@@ -234,7 +221,6 @@ class AgentContext:
                 usage_entry, "cache_read_input_tokens"
             )
 
-            # Extract thinking tokens if present (Anthropic SDK v0.62.0+)
             thinking_tokens = 0
             if hasattr(usage_entry, "thinking_tokens"):
                 thinking_tokens = usage_entry.thinking_tokens
@@ -247,7 +233,6 @@ class AgentContext:
             usage_summary["cached_tokens"] += cache_read_input_tokens
 
             thinking_cost = thinking_tokens * thinking_pricing["thinking"]
-
             total_cost = (
                 input_tokens * pricing["input"]
                 + output_tokens * pricing["output"]
@@ -266,28 +251,21 @@ class AgentContext:
                     "cached_tokens": 0,
                     "token_breakdown": {},
                 }
-
-            model_breakdown = usage_summary["model_breakdown"][model_name]
-            model_breakdown["total_input_tokens"] += input_tokens
-            model_breakdown["total_output_tokens"] += output_tokens
-            model_breakdown["total_thinking_tokens"] += thinking_tokens
-            model_breakdown["cached_tokens"] += cache_read_input_tokens
-
-            model_breakdown["total_cost"] += total_cost
-            model_breakdown["thinking_cost"] += thinking_cost
-
+            mb = usage_summary["model_breakdown"][model_name]
+            mb["total_input_tokens"] += input_tokens
+            mb["total_output_tokens"] += output_tokens
+            mb["total_thinking_tokens"] += thinking_tokens
+            mb["cached_tokens"] += cache_read_input_tokens
+            mb["total_cost"] += total_cost
+            mb["thinking_cost"] += thinking_cost
             usage_summary["total_cost"] += total_cost
             usage_summary["thinking_cost"] += thinking_cost
 
-        # Convert from per-token costs to per-million-token costs
         usage_summary["total_cost"] /= 1_000_000
         usage_summary["thinking_cost"] /= 1_000_000
-
-        # Also convert model breakdown costs
-        for model_breakdown in usage_summary["model_breakdown"].values():
-            model_breakdown["total_cost"] /= 1_000_000
-            model_breakdown["thinking_cost"] /= 1_000_000
-
+        for mb in usage_summary["model_breakdown"].values():
+            mb["total_cost"] /= 1_000_000
+            mb["thinking_cost"] /= 1_000_000
         return usage_summary
 
     def rotate(
@@ -296,205 +274,202 @@ class AgentContext:
         new_messages: list[MessageParam],
         compaction_metadata: dict | None = None,
     ) -> str:
-        """Archive the current conversation and update this context with new messages.
+        """Archive the current conversation and update with compacted messages.
 
-        This method mutates the context in place:
-        1. Archives the current root.json to a timestamped archive file
-        2. Updates this context's chat history with the provided messages
-        3. Clears the tool result buffer
-        4. Optionally stores compaction metadata for flush()
-
-        Args:
-            archive_suffix: Suffix for the archive filename (e.g., "pre-compaction-20250112_140530")
-            new_messages: The new messages to use in the rotated context
-            compaction_metadata: Optional metadata about compaction (stored for next flush())
-
-        Returns:
-            str: The archive filename
-
-        Raises:
-            ValueError: If called on a sub-agent context (which doesn't have root.json)
+        For root contexts only. Archives the current context file, then writes
+        compacted messages as the new context.
         """
         if self.parent_session_id is not None:
             raise ValueError(
                 "rotate() can only be called on root contexts, not sub-agent contexts"
             )
 
-        # Use the parameterized history directory
+        store = self._get_or_create_store()
         history_dir = self._get_history_dir()
-        root_file = history_dir / "root.json"
-        archive_file = history_dir / f"{archive_suffix}.json"
 
-        # Archive existing root.json if it exists
+        # Archive the current context file
+        archive_ctx = history_dir / f"{archive_suffix}.context.jsonl"
+        if store.context_path.exists():
+            import shutil
+
+            shutil.copy2(store.context_path, archive_ctx)
+
+        # Also archive legacy root.json if it exists (transition period)
+        root_file = history_dir / "root.json"
         if root_file.exists():
+            archive_json = history_dir / f"{archive_suffix}.json"
             try:
                 with open(root_file, "r") as f:
                     existing_data = json.load(f)
-                with open(archive_file, "w") as f:
+                with open(archive_json, "w") as f:
                     json.dump(existing_data, f, indent=2)
-            except (json.JSONDecodeError, FileNotFoundError) as e:
-                raise RuntimeError(f"Failed to archive conversation: {e}") from e
+            except (json.JSONDecodeError, FileNotFoundError):
+                pass
 
-        # Update this context in place
+        # Update context in place
         self._chat_history = new_messages
         self._tool_result_buffer.clear()
-        self.flush(new_messages, compact=False)
+        # Reset flush counters — compacted context is a fresh start
+        self._last_flushed_msg_count = 0
+        self._last_flushed_boundary_msg = None
+        self._last_flushed_usage_count = len(self.usage)
 
-        # Store compaction metadata if provided
         if compaction_metadata:
             self._compaction_metadata = compaction_metadata
+        self.flush(new_messages, compact=False)
 
-        return f"{archive_suffix}.json"
+        return f"{archive_suffix}.context.jsonl"
 
     def compact_in_place(
         self,
         new_messages: list[MessageParam],
         compaction_metadata: dict | None = None,
     ) -> None:
-        """Replace the conversation history with compacted messages in place.
-
-        Unlike rotate(), this does NOT archive the previous conversation.
-        Designed for sub-agent contexts where archival isn't needed, but also
-        works for root contexts.
-
-        This method mutates the context in place:
-        1. Replaces chat history with the provided (compacted) messages
-        2. Clears the tool result buffer
-        3. Optionally stores compaction metadata
-        4. Flushes the updated state to disk
-
-        Args:
-            new_messages: The new compacted messages to replace the current history
-            compaction_metadata: Optional metadata about compaction (stored for next flush())
-        """
+        """Replace conversation history with compacted messages (no archive)."""
         self._chat_history = new_messages
         self._tool_result_buffer.clear()
-        self.flush(new_messages, compact=False)
+        # Reset flush counters
+        self._last_flushed_msg_count = 0
+        self._last_flushed_boundary_msg = None
+        self._last_flushed_usage_count = len(self.usage)
 
         if compaction_metadata:
             self._compaction_metadata = compaction_metadata
+        self.flush(new_messages, compact=False)
 
     def flush(self, chat_history, compact=True):
-        """Save the agent context and chat history to a file.
+        """Save agent context and chat history using the v2 split-file format.
 
-        For root contexts (parent_session_id is None), saves to:
-            {history_base_dir}/history/{session_id}/root.json
-
-        For sub-agent contexts (parent_session_id is not None), saves to:
-            {history_base_dir}/history/{parent_session_id}/{session_id}.json
-
-        Where history_base_dir defaults to ~/.silica/personas/default if not specified.
-
-        Args:
-            chat_history: The chat history to save
-            compact: Whether to check and perform compaction on long conversations
-                    Note: As of the compaction transition update, compaction is now
-                    handled explicitly in the agent loop, so this parameter is
-                    maintained for backward compatibility but typically not used.
+        Writes:
+        - New messages to <agent>.history.jsonl (append-only)
+        - New usage entries to <agent>.metadata.jsonl (append-only)
+        - Full current context to <agent>.context.jsonl (overwrite)
+        - Session metadata to session.json (overwrite)
+        - Legacy root.json for backward compatibility (overwrite)
         """
         if not chat_history:
             return
 
-        # Note: Compaction is now handled explicitly in the agent loop rather than
-        # as a side effect of flush. This allows for proper session transitions.
-
-        # Use the parameterized history directory
+        store = self._get_or_create_store()
         history_dir = self._get_history_dir()
-
-        # Create the directory if it doesn't exist
         history_dir.mkdir(parents=True, exist_ok=True)
 
-        # Filename is root.json for root contexts, or {session_id}.json for sub-agent contexts
-        filename = (
-            "root.json" if self.parent_session_id is None else f"{self.session_id}.json"
-        )
-        history_file = history_dir / filename
+        # --- v2 format: split files ---
 
-        # Get compaction metadata if present
+        # 1. Append NEW messages to history.jsonl
+        new_msg_count = len(chat_history)
+        # Detect chat_history mutations (pop, splice, replacement).
+        # If the list shrank, or the message at the boundary changed,
+        # reset the counter so new messages get flushed.
+        flushed = self._last_flushed_msg_count
+        if flushed > new_msg_count:
+            flushed = 0  # list shrank
+        elif flushed > 0 and flushed <= new_msg_count:
+            # Check if the message at the boundary is still the same object.
+            # We hold a strong reference to prevent GC/address reuse.
+            if chat_history[flushed - 1] is not self._last_flushed_boundary_msg:
+                flushed = 0  # list was mutated
+        newly_written_ids = []
+        if new_msg_count > flushed:
+            new_messages = chat_history[flushed:]
+            # Chain from last written msg, or parent's msg_id for first sub-agent flush
+            prev_id = store.last_msg_id
+            if prev_id is None and hasattr(self, "_parent_msg_id"):
+                prev_id = self._parent_msg_id
+            newly_written_ids = store.append_messages(new_messages, prev_msg_id=prev_id)
+
+        # 2. Append NEW usage entries to metadata.jsonl
+        new_usage_count = len(self.usage)
+        if new_usage_count > self._last_flushed_usage_count:
+            new_usage = self.usage[self._last_flushed_usage_count :]
+
+            # Correlate usage entries with assistant msg_ids.
+            # Each usage entry corresponds to one API call → one assistant message.
+            new_messages_for_ids = chat_history[flushed:]
+            assistant_msg_ids = [
+                mid
+                for mid, msg in zip(newly_written_ids, new_messages_for_ids)
+                if msg.get("role") == "assistant"
+            ]
+
+            metadata_entries = []
+            for idx, (usage_entry, model_spec_entry) in enumerate(new_usage):
+                entry = {"model": model_spec_entry.get("title", "unknown")}
+                # Serialize usage — handle both SDK objects and dicts
+                if hasattr(usage_entry, "model_dump"):
+                    entry["usage"] = usage_entry.model_dump()
+                elif isinstance(usage_entry, dict):
+                    entry["usage"] = usage_entry
+                else:
+                    entry["usage"] = {
+                        "input_tokens": getattr(usage_entry, "input_tokens", 0),
+                        "output_tokens": getattr(usage_entry, "output_tokens", 0),
+                        "cache_creation_input_tokens": getattr(
+                            usage_entry, "cache_creation_input_tokens", 0
+                        ),
+                        "cache_read_input_tokens": getattr(
+                            usage_entry, "cache_read_input_tokens", 0
+                        ),
+                    }
+                entry["model_spec"] = model_spec_entry
+                # Associate with the specific assistant msg_id, not just the latest
+                if idx < len(assistant_msg_ids):
+                    entry["msg_id"] = assistant_msg_ids[idx]
+                elif store.last_msg_id:
+                    entry["msg_id"] = store.last_msg_id
+                metadata_entries.append(entry)
+            store.append_metadata(metadata_entries)
+
+        # 3. Overwrite context file with current full context window
+        # Strip ephemeral keys (cache_control, inlined file content) that
+        # should never be persisted — they are re-added on each API call
+        # by _process_file_mentions().
+        clean_context = []
+        for msg in chat_history:
+            clean_msg = {k: v for k, v in msg.items() if k not in _INTERNAL_MSG_KEYS}
+            # Strip cache_control from content blocks
+            if isinstance(clean_msg.get("content"), list):
+                clean_msg["content"] = [
+                    {k: v for k, v in block.items() if k != "cache_control"}
+                    if isinstance(block, dict)
+                    else block
+                    for block in clean_msg["content"]
+                ]
+            clean_context.append(clean_msg)
+        store.write_context(clean_context)
+
+        # 4. Update session.json
         compaction_metadata = getattr(self, "_compaction_metadata", None)
-
-        # Get the current time for metadata
-        current_time = datetime.now(timezone.utc).isoformat()
-
-        # Try to determine the root directory
-        root_dir = None
-        try:
-            # Try to find git repository root
-            current_dir = os.path.abspath(os.getcwd())
-            potential_git_dir = current_dir
-
-            # Walk up directories looking for .git folder
-            while potential_git_dir != os.path.dirname(
-                potential_git_dir
-            ):  # Stop at filesystem root
-                if os.path.isdir(os.path.join(potential_git_dir, ".git")):
-                    root_dir = potential_git_dir
-                    break
-                potential_git_dir = os.path.dirname(potential_git_dir)
-
-            # If no git root found, use current working directory
-            if root_dir is None:
-                root_dir = current_dir
-        except Exception:
-            # Fallback to current working directory if any error occurs
-            root_dir = os.path.abspath(os.getcwd())
-
-        # Prepare the data to save
-        context_data = {
+        session_meta = {
             "session_id": self.session_id,
             "parent_session_id": self.parent_session_id,
             "model_spec": self.model_spec,
-            "usage": self.usage,
-            "messages": chat_history,
             "thinking_mode": self.thinking_mode,
             "active_plan_id": self.active_plan_id,
-            "metadata": {
-                "created_at": current_time,
-                "last_updated": current_time,
-                "root_dir": root_dir,
-                "cli_args": self.cli_args.copy() if self.cli_args else None,
-            },
+            "root_dir": _find_root_dir(),
+            "cli_args": self.cli_args.copy() if self.cli_args else None,
         }
-
-        # Add compaction metadata if available
         if compaction_metadata:
-            context_data["compaction"] = {
+            session_meta["compaction"] = {
                 "is_compacted": True,
                 "original_message_count": compaction_metadata.original_message_count,
                 "original_token_count": compaction_metadata.original_token_count,
                 "compacted_message_count": compaction_metadata.compacted_message_count,
                 "summary_token_count": compaction_metadata.summary_token_count,
                 "compaction_ratio": compaction_metadata.compaction_ratio,
-                "timestamp": current_time,
                 "pre_compaction_archive": compaction_metadata.archive_name,
             }
-            # Clear the metadata after using it
             del self._compaction_metadata
+        store.write_session_meta(session_meta)
 
-        # If the file already exists, read it to preserve the original created_at time
-        if os.path.exists(history_file):
-            try:
-                with open(history_file, "r") as f:
-                    existing_data = json.load(f)
-                    if (
-                        "metadata" in existing_data
-                        and "created_at" in existing_data["metadata"]
-                    ):
-                        context_data["metadata"]["created_at"] = existing_data[
-                            "metadata"
-                        ]["created_at"]
-            except (json.JSONDecodeError, FileNotFoundError, KeyError):
-                # If there's any error reading the existing file, continue with the new metadata
-                pass
+        # Update flush counters
+        self._last_flushed_msg_count = new_msg_count
+        self._last_flushed_usage_count = new_usage_count
+        # Hold a strong reference to the last flushed message to detect mutations.
+        # This prevents GC/address reuse that would fool an id()-based check.
+        self._last_flushed_boundary_msg = chat_history[-1] if chat_history else None
 
-        # Update the last_updated timestamp
-        context_data["metadata"]["last_updated"] = datetime.now(
-            timezone.utc
-        ).isoformat()
-
-        # Write the data to the file
-        with open(history_file, "w") as f:
-            json.dump(context_data, f, indent=2, cls=PydanticJSONEncoder)
+        # Legacy root.json dual-write removed — all consumers now read v2 format.
 
 
 def load_session_data(
@@ -502,20 +477,9 @@ def load_session_data(
     base_context: Optional[AgentContext] = None,
     history_base_dir: Optional[Path] = None,
 ) -> Optional[AgentContext]:
-    """
-    Load session data from a file and return an updated AgentContext.
+    """Load session data and return an updated AgentContext.
 
-    This function loads a previous session's data and returns a new or updated
-    AgentContext instance with the loaded state.
-
-    Args:
-        session_id: The ID of the session to load
-        base_context: Optional existing AgentContext to update with session data.
-                      If not provided, a new context will be created.
-        history_base_dir: Optional base directory for history (defaults to ~/.silica/personas/default)
-
-    Returns:
-        Updated AgentContext if successful, None if loading failed
+    Tries v2 format (session.json) first, falls back to legacy (root.json).
     """
     base = (
         history_base_dir
@@ -523,48 +487,121 @@ def load_session_data(
         else (Path.home() / ".silica" / "personas" / "default")
     )
     history_dir = base / "history" / session_id
-    root_file = history_dir / "root.json"
 
-    if not root_file.exists():
-        print(f"Session file not found: {root_file}")
+    if not base_context:
         return None
 
+    # Try v2 format first
+    store = SessionStore(history_dir, agent_name="root")
+    session_meta = store.read_session_meta()
+
+    if session_meta and session_meta.get("version", 0) >= 2:
+        return _load_v2_session(
+            session_id, store, session_meta, base_context, history_base_dir
+        )
+
+    # Auto-migrate legacy sessions on resume
+    root_file = history_dir / "root.json"
+    backup_dir = history_dir / ".backup"
+
+    # Recover from interrupted migration: if .backup/ exists but session.json
+    # doesn't, the previous migration was interrupted. Restore root.json from
+    # backup and clean up so migration can retry.
+    if backup_dir.exists() and not (history_dir / "session.json").exists():
+        backup_root = backup_dir / "root.json"
+        if backup_root.exists() and not root_file.exists():
+            import shutil
+
+            shutil.copy2(backup_root, root_file)
+            print("Restored root.json from interrupted migration backup")
+        # Remove incomplete backup so migration can proceed
+        import shutil
+
+        shutil.rmtree(backup_dir)
+        print(f"Cleaned up interrupted migration backup for {session_id}")
+
+    if root_file.exists() and not (history_dir / "session.json").exists():
+        try:
+            from silica.developer.session_store import migrate_session
+
+            migrate_session(history_dir)
+            print(f"Auto-migrated session {session_id} to v2 format")
+            # Now load as v2
+            store = SessionStore(history_dir, agent_name="root")
+            session_meta = store.read_session_meta()
+            if session_meta:
+                return _load_v2_session(
+                    session_id,
+                    store,
+                    session_meta,
+                    base_context,
+                    history_base_dir,
+                )
+        except Exception as e:
+            print(f"Auto-migration failed, falling back to legacy: {e}")
+
+    # Fall back to legacy format
+    return _load_legacy_session(session_id, history_dir, base_context, history_base_dir)
+
+
+def _load_v2_session(
+    session_id: str,
+    store: SessionStore,
+    session_meta: dict,
+    base_context: AgentContext,
+    history_base_dir: Optional[Path],
+) -> Optional[AgentContext]:
+    """Load a session from v2 split-file format."""
     try:
-        with open(root_file, "r") as f:
-            session_data = json.load(f)
+        # Read context window (what the agent currently sees)
+        chat_history = store.read_context()
+        if not chat_history:
+            # Context might be empty if session just started — try history
+            chat_history = [
+                {k: v for k, v in msg.items() if k not in _INTERNAL_MSG_KEYS}
+                for msg in store.read_history()
+            ]
 
-        # Verify session has valid metadata (from HDEV-58 onwards)
-        if "metadata" not in session_data:
-            print("Session lacks metadata (pre-HDEV-58)")
-            return None
+        # Strip internal fields and stale cache_control markers from context
+        # messages. cache_control is ephemeral — re-added on each API call
+        # by _process_file_mentions(). Older sessions may have them persisted.
+        clean_history = []
+        for msg in chat_history:
+            clean = {k: v for k, v in msg.items() if k not in _INTERNAL_MSG_KEYS}
+            if isinstance(clean.get("content"), list):
+                clean["content"] = [
+                    (
+                        {k: v for k, v in block.items() if k != "cache_control"}
+                        if isinstance(block, dict)
+                        else block
+                    )
+                    for block in clean["content"]
+                ]
+            clean_history.append(clean)
 
-        # If no base context is provided, we can't create a new one
-        # as we need sandbox mode, UI, etc.
-        if not base_context:
-            return None
+        # Read usage from metadata.jsonl — reconstruct (usage, model_spec) tuples
+        usage_data = []
+        for entry in store.read_metadata():
+            usage_dict = entry.get("usage", {})
+            model_spec_dict = entry.get("model_spec", base_context.model_spec)
+            usage_data.append((usage_dict, model_spec_dict))
 
-        # Extract data from the session file
-        chat_history = session_data.get("messages", [])
-        usage_data = session_data.get("usage", [])
-        model_spec = session_data.get("model_spec", base_context.model_spec)
-        parent_id = session_data.get("parent_session_id")
-        cli_args = session_data.get("metadata", {}).get("cli_args")
-        thinking_mode = session_data.get("thinking_mode", "max")
-        active_plan_id = session_data.get("active_plan_id")
-
-        # Clean up any orphaned tool blocks in the loaded history
-        # This can happen if a session was saved mid-compaction or after a crash
+        # Clean up orphaned tool blocks
         from silica.developer.compaction_validation import strip_orphaned_tool_blocks
 
-        original_count = len(chat_history)
-        chat_history = strip_orphaned_tool_blocks(chat_history)
-        if len(chat_history) != original_count:
+        original_count = len(clean_history)
+        clean_history = strip_orphaned_tool_blocks(clean_history)
+        if len(clean_history) != original_count:
             print(
-                f"Cleaned up orphaned tool blocks in session: "
-                f"{original_count} -> {len(chat_history)} messages"
+                f"Cleaned up orphaned tool blocks: {original_count} -> {len(clean_history)} messages"
             )
 
-        # Create a new context with the loaded data
+        model_spec = session_meta.get("model_spec", base_context.model_spec)
+        parent_id = session_meta.get("parent_session_id")
+        cli_args = session_meta.get("cli_args")
+        thinking_mode = session_meta.get("thinking_mode", "max")
+        active_plan_id = session_meta.get("active_plan_id")
+
         updated_context = AgentContext(
             session_id=session_id,
             parent_session_id=parent_id,
@@ -575,18 +612,84 @@ def load_session_data(
             memory_manager=base_context.memory_manager,
             cli_args=cli_args.copy() if cli_args else None,
             thinking_mode=thinking_mode,
-            history_base_dir=history_base_dir,  # Preserve the history_base_dir
-            active_plan_id=active_plan_id,  # Restore active plan for this session
-            _chat_history=chat_history,
-            _tool_result_buffer=[],  # Always start with empty tool buffer
+            history_base_dir=history_base_dir,
+            active_plan_id=active_plan_id,
+            _chat_history=clean_history,
+            _tool_result_buffer=[],
+            _session_store=store,
+            _last_flushed_msg_count=len(clean_history),
+            _last_flushed_usage_count=len(usage_data),
+            _last_flushed_boundary_msg=(clean_history[-1] if clean_history else None),
         )
 
-        # If base_context has user_interface.handle_system_message, report success
+        if hasattr(base_context.user_interface, "handle_system_message"):
+            base_context.user_interface.handle_system_message(
+                f"Successfully loaded session {session_id} with {len(clean_history)} messages"
+            )
+        return updated_context
+
+    except Exception as e:
+        print(f"Error loading v2 session: {str(e)}")
+        return None
+
+
+def _load_legacy_session(
+    session_id: str,
+    history_dir: Path,
+    base_context: AgentContext,
+    history_base_dir: Optional[Path],
+) -> Optional[AgentContext]:
+    """Load a session from legacy root.json format."""
+    root_file = history_dir / "root.json"
+    if not root_file.exists():
+        print(f"Session file not found: {root_file}")
+        return None
+
+    try:
+        with open(root_file, "r") as f:
+            session_data = json.load(f)
+
+        if "metadata" not in session_data:
+            print("Session lacks metadata (pre-HDEV-58)")
+            return None
+
+        chat_history = session_data.get("messages", [])
+        usage_data = session_data.get("usage", [])
+        model_spec = session_data.get("model_spec", base_context.model_spec)
+        parent_id = session_data.get("parent_session_id")
+        cli_args = session_data.get("metadata", {}).get("cli_args")
+        thinking_mode = session_data.get("thinking_mode", "max")
+        active_plan_id = session_data.get("active_plan_id")
+
+        from silica.developer.compaction_validation import strip_orphaned_tool_blocks
+
+        original_count = len(chat_history)
+        chat_history = strip_orphaned_tool_blocks(chat_history)
+        if len(chat_history) != original_count:
+            print(
+                f"Cleaned up orphaned tool blocks in session: {original_count} -> {len(chat_history)} messages"
+            )
+
+        updated_context = AgentContext(
+            session_id=session_id,
+            parent_session_id=parent_id,
+            model_spec=model_spec,
+            sandbox=base_context.sandbox,
+            user_interface=base_context.user_interface,
+            usage=usage_data if usage_data else base_context.usage,
+            memory_manager=base_context.memory_manager,
+            cli_args=cli_args.copy() if cli_args else None,
+            thinking_mode=thinking_mode,
+            history_base_dir=history_base_dir,
+            active_plan_id=active_plan_id,
+            _chat_history=chat_history,
+            _tool_result_buffer=[],
+        )
+
         if hasattr(base_context.user_interface, "handle_system_message"):
             base_context.user_interface.handle_system_message(
                 f"Successfully loaded session {session_id} with {len(chat_history)} messages"
             )
-
         return updated_context
 
     except json.JSONDecodeError as e:
@@ -595,5 +698,4 @@ def load_session_data(
         print(f"Session file not found: {root_file}")
     except Exception as e:
         print(f"Error loading session: {str(e)}")
-
     return None
