@@ -180,11 +180,10 @@ def _run_worker_agent(
         try:
             console.print("\n[dim]Waiting for task from coordinator...[/dim]")
 
-            # Check for new messages
-            messages = coord_context.receive_messages(include_room=True)
+            # Block until messages arrive (wakes instantly on publish)
+            messages = coord_context.wait_for_messages(timeout=30, include_room=True)
 
             if not messages:
-                time.sleep(2)  # Avoid busy-spin while waiting
                 continue
 
             # Find task assignment messages

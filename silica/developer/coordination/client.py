@@ -329,11 +329,85 @@ class CoordinationContext:
 
         return messages
 
+    def wait_for_messages(
+        self,
+        timeout: float = 30,
+        include_room: bool = True,
+    ) -> list[ReceivedMessage]:
+        """Block until new messages arrive, then return them.
+
+        For remote backends, uses deaddrop's subscribe() with server-side
+        event notification (wakes instantly when a message is published).
+        For local backends, polls the database with a short interval.
+
+        Args:
+            timeout: Max seconds to wait (default 30)
+            include_room: Whether to also watch the coordination room
+
+        Returns:
+            List of received messages (empty if timeout with no messages)
+        """
+        from deadrop.backends import LocalBackend
+
+        if isinstance(self.deaddrop._backend, LocalBackend):
+            return self._wait_for_messages_poll(timeout, include_room)
+        return self._wait_for_messages_subscribe(timeout, include_room)
+
+    def _wait_for_messages_subscribe(
+        self,
+        timeout: float,
+        include_room: bool,
+    ) -> list[ReceivedMessage]:
+        """Wait using subscribe() — for remote backends with server-side events."""
+        # Build topic vector clock from our cursors
+        topics: dict[str, str | None] = {
+            f"inbox:{self.identity_id}": self._last_inbox_mid,
+        }
+        if include_room and self.room_id:
+            topics[f"room:{self.room_id}"] = self._last_room_mid
+
+        try:
+            result = self.deaddrop.subscribe(
+                ns=self.namespace_id,
+                secret=self.identity_secret,
+                topics=topics,
+                timeout=max(1, min(timeout, 60)),
+            )
+        except Exception as e:
+            logger.warning(f"Subscribe failed, falling back to immediate fetch: {e}")
+            return self.receive_messages(include_room=include_room)
+
+        # If timed out with no events, return empty
+        if result.get("timeout"):
+            return []
+
+        # Events arrived — fetch the actual messages
+        return self.receive_messages(include_room=include_room)
+
+    def _wait_for_messages_poll(
+        self,
+        timeout: float,
+        include_room: bool,
+    ) -> list[ReceivedMessage]:
+        """Wait using polling — for local backends (no cross-process events)."""
+        deadline = time.time() + timeout
+        poll_interval = 0.5  # Check every 500ms
+
+        while time.time() < deadline:
+            messages = self.receive_messages(include_room=include_room)
+            if messages:
+                return messages
+            remaining = deadline - time.time()
+            if remaining > 0:
+                time.sleep(min(poll_interval, remaining))
+
+        return []
+
     def poll(
         self,
         include_room: bool = True,
     ) -> list[ReceivedMessage]:
-        """Poll for new messages.
+        """Poll for new messages (immediate, non-blocking).
 
         Convenience wrapper around receive_messages.
 

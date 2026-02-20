@@ -300,22 +300,19 @@ def request_permission(
 
     ctx.send_to_coordinator(request)
 
-    # Poll for response
+    # Wait for response using subscriptions (wakes instantly on publish)
     start_time = time.time()
-    poll_interval = 2  # seconds
 
     while (time.time() - start_time) < timeout:
-        messages = ctx.receive_messages(include_room=False)
+        remaining = timeout - (time.time() - start_time)
+        if remaining <= 0:
+            break
+        messages = ctx.wait_for_messages(timeout=min(remaining, 30), include_room=False)
 
         for recv in messages:
             msg = recv.message
             if isinstance(msg, PermissionResponse) and msg.request_id == request_id:
                 return msg.decision
-
-        # Sleep between polls since receive_messages returns immediately
-        remaining = timeout - (time.time() - start_time)
-        if remaining > 0:
-            time.sleep(min(poll_interval, remaining))
 
     return "timeout"
 
