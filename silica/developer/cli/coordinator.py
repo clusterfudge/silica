@@ -555,35 +555,35 @@ def _run_coordinator_agent(
 
     # Coordinator uses DWR mode to bypass permissions for coordination tools
     context.dwr_mode = True
-    # Use "off" thinking for coordinator — saves tokens, sonnet max_output is 64K
-    # which conflicts with max thinking budget (119K + 8K = 127K).
-    context.thinking_mode = "off"
 
-    # Build initial prompt
+    # Build initial prompt — minimal context, no tool listing
     state = session.get_state()
+    agents = state.get("agents", {})
     backend_info = f"{session.deaddrop.backend} ({session.deaddrop.location})"
-    initial_prompt = f"""You are now running as a **Coordinator Agent** for session "{state["display_name"]}" (ID: {session.session_id}).
 
-**Backend:** {backend_info}
-
-**Your coordination tools are ready:**
-- `spawn_agent` - Create new worker agents
-- `message_agent` - Send tasks to workers
-- `poll_messages` - Receive updates from workers
-- `list_agents` - View agent status
-- `grant_permission` - Handle permission requests
-- And more...
-
-**Session State:**
-- Agents: {len(state.get("agents", {}))}
-- Humans: {len(state.get("humans", {}))}
-
-What would you like to coordinate? You can:
-1. Spawn workers to execute tasks
-2. Check on existing workers
-3. Handle pending messages or permissions
-
-I'm ready to help orchestrate your multi-agent workflow."""
+    if agents:
+        # Resumed session with existing agents — give status summary
+        agent_lines = []
+        for aid, a in agents.items():
+            agent_lines.append(
+                f"  - {aid}: {a.get('display_name', '?')} ({a.get('state', 'unknown')})"
+            )
+        agent_summary = "\n".join(agent_lines)
+        initial_prompt = (
+            f"[Coordination session resumed: {state['display_name']}]\n"
+            f"Session ID: {session.session_id}\n"
+            f"Backend: {backend_info}\n\n"
+            f"Active agents:\n{agent_summary}\n\n"
+            f"Check for pending messages and pick up where we left off."
+        )
+    else:
+        # Fresh session — don't trigger discovery
+        initial_prompt = (
+            f"[New coordination session: {state['display_name']}]\n"
+            f"Session ID: {session.session_id}\n"
+            f"Backend: {backend_info}\n\n"
+            f"No agents yet. Ready for instructions."
+        )
 
     # Display welcome
     persona_label = persona if persona else "coordinator"
@@ -608,13 +608,13 @@ I'm ready to help orchestrate your multi-agent workflow."""
     else:
         system_prompt = wrap_text_as_content_block(COORDINATOR_PERSONA)
 
-    # Run the agent loop
+    # Run the agent loop with coordination session for real-time message handling
     try:
         asyncio.run(
             run(
                 agent_context=context,
                 initial_prompt=initial_prompt,
-                single_response=False,  # Coordinator runs indefinitely
+                single_response=False,
                 system_prompt=system_prompt,
                 tools=COORDINATION_TOOLS
                 + PLANNING_TOOLS
@@ -623,6 +623,7 @@ I'm ready to help orchestrate your multi-agent workflow."""
                 + WEB_TOOLS,
                 heartbeat_prompt=heartbeat_prompt_text,
                 heartbeat_idle_seconds=heartbeat_interval,
+                coordination_session=session,
             )
         )
     except KeyboardInterrupt:

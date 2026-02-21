@@ -16,10 +16,11 @@ class TestCoordinatorPersona:
         assert len(PERSONA) > 100
 
     def test_persona_describes_role(self):
-        """Persona should describe coordinator role."""
-        assert "Coordinator" in PERSONA
-        assert "orchestrat" in PERSONA.lower()
-        assert "worker" in PERSONA.lower()
+        """Persona should describe coordination / delegation capabilities."""
+        lower = PERSONA.lower()
+        assert "worker" in lower
+        assert "delegate" in lower or "spawn" in lower
+        assert "task" in lower
 
     def test_tool_groups_limited(self):
         """Coordinator should have limited tool groups."""
@@ -29,23 +30,27 @@ class TestCoordinatorPersona:
         assert "shell" not in TOOL_GROUPS
         assert "files" not in TOOL_GROUPS
 
-    def test_model_specified(self):
-        """Model should be specified."""
-        assert MODEL is not None
-        # Coordinator doesn't need the most expensive model
-        assert MODEL in ("sonnet", "haiku", "opus")
+    def test_model_is_opus(self):
+        """Coordinator should use the strongest model for high-leverage decisions."""
+        assert MODEL == "opus"
 
-    def test_persona_mentions_key_tools(self):
-        """Persona should mention key coordination tools."""
-        assert "spawn_agent" in PERSONA
-        assert "message_agent" in PERSONA
-        assert "poll_messages" in PERSONA
-        assert "list_agents" in PERSONA
-        assert "grant_permission" in PERSONA
+    def test_persona_covers_key_concepts(self):
+        """Persona should cover coordination concepts without listing tools."""
+        lower = PERSONA.lower()
+        # Core concepts the persona should address
+        assert "spawn" in lower  # Creating workers
+        assert "message" in lower or "assign" in lower  # Communicating tasks
+        assert "poll" in lower  # Checking for updates
+        assert "permission" in lower  # Permission handling
 
-    def test_persona_explains_workflow(self):
-        """Persona should explain coordination workflow."""
-        # Key workflow concepts
-        assert "decompos" in PERSONA.lower()  # Task decomposition
-        assert "monitor" in PERSONA.lower()  # Monitoring
-        assert "delegate" in PERSONA.lower()  # Delegation
+    def test_persona_covers_workflow(self):
+        """Persona should explain when to delegate vs handle directly."""
+        lower = PERSONA.lower()
+        assert "parallel" in lower  # Parallel execution
+        assert "simple" in lower or "directly" in lower  # Handle simple things directly
+
+    def test_persona_session_awareness(self):
+        """Persona should handle new vs resumed sessions differently."""
+        lower = PERSONA.lower()
+        assert "fresh session" in lower or "new" in lower
+        assert "resumed" in lower or "resume" in lower
