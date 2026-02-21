@@ -97,7 +97,8 @@ Start now by spawning the first worker."""
         time.sleep(2)
         output = tmux_capture(session_name)
         if (
-            "What would you like to coordinate?" in output
+            "Ready for instructions" in output
+            or "Coordination Mode" in output
             or "ready to help" in output.lower()
         ):
             ready = True
