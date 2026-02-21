@@ -19,6 +19,7 @@ def spawn_agent(
     workspace_name: str = None,
     display_name: str = None,
     remote: bool = False,
+    cwd: str = None,
 ) -> str:
     """Create a new worker agent and launch it.
 
@@ -34,6 +35,8 @@ def spawn_agent(
         display_name: Human-readable name for the agent
         remote: If True, spawn worker in a silica workspace (provides process isolation).
                 If False (default), spawn in a local tmux session.
+        cwd: Working directory for the worker. Defaults to the coordinator's
+             current directory. Useful for pointing workers at specific repos.
 
     Returns:
         Status message about the spawned agent including:
@@ -47,6 +50,7 @@ def spawn_agent(
         workspace_name=workspace_name,
         display_name=display_name,
         remote=remote,
+        cwd=cwd,
     )
 
 

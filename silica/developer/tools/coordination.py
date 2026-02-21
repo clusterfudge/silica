@@ -768,6 +768,7 @@ def spawn_agent(
     workspace_name: str = None,
     display_name: str = None,
     remote: bool = False,
+    cwd: str = None,
 ) -> str:
     """Create a new worker agent and launch it.
 
@@ -780,6 +781,7 @@ def spawn_agent(
         workspace_name: Name for the worker's workspace (auto-generated if not provided)
         display_name: Human-readable name for the agent
         remote: Whether to deploy via silica remote (vs local tmux)
+        cwd: Working directory for the worker (defaults to coordinator's cwd)
 
     Returns:
         Status of the spawned worker
@@ -917,8 +919,7 @@ def spawn_agent(
     env_setup_str = " && ".join(env_setup)
 
     # Build the worker launch command
-    # Run from current directory since worker can access files there
-    worker_dir = os.getcwd()
+    worker_dir = cwd if cwd else os.getcwd()
     worker_command = f"cd '{worker_dir}' && {env_setup_str} && uv run silica worker"
 
     try:

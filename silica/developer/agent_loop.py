@@ -474,6 +474,154 @@ async def _initialize_mcp(
         return None, False
 
 
+async def _wait_for_input(
+    user_interface,
+    prompt: str,
+    coordination_session=None,
+    heartbeat_prompt: str | None = None,
+    heartbeat_idle_seconds: int = 300,
+) -> str:
+    """Wait for user input, optionally racing against worker messages and heartbeat.
+
+    Priority when multiple events fire:
+    1. User input always wins if available
+    2. Worker messages (from coordination subscribe) inject as system prompt
+    3. Heartbeat fires after idle timeout
+    """
+    if coordination_session is not None:
+        return await _wait_with_coordination(
+            user_interface=user_interface,
+            prompt=prompt,
+            coordination_session=coordination_session,
+            heartbeat_prompt=heartbeat_prompt,
+            heartbeat_idle_seconds=heartbeat_idle_seconds,
+        )
+
+    # No coordination — simple heartbeat or plain wait
+    if heartbeat_prompt:
+        try:
+            return await asyncio.wait_for(
+                user_interface.get_user_input(prompt),
+                timeout=heartbeat_idle_seconds,
+            )
+        except asyncio.TimeoutError:
+            return _make_heartbeat_message(heartbeat_prompt, user_interface)
+
+    return await user_interface.get_user_input(prompt)
+
+
+async def _wait_with_coordination(
+    user_interface,
+    prompt: str,
+    coordination_session,
+    heartbeat_prompt: str | None = None,
+    heartbeat_idle_seconds: int = 300,
+) -> str:
+    """Race user input against deaddrop subscribe for worker messages.
+
+    Uses deaddrop's subscribe() endpoint which blocks server-side until
+    a message arrives or timeout. This means the coordinator reacts
+    immediately when workers send updates, even while the user input
+    prompt is displayed.
+    """
+    from silica.developer.tools.coordination import poll_messages
+
+    # Build subscribe topics: inbox + room
+    session = coordination_session
+    ctx = session.context
+    topics = {}
+    inbox_topic = f"inbox:{ctx.identity_id}"
+    topics[inbox_topic] = getattr(session, "_last_inbox_mid", None)
+    if ctx.room_id:
+        room_topic = f"room:{ctx.room_id}"
+        topics[room_topic] = getattr(session, "_last_room_mid", None)
+
+    async def _subscribe_for_messages():
+        """Block until a worker message arrives via deaddrop subscribe."""
+        while True:
+            try:
+                result = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: ctx.deaddrop.subscribe(
+                        ns=ctx.namespace_id,
+                        secret=ctx.identity_secret,
+                        topics=topics,
+                        timeout=30,  # re-subscribe every 30s
+                    ),
+                )
+                if result.get("events"):
+                    # Update cursors for next subscribe
+                    for topic_key, mid in result["events"].items():
+                        if topic_key.startswith("inbox:"):
+                            session._last_inbox_mid = mid
+                        elif topic_key.startswith("room:"):
+                            session._last_room_mid = mid
+                    return True  # Messages arrived
+                # Timeout with no events — loop and re-subscribe
+            except Exception:
+                # Connection error — back off and retry
+                await asyncio.sleep(2)
+
+    # Race: user input vs worker messages (vs optional heartbeat timeout)
+    user_task = asyncio.ensure_future(user_interface.get_user_input(prompt))
+    subscribe_task = asyncio.ensure_future(_subscribe_for_messages())
+
+    tasks = {user_task, subscribe_task}
+    timeout = heartbeat_idle_seconds if heartbeat_prompt else None
+
+    try:
+        done, pending = await asyncio.wait(
+            tasks,
+            timeout=timeout,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+    except asyncio.CancelledError:
+        for t in tasks:
+            t.cancel()
+        raise
+
+    # Cancel whichever didn't finish
+    for t in pending:
+        t.cancel()
+        try:
+            await t
+        except (asyncio.CancelledError, Exception):
+            pass
+
+    # Timeout — heartbeat
+    if not done:
+        return _make_heartbeat_message(heartbeat_prompt, user_interface)
+
+    # User typed something — always prefer that
+    if user_task in done:
+        return user_task.result()
+
+    # Worker message arrived — poll and inject
+    if subscribe_task in done:
+        messages_text = poll_messages(include_room=True)
+        user_interface.handle_system_message(
+            "📨 Worker message received",
+            markdown=False,
+        )
+        return f"[Worker Messages]\n\n{messages_text}"
+
+    # Shouldn't reach here, but fall back to user input
+    return await user_interface.get_user_input(prompt)
+
+
+def _make_heartbeat_message(heartbeat_prompt: str, user_interface) -> str:
+    """Create a heartbeat injection message."""
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    ts = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    user_interface.handle_system_message(
+        f"[dim]💓 Heartbeat ({ts})[/dim]",
+        markdown=False,
+    )
+    return f"[Heartbeat: {ts}]\n\n{heartbeat_prompt}"
+
+
 async def run(
     agent_context: AgentContext,
     initial_prompt: str = None,
@@ -486,6 +634,7 @@ async def run(
     mcp_manager: "MCPToolManager | None" = None,
     heartbeat_prompt: str | None = None,
     heartbeat_idle_seconds: int = 300,
+    coordination_session: Any | None = None,
 ) -> list[MessageParam]:
     load_dotenv()
     user_interface, model = (
@@ -593,26 +742,15 @@ async def run(
                     except Exception:
                         pass  # Don't fail if planning module has issues
 
-                    # Heartbeat mode: inject heartbeat prompt after idle timeout
-                    if heartbeat_prompt:
-                        try:
-                            user_input = await asyncio.wait_for(
-                                user_interface.get_user_input(prompt),
-                                timeout=heartbeat_idle_seconds,
-                            )
-                        except asyncio.TimeoutError:
-                            # Inject current timestamp so the agent can do time-based scheduling
-                            from datetime import datetime, timezone
-
-                            now = datetime.now(timezone.utc)
-                            ts = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-                            user_input = f"[Heartbeat: {ts}]\n\n{heartbeat_prompt}"
-                            user_interface.handle_system_message(
-                                f"[dim]💓 Heartbeat ({heartbeat_idle_seconds}s idle)[/dim]",
-                                markdown=False,
-                            )
-                    else:
-                        user_input = await user_interface.get_user_input(prompt)
+                    # Wait for user input, with optional coordination message
+                    # watching and/or heartbeat timeout.
+                    user_input = await _wait_for_input(
+                        user_interface=user_interface,
+                        prompt=prompt,
+                        coordination_session=coordination_session,
+                        heartbeat_prompt=heartbeat_prompt,
+                        heartbeat_idle_seconds=heartbeat_idle_seconds,
+                    )
 
                 # Track when user input was received to measure agent work duration
                 agent_work_start_time = time.time()
