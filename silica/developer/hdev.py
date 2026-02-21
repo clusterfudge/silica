@@ -2183,7 +2183,7 @@ def cyclopts_main(
     # Set terminal tab title
     from silica.developer.utils import set_terminal_title, restore_terminal_title
 
-    set_terminal_title(persona=persona_name)
+    set_terminal_title(persona=persona_name, session_id=context.session_id)
 
     # Register atexit handler to print resume command on exit
     # This ensures users always know how to resume their session

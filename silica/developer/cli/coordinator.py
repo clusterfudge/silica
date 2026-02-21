@@ -612,7 +612,7 @@ def _run_coordinator_agent(
     from silica.developer.utils import set_terminal_title, restore_terminal_title
 
     coordinator_label = f"coordinator:{persona}" if persona else "coordinator"
-    set_terminal_title(persona=coordinator_label)
+    set_terminal_title(persona=coordinator_label, session_id=session.session_id)
 
     import atexit
 

@@ -207,14 +207,17 @@ def render_tree(
             render_tree(lines, child_node, prefix, is_last_child)
 
 
-def set_terminal_title(persona: str | None = None) -> None:
+def set_terminal_title(
+    persona: str | None = None, session_id: str | None = None
+) -> None:
     """Set the terminal tab/window title.
 
-    Format: silica - <abbreviated pwd> - <persona>
+    Format: silica - <abbreviated pwd> - <persona> - <session_hash>
     Works in iTerm2, Ghostty, and other xterm-compatible terminals.
 
     Args:
         persona: Persona name (omitted if None or 'default')
+        session_id: Session ID (first 8 chars shown as short hash)
     """
     import sys
 
@@ -230,6 +233,8 @@ def set_terminal_title(persona: str | None = None) -> None:
     title_parts = ["silica", cwd]
     if persona and persona != "default":
         title_parts.append(persona)
+    if session_id:
+        title_parts.append(session_id[:8])
 
     title = " - ".join(title_parts)
 
