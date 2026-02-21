@@ -1004,6 +1004,21 @@ async def run(
                         if thinking_config:
                             api_kwargs["thinking"] = thinking_config
 
+                            # Thinking mode requires the conversation to end with
+                            # a user message (no assistant prefill). Guard against
+                            # edge cases where messages end with an assistant turn
+                            # (e.g., resumed sessions, interrupted tool loops).
+                            if messages and messages[-1].get("role") == "assistant":
+                                import logging as _logging
+
+                                _logging.getLogger(__name__).warning(
+                                    "Thinking enabled but messages end with assistant "
+                                    "turn — disabling thinking for this request"
+                                )
+                                api_kwargs["thinking"] = {"type": "disabled"}
+                                # Recalculate max_tokens without thinking budget
+                                api_kwargs["max_tokens"] = model["max_tokens"]
+
                         # Log the request
                         logger.log_request(
                             messages=messages,
