@@ -630,6 +630,18 @@ def _run_coordinator_agent(
         console.print("\n[yellow]Coordinator session ended.[/yellow]")
     finally:
         set_current_session(None)
+        # Print resume command
+        import sys
+
+        cmd_parts = ["silica", "coordinator", "--session-id", session.session_id]
+        if persona:
+            cmd_parts.extend(["--persona", persona])
+        resume_cmd = " ".join(cmd_parts)
+        print(
+            "\n\033[2m# To resume this session:\033[0m",
+            file=sys.stderr,
+        )
+        print(f"\033[36m{resume_cmd}\033[0m", file=sys.stderr)
 
 
 # Default command shows help and options
