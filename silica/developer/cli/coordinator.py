@@ -608,6 +608,16 @@ def _run_coordinator_agent(
     else:
         system_prompt = wrap_text_as_content_block(COORDINATOR_PERSONA)
 
+    # Set terminal tab title
+    from silica.developer.utils import set_terminal_title, restore_terminal_title
+
+    coordinator_label = f"coordinator:{persona}" if persona else "coordinator"
+    set_terminal_title(persona=coordinator_label)
+
+    import atexit
+
+    atexit.register(restore_terminal_title)
+
     # Run the agent loop with coordination session for real-time message handling
     try:
         asyncio.run(

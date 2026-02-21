@@ -207,6 +207,46 @@ def render_tree(
             render_tree(lines, child_node, prefix, is_last_child)
 
 
+def set_terminal_title(persona: str | None = None) -> None:
+    """Set the terminal tab/window title.
+
+    Format: silica - <abbreviated pwd> - <persona>
+    Works in iTerm2, Ghostty, and other xterm-compatible terminals.
+
+    Args:
+        persona: Persona name (omitted if None or 'default')
+    """
+    import sys
+
+    # Abbreviated cwd: use ~ for home, then last 2 path components
+    cwd = os.getcwd()
+    home = os.path.expanduser("~")
+    if cwd.startswith(home):
+        cwd = "~" + cwd[len(home) :]
+    parts = cwd.split(os.sep)
+    if len(parts) > 3:
+        cwd = os.sep.join(["..."] + parts[-2:])
+
+    title_parts = ["silica", cwd]
+    if persona and persona != "default":
+        title_parts.append(persona)
+
+    title = " - ".join(title_parts)
+
+    # xterm escape: OSC 0 (set icon name + window title)
+    sys.stderr.write(f"\033]0;{title}\007")
+    sys.stderr.flush()
+
+
+def restore_terminal_title() -> None:
+    """Restore the terminal title to default on exit."""
+    import sys
+
+    # Reset to empty (terminal will fall back to its default)
+    sys.stderr.write("\033]0;\007")
+    sys.stderr.flush()
+
+
 def format_elapsed_time(seconds: float) -> str:
     """Format elapsed time for display.
 

@@ -2180,10 +2180,16 @@ def cyclopts_main(
     # Set dwr_mode on context for permissions system bypass
     context.dwr_mode = dwr
 
+    # Set terminal tab title
+    from silica.developer.utils import set_terminal_title, restore_terminal_title
+
+    set_terminal_title(persona=persona_name)
+
     # Register atexit handler to print resume command on exit
     # This ensures users always know how to resume their session
     import atexit
 
+    atexit.register(restore_terminal_title)
     atexit.register(_print_resume_command, context.session_id, persona_name)
 
     # Register session with Agent Island if connected
