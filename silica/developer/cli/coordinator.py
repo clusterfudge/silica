@@ -556,34 +556,26 @@ def _run_coordinator_agent(
     # Coordinator uses DWR mode to bypass permissions for coordination tools
     context.dwr_mode = True
 
-    # Build initial prompt — minimal context, no tool listing
+    # Build session status section for the system prompt.
+    # This gives the coordinator awareness of its session without triggering
+    # an LLM call — we wait for user input before making any API requests.
     state = session.get_state()
     agents = state.get("agents", {})
     backend_info = f"{session.deaddrop.backend} ({session.deaddrop.location})"
 
+    session_status_lines = [
+        "\n## Current Session Status\n",
+        f"Session ID: {session.session_id}",
+        f"Backend: {backend_info}",
+    ]
     if agents:
-        # Resumed session with existing agents — give status summary
-        agent_lines = []
+        session_status_lines.append("\nActive agents:")
         for aid, a in agents.items():
-            agent_lines.append(
+            session_status_lines.append(
                 f"  - {aid}: {a.get('display_name', '?')} ({a.get('state', 'unknown')})"
             )
-        agent_summary = "\n".join(agent_lines)
-        initial_prompt = (
-            f"[Coordination session resumed: {state['display_name']}]\n"
-            f"Session ID: {session.session_id}\n"
-            f"Backend: {backend_info}\n\n"
-            f"Active agents:\n{agent_summary}\n\n"
-            f"Check for pending messages and pick up where we left off."
-        )
     else:
-        # Fresh session — don't trigger discovery
-        initial_prompt = (
-            f"[New coordination session: {state['display_name']}]\n"
-            f"Session ID: {session.session_id}\n"
-            f"Backend: {backend_info}\n\n"
-            f"No agents yet. Ready for instructions."
-        )
+        session_status_lines.append("\nNo agents spawned yet.")
 
     # Display welcome
     persona_label = persona if persona else "coordinator"
@@ -601,12 +593,15 @@ def _run_coordinator_agent(
         )
     )
 
-    # Build system prompt: persona + coordinator capability overlay
+    # Build system prompt: persona + coordinator capability overlay + session status
+    session_status = "\n".join(session_status_lines)
     if persona_system_prompt:
-        # Compose: persona identity + coordinator tools/protocol
-        system_prompt = persona_system_prompt
+        # Compose: persona identity + coordinator tools/protocol + session status
+        system_prompt = wrap_text_as_content_block(
+            persona_system_prompt["text"] + session_status
+        )
     else:
-        system_prompt = wrap_text_as_content_block(COORDINATOR_PERSONA)
+        system_prompt = wrap_text_as_content_block(COORDINATOR_PERSONA + session_status)
 
     # Set terminal tab title
     from silica.developer.utils import set_terminal_title, restore_terminal_title
@@ -623,7 +618,7 @@ def _run_coordinator_agent(
         asyncio.run(
             run(
                 agent_context=context,
-                initial_prompt=initial_prompt,
+                initial_prompt=None,
                 single_response=False,
                 system_prompt=system_prompt,
                 tools=COORDINATION_TOOLS
