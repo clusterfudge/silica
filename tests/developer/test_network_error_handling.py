@@ -266,9 +266,9 @@ async def test_network_error_max_retries_exceeded(agent_context):
             )
 
         # Verify it tried multiple times (5 retries as per the code)
-        assert (
-            mock_client.messages.stream.call_count == 5
-        ), "Should have attempted max retries"
+        assert mock_client.messages.stream.call_count == 5, (
+            "Should have attempted max retries"
+        )
 
         # Verify user was informed about retries
         system_messages = [
@@ -453,9 +453,9 @@ async def test_api_500_error_with_successful_retry(agent_context):
             for msg in system_messages
             if "Server error" in msg and "Retrying" in msg
         ]
-        assert (
-            len(retry_messages) > 0
-        ), "Should have displayed server error retry message"
+        assert len(retry_messages) > 0, (
+            "Should have displayed server error retry message"
+        )
 
 
 @pytest.mark.asyncio

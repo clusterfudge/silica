@@ -555,12 +555,12 @@ class TestPlanStorageIsolation:
         active_file = temp_persona_dir / "plans" / "active" / f"{plan_id}.md"
         completed_file = temp_persona_dir / "plans" / "completed" / f"{plan_id}.md"
 
-        assert (
-            not active_file.exists()
-        ), f"Plan should not exist in active dir: {active_file}"
-        assert (
-            completed_file.exists()
-        ), f"Plan should exist in completed dir: {completed_file}"
+        assert not active_file.exists(), (
+            f"Plan should not exist in active dir: {active_file}"
+        )
+        assert completed_file.exists(), (
+            f"Plan should exist in completed dir: {completed_file}"
+        )
 
         # Verify the plan is marked as completed
         completed_plan = plan_manager.get_plan(plan_id)

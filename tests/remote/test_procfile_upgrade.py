@@ -23,14 +23,14 @@ class TestProcfileUpgrade:
             content = f.read()
 
         # Check that the Procfile contains the cache clean command
-        assert (
-            "uv cache clean" in content
-        ), "Procfile should contain 'uv cache clean' command"
+        assert "uv cache clean" in content, (
+            "Procfile should contain 'uv cache clean' command"
+        )
 
         # Check that it specifically cleans pysilica
-        assert (
-            "uv cache clean pysilica" in content
-        ), "Procfile should clean pysilica cache specifically"
+        assert "uv cache clean pysilica" in content, (
+            "Procfile should clean pysilica cache specifically"
+        )
 
     def test_procfile_contains_sync_upgrade(self):
         """Test that Procfile syncs with upgrade flag before starting antennae."""
@@ -47,9 +47,9 @@ class TestProcfileUpgrade:
             content = f.read()
 
         # Check that the Procfile contains the sync --upgrade command
-        assert (
-            "uv sync --upgrade" in content
-        ), "Procfile should contain 'uv sync --upgrade' command"
+        assert "uv sync --upgrade" in content, (
+            "Procfile should contain 'uv sync --upgrade' command"
+        )
 
     def test_procfile_command_order(self):
         """Test that cache clean and sync happen before antennae starts."""
@@ -81,12 +81,12 @@ class TestProcfileUpgrade:
         assert antennae_pos != -1, "Antennae start command should be present"
 
         # Verify order: cache clean -> sync -> run
-        assert (
-            cache_clean_pos < sync_pos
-        ), "Cache clean should come before sync --upgrade"
-        assert (
-            sync_pos < antennae_pos
-        ), "Sync --upgrade should come before starting antennae"
+        assert cache_clean_pos < sync_pos, (
+            "Cache clean should come before sync --upgrade"
+        )
+        assert sync_pos < antennae_pos, (
+            "Sync --upgrade should come before starting antennae"
+        )
 
     def test_procfile_uses_shell_chaining(self):
         """Test that Procfile uses && to chain commands properly."""
@@ -112,6 +112,6 @@ class TestProcfileUpgrade:
         expected_pattern = (
             "uv cache clean pysilica && uv sync --upgrade && uv run silica"
         )
-        assert (
-            expected_pattern in web_command
-        ), f"Procfile should contain the pattern: {expected_pattern}"
+        assert expected_pattern in web_command, (
+            f"Procfile should contain the pattern: {expected_pattern}"
+        )

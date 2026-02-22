@@ -48,7 +48,7 @@ def get_worker_context() -> CoordinationContext:
     """
     if _worker_context is None:
         raise RuntimeError(
-            "Not running as a coordinated worker. " "Worker context not initialized."
+            "Not running as a coordinated worker. Worker context not initialized."
         )
     return _worker_context
 

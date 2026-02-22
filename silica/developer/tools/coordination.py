@@ -344,11 +344,11 @@ def create_human_invite(
     return f"""**Human Invite Created**
 
 **Name:** {display_name}
-**Identity ID:** {identity['id']}
+**Identity ID:** {identity["id"]}
 
 To join, the human needs:
 - Namespace: {session.namespace_id}
-- Identity Secret: {identity['secret']}
+- Identity Secret: {identity["secret"]}
 - Room ID: {session.state.room_id}
 
 (Proper invite URLs coming in future deaddrop version)"""

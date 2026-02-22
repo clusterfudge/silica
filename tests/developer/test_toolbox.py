@@ -109,9 +109,9 @@ def test_agent_schema_matches_schemas(persona_base_dir):
     )
     toolbox = Toolbox(context)
 
-    assert (
-        toolbox.agent_schema == toolbox.schemas()
-    ), "agent_schema should be identical to schemas()"
+    assert toolbox.agent_schema == toolbox.schemas(), (
+        "agent_schema should be identical to schemas()"
+    )
 
 
 def test_schemas_match_tools(persona_base_dir):
@@ -133,9 +133,9 @@ def test_schemas_match_tools(persona_base_dir):
     all_tool_names = builtin_tool_names | user_tool_names
     schema_names = {schema["name"] for schema in schemas}
 
-    assert (
-        all_tool_names == schema_names
-    ), "Schema names should match tool names (built-in + user)"
+    assert all_tool_names == schema_names, (
+        "Schema names should match tool names (built-in + user)"
+    )
 
 
 class TestToolboxMCPIntegration:

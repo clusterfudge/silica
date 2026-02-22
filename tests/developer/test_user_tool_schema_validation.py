@@ -513,6 +513,6 @@ class TestToolsCommandSchemaStatus:
 
         for tool in tools:
             if tool.schema_valid:
-                assert (
-                    tool.schema_errors == []
-                ), f"Valid tool {tool.name} has errors: {tool.schema_errors}"
+                assert tool.schema_errors == [], (
+                    f"Valid tool {tool.name} has errors: {tool.schema_errors}"
+                )

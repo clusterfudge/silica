@@ -109,7 +109,7 @@ class LoopDetector:
         if not info:
             return ""
 
-        return f"""⚠️ **LOOP DETECTED**: You have made the same tool call ({info['tool_name']}) with identical inputs {info['consecutive_count']} times in a row, and received the same output each time.
+        return f"""⚠️ **LOOP DETECTED**: You have made the same tool call ({info["tool_name"]}) with identical inputs {info["consecutive_count"]} times in a row, and received the same output each time.
 
 This indicates you may be stuck in a repetitive pattern. The output is not going to change unless you take a different action.
 

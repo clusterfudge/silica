@@ -20,16 +20,16 @@ async def test_invoke_tool_with_empty_toolspec():
 
     # Test with None
     result = await invoke_tool(context, None)
-    assert (
-        "Invalid tool specification" in result["content"]
-    ), "Should handle None gracefully"
+    assert "Invalid tool specification" in result["content"], (
+        "Should handle None gracefully"
+    )
     print("✅ Test with None passed")
 
     # Test with dict instead of proper tool_use object
     result = await invoke_tool(context, {"type": "tool_use"})
-    assert (
-        "Invalid tool specification" in result["content"]
-    ), "Should handle dict gracefully"
+    assert "Invalid tool specification" in result["content"], (
+        "Should handle dict gracefully"
+    )
     print("✅ Test with dict passed")
 
     # Test with MagicMock missing required attributes
@@ -43,9 +43,9 @@ async def test_invoke_tool_with_empty_toolspec():
     print(f"Has input attribute: {hasattr(mock_tool, 'input')}")
     result = await invoke_tool(context, mock_tool)
     print(f"Result content: {result['content']}")
-    assert (
-        "Invalid tool specification" in result["content"]
-    ), "Should handle missing attributes gracefully"
+    assert "Invalid tool specification" in result["content"], (
+        "Should handle missing attributes gracefully"
+    )
     print("✅ Test with MagicMock missing attributes passed")
 
 
@@ -72,9 +72,9 @@ async def test_toolbox_invoke_agent_tool(persona_base_dir):
 
     # Test with None
     result = await toolbox.invoke_agent_tool(None)
-    assert (
-        "Invalid tool specification" in result["content"]
-    ), "Should handle None gracefully"
+    assert "Invalid tool specification" in result["content"], (
+        "Should handle None gracefully"
+    )
     print("✅ Test with None passed")
 
     # Test with malformed tool object
@@ -90,9 +90,9 @@ async def test_toolbox_invoke_agent_tool(persona_base_dir):
     )
     result = await toolbox.invoke_agent_tool(malformed_tool)
     print(f"Malformed tool result: {result['content']}")
-    assert (
-        "Invalid tool specification" in result["content"]
-    ), "Should handle malformed tool gracefully"
+    assert "Invalid tool specification" in result["content"], (
+        "Should handle malformed tool gracefully"
+    )
     print("✅ Test with malformed tool passed")
 
     # Test with unknown tool
@@ -103,9 +103,9 @@ async def test_toolbox_invoke_agent_tool(persona_base_dir):
     unknown_tool.input = {}
 
     result = await toolbox.invoke_agent_tool(unknown_tool)
-    assert (
-        "Unknown function" in result["content"]
-    ), "Should handle unknown tool gracefully"
+    assert "Unknown function" in result["content"], (
+        "Should handle unknown tool gracefully"
+    )
     print("✅ Test with unknown tool passed")
 
 
