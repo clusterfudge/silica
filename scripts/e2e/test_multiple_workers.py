@@ -62,17 +62,17 @@ def main():
                     coordinator["id"],
                     coordinator["secret"],
                     room["room_id"],
-                    f"Worker-{i+1}",
+                    f"Worker-{i + 1}",
                 )
-                agent_id = f"agent-{i+1:03d}"
-                session_name = f"e2e-multi-{i+1}"
+                agent_id = f"agent-{i + 1:03d}"
+                session_name = f"e2e-multi-{i + 1}"
                 sessions.append(session_name)
                 expected_agents.append(agent_id)
 
                 if not spawn_worker_in_tmux(session_name, invite_url, agent_id):
-                    log(f"FAILED to spawn worker {i+1}")
+                    log(f"FAILED to spawn worker {i + 1}")
                     return False
-                log(f"Spawned Worker-{i+1} ({agent_id})")
+                log(f"Spawned Worker-{i + 1} ({agent_id})")
 
             # Wait for all Idle messages
             log(f"Waiting for {num_workers} Idle messages...")

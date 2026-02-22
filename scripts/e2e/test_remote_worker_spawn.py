@@ -105,7 +105,7 @@ def test_remote_worker_spawn():
     for i in range(6):  # 30 seconds max
         time.sleep(5)
         agent = session.get_agent(test_agent.agent_id)
-        print(f"   [{i*5}s] State: {agent.state}")
+        print(f"   [{i * 5}s] State: {agent.state}")
 
         if agent.state == AgentState.IDLE:
             print("\n   ✓ Worker connected and ready!")
