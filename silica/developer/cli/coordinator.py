@@ -581,11 +581,18 @@ def _run_coordinator_agent(
             )
     console.print(Panel("\n".join(panel_lines), title="🤝 Coordination Mode"))
 
-    # Build system prompt: persona + coordinator capability overlay
+    # Build system prompt: persona + coordinator capability overlay + cwd
+    import os
+
+    cwd_section = (
+        f"\n## Working Directory\n\nCurrent working directory: `{os.getcwd()}`\n"
+    )
     if persona_system_prompt:
-        system_prompt = persona_system_prompt
+        system_prompt = wrap_text_as_content_block(
+            persona_system_prompt["text"] + cwd_section
+        )
     else:
-        system_prompt = wrap_text_as_content_block(COORDINATOR_PERSONA)
+        system_prompt = wrap_text_as_content_block(COORDINATOR_PERSONA + cwd_section)
 
     # Set terminal tab title
     from silica.developer.utils import set_terminal_title, restore_terminal_title
