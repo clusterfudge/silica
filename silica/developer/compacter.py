@@ -308,7 +308,9 @@ class ConversationCompacter:
         return cleaned_messages
 
     @staticmethod
-    def _strip_internal_message_keys(messages: List[MessageParam]) -> List[MessageParam]:
+    def _strip_internal_message_keys(
+        messages: List[MessageParam],
+    ) -> List[MessageParam]:
         """Strip internal metadata keys from messages before sending to the API.
 
         The agent loop annotates in-memory messages with keys like 'anthropic_id',
@@ -332,15 +334,19 @@ class ConversationCompacter:
         _VALID_BLOCK_KEYS = {
             "text": {"type", "text", "cache_control"},
             "tool_use": {"type", "id", "name", "input", "cache_control"},
-            "tool_result": {"type", "tool_use_id", "content", "is_error", "cache_control"},
+            "tool_result": {
+                "type",
+                "tool_use_id",
+                "content",
+                "is_error",
+                "cache_control",
+            },
             "image": {"type", "source", "cache_control"},
         }
 
         cleaned: list[MessageParam] = []
         for msg in messages:
-            clean_msg = {
-                k: v for k, v in msg.items() if k not in _INTERNAL_MSG_KEYS
-            }
+            clean_msg = {k: v for k, v in msg.items() if k not in _INTERNAL_MSG_KEYS}
             # Also clean content blocks of non-standard keys
             content = clean_msg.get("content")
             if isinstance(content, list):
@@ -351,7 +357,11 @@ class ConversationCompacter:
                         valid_keys = _VALID_BLOCK_KEYS.get(block_type)
                         if valid_keys:
                             clean_blocks.append(
-                                {k: copy.deepcopy(v) for k, v in block.items() if k in valid_keys}
+                                {
+                                    k: copy.deepcopy(v)
+                                    for k, v in block.items()
+                                    if k in valid_keys
+                                }
                             )
                         else:
                             # Unknown block type — deep copy as-is
@@ -1438,13 +1448,15 @@ Focus on preserving what the guidance identifies as important. Be comprehensive 
                 json.dump(debug_payload, f, indent=2, default=str)
 
             print(f"\n[Compaction Debug] Dumped debug info to: {debug_file}")
-            print(f"  System: {system_size:,} chars (~{int(system_size/3.5):,} tokens)")
-            print(f"  Tools: {tools_size:,} chars (~{int(tools_size/3.5):,} tokens)")
             print(
-                f"  Messages: {messages_size:,} chars (~{int(messages_size/3.5):,} tokens)"
+                f"  System: {system_size:,} chars (~{int(system_size / 3.5):,} tokens)"
+            )
+            print(f"  Tools: {tools_size:,} chars (~{int(tools_size / 3.5):,} tokens)")
+            print(
+                f"  Messages: {messages_size:,} chars (~{int(messages_size / 3.5):,} tokens)"
             )
             print(
-                f"  Conversation str: {conversation_str_size:,} chars (~{int(conversation_str_size/3.5):,} tokens)"
+                f"  Conversation str: {conversation_str_size:,} chars (~{int(conversation_str_size / 3.5):,} tokens)"
             )
             print(f"  Message count: {len(messages_for_summary)}")
 

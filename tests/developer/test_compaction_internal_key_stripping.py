@@ -102,7 +102,12 @@ def mock_agent_context():
     # _process_file_mentions which strips internal keys)
     clean_messages = []
     for msg in chat_history:
-        clean = {k: v for k, v in msg.items() if k not in {"anthropic_id", "request_id", "msg_id", "prev_msg_id", "timestamp"}}
+        clean = {
+            k: v
+            for k, v in msg.items()
+            if k
+            not in {"anthropic_id", "request_id", "msg_id", "prev_msg_id", "timestamp"}
+        }
         clean_messages.append(clean)
 
     context.get_api_context.return_value = {
@@ -127,9 +132,7 @@ class TestStripInternalMessageKeys:
 
     def test_strips_request_id(self, compacter):
         """Verify request_id is removed from messages."""
-        messages = [
-            {"role": "assistant", "content": "Hello", "request_id": "req_123"}
-        ]
+        messages = [{"role": "assistant", "content": "Hello", "request_id": "req_123"}]
         cleaned = compacter._strip_internal_message_keys(messages)
         assert "request_id" not in cleaned[0]
 
@@ -237,9 +240,7 @@ class TestStripInternalMessageKeys:
 
     def test_handles_string_content(self, compacter):
         """Verify messages with string content are handled correctly."""
-        messages = [
-            {"role": "user", "content": "Hello", "anthropic_id": "msg_123"}
-        ]
+        messages = [{"role": "user", "content": "Hello", "anthropic_id": "msg_123"}]
         cleaned = compacter._strip_internal_message_keys(messages)
         assert cleaned[0]["content"] == "Hello"
         assert "anthropic_id" not in cleaned[0]
@@ -268,8 +269,9 @@ class TestCompactionWithInternalKeys:
         raw_messages = mock_agent_context.chat_history[:4]
 
         # Confirm the raw messages DO have internal keys
-        assert any("anthropic_id" in msg for msg in raw_messages), \
+        assert any("anthropic_id" in msg for msg in raw_messages), (
             "Test setup: raw messages should have anthropic_id"
+        )
 
         compacter._generate_summary_with_context(
             mock_agent_context, raw_messages, "haiku", "test guidance"
@@ -278,10 +280,12 @@ class TestCompactionWithInternalKeys:
         # Verify the API was called with clean messages
         call = compacter.client.messages.create_calls[0]
         for msg in call["messages"]:
-            assert "anthropic_id" not in msg, \
+            assert "anthropic_id" not in msg, (
                 f"anthropic_id leaked to API in message: {msg.get('role')}"
-            assert "request_id" not in msg, \
+            )
+            assert "request_id" not in msg, (
                 f"request_id leaked to API in message: {msg.get('role')}"
+            )
 
     def test_pass2_strips_citations_and_caller_from_blocks(
         self, compacter, mock_agent_context
@@ -301,10 +305,12 @@ class TestCompactionWithInternalKeys:
             if isinstance(content, list):
                 for block in content:
                     if isinstance(block, dict):
-                        assert "citations" not in block, \
+                        assert "citations" not in block, (
                             f"citations leaked to API in block: {block.get('type')}"
-                        assert "caller" not in block, \
+                        )
+                        assert "caller" not in block, (
                             f"caller leaked to API in block: {block.get('type')}"
+                        )
 
     def test_full_compact_conversation_with_internal_keys(
         self, compacter, mock_agent_context
@@ -329,7 +335,9 @@ class TestCompactionWithInternalKeys:
         # Both API calls should have clean messages
         for i, call in enumerate(compacter.client.messages.create_calls):
             for j, msg in enumerate(call["messages"]):
-                assert "anthropic_id" not in msg, \
-                    f"Pass {i+1}, message {j}: anthropic_id leaked to API"
-                assert "request_id" not in msg, \
-                    f"Pass {i+1}, message {j}: request_id leaked to API"
+                assert "anthropic_id" not in msg, (
+                    f"Pass {i + 1}, message {j}: anthropic_id leaked to API"
+                )
+                assert "request_id" not in msg, (
+                    f"Pass {i + 1}, message {j}: request_id leaked to API"
+                )
