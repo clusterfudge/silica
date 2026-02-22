@@ -812,6 +812,8 @@ async def run(
                 # User message exists with no tool results - proceed to AI generation
                 # Reset skip flag now that we've used it
                 skip_user_input = False
+                # Clear initial_prompt so next iteration waits for user input
+                initial_prompt = None
             else:
                 if agent_context.tool_result_buffer:
                     agent_context.chat_history.append(
