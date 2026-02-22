@@ -189,6 +189,14 @@ def poll_messages(
             lines.append(f"**Progress:** {msg.progress * 100:.0f}%")
         if hasattr(msg, "summary") and msg.summary:
             lines.append(f"**Summary:** {msg.summary}")
+        if hasattr(msg, "data") and msg.data:
+            import json
+
+            try:
+                data_str = json.dumps(msg.data, indent=2)
+            except (TypeError, ValueError):
+                data_str = str(msg.data)
+            lines.append(f"**Data:**\n```json\n{data_str}\n```")
         if hasattr(msg, "question") and msg.question:
             lines.append(f"**Question:** {msg.question}")
         if hasattr(msg, "action") and msg.action:
