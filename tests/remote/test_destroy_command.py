@@ -78,21 +78,21 @@ class TestDestroyCommand:
 
         # Test getting app name for default workspace (second)
         app_name_default = get_app_name(git_root)
-        assert (
-            app_name_default == "second-silica"
-        ), "Should use default workspace 'second'"
+        assert app_name_default == "second-silica", (
+            "Should use default workspace 'second'"
+        )
 
         # Test getting app name for specific workspace (agent)
         app_name_agent = get_app_name(git_root, workspace_name="agent")
-        assert (
-            app_name_agent == "agent-silica"
-        ), "Should use specified workspace 'agent'"
+        assert app_name_agent == "agent-silica", (
+            "Should use specified workspace 'agent'"
+        )
 
         # Test getting app name for specific workspace (second)
         app_name_second = get_app_name(git_root, workspace_name="second")
-        assert (
-            app_name_second == "second-silica"
-        ), "Should use specified workspace 'second'"
+        assert app_name_second == "second-silica", (
+            "Should use specified workspace 'second'"
+        )
 
     @patch("silica.remote.cli.commands.destroy.piku_utils.run_piku_in_silica")
     @patch("silica.remote.cli.commands.destroy.get_antennae_client")

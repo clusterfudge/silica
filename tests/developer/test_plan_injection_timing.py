@@ -78,9 +78,10 @@ class TestShouldInjectPlanReminder:
         mock_context = Mock()
         mock_context.parent_session_id = None
 
-        with patch(f"{PLANNING_MODULE}.get_active_plan_status") as mock_status, patch(
-            f"{PLANNING_MODULE}.get_ephemeral_plan_state"
-        ) as mock_state:
+        with (
+            patch(f"{PLANNING_MODULE}.get_active_plan_status") as mock_status,
+            patch(f"{PLANNING_MODULE}.get_ephemeral_plan_state") as mock_state,
+        ):
             mock_status.return_value = {
                 "status": "executing",
                 "incomplete_tasks": 3,
@@ -97,9 +98,10 @@ class TestShouldInjectPlanReminder:
         mock_context = Mock()
         mock_context.parent_session_id = None
 
-        with patch(f"{PLANNING_MODULE}.get_active_plan_status") as mock_status, patch(
-            f"{PLANNING_MODULE}.get_ephemeral_plan_state"
-        ) as mock_state:
+        with (
+            patch(f"{PLANNING_MODULE}.get_active_plan_status") as mock_status,
+            patch(f"{PLANNING_MODULE}.get_ephemeral_plan_state") as mock_state,
+        ):
             mock_status.return_value = {
                 "status": "executing",
                 "incomplete_tasks": 3,
@@ -216,9 +218,10 @@ class TestPlanInjectionIntegration:
 
         # Even with plan functions returning values, _process_file_mentions
         # should NOT inject plan state (that logic was removed)
-        with patch(f"{PLANNING_MODULE}.get_active_plan_status") as mock_status, patch(
-            f"{PLANNING_MODULE}.get_ephemeral_plan_state"
-        ) as mock_state:
+        with (
+            patch(f"{PLANNING_MODULE}.get_active_plan_status") as mock_status,
+            patch(f"{PLANNING_MODULE}.get_ephemeral_plan_state") as mock_state,
+        ):
             mock_status.return_value = {
                 "status": "executing",
                 "incomplete_tasks": 3,

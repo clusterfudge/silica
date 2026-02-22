@@ -101,9 +101,9 @@ def test_basic_connectivity():
                 room_id=room["room_id"],
                 secret=bob["secret"],
             )
-            assert (
-                len(room_messages) >= 1
-            ), f"Expected room message, got {len(room_messages)}"
+            assert len(room_messages) >= 1, (
+                f"Expected room message, got {len(room_messages)}"
+            )
             print("✓ Received room message")
         except RuntimeError as e:
             if "404" in str(e):

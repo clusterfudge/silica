@@ -344,11 +344,11 @@ def create_human_invite(
     return f"""**Human Invite Created**
 
 **Name:** {display_name}
-**Identity ID:** {identity['id']}
+**Identity ID:** {identity["id"]}
 
 To join, the human needs:
 - Namespace: {session.namespace_id}
-- Identity Secret: {identity['secret']}
+- Identity Secret: {identity["secret"]}
 - Room ID: {session.state.room_id}
 
 (Proper invite URLs coming in future deaddrop version)"""
@@ -920,6 +920,18 @@ def spawn_agent(
 
     # Build the worker launch command
     worker_dir = cwd if cwd else os.getcwd()
+
+    # Validate the working directory exists before launching
+    if not os.path.isdir(worker_dir):
+        session.update_agent_state(agent_id, AgentState.TERMINATED)
+        return (
+            f"**Agent Created: {display_name}**\n"
+            f"- Agent ID: {agent_id}\n"
+            f"- State: FAILED\n\n"
+            f"**Failed:** Working directory does not exist: `{worker_dir}`\n"
+            f"Coordinator cwd is: `{os.getcwd()}`"
+        )
+
     worker_command = f"cd '{worker_dir}' && {env_setup_str} && uv run silica worker"
 
     try:

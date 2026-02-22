@@ -61,17 +61,17 @@ def main():
                     coordinator["id"],
                     coordinator["secret"],
                     room["room_id"],
-                    f"HealthWorker-{i+1}",
+                    f"HealthWorker-{i + 1}",
                 )
-                agent_id = f"health-agent-{i+1:03d}"
+                agent_id = f"health-agent-{i + 1:03d}"
                 agent_ids.append(agent_id)
-                session_name = f"e2e-health-{i+1}"
+                session_name = f"e2e-health-{i + 1}"
                 sessions.append(session_name)
 
                 if not spawn_worker_in_tmux(session_name, invite_url, agent_id):
-                    log(f"FAILED to spawn worker {i+1}")
+                    log(f"FAILED to spawn worker {i + 1}")
                     return False
-                log(f"Spawned HealthWorker-{i+1} ({agent_id})")
+                log(f"Spawned HealthWorker-{i + 1} ({agent_id})")
 
             # Track last_seen for each agent
             log("Collecting agent messages and tracking health...")

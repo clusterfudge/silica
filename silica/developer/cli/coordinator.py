@@ -556,57 +556,43 @@ def _run_coordinator_agent(
     # Coordinator uses DWR mode to bypass permissions for coordination tools
     context.dwr_mode = True
 
-    # Build initial prompt — minimal context, no tool listing
+    # Gather session info for display and system prompt
     state = session.get_state()
     agents = state.get("agents", {})
     backend_info = f"{session.deaddrop.backend} ({session.deaddrop.location})"
 
-    if agents:
-        # Resumed session with existing agents — give status summary
-        agent_lines = []
-        for aid, a in agents.items():
-            agent_lines.append(
-                f"  - {aid}: {a.get('display_name', '?')} ({a.get('state', 'unknown')})"
-            )
-        agent_summary = "\n".join(agent_lines)
-        initial_prompt = (
-            f"[Coordination session resumed: {state['display_name']}]\n"
-            f"Session ID: {session.session_id}\n"
-            f"Backend: {backend_info}\n\n"
-            f"Active agents:\n{agent_summary}\n\n"
-            f"Check for pending messages and pick up where we left off."
-        )
-    else:
-        # Fresh session — don't trigger discovery
-        initial_prompt = (
-            f"[New coordination session: {state['display_name']}]\n"
-            f"Session ID: {session.session_id}\n"
-            f"Backend: {backend_info}\n\n"
-            f"No agents yet. Ready for instructions."
-        )
-
     # Display welcome
     persona_label = persona if persona else "coordinator"
     heartbeat_label = f"{heartbeat_interval}s" if heartbeat_prompt_text else "off"
-    console.print(
-        Panel(
-            f"[bold green]Coordinator Agent Active[/bold green]\n\n"
-            f"Session: {session.session_id}\n"
-            f"Backend: {backend_info}\n"
-            f"Persona: {persona_label}\n"
-            f"Model: {MODEL}\n"
-            f"Heartbeat: {heartbeat_label}\n"
-            f"Tools: {', '.join(TOOL_GROUPS)}",
-            title="🤝 Coordination Mode",
-        )
-    )
+    panel_lines = [
+        "[bold green]Coordinator Agent Active[/bold green]\n",
+        f"Session: {session.session_id}",
+        f"Backend: {backend_info}",
+        f"Persona: {persona_label}",
+        f"Model: {MODEL}",
+        f"Heartbeat: {heartbeat_label}",
+        f"Tools: {', '.join(TOOL_GROUPS)}",
+    ]
+    if agents:
+        panel_lines.append(f"\nAgents ({len(agents)}):")
+        for aid, a in agents.items():
+            panel_lines.append(
+                f"  {a.get('display_name', aid[:8])} — {a.get('state', 'unknown')}"
+            )
+    console.print(Panel("\n".join(panel_lines), title="🤝 Coordination Mode"))
 
-    # Build system prompt: persona + coordinator capability overlay
+    # Build system prompt: persona + coordinator capability overlay + cwd
+    import os
+
+    cwd_section = (
+        f"\n## Working Directory\n\nCurrent working directory: `{os.getcwd()}`\n"
+    )
     if persona_system_prompt:
-        # Compose: persona identity + coordinator tools/protocol
-        system_prompt = persona_system_prompt
+        system_prompt = wrap_text_as_content_block(
+            persona_system_prompt["text"] + cwd_section
+        )
     else:
-        system_prompt = wrap_text_as_content_block(COORDINATOR_PERSONA)
+        system_prompt = wrap_text_as_content_block(COORDINATOR_PERSONA + cwd_section)
 
     # Set terminal tab title
     from silica.developer.utils import set_terminal_title, restore_terminal_title
@@ -623,7 +609,7 @@ def _run_coordinator_agent(
         asyncio.run(
             run(
                 agent_context=context,
-                initial_prompt=initial_prompt,
+                initial_prompt=None,
                 single_response=False,
                 system_prompt=system_prompt,
                 tools=COORDINATION_TOOLS

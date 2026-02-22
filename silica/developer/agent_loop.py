@@ -812,6 +812,8 @@ async def run(
                 # User message exists with no tool results - proceed to AI generation
                 # Reset skip flag now that we've used it
                 skip_user_input = False
+                # Clear initial_prompt so next iteration waits for user input
+                initial_prompt = None
             else:
                 if agent_context.tool_result_buffer:
                     agent_context.chat_history.append(
@@ -847,6 +849,7 @@ async def run(
                 max_retries = 5
                 base_delay = 1
                 max_delay = 60
+                final_message = None
 
                 for attempt in range(max_retries):
                     try:
@@ -945,6 +948,25 @@ async def run(
                             agent_context.chat_history, agent_context
                         )
 
+                        # Never send a conversation ending with an assistant
+                        # turn.  Some models (e.g. claude-opus-4-6) reject
+                        # assistant prefill entirely, and we don't use
+                        # prefill intentionally.  If messages end with
+                        # assistant (e.g. resumed session, interrupted tool
+                        # loop, orphaned-block cleanup), bail out of the
+                        # retry loop so the outer while-loop returns to
+                        # waiting for user input.
+                        if messages and messages[-1].get("role") == "assistant":
+                            import logging as _logging
+
+                            _logging.getLogger(__name__).warning(
+                                "Messages end with assistant turn — "
+                                "skipping API call, returning to user input"
+                            )
+                            # Set a sentinel so post-retry code knows to skip
+                            final_message = None  # noqa: F841
+                            break
+
                         # Get thinking configuration if enabled
                         thinking_config = get_thinking_config(
                             agent_context.thinking_mode, model
@@ -1003,21 +1025,6 @@ async def run(
                         # Add thinking parameter if configured
                         if thinking_config:
                             api_kwargs["thinking"] = thinking_config
-
-                            # Thinking mode requires the conversation to end with
-                            # a user message (no assistant prefill). Guard against
-                            # edge cases where messages end with an assistant turn
-                            # (e.g., resumed sessions, interrupted tool loops).
-                            if messages and messages[-1].get("role") == "assistant":
-                                import logging as _logging
-
-                                _logging.getLogger(__name__).warning(
-                                    "Thinking enabled but messages end with assistant "
-                                    "turn — disabling thinking for this request"
-                                )
-                                api_kwargs["thinking"] = {"type": "disabled"}
-                                # Recalculate max_tokens without thinking budget
-                                api_kwargs["max_tokens"] = model["max_tokens"]
 
                         # Log the request
                         logger.log_request(
@@ -1257,6 +1264,12 @@ async def run(
                             time.sleep(delay)
                         else:
                             raise
+
+            # If the retry loop was exited early (e.g. messages ended with
+            # assistant turn), final_message is None — skip response
+            # processing and return to user input.
+            if final_message is None:
+                continue
 
             final_content = final_message.content
             filtered = []

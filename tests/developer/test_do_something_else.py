@@ -116,9 +116,9 @@ def test_agent_workflow_do_something_else():
             break
 
     # Verify the chat history was modified correctly
-    assert (
-        len(chat_history) == 1
-    ), "Assistant message should have been removed from chat history"
+    assert len(chat_history) == 1, (
+        "Assistant message should have been removed from chat history"
+    )
     assert chat_history[0]["role"] == "user", "First message should be from user"
 
     # The user message should now contain the alternate request
@@ -202,9 +202,9 @@ def test_agent_tool_handling_with_do_something_else():
 
     # Check the chat history was properly modified
     assert len(chat_history) == 1, "Expected only the user message in chat history"
-    assert (
-        chat_history[0]["role"] == "user"
-    ), "Expected the remaining message to be from user"
+    assert chat_history[0]["role"] == "user", (
+        "Expected the remaining message to be from user"
+    )
     assert (
         "Alternate request: I want to try a different approach"
         in chat_history[0]["content"]

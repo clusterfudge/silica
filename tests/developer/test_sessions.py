@@ -345,8 +345,8 @@ class TestInteractiveResume(unittest.TestCase):
                             {"role": "user", "content": f"Message for {session_id}"},
                         ],
                         "metadata": {
-                            "created_at": f"2025-01-{15+i}T12:00:00Z",
-                            "last_updated": f"2025-01-{15+i}T12:30:00Z",
+                            "created_at": f"2025-01-{15 + i}T12:00:00Z",
+                            "last_updated": f"2025-01-{15 + i}T12:30:00Z",
                             "root_dir": "/path/to/project",
                         },
                     },

@@ -259,9 +259,9 @@ class TestPromptExecutionBackgroundTask:
                     response = client.post(f"/api/prompts/{sample_prompt.id}/execute")
 
                     assert response.status_code == 200
-                    assert (
-                        captured_target is not None
-                    ), "Background function was not captured"
+                    assert captured_target is not None, (
+                        "Background function was not captured"
+                    )
 
                     # Run the captured function synchronously (within mock context)
                     captured_target()
@@ -309,9 +309,9 @@ class TestPromptExecutionBackgroundTask:
                     response = client.post(f"/api/prompts/{sample_prompt.id}/execute")
 
                     assert response.status_code == 200
-                    assert (
-                        captured_target is not None
-                    ), "Background function was not captured"
+                    assert captured_target is not None, (
+                        "Background function was not captured"
+                    )
 
                     # Run the captured function synchronously (errors are caught inside)
                     captured_target()

@@ -156,9 +156,9 @@ class TestFlushCounterAfterMutation:
 
         history_after = store.read_history()
         texts = [m.get("content") for m in history_after]
-        assert (
-            "new after pop" in texts
-        ), f"New message after pop was not flushed. History texts: {texts}"
+        assert "new after pop" in texts, (
+            f"New message after pop was not flushed. History texts: {texts}"
+        )
 
     def test_messages_written_after_bulk_removal(self, history_dir):
         """If multiple messages are removed (orphan cleanup), new messages
@@ -187,9 +187,9 @@ class TestFlushCounterAfterMutation:
         store = ctx._get_or_create_store()
         history = store.read_history()
         texts = [m.get("content") for m in history]
-        assert (
-            "post-cleanup-1" in texts
-        ), f"Message after cleanup not flushed. History: {texts}"
+        assert "post-cleanup-1" in texts, (
+            f"Message after cleanup not flushed. History: {texts}"
+        )
         assert "post-cleanup-2" in texts
 
 
@@ -240,9 +240,9 @@ class TestMigrationIdempotency:
             base_context=base_ctx,
             history_base_dir=tmp_path,
         )
-        assert (
-            result is not None
-        ), "Session should be loadable after interrupted migration"
+        assert result is not None, (
+            "Session should be loadable after interrupted migration"
+        )
         assert len(result.chat_history) == 2
 
     def test_interrupted_migration_root_deleted(self, tmp_path):
@@ -326,9 +326,9 @@ class TestAtomicWrites:
 
         # The original context should still be intact
         recovered = store.read_context()
-        assert (
-            recovered == original
-        ), f"Context was corrupted. Got {recovered}, expected {original}"
+        assert recovered == original, (
+            f"Context was corrupted. Got {recovered}, expected {original}"
+        )
 
     def test_session_meta_survives_write_error(self, history_dir):
         """session.json should also be atomic."""
@@ -450,9 +450,9 @@ class TestCompactionMetadataWrittenOnFlush:
 
         store = ctx._get_or_create_store()
         session_meta = store.read_session_meta()
-        assert (
-            "compaction" in session_meta
-        ), "compaction metadata not in session.json after compact_in_place()"
+        assert "compaction" in session_meta, (
+            "compaction metadata not in session.json after compact_in_place()"
+        )
 
 
 # ===========================================================================
@@ -495,9 +495,9 @@ class TestContextStripping:
         for msg in raw_context:
             if isinstance(msg.get("content"), list):
                 for block in msg["content"]:
-                    assert (
-                        "cache_control" not in block
-                    ), f"cache_control persisted in context.jsonl: {block}"
+                    assert "cache_control" not in block, (
+                        f"cache_control persisted in context.jsonl: {block}"
+                    )
 
     def test_internal_keys_stripped_from_context(self, history_dir):
         """Internal keys (msg_id, etc.) must not be in context.jsonl."""
@@ -517,9 +517,9 @@ class TestContextStripping:
                 "anthropic_id",
                 "request_id",
             ):
-                assert (
-                    key not in msg
-                ), f"Internal key '{key}' persisted in context.jsonl"
+                assert key not in msg, (
+                    f"Internal key '{key}' persisted in context.jsonl"
+                )
 
     def test_stale_cache_control_stripped_on_load(self, tmp_path):
         """Sessions with cache_control baked into context.jsonl from older
@@ -576,9 +576,9 @@ class TestContextStripping:
         for msg in result.chat_history:
             if isinstance(msg.get("content"), list):
                 for block in msg["content"]:
-                    assert (
-                        "cache_control" not in block
-                    ), f"Stale cache_control survived load: {block}"
+                    assert "cache_control" not in block, (
+                        f"Stale cache_control survived load: {block}"
+                    )
 
     def test_cache_control_accumulation_across_flushes(self, history_dir):
         """Even after multiple flushes, context.jsonl should have zero
@@ -609,9 +609,9 @@ class TestContextStripping:
                 for block in msg["content"]:
                     if isinstance(block, dict) and "cache_control" in block:
                         cache_count += 1
-        assert (
-            cache_count == 0
-        ), f"Found {cache_count} cache_control markers in context.jsonl"
+        assert cache_count == 0, (
+            f"Found {cache_count} cache_control markers in context.jsonl"
+        )
 
 
 # ===========================================================================
@@ -645,9 +645,9 @@ class TestUsageMsgIdCorrelation:
 
         # Each usage entry should have a DIFFERENT msg_id
         msg_ids = [m.get("msg_id") for m in metadata]
-        assert (
-            msg_ids[0] != msg_ids[1]
-        ), f"Both usage entries got the same msg_id: {msg_ids}"
+        assert msg_ids[0] != msg_ids[1], (
+            f"Both usage entries got the same msg_id: {msg_ids}"
+        )
 
         # They should correspond to the two assistant messages
         history = store.read_history()
@@ -728,9 +728,9 @@ class TestConsumerStripping:
                 "anthropic_id",
                 "request_id",
             ):
-                assert (
-                    key not in msg
-                ), f"Internal key '{key}' leaked to get_session_data consumer"
+                assert key not in msg, (
+                    f"Internal key '{key}' leaked to get_session_data consumer"
+                )
 
 
 class TestCorruptionLogging:

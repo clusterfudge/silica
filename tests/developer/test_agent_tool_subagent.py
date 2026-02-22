@@ -157,9 +157,9 @@ async def test_agent_tool_nested_context_save(
             await agent(parent_context, "Do a sub task", "read_file")
 
             # Verify a sub-agent context was created with parent's session ID
-            assert (
-                captured_agent_context is not None
-            ), "agent.run was not called with an agent_context"
+            assert captured_agent_context is not None, (
+                "agent.run was not called with an agent_context"
+            )
             assert captured_agent_context.parent_session_id == parent_context.session_id
 
             # Verify the chat history was flushed correctly
@@ -176,9 +176,9 @@ async def test_agent_tool_nested_context_save(
                 history_dir / f"{captured_agent_context.session_id}.history.jsonl"
             )
 
-            assert (
-                sub_agent_file.exists()
-            ), f"Sub-agent history file not found at {sub_agent_file}"
+            assert sub_agent_file.exists(), (
+                f"Sub-agent history file not found at {sub_agent_file}"
+            )
 
             # Read the content of the v2 file to verify
             from silica.developer.session_store import SessionStore
