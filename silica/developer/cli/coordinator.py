@@ -556,52 +556,36 @@ def _run_coordinator_agent(
     # Coordinator uses DWR mode to bypass permissions for coordination tools
     context.dwr_mode = True
 
-    # Build session status section for the system prompt.
-    # This gives the coordinator awareness of its session without triggering
-    # an LLM call — we wait for user input before making any API requests.
+    # Gather session info for display and system prompt
     state = session.get_state()
     agents = state.get("agents", {})
     backend_info = f"{session.deaddrop.backend} ({session.deaddrop.location})"
 
-    session_status_lines = [
-        "\n## Current Session Status\n",
-        f"Session ID: {session.session_id}",
-        f"Backend: {backend_info}",
-    ]
-    if agents:
-        session_status_lines.append("\nActive agents:")
-        for aid, a in agents.items():
-            session_status_lines.append(
-                f"  - {aid}: {a.get('display_name', '?')} ({a.get('state', 'unknown')})"
-            )
-    else:
-        session_status_lines.append("\nNo agents spawned yet.")
-
     # Display welcome
     persona_label = persona if persona else "coordinator"
     heartbeat_label = f"{heartbeat_interval}s" if heartbeat_prompt_text else "off"
-    console.print(
-        Panel(
-            f"[bold green]Coordinator Agent Active[/bold green]\n\n"
-            f"Session: {session.session_id}\n"
-            f"Backend: {backend_info}\n"
-            f"Persona: {persona_label}\n"
-            f"Model: {MODEL}\n"
-            f"Heartbeat: {heartbeat_label}\n"
-            f"Tools: {', '.join(TOOL_GROUPS)}",
-            title="🤝 Coordination Mode",
-        )
-    )
+    panel_lines = [
+        "[bold green]Coordinator Agent Active[/bold green]\n",
+        f"Session: {session.session_id}",
+        f"Backend: {backend_info}",
+        f"Persona: {persona_label}",
+        f"Model: {MODEL}",
+        f"Heartbeat: {heartbeat_label}",
+        f"Tools: {', '.join(TOOL_GROUPS)}",
+    ]
+    if agents:
+        panel_lines.append(f"\nAgents ({len(agents)}):")
+        for aid, a in agents.items():
+            panel_lines.append(
+                f"  {a.get('display_name', aid[:8])} — {a.get('state', 'unknown')}"
+            )
+    console.print(Panel("\n".join(panel_lines), title="🤝 Coordination Mode"))
 
-    # Build system prompt: persona + coordinator capability overlay + session status
-    session_status = "\n".join(session_status_lines)
+    # Build system prompt: persona + coordinator capability overlay
     if persona_system_prompt:
-        # Compose: persona identity + coordinator tools/protocol + session status
-        system_prompt = wrap_text_as_content_block(
-            persona_system_prompt["text"] + session_status
-        )
+        system_prompt = persona_system_prompt
     else:
-        system_prompt = wrap_text_as_content_block(COORDINATOR_PERSONA + session_status)
+        system_prompt = wrap_text_as_content_block(COORDINATOR_PERSONA)
 
     # Set terminal tab title
     from silica.developer.utils import set_terminal_title, restore_terminal_title
