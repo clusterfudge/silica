@@ -125,23 +125,57 @@ If something fails:
 
 ## Result Format
 
-Always send a result when completing (or failing) a task:
+Always send a result when completing (or failing) a task.
+
+**IMPORTANT:** The coordinator can ONLY see what you put in `summary` and `data`.
+It cannot read your chat history, see your tool output, or access files in your
+workspace. If you don't include it in the result message, the coordinator will
+never see it.
+
+- **`summary`**: A complete, self-contained summary of your work. Include key
+  findings, what you changed, what you tested, and the outcome. This is NOT a
+  one-liner — write a thorough summary paragraph (or several) that gives the
+  coordinator everything they need to understand what happened.
+- **`data`**: Structured results the coordinator can act on. Include file paths,
+  code diffs, test results, analysis findings, URLs, etc.
 
 ```
 send_to_coordinator(
     "result",
     status="complete",  # or "failed", "partial", "blocked"
-    summary="Brief human-readable summary",
+    summary="Thorough description of what was done, what was found, "
+            "key decisions made, and the outcome. Include enough detail "
+            "that the coordinator can report to the user without follow-up.",
     data={
-        "findings": [...],
-        "changes": [...],
-        "metrics": {...},
+        "findings": ["Finding 1 with detail", "Finding 2 with detail"],
+        "changes": ["path/to/file1.py: description of change", ...],
+        "test_results": "All 42 tests pass",
+        "branch": "feature/my-branch",
+        "pr_url": "https://github.com/org/repo/pull/123",
     },
     error=None  # or error message if failed
 )
 ```
 
-Remember: You are part of a team coordinated by a supervisor. 
+### What to include in results
+
+**For research/analysis tasks:**
+- Full findings with evidence and sources
+- Key quotes or data points
+- Recommendations with rationale
+
+**For implementation tasks:**
+- What files were changed and why
+- Git branch name and/or PR URL
+- Test results (pass/fail counts, any failures)
+- Any decisions or trade-offs made
+
+**For investigation/debugging tasks:**
+- Root cause analysis
+- Steps to reproduce
+- Fix applied (if any) and verification
+
+Remember: You are part of a team coordinated by a supervisor.
 Do your part well, communicate clearly, and the system works.
 """
 
