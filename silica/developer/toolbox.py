@@ -19,6 +19,7 @@ from .utils import render_tree
 from .web.app import run_memory_webapp
 from .tools.sessions import list_sessions, print_session_list, resume_session
 from .tools.user_tools import (
+    discover_all_tools,
     discover_tools,
     invoke_user_tool,
     find_tool,
@@ -4205,11 +4206,11 @@ Let's collaborate on creating a solid plan before implementation."""
             return ("", False)
 
     def _discover_user_tools(self):
-        """Discover user-created tools from ~/.silica/tools/."""
+        """Discover user-created tools from global and project tool directories."""
         try:
             # Check auth during schema building - unauthenticated tools won't be available
             # Skip auth check if requested (e.g., during CLI tool registration)
-            discovered = discover_tools(check_auth=not self._skip_user_tool_auth)
+            discovered = discover_all_tools(check_auth=not self._skip_user_tool_auth)
             for tool in discovered:
                 if tool.error and not tool.is_authorized:
                     # Tool requires auth but isn't authorized - log but don't add to toolbox
