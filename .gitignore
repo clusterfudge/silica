@@ -48,7 +48,7 @@ history/
 .agent-scratchpad
 
 # Agent workspace files (plans, etc.)
-.agent/
+.agent/plans/
 .agents/
 .deaddrop/
 is_prime.py
