@@ -10,12 +10,14 @@ from silica.developer.context import AgentContext
 
 from .framework import tool
 from .user_tools import (
+    discover_all_tools,
     ensure_hello_world_tool,
     ensure_toolspec_helper,
+    ensure_toolspec_helper_in_dir,
     get_archive_dir,
+    get_project_tools_dirs,
     get_tools_dir,
     invoke_user_tool,
-    list_tools,
     parse_tool_metadata,
     shelve_tool,
     validate_tool,
@@ -50,7 +52,14 @@ def toolbox_list(context: AgentContext, category: str = None) -> str:
     # Ensure the hello world example exists on first access
     ensure_hello_world_tool()
 
-    tools = list_tools(category=category)
+    tools = discover_all_tools()
+
+    if category:
+        tools = [
+            t
+            for t in tools
+            if t.metadata and t.metadata.category.lower() == category.lower()
+        ]
 
     if not tools:
         if category:
@@ -64,7 +73,8 @@ def toolbox_list(context: AgentContext, category: str = None) -> str:
         status = "OK" if not t.error else f"ERROR: {t.error}"
         desc = t.spec.get("description", "No description") if t.spec else "N/A"
 
-        output.append(f"**{t.name}** [{status}]")
+        source_label = "global" if t.source == "global" else f"project ({t.source})"
+        output.append(f"**{t.name}** [{status}] ({source_label})")
         output.append(f"  Description: {desc}")
         output.append(f"  Category: {t.metadata.category}")
         if t.metadata.tags:
@@ -82,6 +92,7 @@ def toolbox_create(
     name: str,
     code: str,
     test_input: str = None,
+    location: str = "global",
 ) -> str:
     """Create or edit a tool in the user toolbox.
 
@@ -95,9 +106,17 @@ def toolbox_create(
         name: Tool name (will become filename, e.g., 'my_tool' -> 'my_tool.py')
         code: Complete Python script content (must follow the user tool template)
         test_input: Optional JSON string with test arguments to validate the tool works
+        location: Where to save the tool - "global" (default, ~/.silica/tools/) or "project" (.silica/tools/ in cwd)
     """
-    tools_dir = get_tools_dir()
-    ensure_toolspec_helper()
+    if location == "project":
+        from pathlib import Path
+
+        tools_dir = Path.cwd() / ".silica" / "tools"
+        tools_dir.mkdir(parents=True, exist_ok=True)
+        ensure_toolspec_helper_in_dir(tools_dir)
+    else:
+        tools_dir = get_tools_dir()
+        ensure_toolspec_helper()
 
     # Clean up name
     name = name.strip().replace(" ", "_").replace("-", "_")
@@ -198,16 +217,21 @@ def toolbox_inspect(context: AgentContext, name: str) -> str:
     Args:
         name: Tool name to inspect (without .py extension)
     """
-    tools_dir = get_tools_dir()
-
     # Clean up name
     name = name.strip()
     if name.endswith(".py"):
         name = name[:-3]
 
-    tool_path = tools_dir / f"{name}.py"
+    # Search all tool directories (project dirs first, then global)
+    tool_path = None
+    search_dirs = get_project_tools_dirs() + [get_tools_dir()]
+    for d in search_dirs:
+        candidate = d / f"{name}.py"
+        if candidate.exists():
+            tool_path = candidate
+            break
 
-    if not tool_path.exists():
+    if tool_path is None:
         # Check if it's in the archive
         archive_dir = get_archive_dir()
         archived = list(archive_dir.glob(f"{name}_*.py"))
@@ -216,7 +240,8 @@ def toolbox_inspect(context: AgentContext, name: str) -> str:
                 f"Tool '{name}' not found, but found archived versions:\n"
                 + "\n".join(f"  - {p.name}" for p in archived)
             )
-        return f"Tool '{name}' not found in {tools_dir}"
+        dirs_searched = ", ".join(str(d) for d in search_dirs)
+        return f"Tool '{name}' not found. Searched: {dirs_searched}"
 
     output = []
 

@@ -302,6 +302,7 @@ class DiscoveredTool:
     )
     schema_valid: bool = True  # Whether the schema passes Anthropic API validation
     schema_errors: list[str] = None  # Specific schema validation errors
+    source: str = "global"  # Where the tool was found: "global" or directory path
 
     def __post_init__(self):
         if self.file_stem is None:
@@ -339,6 +340,120 @@ def discover_tools(check_auth: bool = False) -> list[DiscoveredTool]:
         discovered.extend(file_tools)
 
     return discovered
+
+
+def _get_git_root() -> Optional[Path]:
+    """Get the root of the current git repository, or None if not in one."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return Path(result.stdout.strip())
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+    return None
+
+
+def get_project_tools_dirs() -> list[Path]:
+    """Get project-scoped tool directories, ordered closest-to-cwd first.
+
+    Walks from cwd up to the git root (or just cwd if not in a git repo),
+    checking for .silica/tools/ and .agent/tools/ at each level.
+
+    Returns:
+        List of existing tool directories, ordered from closest to cwd
+        (highest precedence) to farthest (lowest precedence).
+    """
+    cwd = Path.cwd()
+    git_root = _get_git_root()
+
+    if git_root:
+        stop_at = git_root  # walk up to and including git root
+    else:
+        # Not in a git repo — only check cwd
+        stop_at = cwd
+
+    dirs = []
+    current = cwd
+    while True:
+        for subdir in (".silica/tools", ".agent/tools"):
+            candidate = current / subdir
+            if candidate.is_dir():
+                dirs.append(candidate)
+
+        if current == stop_at or current == current.parent:
+            break
+        current = current.parent
+
+    return dirs
+
+
+def _discover_tools_from_dir(
+    tools_dir: Path,
+    check_auth: bool = False,
+    source: str = "global",
+) -> list[DiscoveredTool]:
+    """Discover tools from a single directory.
+
+    Args:
+        tools_dir: Directory to scan for tool files
+        check_auth: Whether to verify authorization
+        source: Label for where these tools came from
+
+    Returns:
+        List of DiscoveredTool objects found in the directory
+    """
+    ensure_toolspec_helper_in_dir(tools_dir)
+
+    discovered = []
+    for path in tools_dir.glob("*.py"):
+        if path.name.startswith("_") or path.name.startswith("."):
+            continue
+
+        file_tools = _discover_tools_from_file(path, check_auth=check_auth)
+        for tool in file_tools:
+            tool.source = source
+        discovered.extend(file_tools)
+
+    return discovered
+
+
+def discover_all_tools(check_auth: bool = False) -> list[DiscoveredTool]:
+    """Discover tools from all sources with precedence.
+
+    Discovers tools from:
+    1. Global tools dir (~/.silica/tools/) — lowest precedence
+    2. Project tools dirs (cwd → git root) — highest precedence for closest to cwd
+
+    When tools share the same name, the higher-precedence version wins.
+
+    Args:
+        check_auth: Whether to verify authorization for tools with requires_auth=True
+
+    Returns:
+        Merged list of DiscoveredTool objects, deduplicated by name with precedence
+    """
+    # Start with global tools (lowest precedence)
+    tools_by_name: dict[str, DiscoveredTool] = {}
+    for tool in discover_tools(check_auth=check_auth):
+        tool.source = "global"
+        tools_by_name[tool.name] = tool
+
+    # Discover project tools — process from farthest to closest so that
+    # closer-to-cwd tools override farther ones via dict overwrite
+    project_dirs = get_project_tools_dirs()
+    for tools_dir in reversed(project_dirs):
+        source_label = str(tools_dir.parent.parent)  # e.g. /path/to/project
+        for tool in _discover_tools_from_dir(
+            tools_dir, check_auth=check_auth, source=source_label
+        ):
+            tools_by_name[tool.name] = tool
+
+    return list(tools_by_name.values())
 
 
 def check_tool_authorization(path: Path) -> tuple[bool, str]:
