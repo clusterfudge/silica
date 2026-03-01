@@ -4,7 +4,10 @@
 # dependencies = ["cyclopts", "httpx", "pyyaml"]
 # ///
 
-"""Send a message to the Twin Chat room in Deaddrop.
+"""Send a message or emoji reaction to the Twin Chat room in Deaddrop.
+
+Supports both regular messages (text/markdown) and emoji reactions to
+specific messages by message ID.
 
 Metadata:
     category: communication
@@ -46,15 +49,21 @@ def _get_secret(config):
 def main(
     message: Optional[str] = None,
     content_type: str = "text/markdown",
+    reference_mid: Optional[str] = None,
     *,
     toolspec: bool = False,
     authorize: bool = False,
 ):
     """Send a message to the Twin Chat room.
 
+    For regular messages, just provide the message text. For emoji reactions,
+    set content_type to "reaction" and provide the target message's mid as
+    reference_mid.
+
     Args:
         message: The message text to send to the room
-        content_type: MIME type of the message (default: text/markdown)
+        content_type: MIME type of the message (default: text/markdown). Use "reaction" for emoji reactions.
+        reference_mid: Message ID to react to (required when content_type is "reaction")
     """
     if toolspec:
         schema = generate_schema(main, "deaddrop_send_room")
@@ -71,14 +80,22 @@ def main(
         print(json.dumps({"success": False, "error": "message is required"}))
         return
 
+    if content_type == "reaction" and not reference_mid:
+        print(json.dumps({"success": False, "error": "reference_mid is required for reactions"}))
+        return
+
     try:
         config = _load_config()
         secret = _get_secret(config)
         url = f"{config['url']}/{config['namespace']}/rooms/{config['room_id']}/messages"
 
+        payload = {"body": message, "content_type": content_type}
+        if reference_mid:
+            payload["reference_mid"] = reference_mid
+
         resp = httpx.post(
             url,
-            json={"body": message, "content_type": content_type},
+            json=payload,
             headers={"X-Inbox-Secret": secret},
             timeout=30.0,
         )

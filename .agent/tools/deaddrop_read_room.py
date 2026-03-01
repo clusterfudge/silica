@@ -81,13 +81,21 @@ def main(
         formatted = []
         for msg in messages:
             sender = "Sean" if msg["from_id"] == sean_id else "Twin"
-            formatted.append({
+            entry = {
                 "sender": sender,
                 "from_id": msg["from_id"][:8],
                 "body": msg["body"],
                 "time": msg["created_at"][:19],
                 "mid": msg["mid"],
-            })
+            }
+            # Include content_type if not the default text/markdown
+            ct = msg.get("content_type", "text/markdown")
+            if ct != "text/markdown":
+                entry["content_type"] = ct
+            # Include reference_mid for reactions
+            if msg.get("reference_mid"):
+                entry["reference_mid"] = msg["reference_mid"]
+            formatted.append(entry)
 
         print(json.dumps({"messages": formatted, "count": len(formatted)}))
 
