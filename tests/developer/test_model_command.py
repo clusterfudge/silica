@@ -28,6 +28,9 @@ def test_model_command_no_args_shows_current(mock_context):
     """Test that /model with no arguments shows current model info"""
     toolbox = Toolbox(mock_context)
 
+    # Reset mock to clear any calls from Toolbox init (e.g., MCP setup messages)
+    mock_context.user_interface.handle_system_message.reset_mock()
+
     result = toolbox._model(
         user_interface=mock_context.user_interface,
         sandbox=mock_context.sandbox,
