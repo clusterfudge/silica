@@ -92,6 +92,9 @@ def test_info_command_basic(mock_context):
     """Test that the info command generates output without errors."""
     toolbox = Toolbox(mock_context)
 
+    # Reset mock to clear any calls from Toolbox init (e.g., MCP setup messages)
+    mock_context.user_interface.handle_system_message.reset_mock()
+
     result = toolbox._info(
         user_interface=mock_context.user_interface,
         sandbox=mock_context.sandbox,
