@@ -579,18 +579,24 @@ async def _wait_with_coordination(
     from silica.developer.tools.coordination import poll_messages
 
     # Build subscribe topics: inbox + room
+    # Use the context's cursors (same ones used by receive_messages)
     session = coordination_session
     ctx = session.context
     topics = {}
     inbox_topic = f"inbox:{ctx.identity_id}"
-    topics[inbox_topic] = getattr(session, "_last_inbox_mid", None)
+    topics[inbox_topic] = ctx._last_inbox_mid
     if ctx.room_id:
         room_topic = f"room:{ctx.room_id}"
-        topics[room_topic] = getattr(session, "_last_room_mid", None)
+        topics[room_topic] = ctx._last_room_mid
 
     async def _subscribe_for_messages():
         """Block until a worker message arrives via deaddrop subscribe."""
         while True:
+            # Refresh topics from context cursors each iteration
+            # so we don't re-fire for already-consumed messages
+            topics[inbox_topic] = ctx._last_inbox_mid
+            if ctx.room_id:
+                topics[room_topic] = ctx._last_room_mid
             try:
                 result = await asyncio.get_event_loop().run_in_executor(
                     None,
@@ -602,12 +608,13 @@ async def _wait_with_coordination(
                     ),
                 )
                 if result.get("events"):
-                    # Update cursors for next subscribe
-                    for topic_key, mid in result["events"].items():
-                        if topic_key.startswith("inbox:"):
-                            session._last_inbox_mid = mid
-                        elif topic_key.startswith("room:"):
-                            session._last_room_mid = mid
+                    # NOTE: We intentionally do NOT advance cursors here.
+                    # The subscribe just tells us something new arrived.
+                    # receive_messages() will fetch the actual messages
+                    # and advance the context's cursors properly.
+                    # Advancing here would cause receive_messages to skip
+                    # messages if subscribe returns a mid newer than
+                    # what receive_messages has seen.
                     return True  # Messages arrived
                 # Timeout with no events — loop and re-subscribe
             except Exception:

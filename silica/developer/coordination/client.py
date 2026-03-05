@@ -271,6 +271,11 @@ class CoordinationContext:
             logger.warning("Failed to get inbox messages, continuing with empty")
             inbox_messages = []
 
+        if inbox_messages:
+            logger.debug(
+                f"receive_messages: {len(inbox_messages)} raw inbox msgs "
+                f"(after_mid={self._last_inbox_mid})"
+            )
         for raw in inbox_messages:
             try:
                 msg = self._parse_message(raw)
@@ -283,6 +288,10 @@ class CoordinationContext:
                     mid = raw.get("mid")
                     if mid:
                         self._last_inbox_mid = mid
+                    logger.debug(
+                        f"Skipped non-coordination inbox msg mid={mid}, "
+                        f"ct={raw.get('content_type', '')[:60]}"
+                    )
             except Exception as e:
                 logger.warning(f"Failed to parse inbox message: {e}")
                 # Still update cursor to skip this message
@@ -310,6 +319,11 @@ class CoordinationContext:
                 logger.warning("Failed to get room messages, continuing with empty")
                 room_messages = []
 
+            if room_messages:
+                logger.debug(
+                    f"receive_messages: {len(room_messages)} raw room msgs "
+                    f"(after_mid={self._last_room_mid})"
+                )
             for raw in room_messages:
                 try:
                     msg = self._parse_message(raw)
@@ -321,6 +335,10 @@ class CoordinationContext:
                         mid = raw.get("mid")
                         if mid:
                             self._last_room_mid = mid
+                        logger.debug(
+                            f"Skipped non-coordination room msg mid={mid}, "
+                            f"ct={raw.get('content_type', '')[:60]}"
+                        )
                 except Exception as e:
                     logger.warning(f"Failed to parse room message: {e}")
                     mid = raw.get("mid")
