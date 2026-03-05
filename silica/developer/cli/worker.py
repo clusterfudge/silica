@@ -116,7 +116,7 @@ def _run_worker_agent(
     )
 
     # Import standard tool modules for workers
-    from silica.developer.tools import ALL_TOOLS
+    from silica.developer.tools import ALL_TOOLS, WORKER_COORDINATION_TOOLS
     from silica.developer.utils import wrap_text_as_content_block
     from silica.developer.coordination import Idle, Progress
     from uuid import uuid4
@@ -288,7 +288,8 @@ When done:
                                 system_prompt=wrap_text_as_content_block(
                                     WORKER_PERSONA
                                 ),
-                                tools=ALL_TOOLS,  # Workers get all standard tools
+                                tools=ALL_TOOLS
+                                + WORKER_COORDINATION_TOOLS,  # Standard + coordination tools
                                 single_response=True,  # Exit after final response (tool calls still multi-turn)
                             )
                         )

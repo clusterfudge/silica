@@ -122,6 +122,32 @@ class TestWorkerResultRouting:
         assert "_extract_last_assistant_text" in source
 
 
+class TestWorkerToolAvailability:
+    """Test that workers have coordination tools available."""
+
+    def test_worker_includes_coordination_tools(self):
+        """Verify the worker CLI provides WORKER_COORDINATION_TOOLS to the agent."""
+        import inspect
+        from silica.developer.cli import worker
+
+        source = inspect.getsource(worker._run_worker_agent)
+
+        # Should import WORKER_COORDINATION_TOOLS
+        assert "WORKER_COORDINATION_TOOLS" in source
+        # Should pass them to run() via tools parameter
+        assert "ALL_TOOLS + WORKER_COORDINATION_TOOLS" in source
+
+    def test_worker_coordination_tools_include_essentials(self):
+        """Verify WORKER_COORDINATION_TOOLS contains the essential tools."""
+        from silica.developer.tools import WORKER_COORDINATION_TOOLS
+
+        tool_names = [t.__name__ for t in WORKER_COORDINATION_TOOLS]
+        assert "send_to_coordinator" in tool_names
+        assert "mark_idle" in tool_names
+        assert "check_inbox" in tool_names
+        assert "broadcast_status" in tool_names
+
+
 class TestSubscribeCursors:
     """Test that subscribe topics use context cursors properly."""
 
