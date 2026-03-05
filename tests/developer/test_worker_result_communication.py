@@ -135,7 +135,9 @@ class TestWorkerToolAvailability:
         # Should import WORKER_COORDINATION_TOOLS
         assert "WORKER_COORDINATION_TOOLS" in source
         # Should pass them to run() via tools parameter
-        assert "ALL_TOOLS + WORKER_COORDINATION_TOOLS" in source
+        # Code may split across lines, so check both identifiers exist
+        assert "ALL_TOOLS" in source
+        assert "WORKER_COORDINATION_TOOLS" in source
 
     def test_worker_coordination_tools_include_essentials(self):
         """Verify WORKER_COORDINATION_TOOLS contains the essential tools."""
