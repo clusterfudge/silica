@@ -1464,7 +1464,12 @@ Focus on preserving what the guidance identifies as important. Be comprehensive 
             print(f"\n[Compaction Debug] Failed to dump debug info: {dump_error}")
 
     def check_and_apply_compaction(
-        self, agent_context, model: str, user_interface, enable_compaction: bool = True
+        self,
+        agent_context,
+        model: str,
+        user_interface,
+        enable_compaction: bool = True,
+        force: bool = False,
     ) -> tuple:
         """Check if compaction is needed and apply it if necessary.
 
@@ -1478,6 +1483,7 @@ Focus on preserving what the guidance identifies as important. Be comprehensive 
             model: Model name (string, not ModelSpec dict) - used for token counting only
             user_interface: User interface for notifications
             enable_compaction: Whether compaction is enabled
+            force: If True, force compaction even if under threshold (emergency compaction)
 
         Returns:
             Tuple of (agent_context, True if compaction was applied)
@@ -1517,17 +1523,22 @@ Focus on preserving what the guidance identifies as important. Be comprehensive 
 
         try:
             if debug_compaction:
-                print("[Compaction] Checking if compaction needed...")
-                # Call should_compact with debug flag to see detailed info
-                should_compact = self.should_compact(agent_context, model, debug=True)
-                if not should_compact:
-                    print("[Compaction] Not needed yet")
-                    return agent_context, False
+                if force:
+                    print("[Compaction] Forced (emergency compaction)")
+                else:
+                    print("[Compaction] Checking if compaction needed...")
+                    # Call should_compact with debug flag to see detailed info
+                    should_compact = self.should_compact(
+                        agent_context, model, debug=True
+                    )
+                    if not should_compact:
+                        print("[Compaction] Not needed yet")
+                        return agent_context, False
 
             # Use smart compaction: auto-calculate turns for 30% reduction
             # Uses haiku model for cost-effectiveness
             metadata = self.compact_conversation(
-                agent_context, "haiku", turns=None, force=False
+                agent_context, "haiku", turns=None, force=force
             )
 
             if metadata:

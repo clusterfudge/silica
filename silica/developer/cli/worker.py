@@ -32,6 +32,46 @@ worker_app = cyclopts.App(
 )
 
 
+def _extract_last_assistant_text(chat_history: list) -> str:
+    """Extract the last assistant text response from chat history.
+
+    Walks backward through the chat history to find the most recent
+    assistant message with text content. Used as a fallback summary
+    when the agent doesn't explicitly call send_to_coordinator("result", ...).
+
+    Args:
+        chat_history: List of message dicts from the agent loop
+
+    Returns:
+        The last assistant text, truncated to 2000 chars, or empty string
+    """
+    if not chat_history:
+        return ""
+
+    for msg in reversed(chat_history):
+        if msg.get("role") != "assistant":
+            continue
+        content = msg.get("content", "")
+        if isinstance(content, str) and content.strip():
+            text = content.strip()
+            if len(text) > 2000:
+                text = text[:2000] + "..."
+            return text
+        if isinstance(content, list):
+            # Extract text blocks from content list
+            texts = []
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    texts.append(block.get("text", ""))
+            if texts:
+                text = "\n".join(texts).strip()
+                if len(text) > 2000:
+                    text = text[:2000] + "..."
+                return text
+
+    return ""
+
+
 def _parse_invite_url(invite_url: str) -> dict:
     """Parse a deaddrop invite URL to extract coordination metadata.
 
@@ -76,7 +116,7 @@ def _run_worker_agent(
     )
 
     # Import standard tool modules for workers
-    from silica.developer.tools import ALL_TOOLS
+    from silica.developer.tools import ALL_TOOLS, WORKER_COORDINATION_TOOLS
     from silica.developer.utils import wrap_text_as_content_block
     from silica.developer.coordination import Idle, Progress
     from uuid import uuid4
@@ -226,18 +266,30 @@ Task ID: {task_id}
 **Context:**
 {task_context if task_context else "No additional context provided."}
 
-Execute this task now. When complete, clearly state "TASK COMPLETE" followed by a summary of what was accomplished."""
+Execute this task now. Use your tools to complete it.
+
+**IMPORTANT — Reporting Results:**
+You MUST call `send_to_coordinator("result", ...)` with a detailed summary
+and any structured data BEFORE your final text response. The coordinator
+can ONLY see what you put in the `summary` and `data` fields of that call.
+Do NOT rely on your text response being forwarded — it won't be.
+
+When done:
+1. Call `send_to_coordinator("result", task_id="{task_id}", status="complete", summary="...", data={{...}})`
+2. Call `mark_idle()` to signal availability
+3. Then give a brief text confirmation"""
 
                     # Run the agent loop for this task
                     try:
-                        asyncio.run(
+                        chat_history = asyncio.run(
                             run(
                                 agent_context=context,
                                 initial_prompt=task_prompt,
                                 system_prompt=wrap_text_as_content_block(
                                     WORKER_PERSONA
                                 ),
-                                tools=ALL_TOOLS,  # Workers get all standard tools
+                                tools=ALL_TOOLS
+                                + WORKER_COORDINATION_TOOLS,  # Standard + coordination tools
                                 single_response=True,  # Exit after final response (tool calls still multi-turn)
                             )
                         )
@@ -247,14 +299,21 @@ Execute this task now. When complete, clearly state "TASK COMPLETE" followed by 
                             f"\n[green]✓ Task {task_id} execution finished[/green]"
                         )
 
-                        # Send completion
+                        # Extract the agent's last text response as a fallback summary
+                        summary = _extract_last_assistant_text(chat_history)
+
+                        # Send result to coordinator's inbox (direct message)
+                        # This is a fallback — the agent should have already called
+                        # send_to_coordinator("result", ...) with detailed results.
+                        # We send this to ensure the coordinator always gets notified.
                         try:
-                            coord_context.broadcast(
+                            coord_context.send_to_coordinator(
                                 Result(
                                     task_id=task_id,
                                     agent_id=agent_id,
                                     status="completed",
-                                    summary="Task executed by worker agent",
+                                    summary=summary
+                                    or "Task completed (no summary captured)",
                                 )
                             )
                         except Exception as e:
@@ -265,7 +324,7 @@ Execute this task now. When complete, clearly state "TASK COMPLETE" followed by 
                     except KeyboardInterrupt:
                         console.print("\n[yellow]Task interrupted[/yellow]")
                         try:
-                            coord_context.broadcast(
+                            coord_context.send_to_coordinator(
                                 Result(
                                     task_id=task_id,
                                     agent_id=agent_id,
@@ -278,7 +337,7 @@ Execute this task now. When complete, clearly state "TASK COMPLETE" followed by 
                     except Exception as e:
                         console.print(f"\n[red]Task execution error: {e}[/red]")
                         try:
-                            coord_context.broadcast(
+                            coord_context.send_to_coordinator(
                                 Result(
                                     task_id=task_id,
                                     agent_id=agent_id,
@@ -289,7 +348,8 @@ Execute this task now. When complete, clearly state "TASK COMPLETE" followed by 
                         except Exception:
                             pass
 
-                    # Send idle status
+                    # Send idle status (broadcast to room is correct here —
+                    # idle status is meant for all participants to see)
                     try:
                         coord_context.broadcast(
                             Idle(

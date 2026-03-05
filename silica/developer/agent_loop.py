@@ -380,6 +380,58 @@ def _create_max_tokens_retry_message(attempt: int) -> MessageParam:
     }
 
 
+def _emergency_truncate(
+    agent_context: "AgentContext",
+    user_interface,
+) -> None:
+    """Last-resort context reduction: drop the oldest half of messages.
+
+    This is used when the context is so large that even the compaction API call
+    fails. Unlike compaction, this doesn't summarize — it simply discards older
+    messages to get back under the context window. The dropped messages are still
+    preserved on disk via the normal flush mechanism.
+
+    The truncation keeps a synthetic "context was truncated" user message at the
+    start so the agent knows history was lost.
+    """
+    history = agent_context.chat_history
+    if len(history) <= 2:
+        return
+
+    # Drop the first half of messages
+    midpoint = len(history) // 2
+    # Ensure we start on a user message to maintain valid alternation
+    while midpoint < len(history) and history[midpoint]["role"] != "user":
+        midpoint += 1
+
+    if midpoint >= len(history) - 1:
+        # Can't find a good split point, just keep the last 2 messages
+        midpoint = len(history) - 2
+
+    dropped_count = midpoint
+    kept_messages = history[midpoint:]
+
+    # Prepend a notice about the truncation
+    truncation_notice = {
+        "role": "user",
+        "content": (
+            f"[EMERGENCY CONTEXT TRUNCATION] The conversation exceeded the context window. "
+            f"The oldest {dropped_count} messages were dropped to recover. "
+            f"Some earlier context has been lost. Please re-establish any critical context if needed."
+        ),
+    }
+
+    new_history = [truncation_notice] + list(kept_messages)
+    agent_context._chat_history = new_history
+    agent_context.flush(agent_context.chat_history, compact=False)
+
+    user_interface.handle_system_message(
+        f"[bold red]Emergency truncation: dropped {dropped_count} oldest messages "
+        f"({len(new_history)} remaining) to fit context window[/bold red]",
+        markdown=False,
+    )
+
+
 async def _initialize_mcp(
     agent_context: "AgentContext",
     user_interface,
@@ -527,18 +579,24 @@ async def _wait_with_coordination(
     from silica.developer.tools.coordination import poll_messages
 
     # Build subscribe topics: inbox + room
+    # Use the context's cursors (same ones used by receive_messages)
     session = coordination_session
     ctx = session.context
     topics = {}
     inbox_topic = f"inbox:{ctx.identity_id}"
-    topics[inbox_topic] = getattr(session, "_last_inbox_mid", None)
+    topics[inbox_topic] = ctx._last_inbox_mid
     if ctx.room_id:
         room_topic = f"room:{ctx.room_id}"
-        topics[room_topic] = getattr(session, "_last_room_mid", None)
+        topics[room_topic] = ctx._last_room_mid
 
     async def _subscribe_for_messages():
         """Block until a worker message arrives via deaddrop subscribe."""
         while True:
+            # Refresh topics from context cursors each iteration
+            # so we don't re-fire for already-consumed messages
+            topics[inbox_topic] = ctx._last_inbox_mid
+            if ctx.room_id:
+                topics[room_topic] = ctx._last_room_mid
             try:
                 result = await asyncio.get_event_loop().run_in_executor(
                     None,
@@ -550,12 +608,13 @@ async def _wait_with_coordination(
                     ),
                 )
                 if result.get("events"):
-                    # Update cursors for next subscribe
-                    for topic_key, mid in result["events"].items():
-                        if topic_key.startswith("inbox:"):
-                            session._last_inbox_mid = mid
-                        elif topic_key.startswith("room:"):
-                            session._last_room_mid = mid
+                    # NOTE: We intentionally do NOT advance cursors here.
+                    # The subscribe just tells us something new arrived.
+                    # receive_messages() will fetch the actual messages
+                    # and advance the context's cursors properly.
+                    # Advancing here would cause receive_messages to skip
+                    # messages if subscribe returns a mid newer than
+                    # what receive_messages has seen.
                     return True  # Messages arrived
                 # Timeout with no events — loop and re-subscribe
             except Exception:
@@ -1124,15 +1183,59 @@ async def run(
                                 },
                             )
 
-                            # Handle "prompt is too long" by disabling thinking and retrying
+                            # Handle "prompt is too long" by disabling thinking and forcing compaction
                             if status_code == 400 and "prompt is too long" in str(e):
-                                user_interface.handle_system_message(
-                                    "[bold yellow]Context too large for thinking budget. Retrying with thinking disabled...[/bold yellow]",
-                                    markdown=False,
-                                )
-                                # Disable thinking and clamp max_tokens
+                                # First, disable thinking to reduce output token reservation
                                 thinking_config = {"type": "disabled"}
                                 api_kwargs["thinking"] = thinking_config
+
+                                # Force emergency compaction to actually reduce context size.
+                                # Without this, the retry loop just keeps hitting the same error
+                                # because the context hasn't shrunk.
+                                if enable_compaction:
+                                    user_interface.handle_system_message(
+                                        "[bold yellow]Context too large — forcing emergency compaction...[/bold yellow]",
+                                        markdown=False,
+                                    )
+                                    try:
+                                        from silica.developer.compacter import (
+                                            ConversationCompacter,
+                                        )
+
+                                        _compacter = ConversationCompacter(
+                                            client=client, logger=logger
+                                        )
+                                        agent_context, compacted = (
+                                            _compacter.check_and_apply_compaction(
+                                                agent_context,
+                                                model["title"],
+                                                user_interface,
+                                                True,
+                                                force=True,
+                                            )
+                                        )
+                                        if not compacted:
+                                            user_interface.handle_system_message(
+                                                "[bold yellow]Emergency compaction did not reduce context. Retrying with thinking disabled...[/bold yellow]",
+                                                markdown=False,
+                                            )
+                                    except Exception as compact_err:
+                                        # Compaction itself failed (e.g., context too large even for
+                                        # the compaction API call). Fall back to brute-force truncation:
+                                        # drop the oldest half of messages to get back under the limit.
+                                        user_interface.handle_system_message(
+                                            f"[bold red]Emergency compaction failed: {compact_err}[/bold red]",
+                                            markdown=False,
+                                        )
+                                        _emergency_truncate(
+                                            agent_context, user_interface
+                                        )
+                                else:
+                                    user_interface.handle_system_message(
+                                        "[bold yellow]Context too large for thinking budget. Retrying with thinking disabled...[/bold yellow]",
+                                        markdown=False,
+                                    )
+
                                 # Parse actual token count from error message if possible
                                 import re as _re
 
@@ -1304,6 +1407,19 @@ async def run(
                     )
 
             user_interface.handle_assistant_message(ai_response)
+
+            # Check for compaction after every API response, not just tool-result cycles.
+            # This is critical for heartbeat/non-tool-use patterns where the else branch
+            # (which previously held the only compaction check) is never reached.
+            # Without this, pure text response cycles (e.g. coordinator heartbeats)
+            # can grow context without bound until "prompt is too long" errors.
+            if enable_compaction and final_message.stop_reason != "tool_use":
+                from silica.developer.compacter import ConversationCompacter
+
+                _compacter = ConversationCompacter(client=client, logger=logger)
+                agent_context, _ = _compacter.check_and_apply_compaction(
+                    agent_context, model["title"], user_interface, enable_compaction
+                )
 
             # Use conversation size calculated before the API call (when state was complete)
             # This avoids counting incomplete states with tool_use but no tool_result
