@@ -239,3 +239,51 @@ class TestInteractiveBashTimeout:
 
         # Test that we can run the function without errors
         # (Real live streaming would be visible in terminal but not captured in tests)
+
+    @pytest.mark.asyncio
+    async def test_non_interactive_auto_kill(self, persona_base_dir, monkeypatch):
+        """Test that non-interactive mode auto-kills without prompting.
+
+        When stdin is not a TTY (daemon/coordinator mode), the interactive
+        timeout prompt would consume queue processor data as input, causing
+        an infinite continue loop. In non-interactive mode, the command
+        should be killed immediately on timeout without prompting.
+        """
+        import sys
+
+        # Simulate non-interactive mode (daemon with piped stdin)
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+
+        # Use a UI that would hang if get_user_input were called
+        class HangingUserInterface(MockUserInterface):
+            """UI that fails if get_user_input is called."""
+
+            async def get_user_input(self, prompt: str = "") -> str:
+                raise AssertionError(
+                    "get_user_input should not be called in non-interactive mode"
+                )
+
+        ui = HangingUserInterface()
+        context = AgentContext.create(
+            model_spec={},
+            sandbox_mode=SandboxMode.ALLOW_ALL,
+            sandbox_contents=[],
+            user_interface=ui,
+            persona_base_directory=persona_base_dir,
+        )
+
+        from silica.developer.tools.shell import (
+            _run_shell_command_with_interactive_timeout,
+        )
+
+        result = await _run_shell_command_with_interactive_timeout(
+            context, "sleep 10", initial_timeout=1
+        )
+
+        assert "timed out" in result.lower() or "non-interactive" in result.lower()
+        # Verify the process was killed, not left hanging
+        assert "sleep 10" not in result or "STDOUT" in result or "timed out" in result
+
+        # Verify system message was emitted about non-interactive kill
+        system_messages = [msg for msg in ui.messages if msg[0] == "system"]
+        assert any("non-interactive" in msg[1].lower() for msg in system_messages)
