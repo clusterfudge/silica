@@ -10,6 +10,7 @@ import asyncio
 import io
 import re
 import subprocess
+import sys
 import threading
 import time
 from queue import Empty, Queue
@@ -199,6 +200,37 @@ async def _run_shell_command_with_interactive_timeout(
                     if len(current_stderr) > 500
                     else f"Current STDERR:\n{current_stderr}\n"
                 )
+
+            # In non-interactive mode (daemon/coordinator with piped stdin),
+            # skip the interactive prompt and auto-kill immediately.
+            # The interactive prompt consumes stdin data meant for the queue
+            # processor, causing an infinite continue loop.
+            if not sys.stdin.isatty():
+                context.user_interface.handle_system_message(
+                    f"[bold yellow]Auto-killing command after {elapsed:.1f}s "
+                    f"(non-interactive mode)[/bold yellow]",
+                    markdown=False,
+                )
+                try:
+                    process.terminate()
+                    await asyncio.sleep(1)
+                    if process.poll() is None:
+                        process.kill()
+                except Exception:
+                    pass
+
+                _collect_remaining_output(
+                    stdout_queue, stderr_queue, stdout_buffer, stderr_buffer
+                )
+
+                output = f"Command timed out after {elapsed:.1f} seconds (non-interactive mode).\n"
+                stdout_content = stdout_buffer.getvalue()
+                stderr_content = stderr_buffer.getvalue()
+                if stdout_content:
+                    output += f"STDOUT:\n{stdout_content}\n"
+                if stderr_content:
+                    output += f"STDERR:\n{stderr_content}\n"
+                return output
 
             # Display status message - use live if available, otherwise normal system message
             if live:
