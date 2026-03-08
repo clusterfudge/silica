@@ -92,6 +92,6 @@ TOOL_GROUPS = [
     "planning",
 ]
 
-# Coordinator makes high-leverage decisions (task decomposition, delegation strategy,
-# error handling) that cascade to all workers. Use the strongest model.
-MODEL = "opus"
+# Coordinator is the main loop — triaging feeds, routing messages, delegating.
+# Most turns are lightweight. Use Sonnet for speed; workers use Opus for depth.
+MODEL = "sonnet"
