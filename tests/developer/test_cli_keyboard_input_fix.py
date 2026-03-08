@@ -104,6 +104,15 @@ class MockUserInterface(UserInterface):
 class TestCLIKeyboardInputFix:
     """Test suite for CLI keyboard input responsiveness fixes."""
 
+    @pytest.fixture(autouse=True)
+    def _force_interactive(self, monkeypatch):
+        """These tests exercise the interactive timeout prompt path,
+        which requires sys.stdin.isatty() == True.  CI runners don't
+        have a TTY, so we force it."""
+        import sys
+
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+
     def create_test_context(
         self, persona_base_dir, input_responses=None, simulate_delay=False
     ):
