@@ -385,6 +385,7 @@ def _run_coordinator_agent(
     persona: str | None = None,
     heartbeat_prompt: str | None = None,
     heartbeat_interval: int = 300,
+    model_override: str | None = None,
 ):
     """Run the coordinator agent loop.
 
@@ -522,8 +523,9 @@ def _run_coordinator_agent(
     # Create user interface (CLI-only for coordinator)
     user_interface = CLIUserInterface(console, SandboxMode.ALLOW_ALL)
 
-    # Get model spec (coordinator uses specified model, typically sonnet)
-    model_spec = get_model(MODEL)
+    # Get model spec — use CLI override if provided, otherwise persona default
+    effective_model = model_override if model_override else MODEL
+    model_spec = get_model(effective_model)
 
     # Create persona directory for history (use specified persona or coordinator default)
     persona_dir = (
@@ -569,7 +571,7 @@ def _run_coordinator_agent(
         f"Session: {session.session_id}",
         f"Backend: {backend_info}",
         f"Persona: {persona_label}",
-        f"Model: {MODEL}",
+        f"Model: {effective_model}",
         f"Heartbeat: {heartbeat_label}",
         f"Tools: {', '.join(TOOL_GROUPS)}",
     ]
@@ -692,6 +694,13 @@ def coordinator_default(
             help="Seconds of idle before heartbeat fires (default: 300)",
         ),
     ] = 300,
+    model: Annotated[
+        Optional[str],
+        cyclopts.Parameter(
+            name=["--model"],
+            help="Override the coordinator model (e.g., sonnet, opus, haiku)",
+        ),
+    ] = None,
 ):
     """Start or resume a coordination session.
 
@@ -754,6 +763,7 @@ def coordinator_default(
                 persona=persona,
                 heartbeat_prompt=heartbeat_prompt,
                 heartbeat_interval=heartbeat_interval,
+                model_override=model,
             )
             return
 
@@ -785,4 +795,5 @@ def coordinator_default(
         persona=persona,
         heartbeat_prompt=heartbeat_prompt,
         heartbeat_interval=heartbeat_interval,
+        model_override=model,
     )
