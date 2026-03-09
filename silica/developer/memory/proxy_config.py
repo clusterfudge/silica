@@ -2,10 +2,14 @@
 
 This module handles reading and writing the memory proxy configuration file,
 which stores the remote URL, authentication token, and per-persona sync settings.
+
+Environment variables MEMORY_PROXY_URL and MEMORY_PROXY_TOKEN override the
+JSON config when set, automatically enabling sync without manual setup.
 """
 
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -82,40 +86,50 @@ class MemoryProxyConfig:
             raise
 
     @property
+    def _env_url(self) -> str:
+        """Get remote URL from environment variable."""
+        return os.environ.get("MEMORY_PROXY_URL", "").rstrip("/")
+
+    @property
+    def _env_token(self) -> str:
+        """Get auth token from environment variable."""
+        return os.environ.get("MEMORY_PROXY_TOKEN", "")
+
+    @property
+    def _has_env_config(self) -> bool:
+        """Check if both env vars are set."""
+        return bool(self._env_url and self._env_token)
+
+    @property
     def is_configured(self) -> bool:
         """Check if memory proxy is configured.
 
-        Returns:
-            True if remote_url and auth_token are set
+        Returns True if remote_url and auth_token are available from either
+        environment variables or the JSON config file.
         """
+        if self._has_env_config:
+            return True
         return bool(self._config.get("remote_url") and self._config.get("auth_token"))
 
     @property
     def is_globally_enabled(self) -> bool:
         """Check if memory proxy is globally enabled.
 
-        Returns:
-            True if globally enabled
+        Automatically enabled when env vars are set.
         """
+        if self._has_env_config:
+            return True
         return self._config.get("enabled", False)
 
     @property
     def remote_url(self) -> str:
-        """Get the remote URL.
-
-        Returns:
-            Remote URL or empty string if not configured
-        """
-        return self._config.get("remote_url", "")
+        """Get the remote URL. Env var takes precedence."""
+        return self._env_url or self._config.get("remote_url", "")
 
     @property
     def auth_token(self) -> str:
-        """Get the authentication token.
-
-        Returns:
-            Auth token or empty string if not configured
-        """
-        return self._config.get("auth_token", "")
+        """Get the authentication token. Env var takes precedence."""
+        return self._env_token or self._config.get("auth_token", "")
 
     def setup(self, remote_url: str, auth_token: str, enable: bool = True) -> None:
         """Setup memory proxy configuration.

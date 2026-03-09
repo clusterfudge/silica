@@ -769,6 +769,27 @@ def create_remote_workspace(
             )
             console.print("[yellow]Private repository operations may fail[/yellow]")
 
+        # Propagate memory proxy config if available
+        memory_proxy_url = os.environ.get("MEMORY_PROXY_URL", "")
+        memory_proxy_token = os.environ.get("MEMORY_PROXY_TOKEN", "")
+        if not memory_proxy_url:
+            # Fall back to JSON config
+            try:
+                from silica.developer.memory.proxy_config import MemoryProxyConfig
+
+                mp_config = MemoryProxyConfig()
+                if mp_config.is_configured:
+                    memory_proxy_url = mp_config.remote_url
+                    memory_proxy_token = mp_config.auth_token
+            except Exception:
+                pass
+        if memory_proxy_url and memory_proxy_token:
+            env_config["MEMORY_PROXY_URL"] = memory_proxy_url
+            env_config["MEMORY_PROXY_TOKEN"] = memory_proxy_token
+            console.print(
+                "[green]Memory proxy configured for remote environment[/green]"
+            )
+
         # Add workspace configuration environment variables
         env_config["WORKSPACE_NAME"] = workspace_name
         env_config["PROJECT_NAME"] = repo_name  # Project name from git repository
@@ -1108,6 +1129,8 @@ def create_local_workspace(
                 "GITHUB_TOKEN",
                 "ANTHROPIC_API_KEY",
                 "BRAVE_SEARCH_API_KEY",
+                "MEMORY_PROXY_URL",
+                "MEMORY_PROXY_TOKEN",
                 "PATH",
                 "HOME",
                 "USER",

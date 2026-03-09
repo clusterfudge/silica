@@ -321,3 +321,97 @@ def test_corrupted_last_sync_returns_none(config):
 
     last_sync = config.get_last_sync("default")
     assert last_sync is None
+
+
+# --- Environment variable override tests ---
+
+
+class TestEnvVarOverrides:
+    """Tests for MEMORY_PROXY_URL and MEMORY_PROXY_TOKEN env var overrides."""
+
+    def test_env_vars_auto_enable(self, temp_config_dir, monkeypatch):
+        """When both env vars are set, sync is auto-configured and enabled."""
+        monkeypatch.setenv("MEMORY_PROXY_URL", "https://memory.example.com")
+        monkeypatch.setenv("MEMORY_PROXY_TOKEN", "sec_test123")
+
+        config = MemoryProxyConfig(config_path=temp_config_dir / "memory_proxy.json")
+
+        assert config.is_configured
+        assert config.is_globally_enabled
+        assert config.remote_url == "https://memory.example.com"
+        assert config.auth_token == "sec_test123"
+
+    def test_env_vars_override_json_config(self, temp_config_dir, monkeypatch):
+        """Env vars take precedence over JSON config."""
+        config = MemoryProxyConfig(config_path=temp_config_dir / "memory_proxy.json")
+        config.setup(
+            remote_url="https://old.example.com",
+            auth_token="old_token",
+            enable=True,
+        )
+
+        monkeypatch.setenv("MEMORY_PROXY_URL", "https://new.example.com")
+        monkeypatch.setenv("MEMORY_PROXY_TOKEN", "new_token")
+
+        config2 = MemoryProxyConfig(config_path=temp_config_dir / "memory_proxy.json")
+        assert config2.remote_url == "https://new.example.com"
+        assert config2.auth_token == "new_token"
+
+    def test_env_vars_override_disabled_json(self, temp_config_dir, monkeypatch):
+        """Env vars enable sync even if JSON config has enabled=False."""
+        config = MemoryProxyConfig(config_path=temp_config_dir / "memory_proxy.json")
+        config.setup(
+            remote_url="https://old.example.com",
+            auth_token="old_token",
+            enable=False,
+        )
+
+        monkeypatch.setenv("MEMORY_PROXY_URL", "https://new.example.com")
+        monkeypatch.setenv("MEMORY_PROXY_TOKEN", "new_token")
+
+        config2 = MemoryProxyConfig(config_path=temp_config_dir / "memory_proxy.json")
+        assert config2.is_globally_enabled
+
+    def test_partial_env_vars_not_enough(self, temp_config_dir, monkeypatch):
+        """Only URL without token doesn't auto-enable."""
+        monkeypatch.setenv("MEMORY_PROXY_URL", "https://memory.example.com")
+        # No MEMORY_PROXY_TOKEN
+
+        config = MemoryProxyConfig(config_path=temp_config_dir / "memory_proxy.json")
+        assert not config.is_configured
+        assert not config.is_globally_enabled
+
+    def test_no_env_vars_uses_json(self, temp_config_dir, monkeypatch):
+        """Without env vars, JSON config is used as before."""
+        monkeypatch.delenv("MEMORY_PROXY_URL", raising=False)
+        monkeypatch.delenv("MEMORY_PROXY_TOKEN", raising=False)
+
+        config = MemoryProxyConfig(config_path=temp_config_dir / "memory_proxy.json")
+        config.setup(
+            remote_url="https://json.example.com",
+            auth_token="json_token",
+            enable=True,
+        )
+
+        config2 = MemoryProxyConfig(config_path=temp_config_dir / "memory_proxy.json")
+        assert config2.remote_url == "https://json.example.com"
+        assert config2.auth_token == "json_token"
+        assert config2.is_globally_enabled
+
+    def test_env_url_trailing_slash_stripped(self, temp_config_dir, monkeypatch):
+        """Trailing slash on env var URL is stripped."""
+        monkeypatch.setenv("MEMORY_PROXY_URL", "https://memory.example.com/")
+        monkeypatch.setenv("MEMORY_PROXY_TOKEN", "sec_test")
+
+        config = MemoryProxyConfig(config_path=temp_config_dir / "memory_proxy.json")
+        assert config.remote_url == "https://memory.example.com"
+
+    def test_env_vars_enable_persona_sync(self, temp_config_dir, monkeypatch):
+        """Env vars enable sync for any persona by default."""
+        monkeypatch.setenv("MEMORY_PROXY_URL", "https://memory.example.com")
+        monkeypatch.setenv("MEMORY_PROXY_TOKEN", "sec_test")
+
+        config = MemoryProxyConfig(config_path=temp_config_dir / "memory_proxy.json")
+        assert config.is_sync_enabled("autonomous_engineer")
+        assert config.is_sync_enabled("twin")
+        assert config.is_sync_enabled("any_persona")

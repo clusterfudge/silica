@@ -901,6 +901,8 @@ def spawn_agent(
     propagate_vars = [
         "ANTHROPIC_API_KEY",
         "BRAVE_SEARCH_API_KEY",
+        "MEMORY_PROXY_URL",
+        "MEMORY_PROXY_TOKEN",
     ]
 
     env_setup = []
