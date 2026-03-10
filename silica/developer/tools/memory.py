@@ -1,4 +1,6 @@
+import hashlib
 import json
+import logging
 import shutil
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -7,6 +9,106 @@ from silica.developer.context import AgentContext
 from silica.developer.tools import agent
 from silica.developer.tools.framework import tool
 from silica.developer.utils import render_tree
+
+logger = logging.getLogger(__name__)
+
+
+def _try_remote_push(context: "AgentContext", path: str, deleted: bool = False) -> None:
+    """Best-effort push of a single memory entry to the remote proxy.
+
+    Runs synchronously but is designed to be fast (single HTTP call).
+    Failures are logged but never raised — local writes always succeed
+    regardless of remote state.
+
+    Args:
+        context: Agent context (for persona directory)
+        path: Memory path that was written/deleted
+        deleted: If True, delete from remote instead of uploading
+    """
+    try:
+        from silica.developer.memory.proxy_config import MemoryProxyConfig
+
+        config = MemoryProxyConfig()
+        persona_name = context.memory_manager.base_dir.parent.name
+
+        if not config.is_sync_enabled(persona_name):
+            return
+
+        from silica.developer.memory.proxy_client import (
+            MemoryProxyClient,
+            VersionConflictError,
+        )
+
+        client = MemoryProxyClient(
+            base_url=config.remote_url,
+            token=config.auth_token,
+            timeout=10,
+        )
+
+        namespace = f"{persona_name}/memory"
+
+        if deleted:
+            try:
+                client.delete_blob(namespace, f"{path}.md")
+                logger.debug(f"Remote delete: {namespace}/{path}.md")
+            except Exception:
+                pass  # Best effort — file may not exist remotely
+            try:
+                client.delete_blob(namespace, f"{path}.metadata.json")
+                logger.debug(f"Remote delete: {namespace}/{path}.metadata.json")
+            except Exception:
+                pass
+            client.close()
+            return
+
+        # Upload content file
+        content_file = context.memory_manager.base_dir / f"{path}.md"
+        if content_file.exists():
+            content = content_file.read_bytes()
+            md5 = hashlib.md5(content).hexdigest()
+
+            # Try with version 0 (create), on conflict retry with server's version
+            try:
+                client.write_blob(
+                    namespace, f"{path}.md", content, expected_version=0,
+                    content_type="text/markdown", content_md5=md5,
+                )
+            except VersionConflictError as e:
+                if e.current_version is not None:
+                    client.write_blob(
+                        namespace, f"{path}.md", content,
+                        expected_version=e.current_version,
+                        content_type="text/markdown", content_md5=md5,
+                    )
+            logger.debug(f"Remote push: {namespace}/{path}.md")
+
+        # Upload metadata file
+        metadata_file = context.memory_manager.base_dir / path
+        metadata_path = metadata_file.parent / f"{metadata_file.name}.metadata.json"
+        if metadata_path.exists():
+            meta_content = metadata_path.read_bytes()
+            meta_md5 = hashlib.md5(meta_content).hexdigest()
+
+            try:
+                client.write_blob(
+                    namespace, f"{path}.metadata.json", meta_content,
+                    expected_version=0,
+                    content_type="application/json", content_md5=meta_md5,
+                )
+            except VersionConflictError as e:
+                if e.current_version is not None:
+                    client.write_blob(
+                        namespace, f"{path}.metadata.json", meta_content,
+                        expected_version=e.current_version,
+                        content_type="application/json", content_md5=meta_md5,
+                    )
+            logger.debug(f"Remote push: {namespace}/{path}.metadata.json")
+
+        client.close()
+
+    except Exception as e:
+        # Never fail the local operation due to remote sync issues
+        logger.warning(f"Remote memory push failed (best-effort): {e}")
 
 
 # Cache ripgrep availability check for efficiency (checked once per process startup)
@@ -472,6 +574,8 @@ async def write_memory_entry(
 
             # Include placement reasoning and summary in the response
             if result["success"]:
+                _try_remote_push(context, path)
+
                 response = f"Memory entry {placement_info['action']}d successfully at `{path}`\n\n"
 
                 if _should_generate_summary(path) and placement_info.get("summary"):
@@ -503,6 +607,8 @@ async def write_memory_entry(
             result = context.memory_manager.write_entry(path, content, metadata)
 
             if result["success"]:
+                _try_remote_push(context, path)
+
                 if "summary" in metadata:
                     return (
                         f"{result['message']}\n\n"
@@ -517,6 +623,7 @@ async def write_memory_entry(
             # Fall back to writing without summary if summarization fails
             result = context.memory_manager.write_entry(path, content)
             if result["success"]:
+                _try_remote_push(context, path)
                 return f"{result['message']}\n\n**Note:** Could not generate summary: {str(e)}"
             else:
                 return _format_write_result_as_markdown(result)
@@ -654,4 +761,7 @@ def delete_memory_entry(context: "AgentContext", path: str) -> str:
     result = context.memory_manager.delete_entry(path)
     if not result["success"]:
         return f"Error: {result['error']}"
+
+    _try_remote_push(context, path, deleted=True)
+
     return result["message"]
