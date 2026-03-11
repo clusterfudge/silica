@@ -13,6 +13,65 @@ from silica.developer.utils import render_tree
 logger = logging.getLogger(__name__)
 
 
+def _trigger_full_sync(context: "AgentContext", persona_name: str) -> None:
+    """Trigger a full bidirectional sync with LLM conflict resolution.
+
+    Best-effort — failures are logged but never raised.
+
+    Args:
+        context: Agent context
+        persona_name: Persona name for sync config
+    """
+    try:
+        import os
+        from silica.developer.memory.proxy_config import MemoryProxyConfig
+        from silica.developer.memory.proxy_client import MemoryProxyClient
+        from silica.developer.memory.sync import SyncEngine
+        from silica.developer.memory.sync_config import SyncConfig
+        from silica.developer.memory.sync_coordinator import sync_with_retry
+        from silica.developer.memory.conflict_resolver import ConflictResolver
+
+        config = MemoryProxyConfig()
+        client = MemoryProxyClient(
+            base_url=config.remote_url,
+            token=config.auth_token,
+            timeout=30,
+        )
+
+        sync_config = SyncConfig.for_memory(persona_name)
+
+        # Use LLM conflict resolver if API key available
+        conflict_resolver = None
+        anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+        if anthropic_key:
+            from anthropic import Anthropic
+            from silica.developer.memory.llm_conflict_resolver import (
+                LLMConflictResolver,
+            )
+
+            anthropic_client = Anthropic(api_key=anthropic_key)
+            conflict_resolver = LLMConflictResolver(client=anthropic_client)
+        else:
+            conflict_resolver = ConflictResolver()
+
+        engine = SyncEngine(
+            client=client,
+            config=sync_config,
+            conflict_resolver=conflict_resolver,
+        )
+
+        result = sync_with_retry(engine, max_retries=2, show_progress=False)
+        logger.info(
+            f"Full sync completed: {result.uploads} uploads, "
+            f"{result.downloads} downloads, {result.conflicts} conflicts"
+        )
+
+        client.close()
+
+    except Exception as e:
+        logger.warning(f"Full sync failed (best-effort): {e}")
+
+
 def _try_remote_push(context: "AgentContext", path: str, deleted: bool = False) -> None:
     """Best-effort push of a single memory entry to the remote proxy.
 
@@ -67,20 +126,20 @@ def _try_remote_push(context: "AgentContext", path: str, deleted: bool = False) 
             content = content_file.read_bytes()
             md5 = hashlib.md5(content).hexdigest()
 
-            # Try with version 0 (create), on conflict retry with server's version
+            # Try with version 0 (create), on conflict trigger full sync
             try:
                 client.write_blob(
                     namespace, f"{path}.md", content, expected_version=0,
                     content_type="text/markdown", content_md5=md5,
                 )
-            except VersionConflictError as e:
-                if e.current_version is not None:
-                    client.write_blob(
-                        namespace, f"{path}.md", content,
-                        expected_version=e.current_version,
-                        content_type="text/markdown", content_md5=md5,
-                    )
-            logger.debug(f"Remote push: {namespace}/{path}.md")
+                logger.debug(f"Remote push: {namespace}/{path}.md")
+            except VersionConflictError:
+                client.close()
+                logger.info(
+                    f"Version conflict on {path}.md — triggering full sync with merge"
+                )
+                _trigger_full_sync(context, persona_name)
+                return
 
         # Upload metadata file
         metadata_file = context.memory_manager.base_dir / path
@@ -95,14 +154,14 @@ def _try_remote_push(context: "AgentContext", path: str, deleted: bool = False) 
                     expected_version=0,
                     content_type="application/json", content_md5=meta_md5,
                 )
-            except VersionConflictError as e:
-                if e.current_version is not None:
-                    client.write_blob(
-                        namespace, f"{path}.metadata.json", meta_content,
-                        expected_version=e.current_version,
-                        content_type="application/json", content_md5=meta_md5,
-                    )
-            logger.debug(f"Remote push: {namespace}/{path}.metadata.json")
+                logger.debug(f"Remote push: {namespace}/{path}.metadata.json")
+            except VersionConflictError:
+                client.close()
+                logger.info(
+                    f"Version conflict on {path}.metadata.json — triggering full sync"
+                )
+                _trigger_full_sync(context, persona_name)
+                return
 
         client.close()
 
