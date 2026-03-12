@@ -62,8 +62,8 @@ def _trigger_full_sync(context: "AgentContext", persona_name: str) -> None:
 
         result = sync_with_retry(engine, max_retries=2, show_progress=False)
         logger.info(
-            f"Full sync completed: {result.uploads} uploads, "
-            f"{result.downloads} downloads, {result.conflicts} conflicts"
+            f"Full sync completed: {len(result.succeeded)} succeeded, "
+            f"{len(result.failed)} failed, {len(result.conflicts)} conflicts"
         )
 
         client.close()
