@@ -544,6 +544,66 @@ def load_session_data(
     return _load_legacy_session(session_id, history_dir, base_context, history_base_dir)
 
 
+_SUPPORTED_IMAGE_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+
+
+def _sanitize_image_blocks(messages: list[dict]) -> list[dict]:
+    """Replace invalid image blocks with text placeholders.
+
+    The Anthropic API rejects requests containing image blocks with
+    unsupported media types (e.g. SVG labeled as image/png). This
+    scans all messages recursively and replaces bad image blocks
+    so that resumed sessions don't crash.
+    """
+    import base64
+
+    fixed = 0
+
+    def _check_block(block: dict) -> dict:
+        nonlocal fixed
+        if not isinstance(block, dict):
+            return block
+
+        if block.get("type") == "image":
+            source = block.get("source", {})
+            media_type = source.get("media_type", "")
+            data = source.get("data", "")
+
+            # Check if declared media type matches actual content
+            is_valid = media_type in _SUPPORTED_IMAGE_TYPES
+            if is_valid and data:
+                try:
+                    header = base64.b64decode(data[:24])
+                    # SVG masquerading as PNG/etc
+                    if header.startswith(b"<?xml") or header.startswith(b"<svg") or b"<svg" in header[:50]:
+                        is_valid = False
+                except Exception:
+                    pass
+
+            if not is_valid:
+                fixed += 1
+                return {
+                    "type": "text",
+                    "text": f"[Image removed: invalid format ({media_type})]",
+                }
+
+        # Recurse into nested content (tool_result blocks contain content lists)
+        if "content" in block and isinstance(block["content"], list):
+            block["content"] = [_check_block(b) for b in block["content"]]
+
+        return block
+
+    for msg in messages:
+        content = msg.get("content", [])
+        if isinstance(content, list):
+            msg["content"] = [_check_block(b) for b in content]
+
+    if fixed:
+        print(f"Sanitized {fixed} invalid image block(s) from session history")
+
+    return messages
+
+
 def _load_v2_session(
     session_id: str,
     store: SessionStore,
@@ -595,6 +655,9 @@ def _load_v2_session(
             print(
                 f"Cleaned up orphaned tool blocks: {original_count} -> {len(clean_history)} messages"
             )
+
+        # Sanitize invalid image blocks that would crash the API
+        clean_history = _sanitize_image_blocks(clean_history)
 
         model_spec = session_meta.get("model_spec", base_context.model_spec)
         parent_id = session_meta.get("parent_session_id")
