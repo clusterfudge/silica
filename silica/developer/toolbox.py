@@ -506,6 +506,16 @@ class Toolbox:
         if not media_type:
             media_type = self._detect_image_media_type(image_data)
 
+        # Reject image types not supported by the Anthropic API
+        supported_types = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+        if media_type not in supported_types:
+            # Return as text instead of crashing the API call
+            text_content["_image_skipped"] = (
+                f"Image has unsupported media type: {media_type}. "
+                f"Supported types: {', '.join(sorted(supported_types))}"
+            )
+            return json.dumps(text_content, indent=2)
+
         # Build the content blocks
         content_blocks = []
 
@@ -566,6 +576,10 @@ class Toolbox:
             # WebP: 52 49 46 46 ... 57 45 42 50 (RIFF...WEBP)
             if decoded.startswith(b"RIFF") and b"WEBP" in decoded[:12]:
                 return "image/webp"
+
+            # SVG: starts with XML declaration or <svg tag
+            if decoded.startswith(b"<?xml") or decoded.startswith(b"<svg") or b"<svg" in decoded[:100]:
+                return "image/svg+xml"
 
         except Exception:
             pass
