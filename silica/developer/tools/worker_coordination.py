@@ -4,9 +4,14 @@ These tools are available to worker agents spawned by a coordinator.
 Workers use these to receive tasks, report progress, and request permissions.
 """
 
-from typing import Optional
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Optional
 import time
 import uuid
+
+if TYPE_CHECKING:
+    from silica.developer.context import AgentContext
 
 from silica.developer.coordination import (
     CoordinationContext,
@@ -74,7 +79,7 @@ def get_current_task() -> Optional[str]:
 # === Inbox Tools ===
 
 
-def check_inbox() -> str:
+def check_inbox(context: "AgentContext" = None) -> str:
     """Check for new messages from the coordinator.
 
     Returns immediately with any new messages since the last check.
@@ -132,87 +137,95 @@ def check_inbox() -> str:
 
 
 def send_to_coordinator(
-    message_type: str,
+    context: "AgentContext" = None,
+    message_type: str = "",
+    task_id: str = "",
+    status: str = "complete",
+    summary: str = "",
+    data: Optional[dict] = None,
+    error: str = "",
+    progress: Optional[float] = None,
+    message: str = "",
+    question: str = "",
+    options: Optional[list] = None,
     **kwargs,
 ) -> str:
     """Send a message to the coordinator.
 
     Args:
-        message_type: Type of message ("ack", "progress", "result", "question")
-        **kwargs: Message-specific parameters
+        message_type: Type of message - "result", "ack", "progress", or "question"
+        task_id: ID of the task (auto-detected if omitted)
+        status: Result status - "complete", "failed", "blocked", "partial" (for result messages)
+        summary: Brief summary of work done (for result messages)
+        data: Optional dict with structured results (for result messages)
+        error: Error message if status is "failed" (for result messages)
+        progress: Progress value 0.0 to 1.0 (for progress messages)
+        message: Status message (for progress messages)
+        question: The question text (for question messages)
+        options: List of predefined options (for question messages)
 
     Returns:
         Confirmation message
-
-    For ack messages:
-        - task_id: ID of task being acknowledged
-
-    For progress messages:
-        - task_id: ID of task
-        - progress: Optional float 0.0-1.0
-        - message: Status message
-
-    For result messages:
-        - task_id: ID of completed task
-        - status: "complete", "failed", "blocked", "partial"
-        - summary: Brief summary
-        - data: Optional dict with results
-        - error: Optional error message (for failed status)
-
-    For question messages:
-        - task_id: ID of related task
-        - question: The question text
-        - options: Optional list of predefined options
     """
+    # Backward compat: direct calls pass message_type as first positional arg
+    # e.g. send_to_coordinator("result", summary="...") where "result" fills context
+    if isinstance(context, str) and context:
+        message_type = context
+
+    # Handle Claude sending "type" instead of "message_type"
+    if not message_type:
+        message_type = kwargs.get("type", "")
+
     ctx = get_worker_context()
     agent_id = get_worker_agent_id()
 
+    resolved_task_id = task_id or get_current_task() or ""
+
     if message_type == "ack":
-        task_id = kwargs.get("task_id", get_current_task() or "")
-        msg = TaskAck(task_id=task_id, agent_id=agent_id)
-        set_current_task(task_id)
+        msg = TaskAck(task_id=resolved_task_id, agent_id=agent_id)
+        set_current_task(resolved_task_id)
 
     elif message_type == "progress":
         msg = Progress(
-            task_id=kwargs.get("task_id", get_current_task() or ""),
+            task_id=resolved_task_id,
             agent_id=agent_id,
-            progress=kwargs.get("progress"),
-            message=kwargs.get("message", ""),
+            progress=progress,
+            message=message,
         )
 
     elif message_type == "result":
-        task_id = kwargs.get("task_id", get_current_task() or "")
         msg = Result(
-            task_id=task_id,
+            task_id=resolved_task_id,
             agent_id=agent_id,
-            status=kwargs.get("status", "complete"),
-            summary=kwargs.get("summary", ""),
-            data=kwargs.get("data", {}),
-            error=kwargs.get("error"),
+            status=status,
+            summary=summary,
+            data=data or {},
+            error=error or None,
         )
         # Clear current task after sending result
-        if task_id == get_current_task():
+        if resolved_task_id == get_current_task():
             set_current_task(None)
 
     elif message_type == "question":
         question_id = kwargs.get("question_id", f"q-{uuid.uuid4().hex[:8]}")
         msg = Question(
             question_id=question_id,
-            task_id=kwargs.get("task_id", get_current_task() or ""),
+            task_id=resolved_task_id,
             agent_id=agent_id,
-            question=kwargs.get("question", ""),
-            options=kwargs.get("options", []),
+            question=question,
+            options=options or [],
         )
 
     else:
-        return f"❌ Unknown message type: {message_type}"
+        return f"❌ Unknown message type: {message_type!r}. Use 'result', 'ack', 'progress', or 'question'."
 
     ctx.send_to_coordinator(msg)
     return f"✓ Sent {message_type} to coordinator"
 
 
 def broadcast_status(
-    message: str,
+    context: "AgentContext" = None,
+    message: str = "",
     progress: float = None,
 ) -> str:
     """Broadcast a status update to the coordination room.
@@ -238,7 +251,7 @@ def broadcast_status(
     return f"✓ Broadcast: {message}"
 
 
-def mark_idle() -> str:
+def mark_idle(context: "AgentContext" = None) -> str:
     """Signal that this worker is idle and available for tasks.
 
     Call this after completing a task to indicate readiness for more work.
@@ -265,9 +278,10 @@ def mark_idle() -> str:
 
 
 def request_permission(
-    action: str,
-    resource: str,
-    context: str = "",
+    context: "AgentContext" = None,
+    action: str = "",
+    resource: str = "",
+    reason: str = "",
     timeout: int = 300,
 ) -> str:
     """Request permission from the coordinator for a sensitive operation.
@@ -277,7 +291,7 @@ def request_permission(
     Args:
         action: Type of action (e.g., "shell_execute", "write_file")
         resource: The resource being accessed (e.g., command, file path)
-        context: Human-readable explanation of why this is needed
+        reason: Human-readable explanation of why this is needed
         timeout: Max seconds to wait for response (default: 5 min)
 
     Returns:
@@ -295,7 +309,7 @@ def request_permission(
         agent_id=agent_id,
         action=action,
         resource=resource,
-        context=context,
+        context=reason,
     )
 
     ctx.send_to_coordinator(request)
@@ -318,9 +332,10 @@ def request_permission(
 
 
 def request_permission_async(
-    action: str,
-    resource: str,
-    context: str = "",
+    context: "AgentContext" = None,
+    action: str = "",
+    resource: str = "",
+    reason: str = "",
 ) -> str:
     """Request permission without blocking.
 
@@ -330,7 +345,7 @@ def request_permission_async(
     Args:
         action: Type of action
         resource: Resource being accessed
-        context: Explanation
+        reason: Explanation of why this is needed
 
     Returns:
         Request ID to track the permission request
@@ -346,7 +361,7 @@ def request_permission_async(
         agent_id=agent_id,
         action=action,
         resource=resource,
-        context=context,
+        context=reason,
     )
 
     ctx.send_to_coordinator(request)
@@ -357,7 +372,7 @@ def request_permission_async(
 # === Agent-to-Agent Communication Tools ===
 
 
-def list_workers() -> str:
+def list_workers(context: "AgentContext" = None) -> str:
     """List other workers in this coordination session.
 
     Returns information about other workers you can communicate with.
@@ -400,8 +415,9 @@ def list_workers() -> str:
 
 
 def send_to_worker(
-    worker_id: str,
-    message: str,
+    context: "AgentContext" = None,
+    worker_id: str = "",
+    message: str = "",
     message_type: str = "text",
 ) -> str:
     """Send a direct message to another worker.
@@ -467,7 +483,8 @@ def send_to_worker(
 
 
 def create_collaboration_room(
-    name: str,
+    context: "AgentContext" = None,
+    name: str = "",
     invite_workers: list[str] = None,
 ) -> str:
     """Create a room for collaborating with other workers.
@@ -515,8 +532,9 @@ def create_collaboration_room(
 
 
 def invite_to_room(
-    room_id: str,
-    worker_id: str,
+    context: "AgentContext" = None,
+    room_id: str = "",
+    worker_id: str = "",
 ) -> str:
     """Invite another worker to a room you're a member of.
 
@@ -542,8 +560,9 @@ def invite_to_room(
 
 
 def send_to_room(
-    room_id: str,
-    message: str,
+    context: "AgentContext" = None,
+    room_id: str = "",
+    message: str = "",
     message_type: str = "text",
 ) -> str:
     """Send a message to a collaboration room.
@@ -582,7 +601,7 @@ def send_to_room(
         return f"❌ Failed to send: {e}"
 
 
-def list_my_rooms() -> str:
+def list_my_rooms(context: "AgentContext" = None) -> str:
     """List rooms you're a member of.
 
     Returns:
@@ -619,7 +638,8 @@ def list_my_rooms() -> str:
 
 
 def get_room_messages(
-    room_id: str,
+    context: "AgentContext" = None,
+    room_id: str = "",
     limit: int = 20,
 ) -> str:
     """Get recent messages from a room.

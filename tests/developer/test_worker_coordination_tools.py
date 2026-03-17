@@ -267,6 +267,101 @@ class TestSendToCoordinator:
         assert "Unknown message type" in result
 
 
+class TestSendToCoordinatorFrameworkIntegration:
+    """Test send_to_coordinator when called through the tool framework.
+
+    The framework passes AgentContext as the first positional argument
+    to all tool functions. These tests verify the tool handles that
+    correctly.
+    """
+
+    def test_framework_style_call_with_context_object(self, coordination_setup):
+        """Framework injects context object as first arg.
+
+        This is how invoke_tool calls tools:
+            tool_func(context, **converted_args)
+        """
+        set_current_task("task-fw-1")
+
+        class FakeAgentContext:
+            pass
+
+        result = send_to_coordinator(
+            FakeAgentContext(),
+            message_type="result",
+            summary="Framework-style result",
+            task_id="task-fw-1",
+            status="complete",
+        )
+
+        assert "✓" in result
+        assert "result" in result
+
+        session = coordination_setup["session"]
+        messages = session.context.receive_messages(include_room=False)
+        assert len(messages) == 1
+        assert messages[0].message.summary == "Framework-style result"
+        assert messages[0].message.status == "complete"
+
+    def test_framework_style_with_type_kwarg(self, coordination_setup):
+        """Claude sometimes sends 'type' instead of 'message_type'.
+
+        This happens because the worker persona examples use 'type'
+        in their documentation.
+        """
+        set_current_task("task-fw-2")
+
+        class FakeAgentContext:
+            pass
+
+        # Simulate: {"type": "result", "summary": "...", ...}
+        result = send_to_coordinator(
+            FakeAgentContext(),
+            type="result",
+            summary="Morning briefing content",
+            task_id="task-fw-2",
+            status="complete",
+            data={"weather": "sunny"},
+        )
+
+        assert "✓" in result
+
+        session = coordination_setup["session"]
+        messages = session.context.receive_messages(include_room=False)
+        assert len(messages) == 1
+        assert messages[0].message.summary == "Morning briefing content"
+
+    def test_framework_check_inbox_with_context(self, coordination_setup):
+        """check_inbox should work when framework passes context."""
+
+        class FakeAgentContext:
+            pass
+
+        result = check_inbox(FakeAgentContext())
+        assert "No new messages" in result
+
+    def test_framework_mark_idle_with_context(self, coordination_setup):
+        """mark_idle should work when framework passes context."""
+        set_current_task("task-fw-3")
+
+        class FakeAgentContext:
+            pass
+
+        result = mark_idle(FakeAgentContext())
+        assert "✓" in result
+        assert get_current_task() is None
+
+    def test_framework_broadcast_status_with_context(self, coordination_setup):
+        """broadcast_status should work when framework passes context."""
+        set_current_task("task-fw-4")
+
+        class FakeAgentContext:
+            pass
+
+        result = broadcast_status(FakeAgentContext(), message="Working on it")
+        assert "✓" in result
+
+
 class TestBroadcastStatus:
     """Test broadcast_status tool."""
 
@@ -343,7 +438,7 @@ class TestRequestPermission:
         decision = request_permission(
             action="shell_execute",
             resource="ls -la",
-            context="Need to list files",
+            reason="Need to list files",
             timeout=5,
         )
 
@@ -357,7 +452,7 @@ class TestRequestPermission:
         decision = request_permission(
             action="shell_execute",
             resource="rm -rf /",
-            context="Testing timeout",
+            reason="Testing timeout",
             timeout=1,  # Short timeout
         )
 
@@ -368,7 +463,7 @@ class TestRequestPermission:
         result = request_permission_async(
             action="write_file",
             resource="/tmp/test.txt",
-            context="Need to save data",
+            reason="Need to save data",
         )
 
         assert "✓" in result
