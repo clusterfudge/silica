@@ -1479,80 +1479,95 @@ class Toolbox:
         user_interface.handle_system_message(info, markdown=True)
         return ("", False)
 
-    def _model(self, user_interface, sandbox, user_input, *args, **kwargs):
+    async def _model(self, user_interface, sandbox, user_input, *args, **kwargs):
         """Display or change the current AI model"""
-        from .models import model_names, get_model, MODEL_MAP
 
-        # If no argument provided, show current model
+        # If no argument provided, show interactive model selector
         if not user_input.strip():
-            current_model = self.context.model_spec
-            model_name = current_model["title"]
-
-            # Find the short name for this model
-            short_name = None
-            for short, spec in MODEL_MAP.items():
-                if spec["title"] == model_name:
-                    short_name = short
-                    break
-
-            info = f"**Current Model:** {model_name}"
-            if short_name:
-                info += f" ({short_name})"
-
-            info += f"\n\n**Max Tokens:** {current_model['max_tokens']}"
-            info += (
-                f"\n\n**Context Window:** {current_model['context_window']:,} tokens"
-            )
-            info += "\n\n**Pricing:**"
-            info += f"\n\n  - Input: ${current_model['pricing']['input']:.2f}/MTok"
-            info += f"\n\n  - Output: ${current_model['pricing']['output']:.2f}/MTok"
-            user_interface.handle_system_message(info)
-
-            return None
+            return await self._model_interactive_selector(user_interface)
 
         # Parse the model argument
         new_model_name = user_input.strip()
+        return self._model_set(new_model_name)
 
-        # Check if it's a valid model
+    def _model_set(self, new_model_name: str) -> str:
+        """Set the model by name, returning an info string."""
+        from .models import get_model, MODEL_MAP
+
+        new_model_spec = get_model(new_model_name)
+        self.context.model_spec = new_model_spec
+
+        # Find the short name for this model
+        short_name = None
+        for short, spec in MODEL_MAP.items():
+            if spec["title"] == new_model_spec["title"]:
+                short_name = short
+                break
+
+        info = f"**Model changed to:** {new_model_spec['title']}"
+        if short_name:
+            info += f" ({short_name})"
+
+        info += f"\n**Max Tokens:** {new_model_spec['max_tokens']}"
+        info += f"\n**Context Window:** {new_model_spec['context_window']:,} tokens"
+        info += "\n**Pricing:**"
+        info += f"\n  - Input: ${new_model_spec['pricing']['input']:.2f}/MTok"
+        info += f"\n  - Output: ${new_model_spec['pricing']['output']:.2f}/MTok"
+
+        return info
+
+    async def _model_interactive_selector(self, user_interface) -> str | None:
+        """Show an interactive model selector when /model is called with no args."""
+        from .models import MODEL_MAP
+
+        current_model = self.context.model_spec
+        current_title = current_model["title"]
+
+        # Build option list: short names first, then API models not in short names
+        options = []
+        short_name_titles = {spec["title"] for spec in MODEL_MAP.values()}
+
+        # Short name aliases (primary options)
+        for short, spec in MODEL_MAP.items():
+            title = spec["title"]
+            marker = " ✓" if title == current_title else ""
+            options.append(f"{short} ({title}){marker}")
+
+        # Fetch additional models from the Anthropic API
+        api_models = []
         try:
-            new_model_spec = get_model(new_model_name)
+            import anthropic
 
-            # Update the context's model specification
-            self.context.model_spec = new_model_spec
+            client = anthropic.Anthropic()
+            response = client.models.list()
+            for m in response.data:
+                if m.id not in short_name_titles:
+                    marker = " ✓" if m.id == current_title else ""
+                    api_models.append(f"{m.id} — {m.display_name}{marker}")
+        except Exception:
+            pass  # API unavailable — just show short names
 
-            # Find the short name for this model
-            short_name = None
-            for short, spec in MODEL_MAP.items():
-                if spec["title"] == new_model_spec["title"]:
-                    short_name = short
-                    break
+        if api_models:
+            options.append("───── api models ─────")
+            options.extend(api_models)
 
-            info = f"**Model changed to:** {new_model_spec['title']}"
-            if short_name:
-                info += f" ({short_name})"
+        choice = await user_interface.get_user_choice(
+            f"Current model: {current_title}\nSelect a model:",
+            options,
+        )
 
-            info += f"\n**Max Tokens:** {new_model_spec['max_tokens']}"
-            info += f"\n**Context Window:** {new_model_spec['context_window']:,} tokens"
-            info += "\n**Pricing:**"
-            info += f"\n  - Input: ${new_model_spec['pricing']['input']:.2f}/MTok"
-            info += f"\n  - Output: ${new_model_spec['pricing']['output']:.2f}/MTok"
+        if not choice or choice == "cancelled":
+            return None
 
-            return info
+        # Skip separator lines
+        if choice.startswith("─"):
+            return None
 
-        except ValueError as e:
-            available_models = model_names()
-            short_names = [name for name in available_models if name in MODEL_MAP]
-            full_names = [spec["title"] for spec in MODEL_MAP.values()]
+        # Extract model name from the choice string
+        # Format: "short_name (full_title) ✓" or "model-id — Display Name ✓"
+        model_name = choice.split(" (")[0].split(" —")[0].rstrip(" ✓").strip()
 
-            error_msg = f"**Error:** {str(e)}\n\n"
-            error_msg += "**Available short names:**\n"
-            for name in sorted(short_names):
-                error_msg += f"  - {name}\n"
-            error_msg += "\n**Available full model names:**\n"
-            for name in sorted(set(full_names)):
-                error_msg += f"  - {name}\n"
-
-            return error_msg
+        return self._model_set(model_name)
 
     def _compact(self, user_interface, sandbox, user_input, *args, **kwargs):
         """Explicitly trigger full conversation compaction."""
