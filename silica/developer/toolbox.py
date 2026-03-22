@@ -578,7 +578,11 @@ class Toolbox:
                 return "image/webp"
 
             # SVG: starts with XML declaration or <svg tag
-            if decoded.startswith(b"<?xml") or decoded.startswith(b"<svg") or b"<svg" in decoded[:100]:
+            if (
+                decoded.startswith(b"<?xml")
+                or decoded.startswith(b"<svg")
+                or b"<svg" in decoded[:100]
+            ):
                 return "image/svg+xml"
 
         except Exception:

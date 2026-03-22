@@ -575,7 +575,11 @@ def _sanitize_image_blocks(messages: list[dict]) -> list[dict]:
                 try:
                     header = base64.b64decode(data[:24])
                     # SVG masquerading as PNG/etc
-                    if header.startswith(b"<?xml") or header.startswith(b"<svg") or b"<svg" in header[:50]:
+                    if (
+                        header.startswith(b"<?xml")
+                        or header.startswith(b"<svg")
+                        or b"<svg" in header[:50]
+                    ):
                         is_valid = False
                 except Exception:
                     pass

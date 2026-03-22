@@ -129,8 +129,12 @@ def _try_remote_push(context: "AgentContext", path: str, deleted: bool = False) 
             # Try with version 0 (create), on conflict trigger full sync
             try:
                 client.write_blob(
-                    namespace, f"{path}.md", content, expected_version=0,
-                    content_type="text/markdown", content_md5=md5,
+                    namespace,
+                    f"{path}.md",
+                    content,
+                    expected_version=0,
+                    content_type="text/markdown",
+                    content_md5=md5,
                 )
                 logger.debug(f"Remote push: {namespace}/{path}.md")
             except VersionConflictError:
@@ -150,9 +154,12 @@ def _try_remote_push(context: "AgentContext", path: str, deleted: bool = False) 
 
             try:
                 client.write_blob(
-                    namespace, f"{path}.metadata.json", meta_content,
+                    namespace,
+                    f"{path}.metadata.json",
+                    meta_content,
                     expected_version=0,
-                    content_type="application/json", content_md5=meta_md5,
+                    content_type="application/json",
+                    content_md5=meta_md5,
                 )
                 logger.debug(f"Remote push: {namespace}/{path}.metadata.json")
             except VersionConflictError:
