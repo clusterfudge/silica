@@ -1568,7 +1568,10 @@ class Toolbox:
                 marker = " ✓" if m["id"] == current_title else ""
                 options.append(f"{m['id']}{marker}")
 
-        choice = await user_interface.get_user_choice(
+        # Use terminal-only selector — this is a CLI command, don't push
+        # interactive dialogs over the AgentIsland bridge
+        cli = getattr(user_interface, "cli", user_interface)
+        choice = await cli.get_user_choice(
             f"Current model: {current_title}\nSelect a model:",
             options,
         )

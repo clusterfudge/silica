@@ -12,6 +12,10 @@ def mock_context(persona_base_dir):
     """Create a mock agent context for testing"""
     mock_ui = Mock()
     mock_ui.get_user_choice = AsyncMock()
+    # Simulate HybridUserInterface.cli — the model selector uses cli directly
+    # to avoid pushing dialogs over the AgentIsland bridge
+    mock_ui.cli = Mock()
+    mock_ui.cli.get_user_choice = mock_ui.get_user_choice
     Mock()
 
     context = AgentContext.create(
