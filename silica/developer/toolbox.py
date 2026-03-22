@@ -1516,6 +1516,34 @@ class Toolbox:
 
         return info
 
+    async def _fetch_api_models(self) -> list[dict]:
+        """Fetch available models from the Anthropic API (cached per session).
+
+        Returns list of {"id": str, "display_name": str} dicts.
+        Runs in a thread to avoid blocking the event loop.
+        """
+        import asyncio
+
+        if not hasattr(self, "_api_models_cache"):
+            try:
+
+                def _fetch():
+                    import anthropic
+
+                    client = anthropic.Anthropic()
+                    response = client.models.list()
+                    return [
+                        {"id": m.id, "display_name": m.display_name}
+                        for m in response.data
+                        if m.id.startswith("claude-")  # Filter out internal models
+                    ]
+
+                self._api_models_cache = await asyncio.to_thread(_fetch)
+            except Exception:
+                self._api_models_cache = []
+
+        return self._api_models_cache
+
     async def _model_interactive_selector(self, user_interface) -> str | None:
         """Show an interactive model selector when /model is called with no args."""
         from .models import MODEL_MAP
@@ -1533,23 +1561,12 @@ class Toolbox:
             marker = " ✓" if title == current_title else ""
             options.append(f"{short} ({title}){marker}")
 
-        # Fetch additional models from the Anthropic API
-        api_models = []
-        try:
-            import anthropic
-
-            client = anthropic.Anthropic()
-            response = client.models.list()
-            for m in response.data:
-                if m.id not in short_name_titles:
-                    marker = " ✓" if m.id == current_title else ""
-                    api_models.append(f"{m.id} — {m.display_name}{marker}")
-        except Exception:
-            pass  # API unavailable — just show short names
-
-        if api_models:
-            options.append("───── api models ─────")
-            options.extend(api_models)
+        # Fetch additional models from the Anthropic API (cached, non-blocking)
+        api_models = await self._fetch_api_models()
+        for m in api_models:
+            if m["id"] not in short_name_titles:
+                marker = " ✓" if m["id"] == current_title else ""
+                options.append(f"{m['id']}{marker}")
 
         choice = await user_interface.get_user_choice(
             f"Current model: {current_title}\nSelect a model:",
@@ -1559,13 +1576,9 @@ class Toolbox:
         if not choice or choice == "cancelled":
             return None
 
-        # Skip separator lines
-        if choice.startswith("─"):
-            return None
-
         # Extract model name from the choice string
-        # Format: "short_name (full_title) ✓" or "model-id — Display Name ✓"
-        model_name = choice.split(" (")[0].split(" —")[0].rstrip(" ✓").strip()
+        # Format: "short_name (full_title) ✓" or "model-id ✓"
+        model_name = choice.split(" (")[0].rstrip(" ✓").strip()
 
         return self._model_set(model_name)
 

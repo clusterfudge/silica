@@ -123,8 +123,8 @@ async def test_model_command_no_args_includes_api_models(mock_context):
     options = mock_context.user_interface.get_user_choice.call_args[0][1]
     # Should include the API model (not in MODEL_MAP short names)
     assert any("claude-3-5-haiku-20241022" in opt for opt in options)
-    # Should have a separator
-    assert any("api models" in opt for opt in options)
+    # Should NOT have separator lines as selectable options
+    assert not any(opt.startswith("─") for opt in options)
 
 
 @pytest.mark.asyncio
@@ -149,13 +149,76 @@ async def test_model_command_no_args_api_failure_graceful(mock_context):
 
 
 @pytest.mark.asyncio
+async def test_model_command_no_args_filters_non_claude(mock_context):
+    """Test that non-claude models (fennec etc.) are filtered out"""
+    toolbox = Toolbox(mock_context)
+
+    mock_context.user_interface.get_user_choice.return_value = "cancelled"
+
+    mock_claude = Mock()
+    mock_claude.id = "claude-3-5-haiku-20241022"
+    mock_claude.display_name = "Claude Haiku 3.5"
+
+    mock_fennec = Mock()
+    mock_fennec.id = "fennec-v7-prod"
+    mock_fennec.display_name = "fennec-v7-prod"
+
+    mock_response = Mock()
+    mock_response.data = [mock_claude, mock_fennec]
+
+    with patch("anthropic.Anthropic") as mock_anthropic:
+        mock_anthropic.return_value.models.list.return_value = mock_response
+
+        await toolbox._model(
+            user_interface=mock_context.user_interface,
+            sandbox=mock_context.sandbox,
+            user_input="",
+        )
+
+    options = mock_context.user_interface.get_user_choice.call_args[0][1]
+    assert any("claude-3-5-haiku" in opt for opt in options)
+    assert not any("fennec" in opt for opt in options)
+
+
+@pytest.mark.asyncio
+async def test_model_command_no_args_caches_api_call(mock_context):
+    """Test that the API call is cached across invocations"""
+    toolbox = Toolbox(mock_context)
+
+    mock_context.user_interface.get_user_choice.return_value = "cancelled"
+
+    mock_model = Mock()
+    mock_model.id = "claude-3-5-haiku-20241022"
+    mock_model.display_name = "Claude Haiku 3.5"
+
+    mock_response = Mock()
+    mock_response.data = [mock_model]
+
+    with patch("anthropic.Anthropic") as mock_anthropic:
+        mock_anthropic.return_value.models.list.return_value = mock_response
+
+        # Call twice
+        await toolbox._model(
+            user_interface=mock_context.user_interface,
+            sandbox=mock_context.sandbox,
+            user_input="",
+        )
+        await toolbox._model(
+            user_interface=mock_context.user_interface,
+            sandbox=mock_context.sandbox,
+            user_input="",
+        )
+
+        # API should only be called once (cached)
+        assert mock_anthropic.return_value.models.list.call_count == 1
+
+
+@pytest.mark.asyncio
 async def test_model_command_select_api_model(mock_context):
     """Test selecting a model from the API list"""
     toolbox = Toolbox(mock_context)
 
-    mock_context.user_interface.get_user_choice.return_value = (
-        "claude-sonnet-4-6 — Claude Sonnet 4.6"
-    )
+    mock_context.user_interface.get_user_choice.return_value = "claude-sonnet-4-6"
 
     result = await toolbox._model(
         user_interface=mock_context.user_interface,
