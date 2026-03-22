@@ -1484,14 +1484,16 @@ class Toolbox:
 
         # If no argument provided, show interactive model selector
         if not user_input.strip():
-            return await self._model_interactive_selector(user_interface)
+            await self._model_interactive_selector(user_interface)
+            return None
 
         # Parse the model argument
         new_model_name = user_input.strip()
-        return self._model_set(new_model_name)
+        self._model_set(new_model_name, user_interface)
+        return None
 
-    def _model_set(self, new_model_name: str) -> str:
-        """Set the model by name, returning an info string."""
+    def _model_set(self, new_model_name: str, user_interface) -> None:
+        """Set the model by name and display confirmation."""
         from .models import get_model, MODEL_MAP
 
         new_model_spec = get_model(new_model_name)
@@ -1514,7 +1516,7 @@ class Toolbox:
         info += f"\n  - Input: ${new_model_spec['pricing']['input']:.2f}/MTok"
         info += f"\n  - Output: ${new_model_spec['pricing']['output']:.2f}/MTok"
 
-        return info
+        user_interface.handle_system_message(info)
 
     async def _fetch_api_models(self) -> list[dict]:
         """Fetch available models from the Anthropic API (cached per session).
@@ -1550,20 +1552,26 @@ class Toolbox:
         current_model = self.context.model_spec
         current_title = current_model["title"]
 
+        def _is_claude_3(model_id: str) -> bool:
+            """Check if a model ID is from the Claude 3 family."""
+            return model_id.startswith("claude-3-")
+
         # Build option list: short names first, then API models not in short names
         options = []
         short_name_titles = {spec["title"] for spec in MODEL_MAP.values()}
 
-        # Short name aliases (primary options)
+        # Short name aliases (primary options, excluding Claude 3 family)
         for short, spec in MODEL_MAP.items():
             title = spec["title"]
+            if _is_claude_3(title):
+                continue
             marker = " ✓" if title == current_title else ""
             options.append(f"{short} ({title}){marker}")
 
         # Fetch additional models from the Anthropic API (cached, non-blocking)
         api_models = await self._fetch_api_models()
         for m in api_models:
-            if m["id"] not in short_name_titles:
+            if m["id"] not in short_name_titles and not _is_claude_3(m["id"]):
                 marker = " ✓" if m["id"] == current_title else ""
                 display = m["display_name"]
                 options.append(f"{m['id']} — {display}{marker}")
@@ -1577,13 +1585,13 @@ class Toolbox:
         )
 
         if not choice or choice == "cancelled":
-            return None
+            return
 
         # Extract model name from the choice string
         # Format: "short_name (full_title) ✓" or "model-id — Display Name ✓"
         model_name = choice.split(" (")[0].split(" —")[0].rstrip(" ✓").strip()
 
-        return self._model_set(model_name)
+        self._model_set(model_name, user_interface)
 
     def _compact(self, user_interface, sandbox, user_input, *args, **kwargs):
         """Explicitly trigger full conversation compaction."""
