@@ -153,8 +153,8 @@ async def test_model_command_no_args_api_failure_graceful(mock_context):
 
 
 @pytest.mark.asyncio
-async def test_model_command_no_args_filters_non_claude(mock_context):
-    """Test that non-claude models (fennec etc.) are filtered out"""
+async def test_model_command_no_args_includes_all_api_models(mock_context):
+    """Test that all API models are shown, including non-claude ones"""
     toolbox = Toolbox(mock_context)
 
     mock_context.user_interface.get_user_choice.return_value = "cancelled"
@@ -164,8 +164,8 @@ async def test_model_command_no_args_filters_non_claude(mock_context):
     mock_claude.display_name = "Claude Haiku 3.5"
 
     mock_fennec = Mock()
-    mock_fennec.id = "fennec-v7-prod"
-    mock_fennec.display_name = "fennec-v7-prod"
+    mock_fennec.id = "fennec-v7-ext-fast"
+    mock_fennec.display_name = "fennec-v7-ext-fast"
 
     mock_response = Mock()
     mock_response.data = [mock_claude, mock_fennec]
@@ -181,7 +181,7 @@ async def test_model_command_no_args_filters_non_claude(mock_context):
 
     options = mock_context.user_interface.get_user_choice.call_args[0][1]
     assert any("claude-3-5-haiku" in opt for opt in options)
-    assert not any("fennec" in opt for opt in options)
+    assert any("fennec-v7-ext-fast" in opt for opt in options)
 
 
 @pytest.mark.asyncio
@@ -222,7 +222,9 @@ async def test_model_command_select_api_model(mock_context):
     """Test selecting a model from the API list"""
     toolbox = Toolbox(mock_context)
 
-    mock_context.user_interface.get_user_choice.return_value = "claude-sonnet-4-6"
+    mock_context.user_interface.get_user_choice.return_value = (
+        "claude-sonnet-4-6 — Claude Sonnet 4.6"
+    )
 
     result = await toolbox._model(
         user_interface=mock_context.user_interface,

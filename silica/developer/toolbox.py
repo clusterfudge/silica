@@ -1535,7 +1535,6 @@ class Toolbox:
                     return [
                         {"id": m.id, "display_name": m.display_name}
                         for m in response.data
-                        if m.id.startswith("claude-")  # Filter out internal models
                     ]
 
                 self._api_models_cache = await asyncio.to_thread(_fetch)
@@ -1566,7 +1565,8 @@ class Toolbox:
         for m in api_models:
             if m["id"] not in short_name_titles:
                 marker = " ✓" if m["id"] == current_title else ""
-                options.append(f"{m['id']}{marker}")
+                display = m["display_name"]
+                options.append(f"{m['id']} — {display}{marker}")
 
         # Use terminal-only selector — this is a CLI command, don't push
         # interactive dialogs over the AgentIsland bridge
@@ -1580,8 +1580,8 @@ class Toolbox:
             return None
 
         # Extract model name from the choice string
-        # Format: "short_name (full_title) ✓" or "model-id ✓"
-        model_name = choice.split(" (")[0].rstrip(" ✓").strip()
+        # Format: "short_name (full_title) ✓" or "model-id — Display Name ✓"
+        model_name = choice.split(" (")[0].split(" —")[0].rstrip(" ✓").strip()
 
         return self._model_set(model_name)
 
