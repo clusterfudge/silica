@@ -76,21 +76,45 @@ def model_names() -> list[str]:
     return list(_ALL_ALIASES.keys())
 
 
-def get_model(model_name: str) -> ModelSpec:
+def get_model(
+    model_name: str,
+    context_window: int | None = None,
+    max_output_tokens: int | None = None,
+) -> ModelSpec:
+    """Look up a model by name or alias.
+
+    Args:
+        model_name: Short name (e.g. "opus") or full model ID
+        context_window: Override context window from API (max_input_tokens)
+        max_output_tokens: Override max output tokens from API (max_tokens)
+    """
     # Try exact match first
     if model_name in _ALL_ALIASES:
-        return _ALL_ALIASES[model_name]
+        spec = _ALL_ALIASES[model_name]
+        if context_window is not None or max_output_tokens is not None:
+            spec = spec.copy()
+            if context_window is not None:
+                spec["context_window"] = context_window
+            if max_output_tokens is not None:
+                spec["max_output_tokens"] = max_output_tokens
+        return spec
 
     # Try case-insensitive match
     model_name_lower = model_name.lower()
     for alias, spec in _ALL_ALIASES.items():
         if alias.lower() == model_name_lower:
+            if context_window is not None or max_output_tokens is not None:
+                spec = spec.copy()
+                if context_window is not None:
+                    spec["context_window"] = context_window
+                if max_output_tokens is not None:
+                    spec["max_output_tokens"] = max_output_tokens
             return spec
 
     # If model not found, use Opus ModelSpec but with the custom model name
     # This allows using any model that follows the Anthropic API
-    # Use conservative output limit (64k) for unknown models
     opus_spec = MODEL_MAP["opus"].copy()
     opus_spec["title"] = model_name
-    opus_spec["max_output_tokens"] = 64000
+    opus_spec["max_output_tokens"] = max_output_tokens or 64000
+    opus_spec["context_window"] = context_window or 200000
     return opus_spec

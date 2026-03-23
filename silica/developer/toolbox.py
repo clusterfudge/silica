@@ -578,7 +578,11 @@ class Toolbox:
                 return "image/webp"
 
             # SVG: starts with XML declaration or <svg tag
-            if decoded.startswith(b"<?xml") or decoded.startswith(b"<svg") or b"<svg" in decoded[:100]:
+            if (
+                decoded.startswith(b"<?xml")
+                or decoded.startswith(b"<svg")
+                or b"<svg" in decoded[:100]
+            ):
                 return "image/svg+xml"
 
         except Exception:
@@ -1479,80 +1483,214 @@ class Toolbox:
         user_interface.handle_system_message(info, markdown=True)
         return ("", False)
 
-    def _model(self, user_interface, sandbox, user_input, *args, **kwargs):
+    async def _model(self, user_interface, sandbox, user_input, *args, **kwargs):
         """Display or change the current AI model"""
-        from .models import model_names, get_model, MODEL_MAP
 
-        # If no argument provided, show current model
+        # If no argument provided, show interactive model selector
         if not user_input.strip():
-            current_model = self.context.model_spec
-            model_name = current_model["title"]
-
-            # Find the short name for this model
-            short_name = None
-            for short, spec in MODEL_MAP.items():
-                if spec["title"] == model_name:
-                    short_name = short
-                    break
-
-            info = f"**Current Model:** {model_name}"
-            if short_name:
-                info += f" ({short_name})"
-
-            info += f"\n\n**Max Tokens:** {current_model['max_tokens']}"
-            info += (
-                f"\n\n**Context Window:** {current_model['context_window']:,} tokens"
-            )
-            info += "\n\n**Pricing:**"
-            info += f"\n\n  - Input: ${current_model['pricing']['input']:.2f}/MTok"
-            info += f"\n\n  - Output: ${current_model['pricing']['output']:.2f}/MTok"
-            user_interface.handle_system_message(info)
-
+            await self._model_interactive_selector(user_interface)
             return None
 
         # Parse the model argument
         new_model_name = user_input.strip()
+        api_info = await self._lookup_api_model_info(new_model_name)
+        self._model_set(new_model_name, user_interface, api_info=api_info)
+        return None
 
-        # Check if it's a valid model
+    def _model_set(
+        self,
+        new_model_name: str,
+        user_interface,
+        api_info: dict | None = None,
+    ) -> None:
+        """Set the model by name and display confirmation.
+
+        Args:
+            new_model_name: Model name or ID to switch to
+            user_interface: For rendering the confirmation message
+            api_info: Optional dict with max_tokens/max_input_tokens from API
+        """
+        from .models import get_model, MODEL_MAP
+
+        # Use API-provided token limits if available
+        context_window = api_info.get("max_input_tokens") if api_info else None
+        max_output_tokens = api_info.get("max_tokens") if api_info else None
+
+        new_model_spec = get_model(
+            new_model_name,
+            context_window=context_window,
+            max_output_tokens=max_output_tokens,
+        )
+        self.context.model_spec = new_model_spec
+
+        # Find the short name for this model
+        short_name = None
+        for short, spec in MODEL_MAP.items():
+            if spec["title"] == new_model_spec["title"]:
+                short_name = short
+                break
+
+        info = f"**Model changed to:** {new_model_spec['title']}"
+        if short_name:
+            info += f" ({short_name})"
+
+        info += f"\n**Max Tokens:** {new_model_spec['max_tokens']}"
+        info += f"\n**Context Window:** {new_model_spec['context_window']:,} tokens"
+        info += "\n**Pricing:**"
+        info += f"\n  - Input: ${new_model_spec['pricing']['input']:.2f}/MTok"
+        info += f"\n  - Output: ${new_model_spec['pricing']['output']:.2f}/MTok"
+
+        user_interface.handle_system_message(info)
+
+    async def _lookup_api_model_info(self, model_name: str) -> dict | None:
+        """Look up API model info by name, checking cache then API.
+
+        Resolves short names to full model IDs before lookup.
+        """
+        import asyncio
+
+        from .models import MODEL_MAP
+
+        # Resolve short name to full model ID
+        resolved = model_name
+        name_lower = model_name.lower()
+        for short, spec in MODEL_MAP.items():
+            if short.lower() == name_lower or spec["title"].lower() == name_lower:
+                resolved = spec["title"]
+                break
+
+        # Check cached API models first
+        cached = getattr(self, "_api_models_cache", None)
+        if cached:
+            for m in cached:
+                if m["id"] == resolved:
+                    return m
+
+        # Try models.retrieve() as fallback
         try:
-            new_model_spec = get_model(new_model_name)
 
-            # Update the context's model specification
-            self.context.model_spec = new_model_spec
+            def _retrieve():
+                import anthropic
 
-            # Find the short name for this model
-            short_name = None
-            for short, spec in MODEL_MAP.items():
-                if spec["title"] == new_model_spec["title"]:
-                    short_name = short
+                client = anthropic.Anthropic()
+                m = client.models.retrieve(resolved)
+                d = m.model_dump() if hasattr(m, "model_dump") else {}
+                return {
+                    "id": m.id,
+                    "display_name": m.display_name,
+                    "max_tokens": d.get("max_tokens"),
+                    "max_input_tokens": d.get("max_input_tokens"),
+                }
+
+            return await asyncio.to_thread(_retrieve)
+        except Exception:
+            return None
+
+    async def _fetch_api_models(self) -> list[dict]:
+        """Fetch available models from the Anthropic API (cached per session).
+
+        Returns list of dicts with id, display_name, max_tokens, max_input_tokens.
+        Runs in a thread to avoid blocking the event loop.
+        """
+        import asyncio
+
+        if not hasattr(self, "_api_models_cache"):
+            try:
+
+                def _fetch():
+                    import anthropic
+                    import re
+
+                    # Skip models with high-entropy suffixes (e.g. fine-tune snapshots)
+                    _entropy_re = re.compile(r"[A-Za-z0-9]{20,}$")
+
+                    client = anthropic.Anthropic()
+                    results = []
+                    page = client.models.list(limit=100)
+                    while True:
+                        for m in page.data:
+                            if _entropy_re.search(m.id):
+                                continue
+                            d = m.model_dump() if hasattr(m, "model_dump") else {}
+                            results.append(
+                                {
+                                    "id": m.id,
+                                    "display_name": m.display_name,
+                                    "max_tokens": d.get("max_tokens"),
+                                    "max_input_tokens": d.get("max_input_tokens"),
+                                }
+                            )
+                        if not page.has_more:
+                            break
+                        page = page.get_next_page()
+                    return results
+
+                self._api_models_cache = await asyncio.to_thread(_fetch)
+            except Exception:
+                self._api_models_cache = []
+
+        return self._api_models_cache
+
+    async def _model_interactive_selector(self, user_interface) -> str | None:
+        """Show an interactive model selector when /model is called with no args."""
+        from .models import MODEL_MAP
+
+        current_model = self.context.model_spec
+        current_title = current_model["title"]
+
+        def _is_claude_3(model_id: str) -> bool:
+            """Check if a model ID is from the Claude 3 family."""
+            return model_id.startswith("claude-3-")
+
+        # Build option list: short names first, then API models not in short names
+        options = []
+        short_name_titles = {spec["title"] for spec in MODEL_MAP.values()}
+
+        # Short name aliases (primary options, excluding Claude 3 family)
+        for short, spec in MODEL_MAP.items():
+            title = spec["title"]
+            if _is_claude_3(title):
+                continue
+            marker = " ✓" if title == current_title else ""
+            options.append(f"{short} ({title}){marker}")
+
+        # Fetch additional models from the Anthropic API (cached, non-blocking)
+        api_models = await self._fetch_api_models()
+        for m in api_models:
+            if m["id"] not in short_name_titles and not _is_claude_3(m["id"]):
+                marker = " ✓" if m["id"] == current_title else ""
+                display = m["display_name"]
+                options.append(f"{m['id']} — {display}{marker}")
+
+        # Use terminal-only selector — this is a CLI command, don't push
+        # interactive dialogs over the AgentIsland bridge
+        cli = getattr(user_interface, "cli", user_interface)
+        choice = await cli.get_user_choice(
+            f"Current model: {current_title}\nSelect a model:",
+            options,
+        )
+
+        if not choice or choice == "cancelled":
+            return
+
+        # Extract model name from the choice string
+        # Format: "short_name (full_title) ✓" or "model-id — Display Name ✓"
+        model_name = choice.split(" (")[0].split(" —")[0].rstrip(" ✓").strip()
+
+        # Look up API info for this model (token limits)
+        api_info = None
+        for m in api_models:
+            if m["id"] == model_name:
+                api_info = m
+                break
+            # Also check if it's a short name whose title matches
+            if model_name in MODEL_MAP:
+                title = MODEL_MAP[model_name]["title"]
+                if m["id"] == title:
+                    api_info = m
                     break
 
-            info = f"**Model changed to:** {new_model_spec['title']}"
-            if short_name:
-                info += f" ({short_name})"
-
-            info += f"\n**Max Tokens:** {new_model_spec['max_tokens']}"
-            info += f"\n**Context Window:** {new_model_spec['context_window']:,} tokens"
-            info += "\n**Pricing:**"
-            info += f"\n  - Input: ${new_model_spec['pricing']['input']:.2f}/MTok"
-            info += f"\n  - Output: ${new_model_spec['pricing']['output']:.2f}/MTok"
-
-            return info
-
-        except ValueError as e:
-            available_models = model_names()
-            short_names = [name for name in available_models if name in MODEL_MAP]
-            full_names = [spec["title"] for spec in MODEL_MAP.values()]
-
-            error_msg = f"**Error:** {str(e)}\n\n"
-            error_msg += "**Available short names:**\n"
-            for name in sorted(short_names):
-                error_msg += f"  - {name}\n"
-            error_msg += "\n**Available full model names:**\n"
-            for name in sorted(set(full_names)):
-                error_msg += f"  - {name}\n"
-
-            return error_msg
+        self._model_set(model_name, user_interface, api_info=api_info)
 
     def _compact(self, user_interface, sandbox, user_input, *args, **kwargs):
         """Explicitly trigger full conversation compaction."""

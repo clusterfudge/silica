@@ -833,23 +833,53 @@ class CLIUserInterface(UserInterface):
         # Add "Say something else..." as the final option
         all_options = list(options) + ["Say something else..."]
         selected_index = 0
+        scroll_offset = 0
+
+        # Maximum options visible at once (leave room for header and terminal size)
+        import shutil
+
+        term_height = shutil.get_terminal_size(fallback=(80, 24)).lines
+        # Reserve ~6 lines for question, hint, and padding
+        max_visible = max(5, min(len(all_options), term_height - 6))
+
+        def _ensure_visible():
+            """Adjust scroll_offset so selected_index is in view."""
+            nonlocal scroll_offset
+            if selected_index < scroll_offset:
+                scroll_offset = selected_index
+            elif selected_index >= scroll_offset + max_visible:
+                scroll_offset = selected_index - max_visible + 1
 
         def get_formatted_options() -> FormattedText:
             """Generate the formatted text for the option list."""
             result = []
             # Add the question with styling
             result.append(("class:question", f"\n{question}\n\n"))
-            result.append(
-                ("class:hint", "  Use ↑/↓ or j/k to navigate, Enter to select\n\n")
-            )
+            hint_text = "  Use ↑/↓ or j/k to navigate, Enter to select"
+            if len(all_options) > max_visible:
+                hint_text += f"  ({selected_index + 1}/{len(all_options)})"
+            result.append(("class:hint", f"{hint_text}\n\n"))
 
-            for i, option in enumerate(all_options):
+            # Windowed view of options
+            start = scroll_offset
+            end = min(start + max_visible, len(all_options))
+
+            if start > 0:
+                result.append(("class:hint", f"    ↑ {start} more...\n"))
+
+            for i in range(start, end):
+                option = all_options[i]
                 if i == selected_index:
                     # Selected item: highlighted with arrow indicator
                     result.append(("class:selected", f"  ❯ {option}\n"))
                 else:
                     # Unselected item
                     result.append(("class:option", f"    {option}\n"))
+
+            if end < len(all_options):
+                result.append(
+                    ("class:hint", f"    ↓ {len(all_options) - end} more...\n")
+                )
 
             return FormattedText(result)
 
@@ -861,12 +891,40 @@ class CLIUserInterface(UserInterface):
         def move_up(event: KeyPressEvent):
             nonlocal selected_index
             selected_index = (selected_index - 1) % len(all_options)
+            _ensure_visible()
 
         @kb.add("down")
         @kb.add("j")
         def move_down(event: KeyPressEvent):
             nonlocal selected_index
             selected_index = (selected_index + 1) % len(all_options)
+            _ensure_visible()
+
+        @kb.add("pageup")
+        def page_up(event: KeyPressEvent):
+            nonlocal selected_index
+            selected_index = max(0, selected_index - max_visible)
+            _ensure_visible()
+
+        @kb.add("pagedown")
+        def page_down(event: KeyPressEvent):
+            nonlocal selected_index
+            selected_index = min(len(all_options) - 1, selected_index + max_visible)
+            _ensure_visible()
+
+        @kb.add("home")
+        @kb.add("g")
+        def go_home(event: KeyPressEvent):
+            nonlocal selected_index
+            selected_index = 0
+            _ensure_visible()
+
+        @kb.add("end")
+        @kb.add("G")
+        def go_end(event: KeyPressEvent):
+            nonlocal selected_index
+            selected_index = len(all_options) - 1
+            _ensure_visible()
 
         @kb.add("enter")
         def select_option(event: KeyPressEvent):
