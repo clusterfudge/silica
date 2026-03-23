@@ -104,6 +104,28 @@ async def test_model_command_no_args_current_model_marked(mock_context):
     assert "✓" in sonnet_option
 
 
+def _make_api_response(models):
+    """Helper to create a mock paginated API response."""
+    mock_response = Mock()
+    mock_response.data = models
+    mock_response.has_more = False
+    return mock_response
+
+
+def _make_api_model(model_id, display_name, max_tokens=64000, max_input_tokens=200000):
+    """Helper to create a mock API model."""
+    m = Mock()
+    m.id = model_id
+    m.display_name = display_name
+    m.model_dump = Mock(
+        return_value={
+            "max_tokens": max_tokens,
+            "max_input_tokens": max_input_tokens,
+        }
+    )
+    return m
+
+
 @pytest.mark.asyncio
 async def test_model_command_no_args_includes_api_models(mock_context):
     """Test that API models are included when available"""
@@ -111,13 +133,10 @@ async def test_model_command_no_args_includes_api_models(mock_context):
 
     mock_context.user_interface.get_user_choice.return_value = "cancelled"
 
-    # Mock the Anthropic API response — use a non-claude-3 model
-    mock_model = Mock()
-    mock_model.id = "claude-sonnet-4-6"
-    mock_model.display_name = "Claude Sonnet 4.6"
-
-    mock_response = Mock()
-    mock_response.data = [mock_model]
+    mock_model = _make_api_model(
+        "claude-sonnet-4-6", "Claude Sonnet 4.6", 128000, 1000000
+    )
+    mock_response = _make_api_response([mock_model])
 
     with patch("anthropic.Anthropic") as mock_anthropic:
         mock_anthropic.return_value.models.list.return_value = mock_response
@@ -163,12 +182,10 @@ async def test_model_command_no_args_includes_non_claude_models(mock_context):
 
     mock_context.user_interface.get_user_choice.return_value = "cancelled"
 
-    mock_fennec = Mock()
-    mock_fennec.id = "fennec-v7-ext-fast"
-    mock_fennec.display_name = "fennec-v7-ext-fast"
-
-    mock_response = Mock()
-    mock_response.data = [mock_fennec]
+    mock_fennec = _make_api_model(
+        "fennec-v7-ext-fast", "fennec-v7-ext-fast", 128000, 200000
+    )
+    mock_response = _make_api_response([mock_fennec])
 
     with patch("anthropic.Anthropic") as mock_anthropic:
         mock_anthropic.return_value.models.list.return_value = mock_response
@@ -190,20 +207,12 @@ async def test_model_command_no_args_excludes_claude_3(mock_context):
 
     mock_context.user_interface.get_user_choice.return_value = "cancelled"
 
-    mock_claude3 = Mock()
-    mock_claude3.id = "claude-3-haiku-20240307"
-    mock_claude3.display_name = "Claude Haiku 3"
-
-    mock_claude35 = Mock()
-    mock_claude35.id = "claude-3-5-haiku-20241022"
-    mock_claude35.display_name = "Claude Haiku 3.5"
-
-    mock_claude4 = Mock()
-    mock_claude4.id = "claude-sonnet-4-6"
-    mock_claude4.display_name = "Claude Sonnet 4.6"
-
-    mock_response = Mock()
-    mock_response.data = [mock_claude3, mock_claude35, mock_claude4]
+    mock_claude3 = _make_api_model("claude-3-haiku-20240307", "Claude Haiku 3")
+    mock_claude35 = _make_api_model("claude-3-5-haiku-20241022", "Claude Haiku 3.5")
+    mock_claude4 = _make_api_model(
+        "claude-sonnet-4-6", "Claude Sonnet 4.6", 128000, 1000000
+    )
+    mock_response = _make_api_response([mock_claude3, mock_claude35, mock_claude4])
 
     with patch("anthropic.Anthropic") as mock_anthropic:
         mock_anthropic.return_value.models.list.return_value = mock_response
@@ -232,12 +241,10 @@ async def test_model_command_no_args_caches_api_call(mock_context):
 
     mock_context.user_interface.get_user_choice.return_value = "cancelled"
 
-    mock_model = Mock()
-    mock_model.id = "claude-3-5-haiku-20241022"
-    mock_model.display_name = "Claude Haiku 3.5"
-
-    mock_response = Mock()
-    mock_response.data = [mock_model]
+    mock_model = _make_api_model(
+        "claude-sonnet-4-6", "Claude Sonnet 4.6", 128000, 1000000
+    )
+    mock_response = _make_api_response([mock_model])
 
     with patch("anthropic.Anthropic") as mock_anthropic:
         mock_anthropic.return_value.models.list.return_value = mock_response
@@ -277,6 +284,67 @@ async def test_model_command_select_api_model(mock_context):
     msg = mock_context.user_interface.handle_system_message.call_args[0][0]
     assert "Model changed to:" in msg
     assert "claude-sonnet-4-6" in msg
+
+
+@pytest.mark.asyncio
+async def test_model_command_select_uses_api_token_limits(mock_context):
+    """Test that selecting a model from API uses its token limits"""
+    toolbox = Toolbox(mock_context)
+
+    mock_context.user_interface.get_user_choice.return_value = (
+        "fennec-v7-ext-fast — fennec-v7-ext-fast"
+    )
+
+    mock_fennec = _make_api_model(
+        "fennec-v7-ext-fast",
+        "fennec-v7-ext-fast",
+        max_tokens=128000,
+        max_input_tokens=200000,
+    )
+    mock_response = _make_api_response([mock_fennec])
+
+    with patch("anthropic.Anthropic") as mock_anthropic:
+        mock_anthropic.return_value.models.list.return_value = mock_response
+
+        await toolbox._model(
+            user_interface=mock_context.user_interface,
+            sandbox=mock_context.sandbox,
+            user_input="",
+        )
+
+    # Should use API-provided limits, not hardcoded Opus fallback
+    assert mock_context.model_spec["title"] == "fennec-v7-ext-fast"
+    assert mock_context.model_spec["max_output_tokens"] == 128000
+    assert mock_context.model_spec["context_window"] == 200000
+
+
+@pytest.mark.asyncio
+async def test_model_command_direct_uses_api_token_limits(mock_context):
+    """Test that /model <name> fetches token limits from API"""
+    toolbox = Toolbox(mock_context)
+
+    mock_model = Mock()
+    mock_model.id = "fennec-v7-ext-fast"
+    mock_model.display_name = "fennec-v7-ext-fast"
+    mock_model.model_dump = Mock(
+        return_value={
+            "max_tokens": 128000,
+            "max_input_tokens": 200000,
+        }
+    )
+
+    with patch("anthropic.Anthropic") as mock_anthropic:
+        mock_anthropic.return_value.models.retrieve.return_value = mock_model
+
+        await toolbox._model(
+            user_interface=mock_context.user_interface,
+            sandbox=mock_context.sandbox,
+            user_input="fennec-v7-ext-fast",
+        )
+
+    assert mock_context.model_spec["title"] == "fennec-v7-ext-fast"
+    assert mock_context.model_spec["max_output_tokens"] == 128000
+    assert mock_context.model_spec["context_window"] == 200000
 
 
 @pytest.mark.asyncio

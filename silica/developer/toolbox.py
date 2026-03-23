@@ -1493,14 +1493,34 @@ class Toolbox:
 
         # Parse the model argument
         new_model_name = user_input.strip()
-        self._model_set(new_model_name, user_interface)
+        api_info = await self._lookup_api_model_info(new_model_name)
+        self._model_set(new_model_name, user_interface, api_info=api_info)
         return None
 
-    def _model_set(self, new_model_name: str, user_interface) -> None:
-        """Set the model by name and display confirmation."""
+    def _model_set(
+        self,
+        new_model_name: str,
+        user_interface,
+        api_info: dict | None = None,
+    ) -> None:
+        """Set the model by name and display confirmation.
+
+        Args:
+            new_model_name: Model name or ID to switch to
+            user_interface: For rendering the confirmation message
+            api_info: Optional dict with max_tokens/max_input_tokens from API
+        """
         from .models import get_model, MODEL_MAP
 
-        new_model_spec = get_model(new_model_name)
+        # Use API-provided token limits if available
+        context_window = api_info.get("max_input_tokens") if api_info else None
+        max_output_tokens = api_info.get("max_tokens") if api_info else None
+
+        new_model_spec = get_model(
+            new_model_name,
+            context_window=context_window,
+            max_output_tokens=max_output_tokens,
+        )
         self.context.model_spec = new_model_spec
 
         # Find the short name for this model
@@ -1522,10 +1542,54 @@ class Toolbox:
 
         user_interface.handle_system_message(info)
 
+    async def _lookup_api_model_info(self, model_name: str) -> dict | None:
+        """Look up API model info by name, checking cache then API.
+
+        Resolves short names to full model IDs before lookup.
+        """
+        import asyncio
+
+        from .models import MODEL_MAP
+
+        # Resolve short name to full model ID
+        resolved = model_name
+        name_lower = model_name.lower()
+        for short, spec in MODEL_MAP.items():
+            if short.lower() == name_lower or spec["title"].lower() == name_lower:
+                resolved = spec["title"]
+                break
+
+        # Check cached API models first
+        cached = getattr(self, "_api_models_cache", None)
+        if cached:
+            for m in cached:
+                if m["id"] == resolved:
+                    return m
+
+        # Try models.retrieve() as fallback
+        try:
+
+            def _retrieve():
+                import anthropic
+
+                client = anthropic.Anthropic()
+                m = client.models.retrieve(resolved)
+                d = m.model_dump() if hasattr(m, "model_dump") else {}
+                return {
+                    "id": m.id,
+                    "display_name": m.display_name,
+                    "max_tokens": d.get("max_tokens"),
+                    "max_input_tokens": d.get("max_input_tokens"),
+                }
+
+            return await asyncio.to_thread(_retrieve)
+        except Exception:
+            return None
+
     async def _fetch_api_models(self) -> list[dict]:
         """Fetch available models from the Anthropic API (cached per session).
 
-        Returns list of {"id": str, "display_name": str} dicts.
+        Returns list of dicts with id, display_name, max_tokens, max_input_tokens.
         Runs in a thread to avoid blocking the event loop.
         """
         import asyncio
@@ -1537,11 +1601,23 @@ class Toolbox:
                     import anthropic
 
                     client = anthropic.Anthropic()
-                    response = client.models.list()
-                    return [
-                        {"id": m.id, "display_name": m.display_name}
-                        for m in response.data
-                    ]
+                    results = []
+                    page = client.models.list(limit=100)
+                    while True:
+                        for m in page.data:
+                            d = m.model_dump() if hasattr(m, "model_dump") else {}
+                            results.append(
+                                {
+                                    "id": m.id,
+                                    "display_name": m.display_name,
+                                    "max_tokens": d.get("max_tokens"),
+                                    "max_input_tokens": d.get("max_input_tokens"),
+                                }
+                            )
+                        if not page.has_more:
+                            break
+                        page = page.get_next_page()
+                    return results
 
                 self._api_models_cache = await asyncio.to_thread(_fetch)
             except Exception:
@@ -1595,7 +1671,20 @@ class Toolbox:
         # Format: "short_name (full_title) ✓" or "model-id — Display Name ✓"
         model_name = choice.split(" (")[0].split(" —")[0].rstrip(" ✓").strip()
 
-        self._model_set(model_name, user_interface)
+        # Look up API info for this model (token limits)
+        api_info = None
+        for m in api_models:
+            if m["id"] == model_name:
+                api_info = m
+                break
+            # Also check if it's a short name whose title matches
+            if model_name in MODEL_MAP:
+                title = MODEL_MAP[model_name]["title"]
+                if m["id"] == title:
+                    api_info = m
+                    break
+
+        self._model_set(model_name, user_interface, api_info=api_info)
 
     def _compact(self, user_interface, sandbox, user_input, *args, **kwargs):
         """Explicitly trigger full conversation compaction."""
