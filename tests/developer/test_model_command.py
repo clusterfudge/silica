@@ -235,6 +235,36 @@ async def test_model_command_no_args_excludes_claude_3(mock_context):
 
 
 @pytest.mark.asyncio
+async def test_model_command_no_args_excludes_entropy_suffixes(mock_context):
+    """Test that models with high-entropy suffixes (fine-tune snapshots) are excluded"""
+    toolbox = Toolbox(mock_context)
+
+    mock_context.user_interface.get_user_choice.return_value = "cancelled"
+
+    mock_normal = _make_api_model(
+        "fennec-v7-ext-fast", "fennec-v7-ext-fast", 128000, 200000
+    )
+    mock_ft_snap = _make_api_model(
+        "claude-haiku-4-5-20251001-ft_snap_01QS7VSpz8mq2S5g66MdQYGz",
+        "Fine-tuned Haiku",
+    )
+    mock_response = _make_api_response([mock_normal, mock_ft_snap])
+
+    with patch("anthropic.Anthropic") as mock_anthropic:
+        mock_anthropic.return_value.models.list.return_value = mock_response
+
+        await toolbox._model(
+            user_interface=mock_context.user_interface,
+            sandbox=mock_context.sandbox,
+            user_input="",
+        )
+
+    options = mock_context.user_interface.get_user_choice.call_args[0][1]
+    assert any("fennec-v7-ext-fast" in opt for opt in options)
+    assert not any("ft_snap" in opt for opt in options)
+
+
+@pytest.mark.asyncio
 async def test_model_command_no_args_caches_api_call(mock_context):
     """Test that the API call is cached across invocations"""
     toolbox = Toolbox(mock_context)

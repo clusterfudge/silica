@@ -1599,12 +1599,18 @@ class Toolbox:
 
                 def _fetch():
                     import anthropic
+                    import re
+
+                    # Skip models with high-entropy suffixes (e.g. fine-tune snapshots)
+                    _entropy_re = re.compile(r"[A-Za-z0-9]{20,}$")
 
                     client = anthropic.Anthropic()
                     results = []
                     page = client.models.list(limit=100)
                     while True:
                         for m in page.data:
+                            if _entropy_re.search(m.id):
+                                continue
                             d = m.model_dump() if hasattr(m, "model_dump") else {}
                             results.append(
                                 {
