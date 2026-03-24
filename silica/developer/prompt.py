@@ -93,7 +93,11 @@ Use the `sandbox_debug` tool to diagnose sandbox configuration issues if file op
 - For complex planning: Use `enter_plan_mode` and `ask_clarifications` to collect requirements
 """
 
-    base_text = f"You are an AI assistant with access to a sandbox environment. Today's date is {__import__('datetime').datetime.now().strftime('%Y-%m-%d')}.\n\n## Tool Usage Efficiency\n\nWhen multiple tools can be executed independently, you may invoke them in a single response for better performance. Tools automatically manage their own concurrency limits to prevent conflicts and respect API rate limits.\n\nExamples of efficient parallel usage:\n- Checking multiple files: `read_file` for several different files\n- Gathering information: `gmail_search` + `calendar_list_events` + `todo_read`\n- Multiple searches: `web_search` for different topics + `search_memory`\n- Mixed operations: File reads + API calls + memory operations\n- Parallel sub-agents: Multiple `agent` calls for independent research/analysis tasks"
+    import datetime as _dt
+
+    _now = _dt.datetime.now().astimezone()
+    _now_str = _now.strftime("%A, %Y-%m-%d %H:%M %Z")
+    base_text = f"You are an AI assistant with access to a sandbox environment. The current date and time is {_now_str}. This is the authoritative current time — trust it over any dates inferred from conversation history.\n\n## Tool Usage Efficiency\n\nWhen multiple tools can be executed independently, you may invoke them in a single response for better performance. Tools automatically manage their own concurrency limits to prevent conflicts and respect API rate limits.\n\nExamples of efficient parallel usage:\n- Checking multiple files: `read_file` for several different files\n- Gathering information: `gmail_search` + `calendar_list_events` + `todo_read`\n- Multiple searches: `web_search` for different topics + `search_memory`\n- Mixed operations: File reads + API calls + memory operations\n- Parallel sub-agents: Multiple `agent` calls for independent research/analysis tasks"
 
     return {
         "type": "text",
