@@ -359,14 +359,18 @@ def get_session_tool(context: Any, **kwargs) -> str:
     if not session_data:
         return f"Session with ID '{session_id}' not found."
 
+    # Support both v2 (top-level fields) and legacy (nested under "metadata")
     metadata = session_data.get("metadata", {})
+    created_at = session_data.get("created_at") or metadata.get("created_at", "")
+    last_updated = session_data.get("last_updated") or metadata.get("last_updated", "")
+    root_dir = session_data.get("root_dir") or metadata.get("root_dir", "Unknown")
 
     result = f"## Session Details: {session_id}\n\n"
-    result += f"- **Created**: {parse_iso_date(metadata.get('created_at', ''))}\n"
+    result += f"- **Created**: {parse_iso_date(created_at)}\n"
     result += (
-        f"- **Last Updated**: {parse_iso_date(metadata.get('last_updated', ''))}\n"
+        f"- **Last Updated**: {parse_iso_date(last_updated)}\n"
     )
-    result += f"- **Working Directory**: {metadata.get('root_dir', 'Unknown')}\n"
+    result += f"- **Working Directory**: {root_dir}\n"
     result += f"- **Message Count**: {len(session_data.get('messages', []))}\n"
     result += (
         f"- **Model**: {session_data.get('model_spec', {}).get('title', 'Unknown')}\n"
@@ -487,13 +491,22 @@ def resume_session(session_id: str, history_base_dir: Optional[Path] = None) -> 
     # Get basic session data to check metadata and root directory
     session_data = get_session_data(session_id, history_base_dir=history_base_dir)
 
-    if not session_data or "metadata" not in session_data:
+    if not session_data:
         console = Console()
-        console.print(f"Session {session_id} not found or lacks metadata.", style="red")
+        console.print(f"Session {session_id} not found.", style="red")
         return False
 
-    # Get the root directory from metadata
-    root_dir = session_data.get("metadata", {}).get("root_dir")
+    # Support both v2 (top-level fields) and legacy (nested under "metadata")
+    metadata = session_data.get("metadata", {})
+    is_v2 = session_data.get("version", 0) >= 2
+
+    if not is_v2 and "metadata" not in session_data:
+        console = Console()
+        console.print(f"Session {session_id} lacks metadata and cannot be resumed.", style="red")
+        return False
+
+    # Get the root directory from metadata (v2: top-level, legacy: under "metadata")
+    root_dir = session_data.get("root_dir") or metadata.get("root_dir")
     if not root_dir or not os.path.exists(root_dir):
         console = Console()
         console.print(
@@ -502,9 +515,8 @@ def resume_session(session_id: str, history_base_dir: Optional[Path] = None) -> 
         )
         return False
 
-    # Get the stored CLI arguments
-    metadata = session_data.get("metadata", {})
-    stored_cli_args = metadata.get("cli_args")
+    # Get the stored CLI arguments (v2: top-level, legacy: under "metadata")
+    stored_cli_args = session_data.get("cli_args") or metadata.get("cli_args")
 
     # Get the model name (fallback for compatibility)
     model = session_data.get("model_spec", {}).get("title", "sonnet-3.7")
