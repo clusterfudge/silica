@@ -789,16 +789,20 @@ class TestV2MetadataCompat:
         session_dir.mkdir(parents=True)
 
         store = SessionStore(session_dir, agent_name="root")
-        store.write_session_meta({
-            "session_id": "abc12345-0000-0000-0000-000000000000",
-            "model_spec": {"title": "test-model"},
-            "root_dir": "/tmp/test-workspace",
-            "cli_args": ["silica"],
-        })
-        store.write_context([
-            {"role": "user", "content": "hello"},
-            {"role": "assistant", "content": "hi"},
-        ])
+        store.write_session_meta(
+            {
+                "session_id": "abc12345-0000-0000-0000-000000000000",
+                "model_spec": {"title": "test-model"},
+                "root_dir": "/tmp/test-workspace",
+                "cli_args": ["silica"],
+            }
+        )
+        store.write_context(
+            [
+                {"role": "user", "content": "hello"},
+                {"role": "assistant", "content": "hi"},
+            ]
+        )
 
         class FakeCtx:
             history_base_dir = tmp_path

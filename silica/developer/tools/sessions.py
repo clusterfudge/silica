@@ -367,9 +367,7 @@ def get_session_tool(context: Any, **kwargs) -> str:
 
     result = f"## Session Details: {session_id}\n\n"
     result += f"- **Created**: {parse_iso_date(created_at)}\n"
-    result += (
-        f"- **Last Updated**: {parse_iso_date(last_updated)}\n"
-    )
+    result += f"- **Last Updated**: {parse_iso_date(last_updated)}\n"
     result += f"- **Working Directory**: {root_dir}\n"
     result += f"- **Message Count**: {len(session_data.get('messages', []))}\n"
     result += (
@@ -502,7 +500,9 @@ def resume_session(session_id: str, history_base_dir: Optional[Path] = None) -> 
 
     if not is_v2 and "metadata" not in session_data:
         console = Console()
-        console.print(f"Session {session_id} lacks metadata and cannot be resumed.", style="red")
+        console.print(
+            f"Session {session_id} lacks metadata and cannot be resumed.", style="red"
+        )
         return False
 
     # Get the root directory from metadata (v2: top-level, legacy: under "metadata")
