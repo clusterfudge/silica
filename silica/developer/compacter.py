@@ -610,6 +610,7 @@ Output a brief guidance document (under 500 words) that a summarizer can use to 
 
         # Create messages: existing conversation + our guidance request
         messages_for_guidance = list(context_dict["messages"])
+        messages_for_guidance = self._strip_all_thinking_blocks(messages_for_guidance)
         messages_for_guidance.append({"role": "user", "content": guidance_request})
 
         # Log the request if logger is available
@@ -891,6 +892,11 @@ Focus on preserving what the guidance identifies as important. Be comprehensive 
         # before sending to the API.  The in-memory chat_history carries these
         # for provenance tracking, but the API rejects unknown fields.
         clean_messages = self._strip_internal_message_keys(messages_to_summarize)
+
+        # Strip thinking blocks — the summary model may differ from the one
+        # that produced the conversation, and protected-thinking blocks from
+        # one model cannot be sent to another.
+        clean_messages = self._strip_all_thinking_blocks(clean_messages)
 
         # Prepare messages with summary request appended appropriately
         messages_for_summary = self._prepare_messages_for_summary(
