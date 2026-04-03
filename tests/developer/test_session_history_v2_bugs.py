@@ -765,3 +765,79 @@ class TestCorruptionLogging:
             f"No warning logged for corrupt JSONL line. "
             f"Log records: {[r.message for r in caplog.records]}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Bug: get_session_tool and resume_session don't read v2 top-level metadata
+# ---------------------------------------------------------------------------
+
+
+class TestV2MetadataCompat:
+    """Verify that session tooling correctly reads v2 top-level metadata fields.
+
+    In v2 format, created_at/last_updated/root_dir/cli_args are stored at
+    the top level of session.json, not nested under a 'metadata' key.
+    get_session_tool and resume_session must handle both layouts.
+    """
+
+    def test_get_session_tool_shows_v2_metadata(self, tmp_path):
+        """get_session_tool should display dates and root_dir for v2 sessions."""
+        from silica.developer.tools.sessions import get_session_tool
+
+        # Create a minimal v2 session
+        session_dir = tmp_path / "history" / "abc12345-0000-0000-0000-000000000000"
+        session_dir.mkdir(parents=True)
+
+        store = SessionStore(session_dir, agent_name="root")
+        store.write_session_meta(
+            {
+                "session_id": "abc12345-0000-0000-0000-000000000000",
+                "model_spec": {"title": "test-model"},
+                "root_dir": "/tmp/test-workspace",
+                "cli_args": ["silica"],
+            }
+        )
+        store.write_context(
+            [
+                {"role": "user", "content": "hello"},
+                {"role": "assistant", "content": "hi"},
+            ]
+        )
+
+        class FakeCtx:
+            history_base_dir = tmp_path
+
+        result = get_session_tool(FakeCtx(), session_id="abc12345")
+        assert "/tmp/test-workspace" in result
+        assert "Unknown" not in result.split("Working Directory")[1].split("\n")[0]
+        assert "Unknown" not in result.split("Created")[1].split("\n")[0]
+
+    def test_get_session_tool_shows_legacy_metadata(self, tmp_path):
+        """get_session_tool should still work for legacy sessions with nested metadata."""
+        from silica.developer.tools.sessions import get_session_tool
+
+        session_dir = tmp_path / "history" / "leg12345-0000-0000-0000-000000000000"
+        session_dir.mkdir(parents=True)
+
+        # Write a legacy root.json
+        legacy_data = {
+            "session_id": "leg12345-0000-0000-0000-000000000000",
+            "model_spec": {"title": "legacy-model"},
+            "metadata": {
+                "created_at": "2026-01-01T00:00:00+00:00",
+                "last_updated": "2026-01-02T00:00:00+00:00",
+                "root_dir": "/tmp/legacy-workspace",
+            },
+            "messages": [
+                {"role": "user", "content": "hello"},
+                {"role": "assistant", "content": "hi"},
+            ],
+        }
+        (session_dir / "root.json").write_text(json.dumps(legacy_data))
+
+        class FakeCtx:
+            history_base_dir = tmp_path
+
+        result = get_session_tool(FakeCtx(), session_id="leg12345")
+        assert "/tmp/legacy-workspace" in result
+        assert "2026-01-01" in result
