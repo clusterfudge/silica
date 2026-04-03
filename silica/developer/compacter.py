@@ -1535,10 +1535,10 @@ Focus on preserving what the guidance identifies as important. Be comprehensive 
                         print("[Compaction] Not needed yet")
                         return agent_context, False
 
-            # Use smart compaction: auto-calculate turns for 30% reduction
-            # Uses haiku model for cost-effectiveness
+            # Use the session's own model for compaction so that any thinking
+            # blocks in the conversation are compatible with the compaction model.
             metadata = self.compact_conversation(
-                agent_context, "haiku", turns=None, force=force
+                agent_context, model, turns=None, force=force
             )
 
             if metadata:
