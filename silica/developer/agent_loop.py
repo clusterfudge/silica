@@ -1406,7 +1406,11 @@ async def run(
                         thinking_content, thinking_tokens, thinking_cost, collapsed=True
                     )
 
-            user_interface.handle_assistant_message(ai_response)
+            # Skip the empty AI panel when the model returned only tool_use blocks
+            if ai_response.strip() or (
+                final_message and final_message.stop_reason != "tool_use"
+            ):
+                user_interface.handle_assistant_message(ai_response)
 
             # Check for compaction after every API response, not just tool-result cycles.
             # This is critical for heartbeat/non-tool-use patterns where the else branch
@@ -1470,12 +1474,10 @@ async def run(
                 tool_uses = [
                     part for part in final_message.content if part.type == "tool_use"
                 ]
-                if len(tool_uses) > 1:
-                    agent_context.user_interface.handle_system_message(
-                        f"Found {len(tool_uses)} tools"
-                    )
 
                 # Process all tool uses, potentially in parallel
+                # handle_tool_use (inside invoke_agent_tools) prints what's running;
+                # no Live spinner here because sub-agents would nest Live displays.
                 try:
                     results = await toolbox.invoke_agent_tools(tool_uses)
 

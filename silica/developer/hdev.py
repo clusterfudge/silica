@@ -533,7 +533,30 @@ class CLIUserInterface(UserInterface):
         tool_params: Dict[str, Any],
         tool_use_id: Optional[str] = None,
     ):
-        pass
+        """Display a compact one-liner showing the tool about to execute."""
+        from rich.text import Text
+
+        # Build a compact param summary
+        param_parts = []
+        for key, value in (tool_params or {}).items():
+            val_str = str(value)
+            # Truncate long values
+            if len(val_str) > 80:
+                val_str = val_str[:77] + "..."
+            # Replace newlines for single-line display
+            val_str = val_str.replace("\n", "↵")
+            param_parts.append(f"{key}={val_str}")
+
+        params_str = ", ".join(param_parts)
+        if len(params_str) > 200:
+            params_str = params_str[:197] + "..."
+
+        display = Text.assemble(
+            ("⚙ ", "cyan"),
+            (tool_name, "bold cyan"),
+            (f"({params_str})", "dim"),
+        )
+        self.console.print(display)
 
     def handle_tool_result(
         self,
