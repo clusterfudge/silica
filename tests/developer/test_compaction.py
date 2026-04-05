@@ -128,6 +128,63 @@ class TestConversationCompaction(unittest.TestCase):
         # Should compact should return True because 60000 > 50000 (50% of 100000)
         self.assertTrue(compacter.should_compact(context, "claude-3-5-sonnet-latest"))
 
+    def test_get_context_window_passthrough_model(self):
+        """Regression test: unknown/pass-through model names must not fall back
+        to a 100k context window. They should resolve via get_model() to 200k.
+
+        This was the root cause of compaction thrashing: pass-through models
+        (e.g. internal preview builds) weren't in model_context_windows, so
+        the lookup defaulted to 100k, halving the effective context window
+        and triggering compaction at ~85k instead of ~170k.
+        """
+        compacter = ConversationCompacter(client=mock.MagicMock())
+
+        # Known model by title
+        self.assertEqual(compacter.get_context_window("claude-opus-4-6"), 200000)
+        # Known model by alias
+        self.assertEqual(compacter.get_context_window("sonnet"), 200000)
+        # Unknown / pass-through model name -> must be 200k, NOT 100k
+        self.assertEqual(
+            compacter.get_context_window("some-unknown-model-name"), 200000
+        )
+        # Test override dict still works (tests rely on this)
+        compacter.model_context_windows = {"tiny-model": 50000}
+        self.assertEqual(compacter.get_context_window("tiny-model"), 50000)
+        # And non-overridden models still resolve correctly after override
+        self.assertEqual(compacter.get_context_window("claude-opus-4-6"), 200000)
+
+    def test_should_compact_passthrough_model_uses_200k(self):
+        """Regression test: should_compact with a pass-through model name
+        must use the 200k window, so 120k tokens at 85% threshold (=170k)
+        should NOT trigger compaction.
+        """
+        compacter = ConversationCompacter(threshold_ratio=0.85, client=mock.MagicMock())
+
+        ui = MockUserInterface()
+        sandbox = Sandbox(self.test_dir, mode=SandboxMode.ALLOW_ALL)
+        memory_manager = MemoryManager()
+        context = AgentContext(
+            parent_session_id=None,
+            session_id="test-session",
+            model_spec=self.model_spec,
+            sandbox=sandbox,
+            user_interface=ui,
+            usage=[],
+            memory_manager=memory_manager,
+        )
+        context._chat_history = self.sample_messages
+
+        # 120k tokens: below 170k (85% of 200k) but above 85k (85% of 100k).
+        # Pre-fix, this would erroneously trigger compaction.
+        compacter.count_tokens = mock.MagicMock(return_value=120000)
+        self.assertFalse(
+            compacter.should_compact(context, "some-passthrough-model-v99")
+        )
+
+        # 180k tokens: above 170k -> should compact
+        compacter.count_tokens = mock.MagicMock(return_value=180000)
+        self.assertTrue(compacter.should_compact(context, "some-passthrough-model-v99"))
+
     @mock.patch("anthropic.Client")
     def test_context_flush_with_compaction(self, mock_client_class):
         """Test context flush with compaction."""

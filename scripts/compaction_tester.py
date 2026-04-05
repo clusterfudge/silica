@@ -235,7 +235,7 @@ class CompactionTester:
 
         # Count tokens
         token_count = self.compacter.count_tokens(context, model)
-        context_window = self.compacter.model_context_windows.get(model, 200000)
+        context_window = self.compacter.get_context_window(model)
         threshold = int(context_window * self.compacter.threshold_ratio)
 
         print("\nToken Analysis:")

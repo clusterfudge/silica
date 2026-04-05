@@ -257,9 +257,7 @@ class TestTokenCountingIncompleteToolUse(unittest.TestCase):
                 pass
             else:
                 # Get context window size for this model
-                context_window_for_display = compacter.model_context_windows.get(
-                    model_name, 100000
-                )
+                context_window_for_display = compacter.get_context_window(model_name)
 
                 # Count tokens for complete conversation
                 conversation_size_for_display = compacter.count_tokens(
