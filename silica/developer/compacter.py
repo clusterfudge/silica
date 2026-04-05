@@ -45,6 +45,11 @@ class CompactionMetadata:
     original_token_count: int
     summary_token_count: int
     compaction_ratio: float
+    # Real API-counted context size before/after compaction (includes
+    # system prompt + tools). Optional because legacy code paths may not
+    # populate them.
+    total_tokens_before: int | None = None
+    total_tokens_after: int | None = None
 
 
 class ConversationCompacter:
@@ -106,11 +111,35 @@ class ConversationCompacter:
         self.logger = logger
         self.client = client
 
-        # Get model context window information
+        # Override dict for model context windows (primarily for testing).
+        # Runtime lookups should go through get_context_window() which falls
+        # back to get_model() for models not in this dict (e.g. pass-through
+        # model names like internal/preview models that aren't in MODEL_MAP).
         self.model_context_windows = {
-            model_data["title"]: model_data.get("context_window", 100000)
+            model_data["title"]: model_data.get("context_window", 200000)
             for model_data in [get_model(ms) for ms in model_names()]
         }
+
+    def get_context_window(self, model: str) -> int:
+        """Get the context window size for a model.
+
+        Checks the model_context_windows override dict first (so tests can
+        inject known values), then falls back to get_model() which correctly
+        handles pass-through/unknown model names by returning a sensible
+        default (200k) rather than the previous hardcoded 100k.
+
+        Args:
+            model: Model name, alias, or full model ID
+
+        Returns:
+            Context window size in tokens
+        """
+        # Resolve alias -> title so override-dict keys match
+        model_spec = get_model(model)
+        title = model_spec["title"]
+        if title in self.model_context_windows:
+            return self.model_context_windows[title]
+        return model_spec.get("context_window", 200000)
 
     def count_tokens(self, agent_context, model: str, messages: list = None) -> int:
         """Count tokens for the complete context sent to the API.
@@ -543,8 +572,8 @@ class ConversationCompacter:
         # Use accurate token counting method
         token_count = self.count_tokens(agent_context, model)
 
-        # Get context window size for this model, default to 100k if not found
-        context_window = self.model_context_windows.get(model, 100000)
+        # Get context window size for this model (handles pass-through models)
+        context_window = self.get_context_window(model)
 
         # Calculate threshold based on context window and threshold ratio
         token_threshold = int(context_window * self.threshold_ratio)
@@ -1116,6 +1145,10 @@ Focus on preserving what the guidance identifies as important. Be comprehensive 
         # Calculate tokens to remove for target reduction
         # We want: (total - removed_tokens) / total <= (1 - target_reduction_ratio)
         # So: removed_tokens >= total * target_reduction_ratio
+        # Note: if this exceeds message_tokens (irreducible base dominates),
+        # the loop below falls through and we compact as much as possible,
+        # which is the best we can do. That pathological case is avoided in
+        # practice by the 200k context window (see get_context_window()).
         tokens_to_remove = int(total_tokens * target_reduction_ratio)
 
         if debug:
@@ -1204,6 +1237,13 @@ Focus on preserving what the guidance identifies as important. Be comprehensive 
         # Check if compaction should proceed
         if not force and not self.should_compact(agent_context, model):
             return None
+
+        # Capture real token count before compaction for accurate reporting.
+        # Fall back to None on error so compaction itself isn't blocked.
+        try:
+            tokens_before = self.count_tokens(agent_context, model)
+        except Exception:
+            tokens_before = None
 
         # Check if debug mode is enabled
         debug_compaction = os.getenv("SILICA_DEBUG_COMPACTION", "").lower() in (
@@ -1316,6 +1356,14 @@ Focus on preserving what the guidance identifies as important. Be comprehensive 
 
         # Update metadata with the actual archive name
         metadata.archive_name = archive_name
+
+        # Capture real token count after compaction (context has been rotated
+        # in place by _archive_and_rotate). Best-effort.
+        try:
+            metadata.total_tokens_after = self.count_tokens(agent_context, model)
+        except Exception:
+            metadata.total_tokens_after = None
+        metadata.total_tokens_before = tokens_before
 
         return metadata
 
@@ -1535,6 +1583,8 @@ Focus on preserving what the guidance identifies as important. Be comprehensive 
                         print("[Compaction] Not needed yet")
                         return agent_context, False
 
+            # Note: compact_conversation() has its own should_compact() gate
+            # internally, so the debug-only check above is purely for logging.
             # Use the session's own model for compaction so that any thinking
             # blocks in the conversation are compatible with the compaction model.
             metadata = self.compact_conversation(
@@ -1558,15 +1608,26 @@ Focus on preserving what the guidance identifies as important. Be comprehensive 
                         return f"{tokens / 1000:.0f}K"
                     return str(tokens)
 
-                orig_tokens = format_tokens(metadata.original_token_count)
-                summary_tokens = format_tokens(metadata.summary_token_count)
+                # Prefer real API-counted context size before/after. Fall back
+                # to the legacy prefix-estimate if real counts are unavailable.
+                if (
+                    metadata.total_tokens_before is not None
+                    and metadata.total_tokens_after is not None
+                ):
+                    before_tokens = format_tokens(metadata.total_tokens_before)
+                    after_tokens = format_tokens(metadata.total_tokens_after)
+                    token_part = f"ctx {before_tokens} → {after_tokens} tokens"
+                else:
+                    before_tokens = format_tokens(metadata.original_token_count)
+                    after_tokens = format_tokens(metadata.summary_token_count)
+                    token_part = f"{before_tokens} → {after_tokens} tokens"
 
                 # Notify user about the compaction with compact summary
                 user_interface.handle_system_message(
                     f"[bold green]✓ Compacted: "
                     f"{metadata.original_message_count} msgs → {metadata.compacted_message_count} msgs "
                     f"({msg_reduction_pct:.0f}% reduction) | "
-                    f"{orig_tokens} → {summary_tokens} tokens | "
+                    f"{token_part} | "
                     f"archived to {metadata.archive_name}[/bold green]",
                     markdown=False,
                 )

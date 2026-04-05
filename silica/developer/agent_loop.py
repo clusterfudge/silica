@@ -938,10 +938,9 @@ async def run(
                                     pass
                                 else:
                                     # Get context window size for this model
+                                    # (handles pass-through/unknown model names)
                                     context_window_for_display = (
-                                        compacter.model_context_windows.get(
-                                            model_name, 100000
-                                        )
+                                        compacter.get_context_window(model_name)
                                     )
 
                                     # Count tokens for complete conversation
